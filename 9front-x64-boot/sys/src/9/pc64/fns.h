@@ -1,3 +1,4 @@
+#include <bootinfo.h>
 #include "../port/portfns.h"
 
 Dirtab*	addarchfile(char*, int, long(*)(Chan*,void*,long,vlong), long(*)(Chan*,void*,long,vlong));
@@ -166,6 +167,10 @@ void	vectortable(void);
 void	vmxprocrestore(Proc *);
 void	vmxshutdown(void);
 void*	vmap(uvlong, vlong);
+
+/* pc/bootinfo.c: what the UEFI loader told us, see sys/include/bootinfo.h */
+extern BootInfo*	bootinfo;
+void	bootinfoinit(void);
 
 /* pc/bootfb.c: boot progress markers on the UEFI framebuffer */
 enum { BMMain, BMMem, BMDevs, BMUser, BMExec, BMPanic };

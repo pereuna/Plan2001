@@ -12,13 +12,10 @@
  * panics.  Unreached stages show as dark squares, so the first dark square
  * is the stage the kernel never got past.
  *
- * The loader passes the framebuffer in *bootscreen (see efi.c screenconf):
- *
- *	*bootscreen=PIXELSPERSCANLINExHEIGHTxDEPTH CHAN PA
- *
- * The first number is the row pitch in pixels, not the visible width.
- * Only 32 bits per pixel (x8r8g8b8 or x8b8g8r8) are handled; anything else
- * leaves the markers off.  Marks made before the framebuffer is mapped
+ * The loader passes the framebuffer in the BootInfo (fbbase, fbstride, ...;
+ * see sys/include/bootinfo.h).  fbstride is the row pitch in pixels, not the
+ * visible width.  Only 32 bits per pixel (x8r8g8b8 or x8b8g8r8) are handled;
+ * anything else leaves the markers off.  Marks made before the framebuffer is mapped
  * (bootfbinit needs the memory allocator) are remembered and drawn then.
  */
 
@@ -72,37 +69,29 @@ draw(int n)
 void
 bootfbinit(void)
 {
-	char *s;
-	ulong w, h, sz;
-	uvlong pa;
+	BootInfo *b;
+	ulong sz;
 	void *v;
 	int i;
 
-	if(fb != nil || (s = getconf("*bootscreen")) == nil)
+	if(fb != nil || (b = bootinfo) == nil || b->fbbase == 0)
 		return;
-	w = strtoul(s, &s, 0);
-	if(w == 0 || *s++ != 'x')
+	if(b->fbdepth != 32 || b->fbstride == 0 || b->fbheight == 0)
 		return;
-	h = strtoul(s, &s, 0);
-	if(h == 0 || *s++ != 'x')
-		return;
-	if(strtoul(s, &s, 0) != 32 || *s++ != ' ')
-		return;
-	if(strncmp(s, "x8r8g8b8 ", 9) == 0)
+	if(strcmp(b->fbchan, "x8r8g8b8") == 0)
 		bgr = 0;
-	else if(strncmp(s, "x8b8g8r8 ", 9) == 0)
+	else if(strcmp(b->fbchan, "x8b8g8r8") == 0)
 		bgr = 1;
 	else
 		return;
-	pa = strtoull(s+9, nil, 0);
-	if(pa == 0)
-		return;
-	sz = w*h*4;
-	if((v = vmap(pa, sz)) == nil)
+	sz = b->fbsize;
+	if(sz == 0)
+		sz = b->fbstride * b->fbheight * 4;
+	if((v = vmap(b->fbbase, sz)) == nil)
 		return;
 	patwc(v, sz);
-	stride = w;
-	height = h;
+	stride = b->fbstride;
+	height = b->fbheight;
 	fb = v;
 
 	/* there is a display: let panic hang with the marks visible, not reboot */

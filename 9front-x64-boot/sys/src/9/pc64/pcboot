@@ -25,6 +25,7 @@ misc
 	archacpi	mp apic squidboy ec hpet
 	mtrr
 	bootfb
+	bootinfo
 	uarti8250
 
 port

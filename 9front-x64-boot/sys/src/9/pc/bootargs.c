@@ -9,10 +9,31 @@ static char *confname[MAXCONF];
 static char *confval[MAXCONF];
 static int nconf;
 
+static char acpibuf[24];
+static char fbbuf[80];
+
+/* set name to val, replacing an earlier value; the strings are not copied */
+static void
+addconf(char *name, char *val)
+{
+	int j;
+
+	for(j = 0; j < nconf; j++){
+		if(cistrcmp(confname[j], name) == 0)
+			break;
+	}
+	if(j == MAXCONF)
+		return;
+	confname[j] = name;
+	confval[j] = val;
+	if(j == nconf)
+		nconf++;
+}
+
 void
 bootargsinit(void)
 {
-	int i, j, n;
+	int i, n;
 	char *cp, *line[MAXCONF], *p, *q;
 
 	/*
@@ -42,14 +63,24 @@ bootargsinit(void)
 		if(cp == nil)
 			continue;
 		*cp++ = '\0';
-		for(j = 0; j < nconf; j++){
-			if(cistrcmp(confname[j], line[i]) == 0)
-				break;
+		addconf(line[i], cp);
+	}
+
+	/*
+	 * BootInfo is the source of these; keep their historical text names
+	 * for the code that reads them with getconf (archacpi.c, screen.c) and,
+	 * through the environment, for user programs.
+	 */
+	if(bootinfo != nil){
+		if(bootinfo->acpi != 0){
+			snprint(acpibuf, sizeof acpibuf, "%#llux", bootinfo->acpi);
+			addconf("*acpi", acpibuf);
 		}
-		confname[j] = line[i];
-		confval[j] = cp;
-		if(j == nconf)
-			nconf++;
+		if(bootinfo->fbbase != 0){
+			snprint(fbbuf, sizeof fbbuf, "%ud" "x%udx%ud %s %#llux", bootinfo->fbstride,
+				bootinfo->fbheight, bootinfo->fbdepth, bootinfo->fbchan, bootinfo->fbbase);
+			addconf("*bootscreen", fbbuf);
+		}
 	}
 }
 

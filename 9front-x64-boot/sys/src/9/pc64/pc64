@@ -101,6 +101,8 @@ misc
 	archacpi	mp apic squidboy ec hpet
 	archmp		mp apic squidboy
 	mtrr
+	bootinfo
+	bootfb
 
 	sdaoe
 	sdide		pci sdscsi

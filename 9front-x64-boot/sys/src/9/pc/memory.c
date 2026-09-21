@@ -341,46 +341,53 @@ mtrrexclude(int type, char *expect)
 	}
 }
 
+/*
+ * UEFI memory type to our memory map kinds, as the loader used to convert
+ * them to e820 types: loader code and data and conventional memory are RAM,
+ * ACPI reclaimable memory is kept apart, and everything else that matters is
+ * reserved.  Boot services memory stays reserved for now.  -1: not mapped.
+ */
+static int
+bootmemkind(u32int type)
+{
+	switch(type){
+	case BootMemLoaderCode:
+	case BootMemLoaderData:
+	case BootMemConventional:
+		return MemRAM;
+	case BootMemACPIReclaim:
+		return MemACPI;
+	case BootMemReserved:
+	case BootMemBootCode:
+	case BootMemBootData:
+	case BootMemRuntimeCode:
+	case BootMemRuntimeData:
+	case BootMemUnusable:
+	case BootMemACPINVS:
+	case BootMemMMIO:
+	case BootMemMMIOPort:
+	case BootMemPalCode:
+		return MemReserved;
+	}
+	return -1;
+}
+
 static int
 e820scan(void)
 {
-	uvlong base, top, size;
-	int type;
-	char *s;
+	uvlong base, size;
+	BootMem *bm;
+	int i, kind;
 
 	/* passed by bootloader */
-	if((s = getconf("*e820")) == nil)
-		if((s = getconf("e820")) == nil)
-			return -1;
+	if(bootinfo == nil || bootinfo->nmem == 0)
+		return -1;
 
-	for(;;){
-		while(*s == ' ')
-			s++;
-		if(*s == 0)
-			break;
-		type = 1;
-		if(s[1] == ' '){	/* new format */
-			type = s[0] - '0';
-			s += 2;
-		}
-		base = strtoull(s, &s, 16);
-		if(*s != ' ')
-			break;
-		top  = strtoull(s, &s, 16);
-		if(*s != ' ' && *s != 0)
-			break;
-		if(base >= top)
+	for(i = 0; i < bootinfo->nmem; i++){
+		bm = &bootinfo->mem[i];
+		if(bm->len == 0 || (kind = bootmemkind(bm->type)) < 0)
 			continue;
-		switch(type){
-		case 1:
-			memmapadd(base, top - base, MemRAM);
-			break;
-		case 3:
-			memmapadd(base, top - base, MemACPI);
-			break;
-		default:
-			memmapadd(base, top - base, MemReserved);
-		}
+		memmapadd(bm->base, bm->len, kind);
 	}
 
 	/* RAM needs to be writeback */

@@ -178,6 +178,7 @@ void
 main(void)
 {
 	bootmark(BMMain);
+	bootinfoinit();
 	mach0init();
 	bootargsinit();
 	trapinit0();

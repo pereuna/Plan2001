@@ -1,6 +1,7 @@
 #include <u.h>
 #include "fns.h"
 #include "efi.h"
+#include "mem.h"
 
 UINTN MK;
 EFI_HANDLE IH;
@@ -47,12 +48,6 @@ usleep(int us)
 	eficall(ST->BootServices->Stall, (UINTN)us);
 }
 
-void
-unload(void)
-{
-	eficall(ST->BootServices->ExitBootServices, IH, MK);
-}
-
 /*
  * Claim [pa, pa+len) as loader code (AllocateAddress = 2).  Firmware marks
  * free memory no-execute, which matters as the kernel is entered with the
@@ -68,68 +63,74 @@ efialloc(uvlong pa, uvlong len)
 		(UINTN)((len + 4095) / 4096), &a) != 0;
 }
 
-void
-memconf(char **cfg)
+/*
+ * The BootInfo the kernel is entered with, built in low memory (see
+ * sys/include/bootinfo.h).
+ */
+static BootInfo *bi = (BootInfo*)BOOTINFO;
+
+/*
+ * Fetch the final memory map and leave boot services, retrying with a fresh
+ * map if the firmware reports that it changed, as the specification requires.
+ * No printing between GetMemoryMap and ExitBootServices: it changes the map.
+ * Returns non-zero if boot services could not be left; they are still usable
+ * then.  On success the map is recorded in the BootInfo, adjacent entries of
+ * the same type and attributes merged, and no boot service may be used again.
+ */
+int
+bootexit(void)
 {
-	static uchar memtype[EfiMaxMemoryType] = {
-		[EfiReservedMemoryType]		2,
-		[EfiLoaderCode]			1,
-		[EfiLoaderData]			1,
-		[EfiBootServicesCode]		2,
-		[EfiBootServicesData]		2,
-		[EfiRuntimeServicesCode]	2,
-		[EfiRuntimeServicesData]	2,
-		[EfiConventionalMemory]		1,
-		[EfiUnusableMemory]		2,
-		[EfiACPIReclaimMemory]		3,
-		[EfiACPIMemoryNVS]		4,
-		[EfiMemoryMappedIO]		2,
-		[EfiMemoryMappedIOPortSpace]	2,
-		[EfiPalCode]			2,
-	};
 	UINTN mapsize, entsize;
 	EFI_MEMORY_DESCRIPTOR *t;
-	uchar mapbuf[96*1024], *p, m;
+	uchar mapbuf[96*1024], *p;
 	UINT32 entvers;
-	char *s;
+	BootMem *m;
+	int try;
 
-	mapsize = sizeof(mapbuf);
-	entsize = sizeof(EFI_MEMORY_DESCRIPTOR);
-	entvers = 1;
-	if(eficall(ST->BootServices->GetMemoryMap, &mapsize, mapbuf, &MK, &entsize, &entvers))
-		return;
+	for(try = 0; try < 4; try++){
+		mapsize = sizeof(mapbuf);
+		entsize = sizeof(EFI_MEMORY_DESCRIPTOR);
+		entvers = 1;
+		if(eficall(ST->BootServices->GetMemoryMap, &mapsize, mapbuf, &MK, &entsize, &entvers))
+			return -1;
+		if(eficall(ST->BootServices->ExitBootServices, IH, MK) == 0)
+			goto Left;
+	}
+	return -1;
 
-	/* only called to get MK for ExitBootServices() */
-	if(cfg == nil)
-		return;
-
-	s = *cfg;
+Left:
+	bi->nmem = 0;
 	for(p = mapbuf; mapsize >= entsize; p += entsize, mapsize -= entsize){
 		t = (EFI_MEMORY_DESCRIPTOR*)p;
-
-		m = 0;
-		if(t->Type < EfiMaxMemoryType)
-			m = memtype[t->Type];
-
-		if(m == 0)
+		if(t->NumberOfPages == 0)
 			continue;
-
-		if(s == *cfg)
-			memmove(s, "*e820=", 6), s += 6;
-		s = hexfmt(s, 1, m), *s++ = ' ';
-		s = hexfmt(s, 16, t->PhysicalStart), *s++ = ' ';
-		s = hexfmt(s, 16, t->PhysicalStart + t->NumberOfPages * 4096ULL), *s++ = ' ';
+		m = nil;
+		if(bi->nmem > 0){
+			m = &bi->mem[bi->nmem-1];
+			if(m->type != t->Type || m->attr != (UINT32)t->Attribute
+			|| m->base + m->len != t->PhysicalStart)
+				m = nil;
+		}
+		if(m != nil){
+			m->len += t->NumberOfPages * 4096ULL;
+			continue;
+		}
+		if(bi->nmem >= BootInfoMaxMem){
+			bi->flags |= BootInfoMemTrunc;
+			break;
+		}
+		m = &bi->mem[bi->nmem++];
+		m->base = t->PhysicalStart;
+		m->len = t->NumberOfPages * 4096ULL;
+		m->type = t->Type;
+		m->attr = (UINT32)t->Attribute;
 	}
-	*s = '\0';
-	if(s > *cfg){
-		s[-1] = '\n';
-		/* print(*cfg); -- no printing allowed, can change MK */
-		*cfg = s;
-	}
+	bi->size = (uchar*)&bi->mem[bi->nmem] - (uchar*)bi;
+	return 0;
 }
 
 static void
-acpiconf(char **cfg)
+acpiconf(void)
 {
 	static EFI_GUID ACPI_20_TABLE_GUID = {
 		0x8868e871, 0xe4f1, 0x11d3,
@@ -143,7 +144,7 @@ acpiconf(char **cfg)
 	};
 	EFI_CONFIGURATION_TABLE *t;
 	uintptr pa;
-	char *s;
+	char buf[32], *s;
 	int n;
 
 	pa = 0;
@@ -158,16 +159,15 @@ acpiconf(char **cfg)
 		t++;
 	}
 
+	bi->acpi = pa;
 	if(pa){
-		s = *cfg;
-		memmove(s, "*acpi=0x", 8), s += 8;
+		s = buf;
+		memmove(s, "acpi=0x", 7), s += 7;
 		s = hexfmt(s, 0, pa), *s++ = '\n';
 		*s = '\0';
-		print(*cfg);
-		*cfg = s;
+		print(buf);
 	}
 }
-
 
 static int
 topbit(ulong mask)
@@ -194,7 +194,7 @@ lowbit(ulong mask)
 }
 
 static void
-screenconf(char **cfg)
+screenconf(void)
 {
 	static EFI_GUID EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID = {
 		0x9042a9de, 0x23dc, 0x4a38,
@@ -208,7 +208,7 @@ screenconf(char **cfg)
 	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
 	ulong mr, mg, mb, mx, mc;
 	int i, bits, depth;
-	char *s;
+	char buf[96], *s;
 
 	Count = 0;
 	Handles = nil;
@@ -267,13 +267,16 @@ screenconf(char **cfg)
 	return;
 
 Found:
-	s = *cfg;
-	memmove(s, "*bootscreen=", 12), s += 12;
-	s = decfmt(s, 0, info->PixelsPerScanLine), *s++ = 'x';
-	s = decfmt(s, 0, info->VerticalResolution), *s++ = 'x';
-	s = decfmt(s, 0, depth), *s++ = ' ';
+	bi->fbbase = gop->Mode->FrameBufferBase;
+	bi->fbsize = gop->Mode->FrameBufferSize;
+	bi->fbwidth = info->HorizontalResolution;
+	bi->fbheight = info->VerticalResolution;
+	bi->fbstride = info->PixelsPerScanLine;
+	bi->fbdepth = depth;
 
-	while(depth > 0){
+	/* channel descriptor, eg x8r8g8b8 */
+	s = bi->fbchan;
+	while(depth > 0 && s < bi->fbchan + sizeof(bi->fbchan) - 4){
 		if(depth == topbit(mr)){
 			mc = mr;
 			*s++ = 'r';
@@ -293,22 +296,33 @@ Found:
 		s = decfmt(s, 0, bits);
 		depth -= bits;
 	}
-	*s++ = ' ';
-
-	*s++ = '0', *s++ = 'x';
-	s = hexfmt(s, 0, gop->Mode->FrameBufferBase), *s++ = '\n';
 	*s = '\0';
 
-	print(*cfg);
-	*cfg = s;
+	s = buf;
+	memmove(s, "fb=", 3), s += 3;
+	s = decfmt(s, 0, bi->fbwidth), *s++ = 'x';
+	s = decfmt(s, 0, bi->fbheight), *s++ = 'x';
+	s = decfmt(s, 0, bi->fbdepth), *s++ = ' ';
+	memmove(s, "stride ", 7), s += 7;
+	s = decfmt(s, 0, bi->fbstride), *s++ = ' ';
+	memmove(s, bi->fbchan, strlen(bi->fbchan)), s += strlen(bi->fbchan);
+	memmove(s, " 0x", 3), s += 3;
+	s = hexfmt(s, 0, bi->fbbase), *s++ = '\n';
+	*s = '\0';
+	print(buf);
 }
 
 void
-eficonfig(char **cfg)
+eficonfig(void)
 {
-	/* memconf(cfg); -- must be called right before unload() */
-	acpiconf(cfg);
-	screenconf(cfg);
+	memset(bi, 0, sizeof(*bi));
+	bi->magic = BootInfoMagic;
+	bi->version = BootInfoVersion;
+	bi->size = sizeof(*bi) - sizeof(bi->mem);
+
+	/* the memory map is added by bootexit(), right before leaving boot services */
+	acpiconf();
+	screenconf();
 }
 
 EFI_STATUS

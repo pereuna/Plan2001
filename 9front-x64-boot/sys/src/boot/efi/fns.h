@@ -1,3 +1,5 @@
+#include <bootinfo.h>
+
 enum {
 	MAXPATH = 128,
 };
@@ -19,7 +21,7 @@ void (*close)(void *f);
 void (*stop)(void);
 
 int readn(void *f, void *data, int len);
-void unload(void);
+int bootexit(void);
 int efialloc(uvlong pa, uvlong len);
 
 int getc(void);
@@ -41,5 +43,4 @@ char *hexfmt(char *s, int i, uvlong a);
 char *decfmt(char *s, int i, ulong a);
 
 uintptr eficall(void *proc, ...);
-void eficonfig(char **cfg);
-void memconf(char**);
+void eficonfig(void);

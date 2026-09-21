@@ -152,7 +152,7 @@ timeout(int ms)
 #define BOOTLINE	confaddr
 #define BOOTLINELEN	64
 #define BOOTARGS	(confaddr+BOOTLINELEN)
-#define	BOOTARGSLEN	(4096-0x200-BOOTLINELEN)
+#define	BOOTARGSLEN	(BOOTINFO-CONFADDR-BOOTLINELEN)
 
 extern char *confaddr;
 static char *confend;
@@ -218,7 +218,7 @@ Clear:
 
 		confend = BOOTARGS;
 		memset(confend, 0, BOOTARGSLEN);
-		eficonfig(&confend);
+		eficonfig();
 	}
 	nowait = 1;
 	inblock = 0;
@@ -449,8 +449,12 @@ bootkern(void *f)
 
 	print("boot\n");
 
-	memconf(findconf("*e820=")?nil:&confend);
-	unload();
+	/* the file is closed already, so there is nothing to return to */
+	if(bootexit() != 0){
+		print("cannot leave UEFI boot services\n");
+		for(;;)
+			;
+	}
 
 	jump64(e);
 

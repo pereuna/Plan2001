@@ -14,7 +14,7 @@ q=$!
 sleep "${SECONDS_TO_RUN:-60}"
 echo "screendump $b/screen.ppm" | nc -U -q1 "$b/mon.sock" >/dev/null 2>&1; sleep 1
 kill $q 2>/dev/null || true
-tr -d '\r' < "$b/serial.log" | sed 's/\x1b\[[0-9;=?]*[a-zA-Z]//g' | sed -n '/^\*acpi/,$p'
+tr -d '\r' < "$b/serial.log" | sed 's/\x1b\[[0-9;=?]*[a-zA-Z]//g' | sed -n '/^acpi=/,$p'
 grep -q 'boot: /boot/boot reached' "$b/serial.log" && echo "PASS: reached /boot/boot" || { echo "FAIL: /boot/boot not reached"; exit 1; }
 
 # bootfb markers: five squares (24px, 8px gap, 16px margin) at the top left.
