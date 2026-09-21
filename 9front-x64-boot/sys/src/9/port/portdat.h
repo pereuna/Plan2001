@@ -427,22 +427,14 @@ struct Segment
 	Image	*image;		/* text in file attached to this segment */
 	Physseg *pseg;
 	ulong	*profile;	/* Tick profile area */
-
-	Pte	**map;		/* effective map array */
-	int	mapsize;	/* effective map size */
-
-	/* pre-allocated Pte and (small-) map array as part of this Segment's allocation */
-	Pte	*freepte;
+	Pte	**map;
+	int	mapsize;
 	Pte	*ssegmap[SSEGMAPSIZE];
 
 	ulong	used;		/* pages used (swapped or not) */
 	ulong	swapped;	/* pages swapped */
 
 	Sema	sema;
-
-	int	firstproc;	/* lowest proc->index having segment attached */
-	int	lastproc;	/* highest proc->index having segment attached */
-	int	segno;		/* last attached proc->seg[segno] number */
 };
 
 struct Segio
@@ -743,6 +735,7 @@ struct Proc
 	int	kp;		/* true if a kernel process */
 	Proc	*palarm;	/* Next alarm time */
 	ulong	alarm;		/* Time of call */
+	int	newtlb;		/* Pager has changed my pte's, I must flush */
 
 	uintptr	rendtag;	/* Tag for rendezvous */
 	uintptr	rendval;	/* Value for rendezvous */
@@ -796,10 +789,6 @@ struct Proc
 	Ureg	*dbgreg;	/* User registers for devproc */
 
 	PFPU;			/* machine specific fpu state */
-
-	int	newtlb;		/* someone has changed my pte's, I must flush */
-	ulong	tlbflush;	/* incremented on tlb flush */
-
 	PMMU;			/* machine specific mmu state */
 
 	char	*syscalltrace;	/* syscall trace */
@@ -1014,20 +1003,17 @@ struct PMach
 	ulong	ticks;			/* of the clock since boot time */
 	ulong	schedticks;		/* next forced context switch */
 
+	int	pfault;
 	int	cs;
 	int	syscall;
 	int	load;
 	int	intr;
 	int	ilockdepth;
 
-	union {
-		ulong	tlbfault;	/* can be redefined in Mach, counts page-faults */
-		ulong	pfault;
-	};
-	union {
-		ulong	tlbpurge;	/* can be redefined in Mach, counts TLB flushes */
-		ulong	tlbflush;
-	};
+	int	flushmmu;		/* make current proc flush it's mmu state */
+
+	int	tlbfault;
+	int	tlbpurge;
 
 	Perf	perf;			/* performance counters */
 

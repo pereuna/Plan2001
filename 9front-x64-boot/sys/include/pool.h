@@ -56,5 +56,4 @@ enum {	/* flags */
 	POOL_LOGGING	= 1<<4,
 	POOL_TOLERANCE	= 1<<5,
 	POOL_NOREUSE	= 1<<6,
-	POOL_SCRUB	= 1<<7,
 };

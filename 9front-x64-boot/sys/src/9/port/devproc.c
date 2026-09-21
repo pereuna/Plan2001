@@ -283,7 +283,7 @@ _proctrace(Proc* p, Tevent etype, vlong ts)
 	te->pid = p->pid;
 	te->etype = etype;
 	if (ts == 0)
-		te->time = uptime();
+		todget(nil, &te->time);
 	else
 		te->time = ts;
 	tproduced++;
@@ -1657,19 +1657,17 @@ procctlmemio(Chan *c, Proc *p, uintptr offset, void *a, long n, int read)
 		qunlock(s);
 		nexterror();
 	}
-	i = segno(p, s);
-	if(i < 0)
+	for(i = 0; i < NSEG; i++) {
+		if(p->seg[i] == s)
+			break;
+	}
+	if(i == NSEG)
 		error(Egreg);	/* segment gone */
 	if(!read && (s->type&SG_TYPE) == SG_TEXT) {
-		Segment *n = txt2data(s);
-		if(!canpage(p) || detachseg(p, i) != s){
-			putseg(n);
-			error(Egreg);
-		}
-		attachseg(p, i, n);
+		p->seg[i] = txt2data(s);
 		qunlock(s);
 		putseg(s);
-		s = n;
+		s = p->seg[i];
 	} else {
 		qunlock(s);
 	}
@@ -1691,6 +1689,9 @@ procctlmemio(Chan *c, Proc *p, uintptr offset, void *a, long n, int read)
 	n = segio(sio, s, a, n, offset, read);
 	putseg(s);
 	poperror();
+
+	if(!read)
+		p->newtlb = 1;
 
 	return n;
 }

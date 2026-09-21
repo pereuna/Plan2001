@@ -474,13 +474,26 @@ mmufree(Proc *proc)
 }
 
 void
-mmuswitch(Proc *proc, int newtlb)
+flushmmu(void)
+{
+	int x;
+
+	x = splhi();
+	up->newtlb = 1;
+	mmuswitch(up);
+	splx(x);
+}
+
+void
+mmuswitch(Proc *proc)
 {
 	MMU *p;
 
 	mmuzap();
-	if(newtlb)
+	if(proc->newtlb){
 		mmufree(proc);
+		proc->newtlb = 0;
+	}
 	if((p = proc->kmaphead) != nil)
 		m->pml4[PTLX(KMAP, 3)] = PADDR(p->page) | PTEWRITE|PTEVALID;
 	for(p = proc->mmuhead; p != nil && p->level == PML4E; p = p->next){

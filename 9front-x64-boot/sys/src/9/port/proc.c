@@ -211,14 +211,7 @@ sched(void)
 	up->mach = MACHP(m->machno);
 	up->affinity = m->machno;
 	up->state = Running;
-	if(up->newtlb){
-		m->tlbflush++;
-		up->tlbflush++;
-		up->newtlb = 0;
-		mmuswitch(up, 1);
-	} else {
-		mmuswitch(up, 0);
-	}
+	mmuswitch(up);
 	gotolabel(&up->sched);
 }
 
@@ -733,9 +726,6 @@ newproc(void)
 	p->nlocks = 0;
 	p->trace = 0;
 	p->delaysched = 0;
-
-	p->newtlb = 0;
-	p->tlbflush = 0;
 
 	/* sched params */
 	p->wired = 0;
@@ -1266,6 +1256,7 @@ pexit(char *exitstr, int freemem)
 	Pgrp *pgrp;
 	Chan *dot;
 	void (*pt)(Proc*, int, vlong);
+	Segment *s;
 	int i;
 
 	up->alarm = 0;
@@ -1353,8 +1344,13 @@ pexit(char *exitstr, int freemem)
 	}
 
 	qlock(&up->seglock);
-	for(i = NSEG-1; i >= 0; i--)
-		putseg(detachseg(up, i));
+	for(i = 0; i < NSEG; i++){
+		s = up->seg[i];
+		if(s != nil){
+			up->seg[i] = nil;
+			putseg(s);
+		}
+	}
 	qunlock(&up->seglock);
 
 	qlock(&up->debug);
@@ -1478,26 +1474,12 @@ dumpaproc(Proc *p)
 		p->lastlock ? p->lastlock->pc : 0, p->priority);
 }
 
-void
-flushmmu(void)
-{
-	int x;
-
-	x = splhi();
-	m->tlbflush++;
-	up->tlbflush++;
-	up->newtlb = 0;
-	mmuswitch(up, 1);
-	splx(x);
-}
-
 /*
- *  wait till all matching processes have comitted to flush their mmu
+ *  wait till all matching processes have flushed their mmu
  */
 static void
-procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
+procflushmmu(int (*match)(Proc*, void*), void *a)
 {
-	ulong ticks[MAXMACH];
 	Proc *await[MAXMACH];
 	int i, nm, nwait;
 	Proc *p;
@@ -1507,13 +1489,13 @@ procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
 	 */
 	memset(await, 0, conf.nmach*sizeof(await[0]));
 	nwait = 0;
-	for(i = firstproc; i <= lastproc && (p = proctab(i)) != nil; i++){
+	for(i = 0; (p = proctab(i)) != nil; i++){
 		if(p->state > New && (*match)(p, a)){
 			p->newtlb = 1;
 			for(nm = 0; nm < conf.nmach; nm++){
 				if(MACHP(nm)->proc == p){
 					coherence();
-					ticks[nm] = MACHP(nm)->ticks;
+					MACHP(nm)->flushmmu = 1;
 					if(await[nm] == nil)
 						nwait++;
 					await[nm] = p;
@@ -1523,12 +1505,8 @@ procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
 	}
 
 	/*
-	 *  wait for all other processors to switch task
-	 *  or take a clock interrupt and flush their mmu's
-	 *  (see hzclock()).
-	 *
-	 *  the ticks check ensures that we make progress
-	 *  when newtlb flag is set again by someone else.
+	 *  wait for all other processors to take a clock interrupt
+	 *  and flush their mmu's
 	 */
 	for(;;){
 		if(nwait == 0 || nwait == 1 && await[m->machno] != nil)
@@ -1538,10 +1516,7 @@ procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
 
 		for(nm = 0; nm < conf.nmach; nm++){
 			p = await[nm];
-			if(p == nil)
-				continue;
-			if(MACHP(nm)->proc != p || p->newtlb == 0
-			|| MACHP(nm)->ticks != ticks[nm]){
+			if(p != nil && (MACHP(nm)->proc != p || MACHP(nm)->flushmmu == 0)){
 				await[nm] = nil;
 				nwait--;
 			}
@@ -1552,22 +1527,28 @@ procflushmmu(int firstproc, int lastproc, int (*match)(Proc*, void*), void *a)
 static int
 matchseg(Proc *p, void *a)
 {
-	return segno(p, (Segment*)a) >= 0;
+	int ns;
+
+	for(ns = 0; ns < NSEG; ns++){
+		if(p->seg[ns] == a)
+			return 1;
+	}
+	return 0;
 }
 void
 procflushseg(Segment *s)
 {
-	procflushmmu(s->firstproc, s->lastproc, matchseg, s);
+	procflushmmu(matchseg, s);
 }
 
 static int
 matchpseg(Proc *p, void *a)
 {
-	int i;
 	Segment *s;
+	int ns;
 
-	for(i = 0; i < NSEG; i++) {
-		s = p->seg[i];
+	for(ns = 0; ns < NSEG; ns++){
+		s = p->seg[ns];
 		if(s != nil && s->pseg == a)
 			return 1;
 	}
@@ -1576,7 +1557,7 @@ matchpseg(Proc *p, void *a)
 void
 procflushpseg(Physseg *ps)
 {
-	procflushmmu(0, conf.nproc, matchpseg, ps);
+	procflushmmu(matchpseg, ps);
 }
 
 static int
@@ -1587,7 +1568,7 @@ matchother(Proc *p, void *a)
 void
 procflushothers(void)
 {
-	procflushmmu(0, conf.nproc, matchother, up);
+	procflushmmu(matchother, up);
 }
 
 static void
@@ -1739,12 +1720,12 @@ exhausted(char *resource)
 ulong
 procpagecount(Proc *p)
 {
-	int i;
 	Segment *s;
 	ulong pages;
+	int i;
 
 	pages = 0;
-	for(i = 0; i < NSEG; i++) {
+	for(i=0; i<NSEG; i++){
 		if((s = p->seg[i]) != nil)
 			pages += s->used;
 	}
