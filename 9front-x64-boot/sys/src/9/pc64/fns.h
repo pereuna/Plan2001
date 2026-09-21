@@ -166,6 +166,11 @@ void	vectortable(void);
 void	vmxprocrestore(Proc *);
 void	vmxshutdown(void);
 void*	vmap(uvlong, vlong);
+
+/* pc/bootfb.c: boot progress markers on the UEFI framebuffer */
+enum { BMMain, BMMem, BMDevs, BMUser, BMExec, BMPanic };
+void	bootfbinit(void);
+void	bootmark(int);
 void	vunmap(void*, vlong);
 void	wbinvd(void);
 void	writeconf(void);

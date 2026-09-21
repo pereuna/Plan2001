@@ -177,6 +177,7 @@ init0(void)
 void
 main(void)
 {
+	bootmark(BMMain);
 	mach0init();
 	bootargsinit();
 	trapinit0();
@@ -198,6 +199,8 @@ main(void)
 	mathinit();
 	if(i8237alloc != nil)
 		i8237alloc();
+	bootfbinit();
+	bootmark(BMMem);
 	pcicfginit();
 	bootscreeninit();
 	printinit();
@@ -212,9 +215,11 @@ main(void)
 	initseg();
 	links();
 	chandevreset();
+	bootmark(BMDevs);
 	preallocpages();
 	pageinit();
 	userinit();
+	bootmark(BMUser);
 	schedinit();
 }
 

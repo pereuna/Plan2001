@@ -24,6 +24,7 @@ misc
 	archgeneric	i8259 i8253
 	archacpi	mp apic squidboy ec hpet
 	mtrr
+	bootfb
 	uarti8250
 
 port

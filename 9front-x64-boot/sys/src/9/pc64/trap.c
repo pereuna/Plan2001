@@ -8,6 +8,7 @@
 #include	"ureg.h"
 #include	"../port/error.h"
 #include	<trace.h>
+#include	"/sys/src/libc/9syscall/sys.h"
 
 extern int irqhandled(Ureg*, int);
 extern void irqinit(void);
@@ -247,6 +248,7 @@ _dumpstack(Ureg *ureg)
 	int x;
 	char *s;
 
+	bootmark(BMPanic);
 	if((s = getconf("*nodumpstack")) != nil && strcmp(s, "0") != 0){
 		iprint("dumpstack disabled\n");
 		return;
@@ -424,6 +426,8 @@ syscall(Ureg* ureg)
 	scallnr = ureg->bp;	/* RARG */
 	if(dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->ax))
 		((void**)&ureg)[-1] = (void*)noteret;	/* loads RARG */
+	if(scallnr == EXEC && (vlong)ureg->ax != -1)
+		bootmark(BMExec);	/* the first successful exec is /boot/boot */
 	if((up->procctl || up->nnote) && donotify(ureg))
 		((void**)&ureg)[-1] = (void*)noteret;	/* loads RARG */
 	/* if we delayed sched because we held a lock, sched now */
