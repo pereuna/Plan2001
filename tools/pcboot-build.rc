@@ -1,41 +1,39 @@
 #!/bin/rc
-# Runs ON the 9front machine (sent by build-pcboot.sh through rcpu).
-# Receives the source tree as a tar on tcp 9997, builds the pcboot kernel and
-# the UEFI loader inside a private namespace (only /tmp is written, and it is
-# per-session RAM), then serves the results as a tar on tcp 9996.
+# Runs ON the 9front VM (sent by build-pcboot.sh through rcpu).
+# $hostsrc   the source tree on the host, as seen through drawterm's /mnt/term
+# $hostbuild the host directory that receives the results
+# Nothing outside /usr/glenda/pcboot-build is modified: the subset tree is
+# bound over /sys/src/9 in a private namespace, system tools/libs are used as is.
 rfork n
-mkdir /tmp/sub
-mkdir /tmp/out
-aux/listen1 -t tcp!*!9997 /bin/rc -c 'cd /tmp/sub; tar xf /fd/0; touch /tmp/sub.done' &
-echo WAITING
-while(! test -f /tmp/sub.done) sleep 1
-kill listen1 | rc
+d=/usr/glenda/pcboot-build
+rm -rf $d
+mkdir -p $d
 
-# the subset tree overrides sources and headers; system tools and libs are used as is
-bind -b /tmp/sub/sys/include /sys/include
-bind -b /tmp/sub/amd64/include /amd64/include
-bind /tmp/sub/sys/src/9 /sys/src/9
+echo '### copy sources from the host'
+dircp $hostsrc $d
+bind -b $d/sys/include /sys/include
+bind -b $d/amd64/include /amd64/include
+bind $d/sys/src/9 /sys/src/9
 
 echo '### kernel: mk CONF=pcboot'
 cd /sys/src/9/pc64
-mk 'CONF=pcboot' 'IPFILES=noip' >/tmp/out/kernel.log >[2=1]
+time mk 'CONF=pcboot' 'IPFILES=noip' >$d/kernel.log >[2=1]
 echo kernel mk status: $status
-tail -8 /tmp/out/kernel.log
+tail -6 $d/kernel.log
+cp $d/kernel.log $hostbuild/kernel.log
 if(test -f 9pcboot) {
 	size 9pcboot
 	md5sum 9pcboot
-	cp 9pcboot /tmp/out/9pcboot
+	cp 9pcboot $hostbuild/9pcboot
 }
 
 echo '### loader: mk bootx64.efi'
-cd /tmp/sub/sys/src/boot/efi
-mk bootx64.efi >/tmp/out/loader.log >[2=1]
+cd $d/sys/src/boot/efi
+mk bootx64.efi >$d/loader.log >[2=1]
 echo loader mk status: $status
+cp $d/loader.log $hostbuild/loader.log
 if(test -f bootx64.efi) {
 	md5sum bootx64.efi
-	cp bootx64.efi /tmp/out/bootx64.efi
+	cp bootx64.efi $hostbuild/bootx64.efi
 }
-
-aux/listen1 -t tcp!*!9996 /bin/rc -c 'cd /tmp/out; tar cf /fd/1 *' &
-echo READY
-sleep 90
+echo BUILD-DONE
