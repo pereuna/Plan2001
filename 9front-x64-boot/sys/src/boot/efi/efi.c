@@ -53,6 +53,21 @@ unload(void)
 	eficall(ST->BootServices->ExitBootServices, IH, MK);
 }
 
+/*
+ * Claim [pa, pa+len) as loader code (AllocateAddress = 2).  Firmware marks
+ * free memory no-execute, which matters as the kernel is entered with the
+ * firmware's page tables still active.  Returns non-zero if it fails.
+ */
+int
+efialloc(uvlong pa, uvlong len)
+{
+	uvlong a;
+
+	a = pa;
+	return eficall(ST->BootServices->AllocatePages, (UINTN)2, (UINTN)EfiLoaderCode,
+		(UINTN)((len + 4095) / 4096), &a) != 0;
+}
+
 void
 memconf(char **cfg)
 {

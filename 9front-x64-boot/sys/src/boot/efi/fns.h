@@ -5,7 +5,9 @@ enum {
 extern char hex[];
 
 void usleep(int t);
-void jump(void *pc, void *arg);
+void jump64(void *pc);
+uvlong getcr3(void);
+uvlong getcr4(void);
 
 int pxeinit(void **pf);
 int isoinit(void **pf);
@@ -18,6 +20,7 @@ void (*stop)(void);
 
 int readn(void *f, void *data, int len);
 void unload(void);
+int efialloc(uvlong pa, uvlong len);
 
 int getc(void);
 void putc(int c);

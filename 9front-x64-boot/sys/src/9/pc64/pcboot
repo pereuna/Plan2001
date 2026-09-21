@@ -32,14 +32,11 @@ port
 
 	/*
 	 * Empty stand-ins for code that is not part of this stripped kernel:
-	 * VMX hypervisor, PS/2 keyboard-controller reset, and the VESA and
-	 * Multiboot framebuffer helpers used only by multibootargs().
+	 * the VMX hypervisor and the PS/2 keyboard-controller reset.
 	 */
 	void vmxshutdown(void) {}
 	void vmxprocrestore(Proc*) {}
 	void i8042reset(void) {}
-	char* rgbmask2chan(char*, int, u32int, u32int, u32int) { return nil; }
-	char* vesabootscreenconf(char*, char*, uchar*) { return nil; }
 
 bootdir
 	boot

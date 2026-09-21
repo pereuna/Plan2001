@@ -17,6 +17,14 @@
  * Fundamental addresses
  */
 #define CONFADDR	0x1200		/* info passed from boot loader */
+
+/*
+ * Physical range the kernel entry (_efi64 in sys/src/9/pc64/l.s) clears for
+ * its boot page tables and the boot processor's Mach: CPU0PML4 to CPU0END in
+ * sys/src/9/pc64/mem.h, minus KZERO.  Keep in sync.
+ */
+#define KBOOTLO		0x13000
+#define KBOOTHI		0x1C000
 #define BIOSXCHG	0x6000		/* To exchange data with the BIOS */
 
 #define SELGDT	(0<<3)	/* selector is in gdt */

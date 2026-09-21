@@ -337,11 +337,64 @@ beswall(uvlong l)
 	return ((uvlong)p[0]<<56) | ((uvlong)p[1]<<48) | ((uvlong)p[2]<<40) | ((uvlong)p[3]<<32) | ((uvlong)p[4]<<24) | ((uvlong)p[5]<<16) | ((uvlong)p[6]<<8) | (uvlong)p[7];
 }
 
+/*
+ * The kernel is entered at its 64-bit entry with the firmware's page tables
+ * still active, so it must be safe: paging must be 4-level (a processor in
+ * long mode cannot change that) and none of the firmware's page tables may
+ * lie in the range the kernel entry clears.
+ */
+enum {
+	PtPresent	= 1<<0,
+	PtLarge		= 1<<7,
+	Cr4La57		= 1<<12,
+};
+#define PTADDR(e)	((e) & 0x000FFFFFFFFFF000ull)
+
+static int
+ptbad(uvlong pa, uvlong lo, uvlong hi)
+{
+	return pa < hi && pa+4096 > lo;
+}
+
+static int
+ptclear(uvlong lo, uvlong hi)
+{
+	uvlong *l4, *l3, *l2, e;
+	int i, j, k;
+
+	l4 = (uvlong*)PTADDR(getcr3());
+	if(ptbad((uvlong)l4, lo, hi))
+		return 0;
+	for(i = 0; i < 512; i++){
+		if((l4[i] & PtPresent) == 0)
+			continue;
+		l3 = (uvlong*)PTADDR(l4[i]);
+		if(ptbad((uvlong)l3, lo, hi))
+			return 0;
+		for(j = 0; j < 512; j++){
+			e = l3[j];
+			if((e & PtPresent) == 0 || (e & PtLarge) != 0)
+				continue;
+			l2 = (uvlong*)PTADDR(e);
+			if(ptbad((uvlong)l2, lo, hi))
+				return 0;
+			for(k = 0; k < 512; k++){
+				e = l2[k];
+				if((e & PtPresent) == 0 || (e & PtLarge) != 0)
+					continue;
+				if(ptbad(PTADDR(e), lo, hi))
+					return 0;
+			}
+		}
+	}
+	return 1;
+}
+
 char*
 bootkern(void *f)
 {
 	uchar *e, *d, *t;
-	ulong n;
+	ulong n, ktext;
 	Exec ex;
 
 	if(readn(f, &ex, sizeof(ex)) != sizeof(ex))
@@ -361,6 +414,18 @@ bootkern(void *f)
 	default:
 		return "bad magic";
 	}
+
+	/*
+	 * Firmware marks free memory no-execute; claim the kernel's range as
+	 * loader code so the firmware's page tables let it run.
+	 */
+	ktext = beswal(ex.text);
+	if(efialloc((uvlong)e, PGROUND(PGROUND((uintptr)e + ktext) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e) != 0)
+		return "cannot claim the kernel's memory range";
+	if(getcr4() & Cr4La57)
+		return "5-level paging is active, the kernel needs 4-level";
+	if(!ptclear(KBOOTLO, KBOOTHI))
+		return "firmware page tables overlap the kernel's boot area";
 
 	t = e;
 	n = beswal(ex.text);
@@ -387,7 +452,7 @@ bootkern(void *f)
 	memconf(findconf("*e820=")?nil:&confend);
 	unload();
 
-	jump(e, BOOTARGS);
+	jump64(e);
 
 Error:
 	return "i/o error";
