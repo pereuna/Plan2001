@@ -550,8 +550,15 @@ memreserve(uintptr pa, uintptr size)
 {
 	assert(conf.mem[0].npage == 0);
 
+	/*
+	 * Round the end up, not down: a sub-page reservation starting on a
+	 * page boundary (eg the ACPI RSDP, memreserve(v, sizeof(Rsd)) in
+	 * archacpi.c, called on every boot since the loader always supplies
+	 * *acpi=) must still reserve the whole page it lives in, not zero
+	 * bytes.
+	 */
 	size += (pa & BY2PG-1);
-	size &= ~(BY2PG-1);
+	size = (size + (BY2PG-1)) & ~(BY2PG-1);
 	pa &= ~(BY2PG-1);
 	memmapadd(pa, size, MemReserved);
 }

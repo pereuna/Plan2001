@@ -96,17 +96,26 @@ memset(void *dst, int v, int n)
 	}
 }
 
+/*
+ * Reads one line into buf, at most max bytes including the terminating nul.
+ * Returns the line length, 0 on eof/no more input, -1 if the line does not
+ * fit (nothing is written past buf+max in that case).  max<=0 always
+ * returns -1 without touching *buf.
+ */
 static int
-readline(void *f, char *buf)
+readline(void *f, char *buf, int max)
 {
 	static char white[] = "\t ";
-	char *p;
+	char *p, *e;
 
+	e = buf + max - 1;	/* leave room for the nul */
 	p = buf;
 	do{
 		if(f == nil)
 			putc('>');
 		for(;;){
+			if(p >= e)
+				return -1;
 			if(f == nil){
 				while((*p = getc()) == 0)
 					;
@@ -153,6 +162,7 @@ timeout(int ms)
 #define BOOTLINELEN	64
 #define BOOTARGS	(confaddr+BOOTLINELEN)
 #define	BOOTARGSLEN	(BOOTINFO-CONFADDR-BOOTLINELEN)
+#define	BOOTARGSEND	(BOOTARGS+BOOTARGSLEN)	/* BootInfo starts here, see mem.h */
 
 extern char *confaddr;
 static char *confend;
@@ -173,8 +183,9 @@ findconf(char *s)
 	return nil;
 }
 
+/* buf is max bytes; too long a value is treated as not found, not truncated */
 static char*
-getconf(char *s, char *buf)
+getconf(char *s, char *buf, int max)
 {
 	char *p, *e;
 
@@ -183,6 +194,8 @@ getconf(char *s, char *buf)
 	p += strlen(s);
 	for(e = p; *e != '\n'; e++)
 		;
+	if(e - p >= max)
+		return nil;
 	memmove(buf, p, e - p);
 	buf[e - p] = '\0';
 	return buf;
@@ -223,7 +236,15 @@ Clear:
 	nowait = 1;
 	inblock = 0;
 Loop:
-	while(readline(f, line = confend+1) > 0){
+	for(;;){
+		line = confend+1;
+		n = readline(f, line, BOOTARGSEND - line);
+		if(n == 0)
+			break;
+		if(n < 0){
+			print("plan9.ini: line too long, ignoring the rest\n");
+			break;
+		}
 		if(*line == 0 || strchr("#;=", *line) != nil)
 			continue;
 		if(*line == '['){
@@ -262,7 +283,7 @@ Loop:
 		*confend = 0;
 		print(s);
 	}
-	kern = getconf("bootfile=", path);
+	kern = getconf("bootfile=", path, MAXPATH);
 
 	if(f != nil){
 		close(f);

@@ -150,10 +150,12 @@ tscconf(void)
 
 /*
  * Wall clock time from the runtime service, callable before boot services
- * end.  civilsecs converts a Gregorian date to seconds since 1970-01-01 UTC,
+ * end.  civilsecs converts a Gregorian date to seconds since 1970-01-01,
  * using days_from_civil (Howard Hinnant, public domain) for the date part;
- * TimeZone is minutes the local time is ahead of UTC, or unspecified
- * (already UTC, the common case for firmware that keeps the RTC in UTC).
+ * GetTime() returns local time, and per the UEFI spec Localtime = UTC -
+ * TimeZone (minutes), so TimeZone is added to local to recover UTC.
+ * TimeZone may be unspecified (already UTC, the common case for firmware
+ * that keeps the RTC in UTC).
  */
 static uvlong
 civilsecs(EFI_TIME *t)
@@ -180,7 +182,7 @@ timeconf(void)
 		return;
 	bi->epoch = civilsecs(&t);
 	if(t.TimeZone != EfiUnspecifiedTimeZone)
-		bi->epoch -= t.TimeZone*60;
+		bi->epoch += t.TimeZone*60;
 }
 
 /*
