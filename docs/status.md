@@ -31,24 +31,37 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   - RTC-aika luetaan UEFI:n `GetTime`stä ja asetetaan kellolle heti bootissa.
   - **Ei tehty:** GOP:n `SetMode` (natiivi tarkkuus). Riski `bootfb`-diagnostiikkakanavalle
     raudalla ilman sarjaporttia; tehdään vasta nopeamman testisilmukan kanssa.
-- **Rakenteen siivous (tämä commit).** `pcboot`-minimikernel ja koko `9front-x64-boot/`-
+- **Rakenteen siivous.** `pcboot`-minimikernel ja koko `9front-x64-boot/`-
   peilihakemisto poistettu. `sys/`-hakemistossa on nyt vain tiedostot, joita olemme
   oikeasti kirjoittaneet tai muokanneet (ks. README). Windows-VM otettu takaisin
   käyttöön käännösnopeuden vuoksi.
+- **Vaihe 2 — legacy-koodin poistot (valmis).** Periaate koko vaiheelle: ACPI/UEFI
+  oletetaan aina saatavilla, eikä pre-ACPI/BIOS-varapolkuja pidetä "varmuuden vuoksi".
+  Legacy-rauta voi käyttää legacy-käyttöjärjestelmiä; Plan2001 kohdistuu nykyiseen ja
+  tulevaan laitteistoon. Neljä poistoa, kukin oma committinsa:
+  - `archmp.c` (pre-ACPI MP-taulut `_MP_`) — konfiguraatiorivi pois, tiedosto jää
+    VM:n puuhun koskemattomana muttei enää linkity.
+  - `cga.c` (VGA-tekstitila 0xB8000) — vaati myös `mkfile`n (OBJ-lista) ja
+    `devvga.c`n (`vgactl textmode`-komento) muokkaamisen, koska näitä ei ohjata
+    konfiguraation kautta. Huom: QEMU:n oma `-vga std` emuloi yhä oikeaa
+    CGA-laitteistoa, joten QEMU-testi ei todista 0xB8000:n olevan inertti
+    oikealla raudalla — vain ettei normaali käynnistys- ja konsolipolku rikkoutunut.
+  - PCI-mekanismi #2 ja BIOS32/PCI BIOS (`pcipc.c`, `pcibios.c`) — mekanismi #1
+    (0xCF8/0xCFC) on ollut universaali kaikilla PCI-siruilla 1990-luvun alusta asti.
+    QEMU on tässä luotettava testi: sen oma PCI-emulaatio toteuttaa vain
+    mekanismi #1:n.
+  - `uartisa` — ei oikea laitteistoprobe, vain manuaalinen `plan9.ini`-konfiguroitu
+    reitti kiinteälle ISA-sarjaportille; ei tarvita, koska `uartpci` löytää
+    oikean sarjaportin PCI:n kautta.
+  - Yhteensä: kernelin koko pieneni 5774 tavua. Jokainen QEMU-testattu, ja jokainen
+    myös asennettu VM:lle ja käynnistetty uudelleen täyteen userlandiin
+    (cpu+auth-palvelut tarkistettu).
 
-## Seuraavaksi: vaihe 2 — legacy-koodin poistot
+## Seuraavaksi
 
-Ehdokkaat (ks. alkuperäinen arvio `docs/upstream-scope-manifest.md`:ssä, huomaa että se
-kuvaa VANHAA `_protected`-pohjaista polkua):
-
-- `pc/archmp.c` — pre-ACPI MP-taulut, varapolku jos ACPI epäonnistuu. UEFI-koneilla
-  ACPI on aina saatavilla.
-- `pc/cga.c` — VGA-tekstitila (0xB8000). UEFI antaa framebufferin; `bootfb.c`/`screen.c`
-  käyttävät sitä jo.
-- PCI-mekanismi #2 ja BIOS32-kysely (`pc/pcipc.c`).
-- ISA-UART-tuki, jos sarjaportti aina löytyy PCI:n tai ACPI SPCR-taulun kautta.
-
-Jokainen poisto omana committinaan, QEMU-testattuna ennen seuraavaa.
+Vaiheen 2 neljä tunnistettua ehdokasta on tehty. Jatkoehdokkaita ei ole vielä
+kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. PAT,
+`archacpi.c`:n ja `archgeneric.c`:n suhde, tai ajastimien/keskeytysten muu legacy).
 
 ## Tunnetut avoimet asiat
 
