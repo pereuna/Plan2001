@@ -146,7 +146,6 @@ void*	rampage(void);
 int	rdmsr(int, vlong*);
 void	realmode(Ureg*);
 void*	rsdsearch(void);
-void	screeninit(void);
 void	(*screenputs)(char*, int);
 void	setconfenv(void);
 void*	sigsearch(char*, int);
