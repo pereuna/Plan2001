@@ -1,6 +1,6 @@
 # Plan2001
 
-Moderni, UEFI-vetoinen boot-polku 9frontille (Plan 9 -jatkokehitys) x86-64:llä.
+Moderni, UEFI boot-polku 9frontille (Plan 9 -jatkokehitys) x86-64:llä.
 Tavoite: käyttää UEFI-palveluita mahdollisimman pitkään ennen `ExitBootServices`ia
 ja poistaa BIOS-ajan legacy-koodi, joka ei ole enää tarpeen puhtaalla UEFI-koneella.
 

@@ -439,7 +439,7 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 * window before that.
 	 */
 	if(efialloc(CONFADDR, BOOTSCRATCHEND-CONFADDR) != 0)
-		print("warning: firmware would not reserve low memory for us\n");
+		print("[Plan2001 efi.c] warning: firmware would not reserve low memory for us\n");
 
 	f = nil;
 	if(pxeinit(&f) && isoinit(&f) && fsinit(&f))
