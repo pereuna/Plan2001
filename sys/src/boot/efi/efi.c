@@ -284,6 +284,44 @@ lowbit(ulong mask)
 	return bit;
 }
 
+/*
+ * Decode a mode's pixel format into per-channel bitmasks.  Returns the
+ * total bit depth (mr|mg|mb|mx's top bit), or 0 if the format is unusable
+ * (eg PixelBltOnly, which has no linear framebuffer at all, or a
+ * PixelBitMask mode whose masks are somehow all zero).
+ */
+static int
+pixmasks(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info, ulong *mr, ulong *mg, ulong *mb, ulong *mx)
+{
+	switch(info->PixelFormat){
+	default:
+		return 0;	/* unsupported, eg PixelBltOnly */
+
+	case PixelRedGreenBlueReserved8BitPerColor:
+		*mr = 0x000000ff;
+		*mg = 0x0000ff00;
+		*mb = 0x00ff0000;
+		*mx = 0xff000000;
+		break;
+
+	case PixelBlueGreenRedReserved8BitPerColor:
+		*mb = 0x000000ff;
+		*mg = 0x0000ff00;
+		*mr = 0x00ff0000;
+		*mx = 0xff000000;
+		break;
+
+	case PixelBitMask:
+		*mr = info->PixelInformation.RedMask;
+		*mg = info->PixelInformation.GreenMask;
+		*mb = info->PixelInformation.BlueMask;
+		*mx = info->PixelInformation.ReservedMask;
+		break;
+	}
+
+	return topbit(*mr | *mg | *mb | *mx);
+}
+
 static void
 screenconf(void)
 {
@@ -296,9 +334,11 @@ screenconf(void)
 	EFI_HANDLE *Handles;
 	UINTN Count;
 
-	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
+	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info, *qi;
 	ulong mr, mg, mb, mx, mc;
-	int i, bits, depth;
+	uvlong area, bestarea;
+	UINTN qsize;
+	int i, bits, depth, bestmode;
 	char buf[96], *s;
 
 	Count = 0;
@@ -317,34 +357,7 @@ screenconf(void)
 			continue;
 		if((info = gop->Mode->Info) == nil)
 			continue;
-
-		switch(info->PixelFormat){
-		default:
-			continue;	/* unsupported */
-
-		case PixelRedGreenBlueReserved8BitPerColor:
-			mr = 0x000000ff;
-			mg = 0x0000ff00;
-			mb = 0x00ff0000;
-			mx = 0xff000000;
-			break;
-
-		case PixelBlueGreenRedReserved8BitPerColor:
-			mb = 0x000000ff;
-			mg = 0x0000ff00;
-			mr = 0x00ff0000;
-			mx = 0xff000000;
-			break;
-
-		case PixelBitMask:
-			mr = info->PixelInformation.RedMask;
-			mg = info->PixelInformation.GreenMask;
-			mb = info->PixelInformation.BlueMask;
-			mx = info->PixelInformation.ReservedMask;
-			break;
-		}
-
-		if((depth = topbit(mr | mg | mb | mx)) == 0)
+		if(pixmasks(info, &mr, &mg, &mb, &mx) == 0)
 			continue;
 
 		/* make sure we have linear framebuffer */
@@ -358,6 +371,46 @@ screenconf(void)
 	return;
 
 Found:
+	/*
+	 * Firmware typically leaves GOP in whatever mode it used for its
+	 * own boot-menu text console, which is not necessarily the panel's
+	 * native resolution (commonly a small mode like 800x600).  Scan
+	 * every mode this adapter offers and switch to the one with the
+	 * largest pixel count that still has a usable pixel format, before
+	 * reading the framebuffer parameters below.
+	 *
+	 * This is purely cosmetic - bootfb only ever draws small marker
+	 * squares in a corner, at any resolution - so a QueryMode/SetMode
+	 * failure here is not fatal: per the UEFI spec, gop->Mode is left
+	 * untouched by a failed SetMode, so falling through just keeps
+	 * whatever mode was already active and already validated above.
+	 */
+	bestmode = -1;
+	bestarea = 0;
+	for(i=0; i<gop->Mode->MaxMode; i++){
+		qi = nil;
+		if(eficall(gop->QueryMode, gop, (UINTN)i, &qsize, &qi))
+			continue;
+		if(qi == nil || pixmasks(qi, &mr, &mg, &mb, &mx) == 0)
+			continue;
+		area = (uvlong)qi->HorizontalResolution * qi->VerticalResolution;
+		if(area > bestarea){
+			bestarea = area;
+			bestmode = i;
+		}
+	}
+	if(bestmode >= 0 && (UINT32)bestmode != gop->Mode->Mode)
+		eficall(gop->SetMode, gop, (UINTN)bestmode);
+
+	if((info = gop->Mode->Info) == nil)
+		return;
+	if((depth = pixmasks(info, &mr, &mg, &mb, &mx)) == 0)
+		return;
+	if(gop->Mode->FrameBufferBase == 0)
+		return;
+	if(gop->Mode->FrameBufferSize == 0)
+		return;
+
 	bi->fbbase = gop->Mode->FrameBufferBase;
 	bi->fbsize = gop->Mode->FrameBufferSize;
 	bi->fbwidth = info->HorizontalResolution;
