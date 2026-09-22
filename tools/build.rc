@@ -1,0 +1,43 @@
+#!/bin/rc
+# Runs ON the 9front VM (sent by build.sh through rcpu).
+# Builds the pc64 kernel and the UEFI loader from the VM's own /sys/src with
+# this repo's changed files (sys/...) laid over it - the VM's sources are
+# the base, we only touch what we actually changed.
+# $hostsrc   this repo's root, seen through drawterm's /mnt/term
+# $hostbuild the host directory that receives the results
+rfork n
+d=/usr/glenda/plan2001build
+rm -rf $d
+mkdir -p $d/9 $d/efi $d/inc
+
+echo '### kernel: overlay pc64 and pc from the repo onto the VM tree'
+dircp /sys/src/9 $d/9
+for(x in pc64 pc) dircp $hostsrc/sys/src/9/$x $d/9/$x
+cp $hostsrc/sys/include/bootinfo.h $d/inc/bootinfo.h
+bind -b $d/inc /sys/include
+bind -c $d/9 /sys/src/9
+cd /sys/src/9/pc64
+time mk >$d/kernel.log >[2=1]
+echo kernel mk status: $status
+tail -3 $d/kernel.log
+if(test -f 9pc64) {
+	size 9pc64
+	md5sum 9pc64
+	cp 9pc64 $hostbuild/9pc64
+}
+cp $d/kernel.log $hostbuild/kernel.log
+
+echo '### loader: overlay our changed boot/efi files onto the VM tree'
+dircp /sys/src/boot/efi $d/efi
+cp $hostsrc/sys/src/boot/efi/^(x64.s efi.c efi.h fns.h mem.h sub.c) $d/efi
+bind -c $d/efi /sys/src/boot/efi
+cd /sys/src/boot/efi
+mk bootx64.efi >$d/loader.log >[2=1]
+echo loader mk status: $status
+if(test -f bootx64.efi) {
+	md5sum bootx64.efi
+	cp bootx64.efi $hostbuild/bootx64.efi
+}
+cp $d/loader.log $hostbuild/loader.log
+
+echo BUILD-DONE
