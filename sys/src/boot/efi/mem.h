@@ -18,6 +18,7 @@
  */
 #define CONFADDR	0x1200		/* info passed from boot loader */
 #define BOOTINFO	0x3000		/* BootInfo, see sys/include/bootinfo.h; 16KB up to 0x7000 */
+#define BOOTSCRATCHEND	0x7000		/* == pc64/mem.h APBOOTSTRAP; end of what the loader writes low */
 
 /*
  * Physical range the kernel entry (_efi64 in sys/src/9/pc64/l.s) clears for

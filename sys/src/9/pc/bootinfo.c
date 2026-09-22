@@ -6,9 +6,13 @@
 
 /*
  * The loader passes what it learned from UEFI in a BootInfo at BOOTINFO
- * (sys/include/bootinfo.h).  It is the only source of the memory map, so a
- * missing or unknown structure is fatal.  Nothing can be printed this early;
- * halt with interrupts off.
+ * (sys/include/bootinfo.h).  It is the only source of the memory map on
+ * this UEFI-only kernel, so anything short of a complete, self-consistent
+ * structure is fatal: bootinfoinit() below rejects an empty or truncated
+ * memory map too, not just a garbled header, precisely so meminit0()
+ * (pc/memory.c) never falls through to its old BIOS-era ramscan() fallback
+ * - keeping that path unreachable is the point, not an accident. Nothing
+ * can be printed this early; halt with interrupts off.
  */
 
 BootInfo *bootinfo;
@@ -52,10 +56,15 @@ void
 bootinfoinit(void)
 {
 	BootInfo *b;
+	uintptr hdrsize;
 
 	b = (BootInfo*)BOOTINFO;
+	hdrsize = (uchar*)&b->mem[0] - (uchar*)b;
 	if(b->magic != BootInfoMagic || b->version != BootInfoVersion
-	|| b->size > BOOTINFOLEN || b->nmem > BootInfoMaxMem)
+	|| b->size < hdrsize || b->size > BOOTINFOLEN
+	|| b->nmem == 0 || b->nmem > BootInfoMaxMem
+	|| b->size != hdrsize + (uintptr)b->nmem*sizeof(BootMem)
+	|| (b->flags & BootInfoMemTrunc) != 0)
 		for(;;)
 			halt();
 	bootinfo = b;

@@ -276,6 +276,19 @@ exit(int)
 void
 reboot(void *entry, void *code, ulong size)
 {
+	/*
+	 * rebootjump() below (and rebootcode.s) hand the new kernel off in
+	 * 32-bit protected mode, with paging and EFER.LME off.  This
+	 * kernel's only entry, _efi64 (pc64/l.s), needs long mode with the
+	 * firmware's page tables still active - a mismatch since the 32-bit
+	 * entry path was removed (see docs/status.md).  Refuse here, before
+	 * the shutdown below starts undoing device and CPU state that
+	 * cannot be undone, rather than run it all and then jump into a
+	 * state that is certain to crash or hang with no way back.  Once
+	 * rebootcode.s is rewritten for a 64-bit handoff this can go.
+	 */
+	panic("reboot: no 64-bit kexec handoff yet, refusing to load a new kernel");
+
 	writeconf();
 	vmxshutdown();
 

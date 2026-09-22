@@ -64,6 +64,18 @@ efialloc(uvlong pa, uvlong len)
 }
 
 /*
+ * Release pages efialloc() claimed, eg after a later failure: without this
+ * a retry (efimain's loop, on a bad read or a rejected kernel) finds the
+ * same range already allocated and fails immediately instead of trying
+ * again.
+ */
+void
+efifree(uvlong pa, uvlong len)
+{
+	eficall(ST->BootServices->FreePages, (UINTN)pa, (UINTN)((len + 4095) / 4096));
+}
+
+/*
  * The BootInfo the kernel is entered with, built in low memory (see
  * sys/include/bootinfo.h).
  */
@@ -415,6 +427,19 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 
 	IH = ih;
 	ST = st;
+
+	/*
+	 * Claim the low scratch area (plan9.ini text and BootInfo,
+	 * CONFADDR..BOOTSCRATCHEND) from the firmware's own allocator before
+	 * writing anything there, so it cannot be handed to some other
+	 * boot-time allocation in the meantime.  Not fatal if it fails: this
+	 * is defense in depth on top of the kernel's own memreserve(0,
+	 * PADDR(CPU0END)) in pc/memory.c, which protects the same range (and
+	 * more) once the kernel is running - this call only narrows the
+	 * window before that.
+	 */
+	if(efialloc(CONFADDR, BOOTSCRATCHEND-CONFADDR) != 0)
+		print("warning: firmware would not reserve low memory for us\n");
 
 	f = nil;
 	if(pxeinit(&f) && isoinit(&f) && fsinit(&f))

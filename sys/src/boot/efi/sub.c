@@ -415,8 +415,19 @@ char*
 bootkern(void *f)
 {
 	uchar *e, *d, *t;
-	ulong n, ktext;
+	ulong n, ktext, elen;
+	char *errmsg;
 	Exec ex;
+
+	/*
+	 * elen != 0 from the efialloc() below on marks the kernel's memory
+	 * range as claimed; every failure path from there on goes through
+	 * Error, which frees it again.  Without that a retry (efimain's
+	 * loop, eg after a transient read error) would find the same range
+	 * already allocated and fail immediately instead of trying again.
+	 */
+	elen = 0;
+	errmsg = "i/o error";
 
 	if(readn(f, &ex, sizeof(ex)) != sizeof(ex))
 		return "bad header";
@@ -441,12 +452,19 @@ bootkern(void *f)
 	 * loader code so the firmware's page tables let it run.
 	 */
 	ktext = beswal(ex.text);
-	if(efialloc((uvlong)e, PGROUND(PGROUND((uintptr)e + ktext) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e) != 0)
+	elen = PGROUND(PGROUND((uintptr)e + ktext) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e;
+	if(efialloc((uvlong)e, elen) != 0){
+		elen = 0;
 		return "cannot claim the kernel's memory range";
-	if(getcr4() & Cr4La57)
-		return "5-level paging is active, the kernel needs 4-level";
-	if(!ptclear(KBOOTLO, KBOOTHI))
-		return "firmware page tables overlap the kernel's boot area";
+	}
+	if(getcr4() & Cr4La57){
+		errmsg = "5-level paging is active, the kernel needs 4-level";
+		goto Error;
+	}
+	if(!ptclear(KBOOTLO, KBOOTHI)){
+		errmsg = "firmware page tables overlap the kernel's boot area";
+		goto Error;
+	}
 
 	t = e;
 	n = beswal(ex.text);
@@ -480,5 +498,7 @@ bootkern(void *f)
 	jump64(e);
 
 Error:
-	return "i/o error";
+	if(elen != 0)
+		efifree((uvlong)e, elen);
+	return errmsg;
 }

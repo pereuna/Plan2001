@@ -18,14 +18,17 @@ bind -b $d/inc /sys/include
 bind -c $d/9 /sys/src/9
 cd /sys/src/9/pc64
 time mk >$d/kernel.log >[2=1]
-echo kernel mk status: $status
+st = $status
+echo kernel mk status: $st
 tail -3 $d/kernel.log
-if(test -f 9pc64) {
-	size 9pc64
-	md5sum 9pc64
-	cp 9pc64 $hostbuild/9pc64
-}
 cp $d/kernel.log $hostbuild/kernel.log
+if(! ~ $st '' || ! test -f 9pc64){
+	echo KERNEL BUILD FAILED
+	exit kernel-build-failed
+}
+size 9pc64
+md5sum 9pc64
+cp 9pc64 $hostbuild/9pc64
 
 echo '### loader: overlay our changed boot/efi files onto the VM tree'
 dircp /sys/src/boot/efi $d/efi
@@ -33,11 +36,14 @@ cp $hostsrc/sys/src/boot/efi/^(x64.s efi.c efi.h fns.h mem.h sub.c) $d/efi
 bind -c $d/efi /sys/src/boot/efi
 cd /sys/src/boot/efi
 mk bootx64.efi >$d/loader.log >[2=1]
-echo loader mk status: $status
-if(test -f bootx64.efi) {
-	md5sum bootx64.efi
-	cp bootx64.efi $hostbuild/bootx64.efi
-}
+st = $status
+echo loader mk status: $st
 cp $d/loader.log $hostbuild/loader.log
+if(! ~ $st '' || ! test -f bootx64.efi){
+	echo LOADER BUILD FAILED
+	exit loader-build-failed
+}
+md5sum bootx64.efi
+cp bootx64.efi $hostbuild/bootx64.efi
 
 echo BUILD-DONE
