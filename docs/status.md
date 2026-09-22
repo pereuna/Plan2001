@@ -29,8 +29,17 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   - TSC-taajuus mitataan loaderissa ja tulostetaan ristiintarkistukseksi kernelin
     omalle PIT/HPET-kalibroinnille (ei korvaa sitä — ks. commit `e70690f` miksi).
   - RTC-aika luetaan UEFI:n `GetTime`stä ja asetetaan kellolle heti bootissa.
-  - **Ei tehty:** GOP:n `SetMode` (natiivi tarkkuus). Riski `bootfb`-diagnostiikkakanavalle
-    raudalla ilman sarjaporttia; tehdään vasta nopeamman testisilmukan kanssa.
+  - GOP:n `SetMode` natiiviin/suurimpaan tarkkuuteen (commit `a93c397`): loader
+    käy läpi kaikki valitun näytönohjaimen tarjoamat tilat `QueryMode`:lla ja
+    vaihtaa suurimpaan käyttökelpoiseen ennen kehysmuistin parametrien lukua.
+    Ei kohtalokas jos epäonnistuu (`bootfb` piirtää vain pieniä merkkejä missä
+    tahansa resoluutiossa, ja UEFI-spesifikaation mukaan epäonnistunut
+    `SetMode` jättää `gop->Mode`n koskemattomaksi, joten palataan aiemmin jo
+    validoituun tilaan). QEMU-testattu (stdvga vaihtoi 2048x2048x32:een,
+    merkit piirtyvät oikein) — VM:lle asennus/uudelleenkäynnistys jäi tekemättä
+    tällä kertaa: `dossrv` jumiutui toistuvasti `Pread`-tilaan ESP-osiota
+    (`/dev/sdE0/esp`) vasten, riippumaton tästä koodimuutoksesta. Raudalla
+    testaus on seuraava askel.
 - **Rakenteen siivous.** `pcboot`-minimikernel ja koko `9front-x64-boot/`-
   peilihakemisto poistettu. `sys/`-hakemistossa on nyt vain tiedostot, joita olemme
   oikeasti kirjoittaneet tai muokanneet (ks. README). Windows-VM otettu takaisin
@@ -84,7 +93,9 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 
 ## Tunnetut avoimet asiat
 
-- **GOP:n `SetMode` (natiivi tarkkuus) tekemättä** — siirretty vaiheesta 1, ks. yllä.
+- **Raudalla testaus GOP `SetMode`in jälkeen** — tehty ja QEMU-testattu (ks.
+  vaihe 1 yllä), mutta VM-asennus/reboot-kierros jäi kesken ESP-osion
+  `dossrv`-jumiutumisen takia. Ei vielä varmistettu oikealla raudalla.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
   32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit
