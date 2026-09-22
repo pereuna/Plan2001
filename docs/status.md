@@ -57,6 +57,25 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
     myös asennettu VM:lle ja käynnistetty uudelleen täyteen userlandiin
     (cpu+auth-palvelut tarkistettu).
 
+- **Ulkoinen katselmointi ("Codex Astra", 22.9.2026).** 9 löydöstä, kaikki
+  itsenäisesti varmistettu koodista (yksi myös UEFI-spesifikaatiosta). 8/9 korjattu
+  kahdessa committissa (`7f50e9a`, `bc7b88b`): RTC:n aikavyöhykkeen etumerkki oli
+  väärinpäin (oma vaihe 1 -bugi), `memreserve()` pyöristi osasivuvaraukset alaspäin
+  eikä ylös (nollasi ne, jos varaus alkoi sivurajalta — osui joka bootissa
+  `archacpi.c`:n RSDP-varaukseen), `plan9.ini`-rivien rajoittamaton jäsennys
+  (`bootfile=` saattoi ylivuotaa 128-tavuisen pinopuskurin), `bootinfoinit()`
+  hyväksyi ennen myös tyhjän/katkenneen muistikartan (sulki `ramscan()`-varapolun
+  pysyvästi), loader varaa nyt matalan muistin alueensa (`CONFADDR..BOOTSCRATCHEND`)
+  UEFI:ltä ennen kirjoitusta (**varmistettu empiirisesti: OVMF kieltäytyy tästä
+  varauksesta joka kerta** — huoli oli siis todellinen, ei vain teoreettinen; ei
+  silti kohtalokas, boot jatkuu normaalisti), `reboot()` paniikkaa nyt ennen mitään
+  palautumatonta laitesammutusta (ks. alla, ei korjaa itse 32-bittistä luovutusta),
+  `bootkern()` vapauttaa `efialloc()`-muistin jokaisessa virhepolussa, `build.rc`
+  keskeytyy `mk`-epäonnistumisesta sen sijaan että aina tulostaisi `BUILD-DONE`n.
+  Yhdeksäs löydös (bootfb:n pikselimerkkien automaattitarkistus `test-qemu.sh`:ssa)
+  jätetty tarkoituksella tekemättä käyttäjän omasta valinnasta — tarkistetaan
+  manuaalisesti QEMU:sta tarvittaessa.
+
 ## Seuraavaksi
 
 Vaiheen 2 neljä tunnistettua ehdokasta on tehty. Jatkoehdokkaita ei ole vielä
@@ -65,8 +84,17 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 
 ## Tunnetut avoimet asiat
 
+- **GOP:n `SetMode` (natiivi tarkkuus) tekemättä** — siirretty vaiheesta 1, ks. yllä.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
-  32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. Ei vielä
-  korjattu (ks. commit `409edd0`).
-- `BootInfo`-muistikartta on rajattu 600 riviin (`BootInfoMaxMem`); ylivuodosta
-  asetetaan lippu, mutta kernel ei vielä reagoi siihen.
+  32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
+  paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit
+  `bc7b88b`) — turvallista, mutta itse 64-bittinen kexec-luovutus on yhä
+  kirjoittamatta; `/dev/reboot` ei toimi ollenkaan ennen sitä.
+- `BootInfo`-muistikartta on rajattu 600 riviin (`BootInfoMaxMem`). Kernel **reagoi**
+  nyt ylivuotoon (`bootinfoinit()` pysäyttää koneen, commit `bc7b88b`) sen sijaan
+  että käyttäisi katkennutta karttaa hiljaa — mutta itse 600 rivin riittävyyttä
+  oikealla, pirstoutuneella UEFI-muistikartalla ei ole vielä arvioitu.
+- Vaihe 1+2 on QEMU- ja VM-testattu, mutta ei vielä oikealla raudalla (vain vaihe
+  A/B on). `pcboot`-pikatestikitti on vanhentunut rakenteen jälkeen; raudalla
+  testaus vaatii `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin
+  muistitikulle (ks. README).
