@@ -69,6 +69,12 @@ TEXT getcr4(SB), 1, $-4
 	MOVQ	CR4, AX
 	RET
 
+TEXT rdtsc(SB), 1, $-4
+	RDTSC
+	SHLQ	$32, DX
+	ORQ	DX, AX
+	RET
+
 TEXT _idtptr64p<>(SB), 1, $-4
 	WORD	$0
 	QUAD	$0

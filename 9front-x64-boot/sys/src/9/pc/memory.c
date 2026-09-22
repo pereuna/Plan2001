@@ -342,10 +342,14 @@ mtrrexclude(int type, char *expect)
 }
 
 /*
- * UEFI memory type to our memory map kinds, as the loader used to convert
- * them to e820 types: loader code and data and conventional memory are RAM,
- * ACPI reclaimable memory is kept apart, and everything else that matters is
- * reserved.  Boot services memory stays reserved for now.  -1: not mapped.
+ * UEFI memory type to our memory map kinds.  Loader and boot services code
+ * and data, and conventional memory, are RAM: the firmware's own bootexit()
+ * has already called ExitBootServices by the time the kernel sees this map,
+ * and the UEFI specification says boot services memory becomes ordinary
+ * available memory at that point (unlike runtime services memory, which the
+ * firmware may still use if we ever call SetVirtualAddressMap).  ACPI
+ * reclaimable memory is kept apart; everything else that matters is
+ * reserved.  -1: not mapped.
  */
 static int
 bootmemkind(u32int type)
@@ -353,13 +357,13 @@ bootmemkind(u32int type)
 	switch(type){
 	case BootMemLoaderCode:
 	case BootMemLoaderData:
+	case BootMemBootCode:
+	case BootMemBootData:
 	case BootMemConventional:
 		return MemRAM;
 	case BootMemACPIReclaim:
 		return MemACPI;
 	case BootMemReserved:
-	case BootMemBootCode:
-	case BootMemBootData:
 	case BootMemRuntimeCode:
 	case BootMemRuntimeData:
 	case BootMemUnusable:

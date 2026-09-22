@@ -209,9 +209,11 @@ main(void)
 	mmuinit();
 	if(arch->intrinit)
 		arch->intrinit();
+	bootinforandinit();
 	timersinit();
 	if(arch->clockenable)
 		arch->clockenable();
+	bootinfoclock();
 	procinit0();
 	initseg();
 	links();

@@ -10,7 +10,7 @@
  */
 enum {
 	BootInfoMagic	= 0x464e4942,	/* "BINF" */
-	BootInfoVersion	= 1,
+	BootInfoVersion	= 2,
 	BootInfoMaxMem	= 600,		/* memory map entries; typical firmware has 50-200 */
 };
 
@@ -56,6 +56,17 @@ struct BootInfo {
 	u32int	flags;
 
 	u64int	acpi;		/* physical address of the ACPI RSDP, 0 if none */
+
+	u64int	tscfreq;	/* TSC frequency in Hz, measured by the loader; 0 if unknown */
+	u64int	epoch;		/* UTC seconds since 1970, from UEFI GetTime; 0 if unknown */
+
+	/*
+	 * Entropy from EFI_RNG_PROTOCOL, rngseedlen bytes valid (0 if the
+	 * protocol was not found).  The kernel zeroes this once it has used
+	 * it, so it does not sit around in low memory as a readable secret.
+	 */
+	uchar	rngseed[64];
+	u32int	rngseedlen;
 
 	/* linear framebuffer from the UEFI graphics output protocol; fbbase is 0 if none */
 	u64int	fbbase;

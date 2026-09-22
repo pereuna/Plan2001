@@ -171,6 +171,8 @@ void*	vmap(uvlong, vlong);
 /* pc/bootinfo.c: what the UEFI loader told us, see sys/include/bootinfo.h */
 extern BootInfo*	bootinfo;
 void	bootinfoinit(void);
+void	bootinforandinit(void);
+void	bootinfoclock(void);
 
 /* pc/bootfb.c: boot progress markers on the UEFI framebuffer */
 enum { BMMain, BMMem, BMDevs, BMUser, BMExec, BMPanic };

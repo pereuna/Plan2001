@@ -129,6 +129,83 @@ Left:
 	return 0;
 }
 
+/*
+ * TSC frequency, measured against the firmware's own timer (Stall).  Not as
+ * accurate as the kernel's own HPET-based measurement, but available before
+ * any kernel code runs, and a sanity check for it.  0 if RDTSC is not usable
+ * this early for some reason; the kernel falls back to its own calibration.
+ */
+static void
+tscconf(void)
+{
+	uvlong t0, t1;
+	enum { Ms = 50 };
+
+	t0 = rdtsc();
+	eficall(ST->BootServices->Stall, (UINTN)(Ms*1000));
+	t1 = rdtsc();
+	if(t1 > t0)
+		bi->tscfreq = (t1 - t0) * 1000 / Ms;
+}
+
+/*
+ * Wall clock time from the runtime service, callable before boot services
+ * end.  civilsecs converts a Gregorian date to seconds since 1970-01-01 UTC,
+ * using days_from_civil (Howard Hinnant, public domain) for the date part;
+ * TimeZone is minutes the local time is ahead of UTC, or unspecified
+ * (already UTC, the common case for firmware that keeps the RTC in UTC).
+ */
+static uvlong
+civilsecs(EFI_TIME *t)
+{
+	int y, era, yoe, doy, doe;
+	long days;
+
+	y = t->Year - (t->Month <= 2);
+	era = (y >= 0? y: y-399) / 400;
+	yoe = y - era*400;
+	doy = (153*(t->Month + (t->Month > 2? -3: 9)) + 2)/5 + t->Day-1;
+	doe = yoe*365 + yoe/4 - yoe/100 + doy;
+	days = era*146097L + doe - 719468;
+
+	return (uvlong)days*24*3600 + t->Hour*3600 + t->Minute*60 + t->Second;
+}
+
+static void
+timeconf(void)
+{
+	EFI_TIME t;
+
+	if(eficall(ST->RuntimeServices->GetTime, &t, nil))
+		return;
+	bi->epoch = civilsecs(&t);
+	if(t.TimeZone != EfiUnspecifiedTimeZone)
+		bi->epoch -= t.TimeZone*60;
+}
+
+/*
+ * Entropy from the firmware's RNG, if it has one; otherwise rngseedlen stays
+ * 0 and the kernel's own entropy collection is unaffected.
+ */
+static void
+rngconf(void)
+{
+	static EFI_GUID EFI_RNG_PROTOCOL_GUID = {
+		0x3152bca5, 0xeade, 0x433d,
+		0x86, 0x2e, 0xc0, 0x1c,
+		0xdc, 0x29, 0x1f, 0x44,
+	};
+	EFI_RNG_PROTOCOL *rng;
+	UINTN len;
+
+	rng = nil;
+	if(eficall(ST->BootServices->LocateProtocol, &EFI_RNG_PROTOCOL_GUID, nil, &rng) || rng == nil)
+		return;
+	len = sizeof(bi->rngseed);
+	if(eficall(rng->GetRNG, rng, nil, len, bi->rngseed) == 0)
+		bi->rngseedlen = len;
+}
+
 static void
 acpiconf(void)
 {
@@ -323,6 +400,9 @@ eficonfig(void)
 	/* the memory map is added by bootexit(), right before leaving boot services */
 	acpiconf();
 	screenconf();
+	tscconf();
+	timeconf();
+	rngconf();
 }
 
 EFI_STATUS

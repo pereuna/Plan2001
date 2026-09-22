@@ -252,5 +252,29 @@ typedef struct {
 	EFI_CONFIGURATION_TABLE	*ConfigurationTable;
 } EFI_SYSTEM_TABLE;
 
+
+typedef struct {
+	UINT16	Year;
+	UINT8	Month;
+	UINT8	Day;
+	UINT8	Hour;
+	UINT8	Minute;
+	UINT8	Second;
+	UINT8	Pad1;
+	UINT32	Nanosecond;
+	short	TimeZone;
+	UINT8	Daylight;
+	UINT8	Pad2;
+} EFI_TIME;
+
+enum {
+	EfiUnspecifiedTimeZone = 0x07FF,
+};
+
+typedef struct {
+	void	*GetInfo;
+	void	*GetRNG;
+} EFI_RNG_PROTOCOL;
+
 extern EFI_SYSTEM_TABLE *ST;
 extern EFI_HANDLE IH;

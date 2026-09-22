@@ -10,6 +10,7 @@ void usleep(int t);
 void jump64(void *pc);
 uvlong getcr3(void);
 uvlong getcr4(void);
+uvlong rdtsc(void);
 
 int pxeinit(void **pf);
 int isoinit(void **pf);
