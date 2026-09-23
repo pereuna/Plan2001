@@ -12,8 +12,6 @@ uvlong getcr3(void);
 uvlong getcr4(void);
 uvlong rdtsc(void);
 
-int pxeinit(void **pf);
-int isoinit(void **pf);
 int fsinit(void **pf);
 
 void* (*open)(char *name);

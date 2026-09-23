@@ -591,24 +591,25 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	}
 	print("[P2 L03] memory-map buffer: ready\n");
 
+	/*
+	 * Plan2001 is UEFI-only: boot exclusively from the Simple File System
+	 * volume this image was itself loaded from (fsinit(), which also
+	 * falls back to scanning other SFS volumes for plan9.ini if that
+	 * specific one doesn't have it - see fs.c). No PXE or ISO9660
+	 * fallback: on real firmware, isoinit()'s BlockIO/PVD scan alone
+	 * cost tens of seconds to a minute of boot time (confirmed on a Dell
+	 * Precision T5600), and neither ever applies to how Plan2001 is
+	 * actually deployed (a USB/ESP volume). A missing boot filesystem is
+	 * fatal and reported plainly, not silently chained to another probe.
+	 */
 	f = nil;
-	print("[P2 L04] boot device: probe PXE\n");
-	if(pxeinit(&f) == 0)
-		print("[P2 L04] boot device: PXE selected\n");
-	else{
-		print("[P2 L04] boot device: probe ISO\n");
-		if(isoinit(&f) == 0)
-			print("[P2 L04] boot device: ISO selected\n");
-		else{
-			print("[P2 L04] boot device: probe filesystem\n");
-			if(fsinit(&f) == 0)
-				print("[P2 L04] boot device: filesystem selected\n");
-			else
-				print("no boot devices\n");
-		}
+	print("[P2 L04] boot filesystem: open\n");
+	if(fsinit(&f) != 0){
+		print("[P2 L04] FATAL: boot filesystem unavailable\n");
+		for(;;)
+			;
 	}
-	if(open == nil)
-		print("no boot devices\n");
+	print("[P2 L04] boot filesystem: ready\n");
 
 	print("[P2 L11] rebase boot-device callbacks\n");
 	open = rebase(open);

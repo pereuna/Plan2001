@@ -102,6 +102,32 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   1–4 magentaa ruutua framebufferin vasemmassa alakulmassa. QEMU-testattu
   `bootargs`-kehotteeseen asti; T5600:n uusintatesti on seuraava askel.
 
+- **Legacy-boot-lähteet pois loaderista (23.9.2026, ohje
+  `Plan2001Plan/legacy_pois_loaderista.txt`).** "Legacy cleanup" ei tarkoita enää
+  vain kernelin BIOS-era-laitteistopolkuja — myös UEFI-loaderin oma vanha
+  monilähteinen boot-probe oli samaa periaatetta vastaan. `efimain()` kokeili
+  ennen järjestyksessä `pxeinit()` → `isoinit()` → `fsinit()`. `isoinit()`in
+  ISO9660 PVD -haku skannaa BlockIO-laitteita jopa tuhansilla synkronisilla
+  `ReadBlocks`-kutsuilla; oikealla, vanhemmalla T5600-firmwarella tästä syntyi
+  kymmenien sekuntien lisäviive jokaiseen testisykliin, vaikka Plan2001
+  käynnistyy aina samalta UEFI Simple File System -volyymilta kuin
+  `BOOTX64.EFI` itse. Poistettu: `pxeinit()`/`isoinit()`-kutsut ja niiden
+  prototyypit; `pxe.c`/`iso.c` pudotettu `bootx64.efi`:n `mkfile`-riviltä
+  (tiedostot itse jäävät VM:n puuhun koskemattomina — `ia32`/`aa64`-kohteet,
+  joita Plan2001 ei rakenna, käyttävät niitä yhä). `fsinit()` (nyt seurattu
+  tiedostona `fs.c`) on ainoa boot-lähde: se avaa ensisijaisesti sen SFS-
+  volyymin, jolta loader itse ladattiin (`LoadedImageProtocol` →
+  `DeviceHandle` → `SimpleFileSystemProtocol` → `OpenVolume`), ja vasta jos
+  siltä ei löydy `plan9.ini`ta, skannaa muut SFS-volyymit (tätä toissijaista
+  polkua ei poistettu — se on halpa, ei BlockIO-tason skannausta, eikä siis
+  sama ongelma kuin `isoinit()`). Epäonnistuminen on nyt suoraan kohtalokas
+  (`[P2 L04] FATAL: boot filesystem unavailable`, pysähtyy) sen sijaan että
+  jatkaisi ketjussa. Samalla `fsread()`in lukukoko nostettiin 4096 tavusta 64
+  KiB:iin — pienempi, mutta samaa syytä vastaan (vähemmän synkronisia EFI
+  `File.Read`-kutsuja kernelin lataukseen). QEMU-testattu: `[P2 L04] boot
+  filesystem: open` → `ready` suoraan, ei PXE/ISO-rivejä, `bootargs`-kehote
+  saavutettu kuten ennen, `bootx64.efi` pieneni (n. 15.8 KB → 13.6 KB).
+
 ## Seuraavaksi
 
 Vaiheen 2 neljä tunnistettua ehdokasta on tehty. Jatkoehdokkaita ei ole vielä

@@ -32,7 +32,7 @@ cp 9pc64 $hostbuild/9pc64
 
 echo '### loader: overlay our changed boot/efi files onto the VM tree'
 dircp /sys/src/boot/efi $d/efi
-cp $hostsrc/sys/src/boot/efi/^(x64.s efi.c efi.h fns.h mem.h sub.c) $d/efi
+cp $hostsrc/sys/src/boot/efi/^(x64.s efi.c efi.h fns.h mem.h sub.c fs.c mkfile) $d/efi
 bind -c $d/efi /sys/src/boot/efi
 cd /sys/src/boot/efi
 mk bootx64.efi >$d/loader.log >[2=1]
