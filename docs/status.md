@@ -90,17 +90,29 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   todettu "OVMF kieltäytyy joka kerta" ei johtunutkaan siitä, että alue olisi
   varattu — `CONFADDR` (`0x1200`) ei ole sivukohdistettu, joten
   `AllocateAddress`-pyyntö oli itsessään virheellinen ja UEFI:n **piti** hylätä
-  sen. Commit `cf23532` kohdisti pyynnön sivulle `BOOTSCRATCHBASE` (`0x1000`),
-  mutta teki myös hylkäyksestä kohtalokkaan. T5600 hylkäsi kohdistetunkin
-  pyynnön, joten loader jäi omaan ikuiseen virhesilmukkaansa ennen levyn tai
-  kernelin avaamista. Tämä politiikka on nyt peruttu: varausta yritetään ja
-  tulos tulostetaan, mutta hylkäyksen jälkeen jatketaan upstream-9frontin
-  kiinteällä low-memory-handoffilla. Lisäksi 96 KiB:n lopullinen UEFI-muistikartta
-  ei enää ole firmwaren antamassa pinossa vaan ennakkoon varatussa
-  `EfiLoaderData`-poolissa. Loader tulostaa yksilöllisen build-tunnisteen ja
-  numeroidut vaiheet `L01`–`L25`; `ExitBootServices`in jälkeen etenemisen näyttää
-  1–4 magentaa ruutua framebufferin vasemmassa alakulmassa. QEMU-testattu
-  `bootargs`-kehotteeseen asti; T5600:n uusintatesti on seuraava askel.
+  sen. Commit `cf23532` kohdisti pyynnön sivulle `BOOTSCRATCHBASE` (`0x1000`)
+  ja pysäytti koneen, jos varaus silti hylätään. Lisäksi 96 KiB:n lopullinen
+  UEFI-muistikartta ei enää ole firmwaren antamassa pinossa vaan ennakkoon
+  varatussa `EfiLoaderData`-poolissa. Loader tulostaa yksilöllisen
+  build-tunnisteen ja numeroidut vaiheet `L01`–`L25`; `ExitBootServices`in
+  jälkeen etenemisen näyttää 1–4 magentaa ruutua framebufferin vasemmassa
+  alakulmassa.
+
+  **Korjaus/korjaus (23.9.2026, myöhemmin samana päivänä).** Commit `5fc5e4d`
+  perui pysäytyksen väittäen "T5600 hylkäsi kohdistetunkin pyynnön" — tälle
+  väitteelle ei löydy tukea mistään: itse committiviesti mainitsee vain
+  QEMU-testauksen, eikä `Plan2001Plan/`-hakemistossa ole mitään raporttia
+  kohdistetun pyynnön testaamisesta oikealla raudalla. Ainoa koskaan havaittu
+  hylkäys (sekä QEMU:ssa että T5600:lla) koski vanhaa **kohdistamatonta**
+  pyyntöä, jonka UEFI-spesifikaatio pakottaa hylkäämään riippumatta siitä,
+  mitä osoitteessa oikeasti on — se ei siis todista mitään kohdistetusta
+  pyynnöstä. Pysäytys on nyt palautettu (commit tämän jälkeen): jos firmware
+  joskus oikeasti hylkää kohdistetunkin pyynnön, se kertoo että muisti on
+  jonkin muun käytössä, ja sinne kirjoittaminen silti (kuten upstream-9frontin
+  BIOS-ajan loader teki, kysymättä koskaan ensin) on todellinen, ei
+  hypoteettinen, korruptioriski. QEMU-testattu `bootargs`-kehotteeseen asti;
+  T5600:n testaus on seuraava askel — se kertoo nyt myös vastauksen siihen,
+  hylkääkö T5600 ylipäätään kohdistetun pyynnön.
 
 - **Legacy-boot-lähteet pois loaderista (23.9.2026, ohje
   `Plan2001Plan/legacy_pois_loaderista.txt`).** "Legacy cleanup" ei tarkoita enää

@@ -571,17 +571,25 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 * must reserve from BOOTSCRATCHBASE (0x1000), not CONFADDR, or the
 	 * request is simply invalid and firmware is right to refuse it.
 	 *
-	 * Some x86 firmware marks the traditional low-memory handoff pages as
-	 * reserved and therefore refuses AllocateAddress even though this is the
-	 * ABI location used by upstream 9front. Failure is diagnostic, not fatal:
-	 * retain the established fixed-address handoff instead of deliberately
-	 * hanging in the loader before a kernel is even opened.
+	 * This is not optional. A refusal of this now-correctly-aligned
+	 * request is not known to have ever actually happened on real
+	 * hardware: the only refusal observed so far (in QEMU and on a Dell
+	 * Precision T5600) was of the OLD misaligned request, which the spec
+	 * guarantees must fail regardless of what is really at that address
+	 * - that is not evidence about this aligned one. If firmware ever
+	 * does refuse this request, it is saying that memory may be in use
+	 * for something else; writing BOOTLINE/BOOTARGS/BootInfo there
+	 * anyway (as upstream 9front's BIOS-era loader always did, without
+	 * ever asking first) is a real corruption risk, not a hypothetical
+	 * one, so halt here rather than guess.
 	 */
 	print("[P2 L02] low scratch: AllocateAddress 0x1000..0x7000\n");
-	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0)
-		print("[P2 L02] low scratch: firmware refused; continuing with fixed handoff\n");
-	else
-		print("[P2 L02] low scratch: claimed\n");
+	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0){
+		print("[P2 L02] FATAL: firmware refused low scratch reservation\n");
+		for(;;)
+			;
+	}
+	print("[P2 L02] low scratch: claimed\n");
 
 	print("[P2 L03] memory-map buffer: AllocatePool 96 KiB\n");
 	if(bootmapinit() != 0){
