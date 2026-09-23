@@ -122,11 +122,28 @@ efiallocany(uvlong len, int memtype)
  */
 enum {
 	MapBufSize = 96*1024,
-	MarkSize = 12,
-	MarkGap = 8,
-	MarkMargin = 16,
+	/*
+	 * Same grid as sys/src/9/pc/bootfb.c's (Size/Gap/Margin), continued
+	 * by it at slot LoaderMarks (its own constant, kept in sync by
+	 * comment, same as this one): one shared top-left marker row
+	 * spanning the whole boot, not two separate marker areas.
+	 */
+	MarkSize = 8,
+	MarkGap = 2,
+	MarkMargin = 2,
 };
 static uchar *mapbuf;
+
+/*
+ * One colour per stage (1=EBS start, 2=EBS done, 3=jump; 4=kernel entry is
+ * drawn from l.s, in assembly, as plain magenta - the one colour that reads
+ * the same in either channel order, so it doesn't need this table).
+ */
+static ulong markcolor[3] = {
+	0x0000FF,	/* EBS start: blue */
+	0x00FFFF,	/* EBS done: cyan */
+	0xFFFF00,	/* jump: yellow */
+};
 
 int
 bootmapinit(void)
@@ -138,15 +155,15 @@ bootmapinit(void)
 
 /*
  * UEFI text output is gone after ExitBootServices. Leave visible progress
- * markers at the bottom-left of a 32-bit GOP framebuffer instead: one before
+ * markers at the top-left of a 32-bit GOP framebuffer instead: one before
  * ExitBootServices, two after it returns, three before jump64, and four from
- * the first instructions of the kernel entry. Magenta is the same value in
- * the two common RGB/BGR byte orders.
+ * the first instructions of the kernel entry - slots 0..3 of the shared
+ * marker row bootfb.c continues (see MarkSize's comment above).
  */
 void*
 fbmarkaddr(int stage)
 {
-	UINT32 x, y;
+	UINT32 x;
 
 	if(bi->fbbase == 0 || bi->fbdepth != 32 || bi->fbstride == 0
 	|| bi->fbwidth == 0 || bi->fbheight < MarkMargin+MarkSize
@@ -155,8 +172,7 @@ fbmarkaddr(int stage)
 	x = MarkMargin + (stage-1)*(MarkSize+MarkGap);
 	if(x+MarkSize > bi->fbwidth)
 		return nil;
-	y = bi->fbheight - MarkMargin - MarkSize;
-	return (UINT32*)(uintptr)bi->fbbase + (uvlong)y*bi->fbstride + x;
+	return (UINT32*)(uintptr)bi->fbbase + (uvlong)MarkMargin*bi->fbstride + x;
 }
 
 ulong
@@ -170,15 +186,19 @@ fbmark(int stage)
 {
 	volatile UINT32 *p;
 	volatile UINT32 *row;
+	ulong c;
 	int x, y;
 
 	p = fbmarkaddr(stage);
 	if(p == nil)
 		return;
+	c = stage>=1 && stage<=3? markcolor[stage-1]: 0x00ff00ff;
+	if(memcmp(bi->fbchan, "x8b8g8r8", 8) == 0)
+		c = (c & 0x00FF00) | (c>>16 & 0xFF) | (c & 0xFF)<<16;
 	for(y = 0; y < MarkSize; y++){
 		row = p + (uvlong)y*bi->fbstride;
 		for(x = 0; x < MarkSize; x++)
-			row[x] = 0x00ff00ff;
+			row[x] = c;
 	}
 }
 
@@ -574,18 +594,37 @@ eficonfig(void)
 void
 bootrelocate(void)
 {
+	bi->logbase = logbuf != nil? (uvlong)(uintptr)logbuf: 0;
+	bi->logsize = logused;
 	memmove((void*)CONFADDR, confaddr, BOOTINFO-CONFADDR);
 	memmove((void*)BOOTINFO, bi, BOOTSCRATCHEND-BOOTINFO);
 }
+
+enum {
+	LogCap = 4096,
+};
 
 EFI_STATUS
 efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 {
 	char path[MAXPATH], *kern;
 	void *f;
+	uvlong la;
 
 	IH = ih;
 	ST = st;
+
+	/*
+	 * Set up print()'s capture buffer before the very first print, so
+	 * nothing is missed. Not fatal if this fails - logbuf just stays
+	 * nil and print() skips capturing, same as any other diagnostic
+	 * convenience that isn't essential to booting.
+	 */
+	if((la = efiallocany(LogCap, EfiLoaderData)) != 0){
+		logbuf = (char*)la;
+		logcap = LogCap;
+	}
+
 	print("[P2 L01] Plan2001 loader 2026-09-23 debug-1\n");
 
 	/*

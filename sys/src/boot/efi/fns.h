@@ -30,6 +30,8 @@ void *fbmarkaddr(int stage);
 ulong fbmarkpitch(void);
 
 extern char *confaddr;
+extern char *logbuf;
+extern int logcap, logused;
 
 int getc(void);
 void putc(int c);

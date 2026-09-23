@@ -21,10 +21,22 @@ tracehex(char *label, uvlong value)
 	print(buf);
 }
 
+/*
+ * Capture buffer for print()'s own text, set up by efimain() before
+ * anything is printed (see logbuf's declaration in fns.h). logbuf stays
+ * nil - capture is simply skipped - if that allocation failed; this is
+ * diagnostic convenience, never fatal.
+ */
+char *logbuf;
+int logcap;
+int logused;
+
 void
 print(char *s)
 {
 	while(*s != 0){
+		if(logbuf != nil && logused < logcap)
+			logbuf[logused++] = *s;
 		if(*s == '\n')
 			putc('\r');
 		putc(*s++);
@@ -517,7 +529,7 @@ bootkern(void *f)
 	if(stop) (*stop)();
 	print("[P2 L23] boot device stopped\n");
 
-	print("[P2 L24] framebuffer markers: bottom-left 1=EBS start 2=EBS done 3=jump 4=kernel entry\n");
+	print("[P2 L24] framebuffer markers: top-left 1=EBS start 2=EBS done 3=jump 4=kernel entry\n");
 	print("[P2 L24] boot\n");
 	fbmark(1);
 

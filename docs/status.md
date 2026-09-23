@@ -256,6 +256,51 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   Kokeilun tuotokset (`images/t5600-live-isoroot/`, ISO-tiedostot)
   poistettu.
 
+- **Käynnistysnäytön siivous: yksi merkkirivi, splash pois, loaderin teksti
+  säilyy (23.9.2026).** Aiemmin oli kaksi erillistä merkkijärjestelmää
+  (loaderin 4 magentaa ruutua alavasemmalla, kernelin 5 ruutua ylävasemmalla)
+  ja lisäksi `pc/vga.c`:n koristeellinen "Plan 9 Console" -laatikko
+  (turkoosi tausta, musta reunus, harmaa otsikkopalkki), joka sekä hukkasi
+  ruututilaa että peitti kaiken loaderin oman `[P2 Lxx]`-tekstin heti kun
+  kernelin konsoli alustui — se piirtää oman puskurinsa tyhjästä, ei jatka
+  loaderin UEFI ConOut -tulostetta.
+  - **Yksi yhteinen merkkirivi.** `bootfb.c` jatkaa nyt loaderin riviä
+    kohdasta `LoaderMarks` (=4) eikä aloita omaa riviään alusta; loader
+    (`efi.c`) siirsi omat merkkinsä alavasemmalta ylävasemmalle, samaan
+    ruudukkoon (`Margin`/`Size`/`Gap`, synkassa kommentein kahden
+    tiedoston välillä, koska ne käännetään erikseen). Molemmat pienensivät
+    ruudut 24px→8px, marginaalin 16px→2px — rivi vie nyt ~90×12px, ei enää
+    huomattavaa ruututilaa. Jokaisella 9 vaiheella (4 loaderin + 5 kernelin)
+    on oma värinsä (`markcolor[]` efi.c:ssä, `stagecolor[]` bootfb.c:ssä) —
+    bugitilanteessa viimeinen nähty väri kertoo täsmälleen minne päästiin,
+    ei tarvitse laskea ruutuja. Loaderin vaihe 4 (kernel entry, piirretään
+    `l.s`:stä assemblerilla ennen C-koodia) pysyy magentana, koska se on
+    symmetrinen RGB/BGR-kanavajärjestyksessä eikä siis tarvitse
+    kanavatarkistusta assembly-tasolla.
+  - **`vga.c` (nyt seurattu tiedostona) splash pois.** `vgascreenwin()`
+    piirtää enää tasaisen taustan (ei laatikkoa/reunusta/otsikkoa) ja jättää
+    `bootmarkheight()`in verran tilaa ylös koskemattomaksi merkkiriville.
+  - **Loaderin teksti säilyy kernelin konsolissa.** Uusi `BootInfo`-kenttä
+    `logbase`/`logsize` (versio 2→3, käyttää jo varattua `rsvd[]`-tilaa —
+    `mem[]`-budjettiin ei koskettu). Loaderin `print()` (`sub.c`) tallentaa
+    jokaisen tulostetun merkin myös 4 KiB:n `AllocateAnyPages`-puskuriin
+    (`efimain()` varaa tämän ennen ensimmäistäkään tulostetta);
+    `bootrelocate()` kirjoittaa lopullisen osoitteen/pituuden `bi`:hin ennen
+    kiinteään `BOOTINFO`-osoitteeseen kopiointia. Kernelin puolella uusi
+    `bootlogtext()` (`bootfb.c`, sama `vmap()`-kuvio kuin framebufferille)
+    palauttaa tämän tekstin; `vgascreenwin()` toistaa sen ENNEN `kmesg`in
+    omaa replaytä, joten loaderin `[P2 Lxx]`-rivit näkyvät ensin ja
+    kernelin omat viestit jatkuvat niiden perään, samalla ruudulla.
+  - **Kolme saraketta scrollauksen sijaan.** `vga.c`:n `vgascroll()`
+    kirjoitettiin uusiksi: pohjaan törmätessä siirrytään seuraavaan
+    sarakkeeseen (`Ncol`=3) tyhjentämättä mitään, ja vasta kaikkien kolmen
+    sarakkeen täytyttyä koko alue tyhjennetään ja aloitetaan sarakkeesta 0.
+    Historiaa mahtuu näkyviin 3× enemmän ennen ensimmäistä oikeaa scrollia.
+  - **QEMU-testattu ja kuvakaapattu**: kaikki `[P2 L01]`–`[P2 L25]` -rivit
+    näkyvät, `Plan 9`-banneri ja sen jälkeiset kernelin rivit jatkuvat
+    saumattomasti perään (osa jo toisessa sarakkeessa), merkkirivi on
+    pieni eikä peitä mitään. Ei vielä testattu T5600:lla.
+
 ## Seuraavaksi
 
 T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — tämä

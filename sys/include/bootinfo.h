@@ -10,7 +10,7 @@
  */
 enum {
 	BootInfoMagic	= 0x464e4942,	/* "BINF" */
-	BootInfoVersion	= 2,
+	BootInfoVersion	= 3,
 	BootInfoMaxMem	= 600,		/* memory map entries; typical firmware has 50-200 */
 };
 
@@ -78,7 +78,19 @@ struct BootInfo {
 	char	fbchan[16];	/* Plan 9 channel descriptor, eg x8r8g8b8 */
 
 	u32int	nmem;		/* entries used in mem[] */
-	u32int	rsvd[7];	/* zero */
+
+	/*
+	 * The loader's own printed text (sys/src/boot/efi/sub.c's print()),
+	 * captured as it's written so the kernel can replay it on its own
+	 * console once that's ready - otherwise it's simply gone, overwritten
+	 * by the first thing the kernel's console draws. logbase is a
+	 * physical address, like fbbase; 0 if the loader could not allocate
+	 * a capture buffer (non-fatal - see efimain()).
+	 */
+	u64int	logbase;
+	u32int	logsize;	/* bytes of text at logbase */
+
+	u32int	rsvd[4];	/* zero */
 
 	BootMem	mem[BootInfoMaxMem];
 };

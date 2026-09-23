@@ -177,6 +177,8 @@ void	bootinfoclock(void);
 enum { BMMain, BMMem, BMDevs, BMUser, BMExec, BMPanic };
 void	bootfbinit(void);
 void	bootmark(int);
+int	bootmarkheight(void);
+char*	bootlogtext(int*);
 void	vunmap(void*, vlong);
 void	wbinvd(void);
 void	writeconf(void);

@@ -10,7 +10,16 @@
  * No text, no font, no /dev/cons: a row of small squares in the top left
  * corner of the screen, one per boot stage, and a red bar when the kernel
  * panics.  Unreached stages show as dark squares, so the first dark square
- * is the stage the kernel never got past.
+ * is the stage the kernel never got past.  Each stage has its own colour
+ * (not just "reached/not reached"), so the last colour seen identifies
+ * exactly which stage was reached without needing to count squares.
+ *
+ * This row continues the loader's own marker row (sys/src/boot/efi/efi.c,
+ * x64.s): the loader draws LoaderMarks squares (its own boot stages, before
+ * and around ExitBootServices) at slots 0..LoaderMarks-1 in the same
+ * top-left grid (same Margin/Size/Gap), and the kernel's squares below
+ * continue at slot LoaderMarks - one shared strip spanning the whole boot,
+ * loader and kernel alike, instead of two separate marker areas.
  *
  * The loader passes the framebuffer in the BootInfo (fbbase, fbstride, ...;
  * see sys/include/bootinfo.h).  fbstride is the row pitch in pixels, not the
@@ -20,16 +29,28 @@
  */
 
 enum {
+	LoaderMarks = 4,	/* slots the loader already drew into, see above */
 	Nmark	= 5,		/* stages drawn as squares: BMMain..BMExec */
-	Size	= 24,		/* square size in pixels */
-	Gap	= 8,
-	Margin	= 16,
-	Barh	= Margin+Size+Margin,	/* height of the panic bar */
+	Size	= 8,		/* square size in pixels - kept small deliberately:
+				 * this row is a corner diagnostic, not meant to
+				 * spend any real screen space during boot */
+	Gap	= 2,
+	Margin	= 2,
+	Barh	= Margin+Size+Margin,	/* height of the panic bar; also the
+					 * height reserved for the whole marker
+					 * row - see bootmarkheight() */
 
 	Dark	= 0x303030,
-	White	= 0xFFFFFF,
-	Green	= 0x00FF00,
 	Red	= 0xFF0000,
+};
+
+/* one colour per stage: BMMain, BMMem, BMDevs, BMUser, BMExec */
+static u32int stagecolor[Nmark] = {
+	0x8000FF,	/* BMMain: purple */
+	0xFF0080,	/* BMMem: pink */
+	0xFFFFFF,	/* BMDevs: white */
+	0x0080FF,	/* BMUser: sky blue */
+	0x00FF00,	/* BMExec: green - the "made it to /boot/boot" colour */
 };
 
 static u32int *fb;		/* mapped framebuffer, 32 bits per pixel */
@@ -63,7 +84,18 @@ draw(int n)
 		rect(0, 0, stride, Barh, Red);
 		return;
 	}
-	rect(Margin + n*(Size+Gap), Margin, Size, Size, n == BMExec? Green: White);
+	rect(Margin + (LoaderMarks+n)*(Size+Gap), Margin, Size, Size, stagecolor[n]);
+}
+
+/*
+ * Height to reserve at the top of the screen for the marker row (loader's
+ * and this file's squares together), so a console drawn below never
+ * overlaps them. 0 if there is no framebuffer to reserve space on.
+ */
+int
+bootmarkheight(void)
+{
+	return fb == nil? 0: Barh;
 }
 
 void
@@ -98,7 +130,7 @@ bootfbinit(void)
 	conf.monitor = 1;
 
 	for(i = 0; i < Nmark; i++)
-		rect(Margin + i*(Size+Gap), Margin, Size, Size, Dark);
+		rect(Margin + (LoaderMarks+i)*(Size+Gap), Margin, Size, Size, Dark);
 	for(i = 0; i <= BMPanic; i++)
 		if(reached & 1UL<<i)
 			draw(i);
@@ -110,4 +142,27 @@ bootmark(int n)
 	reached |= 1UL<<n;
 	if(fb != nil)
 		draw(n);
+}
+
+/*
+ * The loader's own captured print() output (see sys/src/boot/efi/sub.c and
+ * bootinfo.h's logbase/logsize), so a console can replay it before its own
+ * history - otherwise those lines are simply gone once the console draws
+ * over them. *np is set to the byte count; 0/nil if the loader had nothing
+ * captured (eg its own capture-buffer allocation failed - non-fatal there
+ * too).
+ */
+char*
+bootlogtext(int *np)
+{
+	BootInfo *b;
+	void *v;
+
+	*np = 0;
+	if((b = bootinfo) == nil || b->logbase == 0 || b->logsize == 0)
+		return nil;
+	if((v = vmap(b->logbase, b->logsize)) == nil)
+		return nil;
+	*np = b->logsize;
+	return v;
 }
