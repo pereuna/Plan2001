@@ -8,6 +8,17 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here"); b=$root/build
 esp=$b/esp; rm -rf "$esp" "$b/serial.log" "$b/mon.sock" "$b/screen.ppm"; mkdir -p "$esp/EFI/BOOT"
 cp "$b/bootx64.efi" "$esp/EFI/BOOT/BOOTX64.EFI"; cp "$b/9pc64" "$esp/9pc64"
 printf 'bootfile=/9pc64\nconsole=0\n' > "$esp/plan9.ini"
+
+# Also drop the built ESP at C:\temp\esp (Windows side), so it's a plain
+# copy-to-USB-stick away for real-hardware testing - independent of whether
+# the QEMU check below passes.
+win_esp=/mnt/c/temp/esp
+if [ -d /mnt/c ]; then
+  rm -rf "$win_esp"; mkdir -p "$win_esp"
+  cp -r "$esp/." "$win_esp/"
+  echo "esp copied to C:\\temp\\esp"
+fi
+
 qemu-system-x86_64 -machine q35 -m 2048 -smp 2 -cpu max -bios /usr/share/ovmf/OVMF.fd -vga std \
   -drive file=fat:rw:"$esp",format=raw,if=none,id=esp -device ide-hd,drive=esp,bootindex=0 \
   -display none -serial file:"$b/serial.log" -monitor unix:"$b/mon.sock",server,nowait &
