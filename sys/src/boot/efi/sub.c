@@ -5,6 +5,22 @@
 
 char hex[] = "0123456789abcdef";
 
+static void
+tracehex(char *label, uvlong value)
+{
+	char buf[96], *p;
+	int n;
+
+	p = buf;
+	n = strlen(label);
+	memmove(p, label, n);
+	p += n;
+	p = hexfmt(p, 0, value);
+	*p++ = '\n';
+	*p = '\0';
+	print(buf);
+}
+
 void
 print(char *s)
 {
@@ -227,6 +243,7 @@ configure(void *f, char *path)
 	if(once){
 		once = 0;
 Clear:
+		print("[P2 L12] clear configuration and collect UEFI data\n");
 		memset(BOOTLINE, 0, BOOTLINELEN);
 
 		confend = BOOTARGS;
@@ -286,6 +303,7 @@ Loop:
 	kern = getconf("bootfile=", path, MAXPATH);
 
 	if(f != nil){
+		print("[P2 L12] plan9.ini read complete\n");
 		close(f);
 		f = nil;
 
@@ -431,6 +449,7 @@ bootkern(void *f)
 
 	if(readn(f, &ex, sizeof(ex)) != sizeof(ex))
 		return "bad header";
+	print("[P2 L14] kernel header read\n");
 
 	e = (uchar*)(beswal(ex.entry) & ~0xF0000000UL);
 	switch(beswal(ex.magic)){
@@ -446,6 +465,7 @@ bootkern(void *f)
 	default:
 		return "bad magic";
 	}
+	tracehex("[P2 L15] kernel entry physical=0x", (uvlong)e);
 
 	/*
 	 * Firmware marks free memory no-execute; claim the kernel's range as
@@ -453,10 +473,15 @@ bootkern(void *f)
 	 */
 	ktext = beswal(ex.text);
 	elen = PGROUND(PGROUND((uintptr)e + ktext) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e;
+	tracehex("[P2 L16] kernel text bytes=0x", ktext);
+	tracehex("[P2 L16] kernel data bytes=0x", beswal(ex.data));
+	tracehex("[P2 L16] kernel bss bytes=0x", beswal(ex.bss));
+	tracehex("[P2 L16] kernel allocation bytes=0x", elen);
 	if(efialloc((uvlong)e, elen) != 0){
 		elen = 0;
 		return "cannot claim the kernel's memory range";
 	}
+	print("[P2 L17] kernel memory claimed executable\n");
 	if(getcr4() & Cr4La57){
 		errmsg = "5-level paging is active, the kernel needs 4-level";
 		goto Error;
@@ -465,37 +490,54 @@ bootkern(void *f)
 		errmsg = "firmware page tables overlap the kernel's boot area";
 		goto Error;
 	}
+	print("[P2 L18] paging: 4-level and boot area clear\n");
 
 	t = e;
 	n = beswal(ex.text);
+	print("[P2 L19] load kernel text\n");
 	if(readn(f, t, n) != n)
 		goto Error;
 	t += n;
 	d = (uchar*)PGROUND((uintptr)t);
 	memset(t, 0, d - t);
 	n = beswal(ex.data);
+	print("[P2 L20] load kernel data\n");
 	if(readn(f, d, n) != n)
 		goto Error;
 	d += n;
 	t = (uchar*)PGROUND((uintptr)d);
 	t += PGROUND(beswal(ex.bss));
 	memset(d, 0, t - d);
+	print("[P2 L21] kernel loaded and bss cleared\n");
 
 	close(f);
+	print("[P2 L22] kernel file closed\n");
 
 	/* stop device */
+	print("[P2 L23] stop boot device\n");
 	if(stop) (*stop)();
+	print("[P2 L23] boot device stopped\n");
 
-	print("boot\n");
+	print("[P2 L24] framebuffer markers: bottom-left 1=EBS start 2=EBS done 3=jump 4=kernel entry\n");
+	print("[P2 L24] boot\n");
+	fbmark(1);
 
 	/* the file is closed already, so there is nothing to return to */
-	if(bootexit() != 0){
-		print("cannot leave UEFI boot services\n");
+	n = bootexit();
+	if(n != 0){
+		if(n == -1)
+			print("[P2 L25] FATAL: GetMemoryMap failed\n");
+		else if(n == -2)
+			print("[P2 L25] FATAL: ExitBootServices failed after retries\n");
+		else
+			print("[P2 L25] FATAL: memory-map buffer missing\n");
 		for(;;)
 			;
 	}
+	fbmark(2);
 
-	jump64(e);
+	fbmark(3);
+	jump64(e, fbmarkaddr(4), fbmarkpitch());
 
 Error:
 	if(elen != 0)

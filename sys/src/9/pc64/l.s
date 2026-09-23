@@ -32,6 +32,26 @@ TEXT _efi64<>(SB), 1, $-4
 	CLI
 	CLD
 
+	/*
+	 * The loader leaves R12 at the fourth progress square and R13 at the
+	 * framebuffer pitch in bytes. This is the earliest proof that the JMP
+	 * reached kernel code; both registers are scratch until much later.
+	 */
+	TESTQ	R12, R12
+	JEQ	_efimarkdone
+	MOVL	$12, BX
+_efimarkrow:
+	MOVQ	R12, DI
+	MOVL	$12, CX
+_efimarkpixel:
+	MOVL	$0x00ff00ff, (DI)
+	ADDQ	$4, DI
+	LOOP	_efimarkpixel
+	ADDQ	R13, R12
+	DECL	BX
+	JNE	_efimarkrow
+_efimarkdone:
+
 	MOVL	$_gdtptr64p<>-KZERO(SB), AX
 	MOVL	(AX), GDTR
 

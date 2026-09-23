@@ -85,25 +85,22 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   jätetty tarkoituksella tekemättä käyttäjän omasta valinnasta — tarkistetaan
   manuaalisesti QEMU:sta tarvittaessa.
 
-- **Alamuistivarauksen todellinen syy (Codex Astra, 23.9.2026, muistio
+- **Alamuistivaraus ja loader-diagnostiikka (23.9.2026, muistio
   `Plan2001Plan/claudelle-uefi-alamuisti-2026-09-23.md`).** Edellä (22.9.)
   todettu "OVMF kieltäytyy joka kerta" ei johtunutkaan siitä, että alue olisi
   varattu — `CONFADDR` (`0x1200`) ei ole sivukohdistettu, joten
   `AllocateAddress`-pyyntö oli itsessään virheellinen ja UEFI:n **piti** hylätä
-  se, myös oikealla raudalla. Koodi tulosti tämän jälkeen varoituksen ja jatkoi
-  kirjoittamalla `BOOTLINE`/`BOOTARGS`/`BootInfo`n silti varaamattomaan
-  muistiin, ennen `acpiconf()`/`screenconf()`-kutsuja. Tämä on todennäköisempi
-  selitys Dell Precision T5600:n `SetMode`-jumille kuin pelkkä viallinen
-  GOP-toteutus (ks. vaihe 1 yllä): jos firmwarella on jotain tässä
-  osoitealueessa, ylikirjoitus olisi voinut sotkea sen tilan juuri ennen
-  jumiutunutta kutsua. **Korjattu, ei vielä committoitu:** varaus tehdään nyt
-  sivukohdistetusta `BOOTSCRATCHBASE`ista (`0x1000`, uusi vakio `mem.h`:ssa) ja
-  epäonnistuminen pysäyttää koneen sen sijaan että jatkaisi (`efiallocdata()`,
-  uusi `EfiLoaderData`-varianttinsa `efialloc()`ista muistityypillä
-  parametrisoituna). QEMU-testattu: varoitusrivi ei enää tulostu, boot etenee
-  `bootargs`-kehotteeseen asti kuten ennenkin. Ei vielä testattu T5600:lla —
-  tämä on nyt ensisijainen ehdokas sille, korjaako se myös `SetMode`-jumin
-  kokonaan ilman että GOP-tilanvaihtoa tarvitsee ottaa takaisin käyttöön.
+  sen. Commit `cf23532` kohdisti pyynnön sivulle `BOOTSCRATCHBASE` (`0x1000`),
+  mutta teki myös hylkäyksestä kohtalokkaan. T5600 hylkäsi kohdistetunkin
+  pyynnön, joten loader jäi omaan ikuiseen virhesilmukkaansa ennen levyn tai
+  kernelin avaamista. Tämä politiikka on nyt peruttu: varausta yritetään ja
+  tulos tulostetaan, mutta hylkäyksen jälkeen jatketaan upstream-9frontin
+  kiinteällä low-memory-handoffilla. Lisäksi 96 KiB:n lopullinen UEFI-muistikartta
+  ei enää ole firmwaren antamassa pinossa vaan ennakkoon varatussa
+  `EfiLoaderData`-poolissa. Loader tulostaa yksilöllisen build-tunnisteen ja
+  numeroidut vaiheet `L01`–`L25`; `ExitBootServices`in jälkeen etenemisen näyttää
+  1–4 magentaa ruutua framebufferin vasemmassa alakulmassa. QEMU-testattu
+  `bootargs`-kehotteeseen asti; T5600:n uusintatesti on seuraava askel.
 
 ## Seuraavaksi
 
@@ -118,6 +115,10 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 - **Uusi GOP-mappaus vaatii raudalla varmistuksen.** PCI BAR -heuristiikan poisto
   ja erillinen framebuffer-stride on käännetty, mutta T5600/P2000-yhdistelmän
   näyttötesti on vielä tekemättä.
+- **Loaderin low-memory-jatkopolku vaatii T5600-testin.** Uusi build tunnistuu
+  ensimmäisestä rivistä `[P2 L01] Plan2001 loader 2026-09-23 debug-1`; jos teksti
+  lakkaa `ExitBootServices`in jälkeen, alakulman ruutujen määrä kertoo viimeisen
+  saavutetun vaiheen.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
   32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit

@@ -53,6 +53,9 @@ TEXT rebase(SB), 1, $-4
  * firmware's handlers are gone after ExitBootServices.
  */
 TEXT jump64(SB), 1, $-4
+	/* Preserve the fourth framebuffer marker for the kernel entry. */
+	MOVQ	mark+8(FP), R12
+	MOVL	pitch+16(FP), R13
 	CLI
 
 	/* load zero length idt */

@@ -104,6 +104,74 @@ efifree(uvlong pa, uvlong len)
 static BootInfo *bi = (BootInfo*)BOOTINFO;
 
 /*
+ * Do not put the final UEFI memory map on the firmware-provided stack.
+ * 96 KiB is a large automatic object and old firmware is not required to
+ * provide enough spare stack for it. Allocate it before the final map is
+ * requested, so its allocation is itself present in that map.
+ */
+enum {
+	MapBufSize = 96*1024,
+	MarkSize = 12,
+	MarkGap = 8,
+	MarkMargin = 16,
+};
+static uchar *mapbuf;
+
+int
+bootmapinit(void)
+{
+	mapbuf = nil;
+	return eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData,
+		(UINTN)MapBufSize, &mapbuf) != 0 || mapbuf == nil;
+}
+
+/*
+ * UEFI text output is gone after ExitBootServices. Leave visible progress
+ * markers at the bottom-left of a 32-bit GOP framebuffer instead: one before
+ * ExitBootServices, two after it returns, three before jump64, and four from
+ * the first instructions of the kernel entry. Magenta is the same value in
+ * the two common RGB/BGR byte orders.
+ */
+void*
+fbmarkaddr(int stage)
+{
+	UINT32 x, y;
+
+	if(bi->fbbase == 0 || bi->fbdepth != 32 || bi->fbstride == 0
+	|| bi->fbwidth == 0 || bi->fbheight < MarkMargin+MarkSize
+	|| stage < 1)
+		return nil;
+	x = MarkMargin + (stage-1)*(MarkSize+MarkGap);
+	if(x+MarkSize > bi->fbwidth)
+		return nil;
+	y = bi->fbheight - MarkMargin - MarkSize;
+	return (UINT32*)(uintptr)bi->fbbase + (uvlong)y*bi->fbstride + x;
+}
+
+ulong
+fbmarkpitch(void)
+{
+	return bi->fbstride * sizeof(UINT32);
+}
+
+void
+fbmark(int stage)
+{
+	volatile UINT32 *p;
+	volatile UINT32 *row;
+	int x, y;
+
+	p = fbmarkaddr(stage);
+	if(p == nil)
+		return;
+	for(y = 0; y < MarkSize; y++){
+		row = p + (uvlong)y*bi->fbstride;
+		for(x = 0; x < MarkSize; x++)
+			row[x] = 0x00ff00ff;
+	}
+}
+
+/*
  * Fetch the final memory map and leave boot services, retrying with a fresh
  * map if the firmware reports that it changed, as the specification requires.
  * No printing between GetMemoryMap and ExitBootServices: it changes the map.
@@ -116,21 +184,27 @@ bootexit(void)
 {
 	UINTN mapsize, entsize;
 	EFI_MEMORY_DESCRIPTOR *t;
-	uchar mapbuf[96*1024], *p;
+	uchar *p;
 	UINT32 entvers;
 	BootMem *m;
 	int try;
 
+	if(mapbuf == nil)
+		return -3;
 	for(try = 0; try < 4; try++){
-		mapsize = sizeof(mapbuf);
+		print("[P2 L25] GetMemoryMap + ExitBootServices attempt\n");
+		mapsize = MapBufSize;
 		entsize = sizeof(EFI_MEMORY_DESCRIPTOR);
 		entvers = 1;
 		if(eficall(ST->BootServices->GetMemoryMap, &mapsize, mapbuf, &MK, &entsize, &entvers))
 			return -1;
+		if(entsize < sizeof(EFI_MEMORY_DESCRIPTOR))
+			return -1;
 		if(eficall(ST->BootServices->ExitBootServices, IH, MK) == 0)
 			goto Left;
+		print("[P2 L25] ExitBootServices rejected stale map; retrying\n");
 	}
-	return -1;
+	return -2;
 
 Left:
 	bi->nmem = 0;
@@ -363,9 +437,12 @@ screenconf(void)
 
 	Count = 0;
 	Handles = nil;
+	print("[P2 L06] GOP: locating handles\n");
 	if(eficall(ST->BootServices->LocateHandleBuffer,
-		ByProtocol, &EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID, nil, &Count, &Handles))
+		ByProtocol, &EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID, nil, &Count, &Handles)){
+		print("[P2 L06] GOP: LocateHandleBuffer failed\n");
 		return;
+	}
 
 	for(i=0; i<Count; i++){
 		gop = nil;
@@ -388,6 +465,7 @@ screenconf(void)
 
 		goto Found;
 	}
+	print("[P2 L06] GOP: no usable linear framebuffer\n");
 	return;
 
 Found:
@@ -446,22 +524,32 @@ Found:
 	s = hexfmt(s, 0, bi->fbbase), *s++ = '\n';
 	*s = '\0';
 	print(buf);
+	print("[P2 L06] GOP: active mode recorded; no SetMode call\n");
 }
 
 void
 eficonfig(void)
 {
+	print("[P2 L05] BootInfo: initialise\n");
 	memset(bi, 0, sizeof(*bi));
 	bi->magic = BootInfoMagic;
 	bi->version = BootInfoVersion;
 	bi->size = sizeof(*bi) - sizeof(bi->mem);
 
 	/* the memory map is added by bootexit(), right before leaving boot services */
+	print("[P2 L05] ACPI: probe\n");
 	acpiconf();
 	screenconf();
+	print("[P2 L07] TSC: measure\n");
 	tscconf();
+	print(bi->tscfreq != 0? "[P2 L07] TSC: ok\n": "[P2 L07] TSC: unavailable\n");
+	print("[P2 L08] RTC: read\n");
 	timeconf();
+	print(bi->epoch != 0? "[P2 L08] RTC: ok\n": "[P2 L08] RTC: unavailable\n");
+	print("[P2 L09] RNG: probe\n");
 	rngconf();
+	print(bi->rngseedlen != 0? "[P2 L09] RNG: ok\n": "[P2 L09] RNG: unavailable\n");
+	print("[P2 L10] BootInfo: initial fields complete\n");
 }
 
 EFI_STATUS
@@ -472,6 +560,7 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 
 	IH = ih;
 	ST = st;
+	print("[P2 L01] Plan2001 loader 2026-09-23 debug-1\n");
 
 	/*
 	 * Claim the low scratch area (plan9.ini text and BootInfo, written at
@@ -482,36 +571,61 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 * must reserve from BOOTSCRATCHBASE (0x1000), not CONFADDR, or the
 	 * request is simply invalid and firmware is right to refuse it.
 	 *
-	 * This is not optional: nothing has reserved this range from the
-	 * firmware's allocator yet, so without it, the writes just below
-	 * (and eficonfig()'s, right after) go into memory that may still be
-	 * handed to some other boot-time allocation, or that the firmware
-	 * itself is using. The kernel's own memreserve(0, PADDR(CPU0END)) in
-	 * pc/memory.c only protects this range once the kernel is running -
-	 * it cannot undo a corruption that already happened here.
+	 * Some x86 firmware marks the traditional low-memory handoff pages as
+	 * reserved and therefore refuses AllocateAddress even though this is the
+	 * ABI location used by upstream 9front. Failure is diagnostic, not fatal:
+	 * retain the established fixed-address handoff instead of deliberately
+	 * hanging in the loader before a kernel is even opened.
 	 */
-	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0){
-		print("[Plan2001 efi.c] cannot reserve boot scratch memory\n");
+	print("[P2 L02] low scratch: AllocateAddress 0x1000..0x7000\n");
+	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0)
+		print("[P2 L02] low scratch: firmware refused; continuing with fixed handoff\n");
+	else
+		print("[P2 L02] low scratch: claimed\n");
+
+	print("[P2 L03] memory-map buffer: AllocatePool 96 KiB\n");
+	if(bootmapinit() != 0){
+		print("[P2 L03] FATAL: cannot allocate memory-map buffer\n");
 		for(;;)
 			;
 	}
+	print("[P2 L03] memory-map buffer: ready\n");
 
 	f = nil;
-	if(pxeinit(&f) && isoinit(&f) && fsinit(&f))
+	print("[P2 L04] boot device: probe PXE\n");
+	if(pxeinit(&f) == 0)
+		print("[P2 L04] boot device: PXE selected\n");
+	else{
+		print("[P2 L04] boot device: probe ISO\n");
+		if(isoinit(&f) == 0)
+			print("[P2 L04] boot device: ISO selected\n");
+		else{
+			print("[P2 L04] boot device: probe filesystem\n");
+			if(fsinit(&f) == 0)
+				print("[P2 L04] boot device: filesystem selected\n");
+			else
+				print("no boot devices\n");
+		}
+	}
+	if(open == nil)
 		print("no boot devices\n");
 
+	print("[P2 L11] rebase boot-device callbacks\n");
 	open = rebase(open);
 	read = rebase(read);
 	close = rebase(close);
 	if(stop) stop = rebase(stop);
 
 	for(;;){
+		print("[P2 L12] configure kernel path\n");
 		kern = configure(f, path);
+		print("[P2 L13] open kernel\n");
 		f = open(kern);
 		if(f == nil){
 			print("not found\n");
 			continue;
 		}
+		print("[P2 L13] kernel opened\n");
 		print(bootkern(f));
 		print("\n");
 		close(f);
