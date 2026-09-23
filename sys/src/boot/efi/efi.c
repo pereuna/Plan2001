@@ -552,6 +552,53 @@ eficonfig(void)
 	print("[P2 L10] BootInfo: initial fields complete\n");
 }
 
+/*
+ * Diagnose a refused low-scratch reservation: fetch the current memory map
+ * (boot services are still active - this is not the final pre-ExitBootServices
+ * map) and print the Type/Attribute of whichever descriptor covers
+ * BOOTSCRATCHBASE, so a real refusal on real hardware says *why* instead of
+ * just *that*. Attribute is printed in full 64-bit width, unlike bootexit()'s
+ * BootMem.attr - EFI_MEMORY_RUNTIME is bit 63, and losing it here would hide
+ * exactly the answer this exists to find.
+ */
+static void
+diagscratchmap(void)
+{
+	UINTN mapsize, entsize, i;
+	EFI_MEMORY_DESCRIPTOR *t;
+	void *map;
+	UINT32 entvers;
+	char b[80], *s;
+
+	map = nil;
+	mapsize = 16*1024;
+	if(eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData, mapsize, &map) != 0 || map == nil){
+		print("[P2 L02] diag: cannot allocate map buffer\n");
+		return;
+	}
+	entsize = sizeof(EFI_MEMORY_DESCRIPTOR);
+	entvers = 1;
+	if(eficall(ST->BootServices->GetMemoryMap, &mapsize, map, &MK, &entsize, &entvers) || entsize < sizeof(EFI_MEMORY_DESCRIPTOR)){
+		print("[P2 L02] diag: GetMemoryMap failed\n");
+		return;
+	}
+	for(i = 0; i*entsize < mapsize; i++){
+		t = (EFI_MEMORY_DESCRIPTOR*)((uchar*)map + i*entsize);
+		if(t->PhysicalStart > BOOTSCRATCHBASE || BOOTSCRATCHBASE >= t->PhysicalStart + t->NumberOfPages*4096ULL)
+			continue;
+		s = b;
+		memmove(s, "[P2 L02] diag: covering type=", 30), s += 30;
+		s = decfmt(s, 0, t->Type);
+		memmove(s, " pages=", 7), s += 7;
+		s = decfmt(s, 0, (ulong)t->NumberOfPages);
+		memmove(s, " attr=0x", 8), s += 8;
+		s = hexfmt(s, 0, t->Attribute), *s++ = '\n', *s = '\0';
+		print(b);
+		return;
+	}
+	print("[P2 L02] diag: no covering descriptor found\n");
+}
+
 EFI_STATUS
 efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 {
@@ -585,7 +632,20 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 */
 	print("[P2 L02] low scratch: AllocateAddress 0x1000..0x7000\n");
 	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0){
-		print("[P2 L02] FATAL: firmware refused low scratch reservation\n");
+		uvlong a;
+		uintptr est;
+		char b[48], *s;
+
+		/* redo the identical, still-failing call just to capture its
+		 * raw EFI_STATUS - efiallocdata() only returns success/fail */
+		a = BOOTSCRATCHBASE;
+		est = eficall(ST->BootServices->AllocatePages, (UINTN)2, (UINTN)EfiLoaderData,
+			(UINTN)((BOOTSCRATCHEND-BOOTSCRATCHBASE)/4096), &a);
+		s = b;
+		memmove(s, "[P2 L02] FATAL: firmware refused, status=0x", 45), s += 45;
+		s = hexfmt(s, 0, est), *s++ = '\n', *s = '\0';
+		print(b);
+		diagscratchmap();
 		for(;;)
 			;
 	}

@@ -140,6 +140,26 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   filesystem: open` → `ready` suoraan, ei PXE/ISO-rivejä, `bootargs`-kehote
   saavutettu kuten ennen, `bootx64.efi` pieneni (n. 15.8 KB → 13.6 KB).
 
+- **T5600 hylkää kohdistetunkin alamuistivarauksen — vahvistettu raudalla
+  (23.9.2026).** Ensimmäinen oikea testi kohdistetulle `BOOTSCRATCHBASE`-
+  pyynnölle: näyttöön tuli `[P2 L02] FATAL: firmware refused low scratch
+  reservation` heti `AllocateAddress`-rivin jälkeen. Tämä on siis todellinen,
+  ei enää hypoteettinen — 22.9. kirjattu epäily oli oikeansuuntainen, vaikka
+  sitä ei silloin voitu perustella millään testillä. Käytäntö on nyt sama
+  (pysähtyy), mutta lisätty diagnostiikka kertoo seuraavalla testauskerralla
+  *miksi*: `efimain()` tulostaa nyt myös raa'an `AllocatePages`-`EFI_STATUS`-
+  koodin (`status=0x...`) ja kutsuu uutta `diagscratchmap()`ia, joka hakee
+  senhetkisen UEFI-muistikartan (`GetMemoryMap`, ei vielä lopullinen — boot
+  services ovat yhä käytössä) ja tulostaa `BOOTSCRATCHBASE`n peittävän
+  descriptorin `Type`n, sivumäärän ja täyden 64-bittisen `Attribute`n
+  (mukaan lukien bitti 63, `EFI_MEMORY_RUNTIME` — jota `bootexit()`in oma
+  `BootMem.attr` typistää pois, joten tätä ei voi päätellä lopullisesta
+  kartasta). QEMU ei koskaan laukaise tätä polkua (OVMF myöntää varauksen),
+  joten diagnostiikka on käännetty muttei vielä ajettu millään oikealla
+  statuskoodilla. **Seuraava askel on ainoastaan tämä**: käynnistä T5600:lla
+  ja lue näytöstä `status=0x...`- ja `diag: covering type=...`-rivit ennen
+  kuin päätetään, onko jatkaminen turvallista millään ehdolla.
+
 ## Seuraavaksi
 
 Vaiheen 2 neljä tunnistettua ehdokasta on tehty. Jatkoehdokkaita ei ole vielä
