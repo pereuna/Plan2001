@@ -49,18 +49,40 @@ usleep(int us)
 }
 
 /*
- * Claim [pa, pa+len) as loader code (AllocateAddress = 2).  Firmware marks
- * free memory no-execute, which matters as the kernel is entered with the
- * firmware's page tables still active.  Returns non-zero if it fails.
+ * Claim [pa, pa+len) at the given EFI memory type via AllocateAddress (=2).
+ * pa must be page-aligned: AllocateAddress rejects anything else (and
+ * silently - the request is simply invalid, not "denied"). Returns non-zero
+ * if it fails.
  */
-int
-efialloc(uvlong pa, uvlong len)
+static int
+efiallocx(uvlong pa, uvlong len, int memtype)
 {
 	uvlong a;
 
 	a = pa;
-	return eficall(ST->BootServices->AllocatePages, (UINTN)2, (UINTN)EfiLoaderCode,
+	return eficall(ST->BootServices->AllocatePages, (UINTN)2, (UINTN)memtype,
 		(UINTN)((len + 4095) / 4096), &a) != 0;
+}
+
+/*
+ * Claim [pa, pa+len) as loader code.  Firmware marks free memory no-execute,
+ * which matters as the kernel is entered with the firmware's page tables
+ * still active.  Used for the kernel's own memory range, which is executed.
+ */
+int
+efialloc(uvlong pa, uvlong len)
+{
+	return efiallocx(pa, len, EfiLoaderCode);
+}
+
+/*
+ * Claim [pa, pa+len) as loader data: for memory the loader only reads or
+ * writes, never executes (eg its low-memory scratch area).
+ */
+int
+efiallocdata(uvlong pa, uvlong len)
+{
+	return efiallocx(pa, len, EfiLoaderData);
 }
 
 /*
@@ -334,11 +356,9 @@ screenconf(void)
 	EFI_HANDLE *Handles;
 	UINTN Count;
 
-	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info, *qi;
+	EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info;
 	ulong mr, mg, mb, mx, mc;
-	uvlong area, bestarea;
-	UINTN qsize;
-	int i, bits, depth, bestmode;
+	int i, bits, depth;
 	char buf[96], *s;
 
 	Count = 0;
@@ -357,7 +377,7 @@ screenconf(void)
 			continue;
 		if((info = gop->Mode->Info) == nil)
 			continue;
-		if(pixmasks(info, &mr, &mg, &mb, &mx) == 0)
+		if((depth = pixmasks(info, &mr, &mg, &mb, &mx)) == 0)
 			continue;
 
 		/* make sure we have linear framebuffer */
@@ -372,45 +392,17 @@ screenconf(void)
 
 Found:
 	/*
-	 * Firmware typically leaves GOP in whatever mode it used for its
-	 * own boot-menu text console, which is not necessarily the panel's
-	 * native resolution (commonly a small mode like 800x600).  Scan
-	 * every mode this adapter offers and switch to the one with the
-	 * largest pixel count that still has a usable pixel format, before
-	 * reading the framebuffer parameters below.
-	 *
-	 * This is purely cosmetic - bootfb only ever draws small marker
-	 * squares in a corner, at any resolution - so a QueryMode/SetMode
-	 * failure here is not fatal: per the UEFI spec, gop->Mode is left
-	 * untouched by a failed SetMode, so falling through just keeps
-	 * whatever mode was already active and already validated above.
+	 * Deliberately not switching to the native/largest GOP mode here
+	 * (tried in commit a93c397, reverted): on real hardware with a
+	 * minimal GOP implementation (confirmed on a Dell Precision T5600,
+	 * MaxMode=3 - a BMC-class video device), SetMode() can hang the
+	 * firmware forever instead of returning an error. That happens
+	 * before ExitBootServices, so there is no way to time out a
+	 * synchronous DXE call that never returns - unlike a failed
+	 * SetMode (which the UEFI spec guarantees leaves gop->Mode
+	 * untouched), a hung one is unrecoverable. So: just use whatever
+	 * mode is already active, exactly as before that commit.
 	 */
-	bestmode = -1;
-	bestarea = 0;
-	for(i=0; i<gop->Mode->MaxMode; i++){
-		qi = nil;
-		if(eficall(gop->QueryMode, gop, (UINTN)i, &qsize, &qi))
-			continue;
-		if(qi == nil || pixmasks(qi, &mr, &mg, &mb, &mx) == 0)
-			continue;
-		area = (uvlong)qi->HorizontalResolution * qi->VerticalResolution;
-		if(area > bestarea){
-			bestarea = area;
-			bestmode = i;
-		}
-	}
-	if(bestmode >= 0 && (UINT32)bestmode != gop->Mode->Mode)
-		eficall(gop->SetMode, gop, (UINTN)bestmode);
-
-	if((info = gop->Mode->Info) == nil)
-		return;
-	if((depth = pixmasks(info, &mr, &mg, &mb, &mx)) == 0)
-		return;
-	if(gop->Mode->FrameBufferBase == 0)
-		return;
-	if(gop->Mode->FrameBufferSize == 0)
-		return;
-
 	bi->fbbase = gop->Mode->FrameBufferBase;
 	bi->fbsize = gop->Mode->FrameBufferSize;
 	bi->fbwidth = info->HorizontalResolution;
@@ -482,17 +474,27 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	ST = st;
 
 	/*
-	 * Claim the low scratch area (plan9.ini text and BootInfo,
-	 * CONFADDR..BOOTSCRATCHEND) from the firmware's own allocator before
-	 * writing anything there, so it cannot be handed to some other
-	 * boot-time allocation in the meantime.  Not fatal if it fails: this
-	 * is defense in depth on top of the kernel's own memreserve(0,
-	 * PADDR(CPU0END)) in pc/memory.c, which protects the same range (and
-	 * more) once the kernel is running - this call only narrows the
-	 * window before that.
+	 * Claim the low scratch area (plan9.ini text and BootInfo, written at
+	 * CONFADDR and BOOTINFO respectively, both inside
+	 * BOOTSCRATCHBASE..BOOTSCRATCHEND) from the firmware's own allocator
+	 * before writing anything there. AllocateAddress requires a
+	 * page-aligned request - CONFADDR itself (0x1200) is not, so this
+	 * must reserve from BOOTSCRATCHBASE (0x1000), not CONFADDR, or the
+	 * request is simply invalid and firmware is right to refuse it.
+	 *
+	 * This is not optional: nothing has reserved this range from the
+	 * firmware's allocator yet, so without it, the writes just below
+	 * (and eficonfig()'s, right after) go into memory that may still be
+	 * handed to some other boot-time allocation, or that the firmware
+	 * itself is using. The kernel's own memreserve(0, PADDR(CPU0END)) in
+	 * pc/memory.c only protects this range once the kernel is running -
+	 * it cannot undo a corruption that already happened here.
 	 */
-	if(efialloc(CONFADDR, BOOTSCRATCHEND-CONFADDR) != 0)
-		print("[Plan2001 efi.c] warning: firmware would not reserve low memory for us\n");
+	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0){
+		print("[Plan2001 efi.c] cannot reserve boot scratch memory\n");
+		for(;;)
+			;
+	}
 
 	f = nil;
 	if(pxeinit(&f) && isoinit(&f) && fsinit(&f))

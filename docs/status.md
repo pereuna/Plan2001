@@ -29,17 +29,11 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   - TSC-taajuus mitataan loaderissa ja tulostetaan ristiintarkistukseksi kernelin
     omalle PIT/HPET-kalibroinnille (ei korvaa sitä — ks. commit `e70690f` miksi).
   - RTC-aika luetaan UEFI:n `GetTime`stä ja asetetaan kellolle heti bootissa.
-  - GOP:n `SetMode` natiiviin/suurimpaan tarkkuuteen (commit `a93c397`): loader
-    käy läpi kaikki valitun näytönohjaimen tarjoamat tilat `QueryMode`:lla ja
-    vaihtaa suurimpaan käyttökelpoiseen ennen kehysmuistin parametrien lukua.
-    Ei kohtalokas jos epäonnistuu (`bootfb` piirtää vain pieniä merkkejä missä
-    tahansa resoluutiossa, ja UEFI-spesifikaation mukaan epäonnistunut
-    `SetMode` jättää `gop->Mode`n koskemattomaksi, joten palataan aiemmin jo
-    validoituun tilaan). QEMU-testattu (stdvga vaihtoi 2048x2048x32:een,
-    merkit piirtyvät oikein) — VM:lle asennus/uudelleenkäynnistys jäi tekemättä
-    tällä kertaa: `dossrv` jumiutui toistuvasti `Pread`-tilaan ESP-osiota
-    (`/dev/sdE0/esp`) vasten, riippumaton tästä koodimuutoksesta. Raudalla
-    testaus on seuraava askel.
+  - GOP:n framebuffer-tiedot luetaan firmwaren valmiiksi valitsemasta aktiivisesta
+    tilasta. Loader ei kutsu `QueryMode`a eikä `SetMode`a, vaan välittää saadun
+    resoluution sellaisenaan `BootInfo`ssa. Commitin `a93c397` suurimman tilan
+    valinta peruttiin, koska `SetMode` jäi Dell Precision T5600:n suppeassa
+    GOP-toteutuksessa pysyvästi jumiin jo ennen `ExitBootServices`ia.
 - **Rakenteen siivous.** `pcboot`-minimikernel ja koko `9front-x64-boot/`-
   peilihakemisto poistettu. `sys/`-hakemistossa on nyt vain tiedostot, joita olemme
   oikeasti kirjoittaneet tai muokanneet (ks. README). Windows-VM otettu takaisin
@@ -74,16 +68,38 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   `archacpi.c`:n RSDP-varaukseen), `plan9.ini`-rivien rajoittamaton jäsennys
   (`bootfile=` saattoi ylivuotaa 128-tavuisen pinopuskurin), `bootinfoinit()`
   hyväksyi ennen myös tyhjän/katkenneen muistikartan (sulki `ramscan()`-varapolun
-  pysyvästi), loader varaa nyt matalan muistin alueensa (`CONFADDR..BOOTSCRATCHEND`)
-  UEFI:ltä ennen kirjoitusta (**varmistettu empiirisesti: OVMF kieltäytyy tästä
-  varauksesta joka kerta** — huoli oli siis todellinen, ei vain teoreettinen; ei
-  silti kohtalokas, boot jatkuu normaalisti), `reboot()` paniikkaa nyt ennen mitään
+  pysyvästi), loader varasi tässä vaiheessa matalan muistin alueensa
+  (`CONFADDR..BOOTSCRATCHEND`) UEFI:ltä ennen kirjoitusta (**varmistettu
+  empiirisesti: OVMF kieltäytyy tästä varauksesta joka kerta** — huoli oli siis
+  todellinen, ei vain teoreettinen; tuolloin arvioitiin "ei silti kohtalokas,
+  boot jatkuu normaalisti" — **tämä osoittautui vääräksi, ks. alla 23.9.2026**),
+  `reboot()` paniikkaa nyt ennen mitään
   palautumatonta laitesammutusta (ks. alla, ei korjaa itse 32-bittistä luovutusta),
   `bootkern()` vapauttaa `efialloc()`-muistin jokaisessa virhepolussa, `build.rc`
   keskeytyy `mk`-epäonnistumisesta sen sijaan että aina tulostaisi `BUILD-DONE`n.
   Yhdeksäs löydös (bootfb:n pikselimerkkien automaattitarkistus `test-qemu.sh`:ssa)
   jätetty tarkoituksella tekemättä käyttäjän omasta valinnasta — tarkistetaan
   manuaalisesti QEMU:sta tarvittaessa.
+
+- **Alamuistivarauksen todellinen syy (Codex Astra, 23.9.2026, muistio
+  `Plan2001Plan/claudelle-uefi-alamuisti-2026-09-23.md`).** Edellä (22.9.)
+  todettu "OVMF kieltäytyy joka kerta" ei johtunutkaan siitä, että alue olisi
+  varattu — `CONFADDR` (`0x1200`) ei ole sivukohdistettu, joten
+  `AllocateAddress`-pyyntö oli itsessään virheellinen ja UEFI:n **piti** hylätä
+  se, myös oikealla raudalla. Koodi tulosti tämän jälkeen varoituksen ja jatkoi
+  kirjoittamalla `BOOTLINE`/`BOOTARGS`/`BootInfo`n silti varaamattomaan
+  muistiin, ennen `acpiconf()`/`screenconf()`-kutsuja. Tämä on todennäköisempi
+  selitys Dell Precision T5600:n `SetMode`-jumille kuin pelkkä viallinen
+  GOP-toteutus (ks. vaihe 1 yllä): jos firmwarella on jotain tässä
+  osoitealueessa, ylikirjoitus olisi voinut sotkea sen tilan juuri ennen
+  jumiutunutta kutsua. **Korjattu, ei vielä committoitu:** varaus tehdään nyt
+  sivukohdistetusta `BOOTSCRATCHBASE`ista (`0x1000`, uusi vakio `mem.h`:ssa) ja
+  epäonnistuminen pysäyttää koneen sen sijaan että jatkaisi (`efiallocdata()`,
+  uusi `EfiLoaderData`-varianttinsa `efialloc()`ista muistityypillä
+  parametrisoituna). QEMU-testattu: varoitusrivi ei enää tulostu, boot etenee
+  `bootargs`-kehotteeseen asti kuten ennenkin. Ei vielä testattu T5600:lla —
+  tämä on nyt ensisijainen ehdokas sille, korjaako se myös `SetMode`-jumin
+  kokonaan ilman että GOP-tilanvaihtoa tarvitsee ottaa takaisin käyttöön.
 
 ## Seuraavaksi
 
@@ -93,9 +109,8 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 
 ## Tunnetut avoimet asiat
 
-- **Raudalla testaus GOP `SetMode`in jälkeen** — tehty ja QEMU-testattu (ks.
-  vaihe 1 yllä), mutta VM-asennus/reboot-kierros jäi kesken ESP-osion
-  `dossrv`-jumiutumisen takia. Ei vielä varmistettu oikealla raudalla.
+- **Framebuffertilaa ei vaihdeta loaderissa.** Käytössä on firmwaren valitsema
+  GOP-tila ja sen ilmoittama resoluutio; natiiviresoluution valinta jää firmwarelle.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
   32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit

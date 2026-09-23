@@ -24,6 +24,7 @@ void (*stop)(void);
 int readn(void *f, void *data, int len);
 int bootexit(void);
 int efialloc(uvlong pa, uvlong len);
+int efiallocdata(uvlong pa, uvlong len);
 void efifree(uvlong pa, uvlong len);
 
 int getc(void);
