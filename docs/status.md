@@ -156,9 +156,30 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   `BootMem.attr` typistää pois, joten tätä ei voi päätellä lopullisesta
   kartasta). QEMU ei koskaan laukaise tätä polkua (OVMF myöntää varauksen),
   joten diagnostiikka on käännetty muttei vielä ajettu millään oikealla
-  statuskoodilla. **Seuraava askel on ainoastaan tämä**: käynnistä T5600:lla
-  ja lue näytöstä `status=0x...`- ja `diag: covering type=...`-rivit ennen
-  kuin päätetään, onko jatkaminen turvallista millään ehdolla.
+  statuskoodilla.
+
+  **Löytö ja korjaus samana päivänä: diagnostiikkarivit olivat itse rikki.**
+  Ensimmäinen T5600-ajo uudella diagnostiikalla näytti saman oireen kuin
+  aiempi GOP-debug-jumi: `status=0x`-tekstin jälkeen ei tullut yhtään
+  heksanumeroa, ja seuraavan `print()`-kutsun teksti jatkui samalta riviltä.
+  Syy ei ollut firmwaressa eikä `print()`issä — molemmat uudet
+  `memmove(s, "...", N)`-kutsut käyttivät väärää `N`:ää (43 merkin literaali
+  merkitty 45:ksi, 29 merkin 30:ksi), jolloin `s` osoitti 1-2 tavua
+  todellisen tekstin ohi ja loppuosa (heksaluvut) kirjoittui satunnaisen
+  pinoroskan päälle; jos roska sisälsi `\0`:n, `print()` pysähtyi siihen.
+  Samalla huomattiin `FATAL`-rivin puskuri (`char b[48]`) liian pieneksi
+  täydelle 64-bittiselle `EFI_STATUS`-heksaluvulle (43+16+2=61 > 48) —
+  todellinen pinon ylivuoto, ei vain kosmeettinen bugi. Korjattu: oikeat
+  `N`:t, puskurit kasvatettu (`b[80]`, `b[96]`). **Todennettu QEMU:ssa
+  keinotekoisesti**: sama alue varattiin tarkoituksella etukäteen, jotta
+  varsinainen kutsu epäonnistuisi aidosti samalla tavalla kuin raudalla;
+  tulosteeksi saatiin täysi, ehjä rivi — `status=0x800000000000000e`
+  (`EFI_NOT_FOUND`) ja `diag: covering type=2 pages=6 attr=0xf` (tässä
+  keinotekoisessa testissä `EfiLoaderData`, koska testi varasi sen juuri
+  sellaisena — ei tietoa siitä, mitä T5600 oikeasti raportoi). **Seuraava
+  askel on ainoastaan tämä**: käynnistä T5600:lla ja lue näytöstä
+  `status=0x...`- ja `diag: covering type=...`-rivit ennen kuin päätetään,
+  onko jatkaminen turvallista millään ehdolla.
 
 ## Seuraavaksi
 

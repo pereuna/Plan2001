@@ -568,7 +568,7 @@ diagscratchmap(void)
 	EFI_MEMORY_DESCRIPTOR *t;
 	void *map;
 	UINT32 entvers;
-	char b[80], *s;
+	char b[96], *s;
 
 	map = nil;
 	mapsize = 16*1024;
@@ -587,7 +587,7 @@ diagscratchmap(void)
 		if(t->PhysicalStart > BOOTSCRATCHBASE || BOOTSCRATCHBASE >= t->PhysicalStart + t->NumberOfPages*4096ULL)
 			continue;
 		s = b;
-		memmove(s, "[P2 L02] diag: covering type=", 30), s += 30;
+		memmove(s, "[P2 L02] diag: covering type=", 29), s += 29;
 		s = decfmt(s, 0, t->Type);
 		memmove(s, " pages=", 7), s += 7;
 		s = decfmt(s, 0, (ulong)t->NumberOfPages);
@@ -634,7 +634,7 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0){
 		uvlong a;
 		uintptr est;
-		char b[48], *s;
+		char b[80], *s;
 
 		/* redo the identical, still-failing call just to capture its
 		 * raw EFI_STATUS - efiallocdata() only returns success/fail */
@@ -642,7 +642,7 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 		est = eficall(ST->BootServices->AllocatePages, (UINTN)2, (UINTN)EfiLoaderData,
 			(UINTN)((BOOTSCRATCHEND-BOOTSCRATCHBASE)/4096), &a);
 		s = b;
-		memmove(s, "[P2 L02] FATAL: firmware refused, status=0x", 45), s += 45;
+		memmove(s, "[P2 L02] FATAL: firmware refused, status=0x", 43), s += 43;
 		s = hexfmt(s, 0, est), *s++ = '\n', *s = '\0';
 		print(b);
 		diagscratchmap();
