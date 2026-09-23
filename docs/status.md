@@ -218,19 +218,22 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   osoitteista, eli kierrätys toimii päästä päähän, ei vain käänny.
 
   **Vahvistettu T5600:lla (23.9.2026, commit `fa5c461`).** Kone bootin
-  onnistuneesti tällä ratkaisulla — ensimmäinen kerta koko Plan2001-projektin
-  historiassa, kun vaihe 1+2:n UEFI-loader-polku on todistetusti käynnistynyt
-  oikealla raudalla, ei vain QEMU:ssa/VM:ssä. Kaksi vuorokautta kestänyt
-  alamuistivarauksen jäljitys (misalignment → halt-vs-continue → väärä
-  diagnostiikka → todellinen syy `EfiBootServicesCode`-konfliktissa →
+  onnistuneesti tällä ratkaisulla. Kernel on bootannut koko projektin ajan
+  muulla oikealla raudalla (kaksi kannettavaa) — uutta on nimenomaan tämä
+  T5600, joka epäonnistui johdonmukaisesti juuri diagnosoituun
+  `EfiBootServicesCode`-konfliktiin asti. Kaksi vuorokautta kestänyt
+  alamuistivarauksen jäljitys tällä koneella (misalignment → halt-vs-continue
+  → väärä diagnostiikka → todellinen syy `EfiBootServicesCode`-konfliktissa →
   arkkitehtuurin korjaus) päättyi tähän.
 
 ## Seuraavaksi
 
-T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — ensimmäinen
-todistettu oikean raudan boot koko projektissa. Seuraavaksi: varmistaa täysi
-userland (cpu+auth-palvelut, samaan tapaan kuin vaiheen 2 kohdat aiemmin
-VM:llä) myös T5600:lla, ei vain `bootargs`-kehotteeseen asti. Sen jälkeen
+T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — tämä
+nimenomainen kone oli aiemmin johdonmukaisesti epäonnistunut, kun taas kernel
+on bootannut koko projektin ajan muulla raudalla (kaksi kannettavaa).
+Seuraavaksi: varmistaa täysi userland (cpu+auth-palvelut, samaan tapaan kuin
+vaiheen 2 kohdat aiemmin VM:llä) myös T5600:lla, ei vain
+`bootargs`-kehotteeseen asti. Sen jälkeen
 vielä avoinna: GOP-framebufferin PCI-BAR-korjauksen (ks. yllä) erillinen
 näyttötesti T5600:lla, ja `reboot()`in 64-bittinen kexec-luovutus.
 
@@ -258,12 +261,14 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   nyt ylivuotoon (`bootinfoinit()` pysäyttää koneen, commit `bc7b88b`) sen sijaan
   että käyttäisi katkennutta karttaa hiljaa — mutta itse 600 rivin riittävyyttä
   oikealla, pirstoutuneella UEFI-muistikartalla ei ole vielä arvioitu.
-- ~~Vaihe 1+2 ei vielä oikealla raudalla~~ **Vahvistettu (23.9.2026): T5600
-  bootti onnistuneesti** commitilla `fa5c461` (alamuistin dynaaminen varaus +
-  relokointi). Yksittäisiä kohtia (GOP-framebufferin PCI-BAR-korjaus, vaiheen
-  2 legacy-poistot yksitellen) ei ole vielä kaikkia erikseen T5600:lla
-  varmistettu, mutta kokonaisuus käynnistyy. `pcboot`-pikatestikitti on
-  vanhentunut rakenteen jälkeen; raudalla testaus tapahtuu
+- **T5600 vahvistettu (23.9.2026): bootti onnistuneesti** commitilla
+  `fa5c461` (alamuistin dynaaminen varaus + relokointi). Kernel on bootannut
+  koko projektin ajan muulla raudalla (kaksi kannettavaa); tämä koski
+  nimenomaan T5600:aa, joka epäonnistui johdonmukaisesti juuri diagnosoituun
+  konfliktiin asti. Yksittäisiä kohtia (GOP-framebufferin PCI-BAR-korjaus,
+  vaiheen 2 legacy-poistot yksitellen) ei ole vielä kaikkia erikseen
+  T5600:lla varmistettu, mutta kokonaisuus käynnistyy. `pcboot`-pikatestikitti
+  on vanhentunut rakenteen jälkeen; raudalla testaus tapahtuu
   `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin kautta
   (`tools/test-qemu.sh` kopioi build/esp:n automaattisesti `C:\temp\esp`:hen,
   ks. README).
