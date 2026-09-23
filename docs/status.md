@@ -34,6 +34,10 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
     resoluution sellaisenaan `BootInfo`ssa. Commitin `a93c397` suurimman tilan
     valinta peruttiin, koska `SetMode` jäi Dell Precision T5600:n suppeassa
     GOP-toteutuksessa pysyvästi jumiin jo ennen `ExitBootServices`ia.
+  - Kernel mapittaa GOP-framebufferin täsmälleen `FrameBufferBase`-osoitteesta;
+    `bootmapfb()` ei enää korvaa sitä PCI-kortin suurimman BARin osoitteella.
+    Näkyvä leveys (`HorizontalResolution`) ja rivipituus (`PixelsPerScanLine`)
+    kulkevat erillään myös `*bootscreen`-yhteensopivuuspolussa.
 - **Rakenteen siivous.** `pcboot`-minimikernel ja koko `9front-x64-boot/`-
   peilihakemisto poistettu. `sys/`-hakemistossa on nyt vain tiedostot, joita olemme
   oikeasti kirjoittaneet tai muokanneet (ks. README). Windows-VM otettu takaisin
@@ -111,6 +115,9 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 
 - **Framebuffertilaa ei vaihdeta loaderissa.** Käytössä on firmwaren valitsema
   GOP-tila ja sen ilmoittama resoluutio; natiiviresoluution valinta jää firmwarelle.
+- **Uusi GOP-mappaus vaatii raudalla varmistuksen.** PCI BAR -heuristiikan poisto
+  ja erillinen framebuffer-stride on käännetty, mutta T5600/P2000-yhdistelmän
+  näyttötesti on vielä tekemättä.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
   32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit

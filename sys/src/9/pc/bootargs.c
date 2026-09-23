@@ -10,7 +10,7 @@ static char *confval[MAXCONF];
 static int nconf;
 
 static char acpibuf[24];
-static char fbbuf[80];
+static char fbbuf[128];
 
 /* set name to val, replacing an earlier value; the strings are not copied */
 static void
@@ -77,8 +77,9 @@ bootargsinit(void)
 			addconf("*acpi", acpibuf);
 		}
 		if(bootinfo->fbbase != 0){
-			snprint(fbbuf, sizeof fbbuf, "%ud" "x%udx%ud %s %#llux", bootinfo->fbstride,
-				bootinfo->fbheight, bootinfo->fbdepth, bootinfo->fbchan, bootinfo->fbbase);
+			snprint(fbbuf, sizeof fbbuf, "%udx%udx%udx%ud %s %#llux %#llux",
+				bootinfo->fbwidth, bootinfo->fbheight, bootinfo->fbstride,
+				bootinfo->fbdepth, bootinfo->fbchan, bootinfo->fbbase, bootinfo->fbsize);
 			addconf("*bootscreen", fbbuf);
 		}
 	}
