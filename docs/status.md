@@ -226,6 +226,36 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   → väärä diagnostiikka → todellinen syy `EfiBootServicesCode`-konfliktissa →
   arkkitehtuurin korjaus) päättyi tähän.
 
+- **`fsinit()`in piilevä virhe korjattu; ISO9660-live-boot kokeiltu ja
+  hylätty (23.9.2026).** "Täysi userland" -testiä varten kokeiltiin
+  käynnistää T5600/QEMU oikealla 9front-asennus-ISO:lla (`cdboot=yes`,
+  kopioitu käyttäjän oma ISO, vain `9pc64`/`bootx64.efi` vaihdettu
+  Plan2001:n omiksi). Tässä prosessissa löytyi ja korjattiin oikea,
+  perimmäinen `fs.c`:n virhe: `fsinit()`in varavolyymiskannauksessa
+  `fsroot`-muuttuja asetettiin ehdoitta joka kierroksella, joten se jäi
+  osoittamaan viimeksi kokeiltua volyymia, vaikka `plan9.ini`ta ei
+  löytynyt mistään — `if(fsroot == nil) return -1` ei siis koskaan
+  lauennut, ja `fsinit()` raportoi onnistumisen `*pf`:n jäädessä silti
+  asettamatta. Seurauksena `configure()` päätyi interaktiiviseen
+  `readline()`-kehotteeseen (`>`) täysin hiljaa, ilman mitään virheilmoitusta
+  — täsmälleen sama oire kuin aiemmissa print-bugeissa, mutta tällä
+  kertaa syy oli tämä. Korjattu: `fsroot = nil` epäonnistuneen kierroksen
+  jälkeen, ennen seuraavaa yritystä. Peritty muuttamattomana upstreamista;
+  ei koskaan aiemmin lauennut, koska jokainen aiempi testi käytti FAT/ESP-
+  mediaa, jossa `plan9.ini` löytyy heti ensimmäiseltä volyymilta.
+
+  Itse ISO-testi paljasti myös, ettei OVMF tarjoa `SimpleFileSystemProtocol`a
+  koko ISO9660-levylle El Torito -CD-käynnistyksessä — vain 1 SFS-handle
+  löytyy, ja se on pelkkä upotettu käynnistys-FAT-image (`386/efiboot.fat`,
+  sisältää vain `efi/boot/*.efi`). `cfg/plan9.ini` ja `amd64/9pc64` eivät
+  siis ole tavoitettavissa `fsinit()`in kautta lainkaan tällä
+  käynnistystavalla — tähän tarvittaisiin `iso.c`/`isoinit()` (BlockIO-
+  tason ISO9660-luku), joka poistettiin tarkoituksella aiemmin tänään.
+  **Päätös: ISO9660-live-boot-tukea ei oteta takaisin.** Plan2001:n
+  kohde on USB/flash-media, jolla on oikea Plan9-osio, ei live-CD.
+  Kokeilun tuotokset (`images/t5600-live-isoroot/`, ISO-tiedostot)
+  poistettu.
+
 ## Seuraavaksi
 
 T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — tämä
@@ -233,7 +263,12 @@ nimenomainen kone oli aiemmin johdonmukaisesti epäonnistunut, kun taas kernel
 on bootannut koko projektin ajan muulla raudalla (kaksi kannettavaa).
 Seuraavaksi: varmistaa täysi userland (cpu+auth-palvelut, samaan tapaan kuin
 vaiheen 2 kohdat aiemmin VM:llä) myös T5600:lla, ei vain
-`bootargs`-kehotteeseen asti. Sen jälkeen
+`bootargs`-kehotteeseen asti — tämä vaatii USB-medialle oikean Plan9-osion
+(fossil/cwfs, täysi dist-sisältö), ei live-ISO:a (ks. yllä 23.9.2026:n
+päätös). Pidemmän tähtäimen tavoite (käyttäjän hahmottelema, ei vielä
+suunniteltu): valmiiksi asennettu flash/USB-image joka generoidaan
+suoraan (esim. 8G image), sen sijaan että live-mediaa käynnistettäisiin
+ja asennettaisiin erikseen joka kerta. Sen jälkeen
 vielä avoinna: GOP-framebufferin PCI-BAR-korjauksen (ks. yllä) erillinen
 näyttötesti T5600:lla, ja `reboot()`in 64-bittinen kexec-luovutus.
 

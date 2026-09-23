@@ -160,6 +160,17 @@ fsinit(void **pf)
 				fsclose(f);
 			break;
 		}
+		/*
+		 * This volume has no plan9.ini: undo the fsroot assignment
+		 * above before trying the next one. Without this, fsroot
+		 * stays set to whatever volume was tried last even when
+		 * none of them had plan9.ini, and the "if(fsroot == nil)"
+		 * check just below never fires - fsinit() then reports
+		 * success with *pf never actually set. Confirmed reachable:
+		 * booting from an El Torito ISO9660 medium where no scanned
+		 * SFS volume has /plan9.ini at its root.
+		 */
+		fsroot = nil;
 	}
 	if(fsroot == nil)
 		return -1;
