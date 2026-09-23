@@ -76,16 +76,6 @@ efialloc(uvlong pa, uvlong len)
 }
 
 /*
- * Claim [pa, pa+len) as loader data: for memory the loader only reads or
- * writes, never executes (eg its low-memory scratch area).
- */
-int
-efiallocdata(uvlong pa, uvlong len)
-{
-	return efiallocx(pa, len, EfiLoaderData);
-}
-
-/*
  * Release pages efialloc() claimed, eg after a later failure: without this
  * a retry (efimain's loop, on a bad read or a rejected kernel) finds the
  * same range already allocated and fails immediately instead of trying
@@ -98,10 +88,31 @@ efifree(uvlong pa, uvlong len)
 }
 
 /*
- * The BootInfo the kernel is entered with, built in low memory (see
- * sys/include/bootinfo.h).
+ * The BootInfo the kernel is entered with (see sys/include/bootinfo.h) is
+ * built here, in scratch memory the firmware's own allocator actually
+ * granted (see efimain()) - never directly at the fixed BOOTINFO physical
+ * address the kernel expects it at. bootrelocate() copies it there, along
+ * with the plan9.ini text at confaddr (sub.c), only after ExitBootServices:
+ * see efimain()'s comment for why.
  */
-static BootInfo *bi = (BootInfo*)BOOTINFO;
+static BootInfo *bi;
+
+/*
+ * Allocate len bytes wherever the firmware's allocator wants to put them
+ * (AllocateAnyPages = 0), of the given EFI memory type. Returns the
+ * physical address, or 0 on failure - firmware never hands out page 0.
+ */
+static uvlong
+efiallocany(uvlong len, int memtype)
+{
+	uvlong a;
+
+	a = 0;
+	if(eficall(ST->BootServices->AllocatePages, (UINTN)0, (UINTN)memtype,
+		(UINTN)((len + 4095) / 4096), &a) != 0)
+		return 0;
+	return a;
+}
 
 /*
  * Do not put the final UEFI memory map on the firmware-provided stack.
@@ -553,50 +564,18 @@ eficonfig(void)
 }
 
 /*
- * Diagnose a refused low-scratch reservation: fetch the current memory map
- * (boot services are still active - this is not the final pre-ExitBootServices
- * map) and print the Type/Attribute of whichever descriptor covers
- * BOOTSCRATCHBASE, so a real refusal on real hardware says *why* instead of
- * just *that*. Attribute is printed in full 64-bit width, unlike bootexit()'s
- * BootMem.attr - EFI_MEMORY_RUNTIME is bit 63, and losing it here would hide
- * exactly the answer this exists to find.
+ * Copy the plan9.ini text (confaddr, see sub.c) and the finished BootInfo
+ * (bi) - both built in dynamically allocated scratch, never at their fixed
+ * physical addresses directly - down to the fixed CONFADDR/BOOTINFO
+ * addresses the kernel actually expects them at (sys/src/9/pc64/mem.h).
+ * Called from bootkern() (sub.c) after bootexit() succeeds: see efimain()'s
+ * comment for why this can only happen post-ExitBootServices.
  */
-static void
-diagscratchmap(void)
+void
+bootrelocate(void)
 {
-	UINTN mapsize, entsize, i;
-	EFI_MEMORY_DESCRIPTOR *t;
-	void *map;
-	UINT32 entvers;
-	char b[96], *s;
-
-	map = nil;
-	mapsize = 16*1024;
-	if(eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData, mapsize, &map) != 0 || map == nil){
-		print("[P2 L02] diag: cannot allocate map buffer\n");
-		return;
-	}
-	entsize = sizeof(EFI_MEMORY_DESCRIPTOR);
-	entvers = 1;
-	if(eficall(ST->BootServices->GetMemoryMap, &mapsize, map, &MK, &entsize, &entvers) || entsize < sizeof(EFI_MEMORY_DESCRIPTOR)){
-		print("[P2 L02] diag: GetMemoryMap failed\n");
-		return;
-	}
-	for(i = 0; i*entsize < mapsize; i++){
-		t = (EFI_MEMORY_DESCRIPTOR*)((uchar*)map + i*entsize);
-		if(t->PhysicalStart > BOOTSCRATCHBASE || BOOTSCRATCHBASE >= t->PhysicalStart + t->NumberOfPages*4096ULL)
-			continue;
-		s = b;
-		memmove(s, "[P2 L02] diag: covering type=", 29), s += 29;
-		s = decfmt(s, 0, t->Type);
-		memmove(s, " pages=", 7), s += 7;
-		s = decfmt(s, 0, (ulong)t->NumberOfPages);
-		memmove(s, " attr=0x", 8), s += 8;
-		s = hexfmt(s, 0, t->Attribute), *s++ = '\n', *s = '\0';
-		print(b);
-		return;
-	}
-	print("[P2 L02] diag: no covering descriptor found\n");
+	memmove((void*)CONFADDR, confaddr, BOOTINFO-CONFADDR);
+	memmove((void*)BOOTINFO, bi, BOOTSCRATCHEND-BOOTINFO);
 }
 
 EFI_STATUS
@@ -610,46 +589,35 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	print("[P2 L01] Plan2001 loader 2026-09-23 debug-1\n");
 
 	/*
-	 * Claim the low scratch area (plan9.ini text and BootInfo, written at
-	 * CONFADDR and BOOTINFO respectively, both inside
-	 * BOOTSCRATCHBASE..BOOTSCRATCHEND) from the firmware's own allocator
-	 * before writing anything there. AllocateAddress requires a
-	 * page-aligned request - CONFADDR itself (0x1200) is not, so this
-	 * must reserve from BOOTSCRATCHBASE (0x1000), not CONFADDR, or the
-	 * request is simply invalid and firmware is right to refuse it.
-	 *
-	 * This is not optional. A refusal of this now-correctly-aligned
-	 * request is not known to have ever actually happened on real
-	 * hardware: the only refusal observed so far (in QEMU and on a Dell
-	 * Precision T5600) was of the OLD misaligned request, which the spec
-	 * guarantees must fail regardless of what is really at that address
-	 * - that is not evidence about this aligned one. If firmware ever
-	 * does refuse this request, it is saying that memory may be in use
-	 * for something else; writing BOOTLINE/BOOTARGS/BootInfo there
-	 * anyway (as upstream 9front's BIOS-era loader always did, without
-	 * ever asking first) is a real corruption risk, not a hypothetical
-	 * one, so halt here rather than guess.
+	 * plan9.ini text (confaddr, see sub.c) and BootInfo (bi) are built
+	 * here in scratch memory the firmware's allocator actually granted -
+	 * wherever that is (AllocateAnyPages), never by demanding the fixed
+	 * CONFADDR/BOOTINFO addresses directly. Confirmed on a Dell Precision
+	 * T5600: that fixed range can be EfiBootServicesCode firmware is
+	 * still executing (diagscratchmap found type=3, attr=0xf, no
+	 * EFI_MEMORY_RUNTIME bit) - safe to overwrite once boot services
+	 * have ended, per the UEFI spec's reclaim guarantee for
+	 * BootServicesCode/Data, but not before. bootrelocate() (above) does
+	 * the actual fixed-address copy, called from bootkern() (sub.c)
+	 * after bootexit() (ExitBootServices) succeeds - matching OpenBSD's
+	 * efiboot, which defers both its own fixed-address boot-args copy
+	 * and its kernel-image relocation the same way, for the same reason.
 	 */
-	print("[P2 L02] low scratch: AllocateAddress 0x1000..0x7000\n");
-	if(efiallocdata(BOOTSCRATCHBASE, BOOTSCRATCHEND-BOOTSCRATCHBASE) != 0){
-		uvlong a;
-		uintptr est;
-		char b[80], *s;
+	print("[P2 L02] boot scratch: allocate dynamically\n");
+	{
+		uvlong ca, bia;
 
-		/* redo the identical, still-failing call just to capture its
-		 * raw EFI_STATUS - efiallocdata() only returns success/fail */
-		a = BOOTSCRATCHBASE;
-		est = eficall(ST->BootServices->AllocatePages, (UINTN)2, (UINTN)EfiLoaderData,
-			(UINTN)((BOOTSCRATCHEND-BOOTSCRATCHBASE)/4096), &a);
-		s = b;
-		memmove(s, "[P2 L02] FATAL: firmware refused, status=0x", 43), s += 43;
-		s = hexfmt(s, 0, est), *s++ = '\n', *s = '\0';
-		print(b);
-		diagscratchmap();
-		for(;;)
-			;
+		ca = efiallocany(BOOTINFO-CONFADDR, EfiLoaderData);
+		bia = efiallocany(BOOTSCRATCHEND-BOOTINFO, EfiLoaderData);
+		if(ca == 0 || bia == 0){
+			print("[P2 L02] FATAL: cannot allocate boot scratch memory\n");
+			for(;;)
+				;
+		}
+		confaddr = (char*)ca;
+		bi = (BootInfo*)bia;
 	}
-	print("[P2 L02] low scratch: claimed\n");
+	print("[P2 L02] boot scratch: allocated\n");
 
 	print("[P2 L03] memory-map buffer: AllocatePool 96 KiB\n");
 	if(bootmapinit() != 0){

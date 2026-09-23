@@ -22,12 +22,14 @@ void (*stop)(void);
 int readn(void *f, void *data, int len);
 int bootmapinit(void);
 int bootexit(void);
+void bootrelocate(void);
 int efialloc(uvlong pa, uvlong len);
-int efiallocdata(uvlong pa, uvlong len);
 void efifree(uvlong pa, uvlong len);
 void fbmark(int stage);
 void *fbmarkaddr(int stage);
 ulong fbmarkpitch(void);
+
+extern char *confaddr;
 
 int getc(void);
 void putc(int c);

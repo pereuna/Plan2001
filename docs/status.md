@@ -176,10 +176,47 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   tulosteeksi saatiin täysi, ehjä rivi — `status=0x800000000000000e`
   (`EFI_NOT_FOUND`) ja `diag: covering type=2 pages=6 attr=0xf` (tässä
   keinotekoisessa testissä `EfiLoaderData`, koska testi varasi sen juuri
-  sellaisena — ei tietoa siitä, mitä T5600 oikeasti raportoi). **Seuraava
-  askel on ainoastaan tämä**: käynnistä T5600:lla ja lue näytöstä
-  `status=0x...`- ja `diag: covering type=...`-rivit ennen kuin päätetään,
-  onko jatkaminen turvallista millään ehdolla.
+  sellaisena — ei tietoa siitä, mitä T5600 oikeasti raportoi).
+
+  **Todellinen T5600-ajo ja arkkitehtuurin korjaus (23.9.2026, myöhemmin
+  samana päivänä).** Todellinen tulos: `status=0x800000000000000e`
+  (`EFI_NOT_FOUND`), `diag: covering type=3 pages=8 attr=0xf` —
+  `EfiBootServicesCode`, ei `EFI_MEMORY_RUNTIME`-bittiä. Kyse ei siis ole
+  varatusta/tuntemattomasta alueesta vaan firmwaren **omasta, parhaillaan
+  suoritettavasta boot-aikaisesta koodista** täsmälleen samassa
+  matalassa muistialueessa, jota loader on aina kirjoittanut ilman
+  varausyritystä. Sinne kirjoittaminen ennen `ExitBootServices`ia olisi
+  siis todellinen riski, ei vain teoreettinen.
+
+  Käyttäjän oma erillinen projekti (`~/AIOS`, `baremetal/platform.c`)
+  käynnistyy samalla T5600-raudalla onnistuneesti ja käyttää
+  `AllocatePages`ia — mutta aina `AllocateAnyPages`illa, ei koskaan
+  kiinteällä osoitteella, eikä koskaan tätä matalaa aluetta. Sama malli
+  löytyy Linuxin EFI-stubista (`efi_allocate_pages()`:
+  `EFI_ALLOCATE_MAX_ADDRESS`, ei koskaan kiinteä osoite; `boot_params`
+  välitetään ytimelle RSI-rekisterissä) ja OpenBSD:n `efiboot`:sta
+  (`run_loadfile()`: `BOOTARG_OFF`-vakio-osoitetta ei koskaan varata
+  UEFI:ltä, ja sekä bootarg-kopio että kernel-image siirretään lopulliseen
+  paikkaansa **vasta** `efi_cleanup()`/`ExitBootServices`in jälkeen — koodin
+  oma kommentti: "Move the loaded kernel image to the usual place after
+  calling ExitBootServices()").
+
+  Korjattu vastaavasti, ilman mitään kernelin puolen muutosta: `confaddr`
+  (`sub.c`:n `BOOTLINE`/`BOOTARGS`, oli jo muuttuja eikä vakio) ja `bi`
+  (`BootInfo`) osoittavat nyt `AllocateAnyPages`illa varattuun
+  väliaikaismuistiin koko `configure()`/`eficonfig()`/`bootexit()`-ajan.
+  Uusi `bootrelocate()` (`efi.c`) kopioi molemmat kiinteisiin
+  `CONFADDR`/`BOOTINFO`-osoitteisiin vasta `bootkern()`:ssa (`sub.c`),
+  heti onnistuneen `bootexit()`in (`ExitBootServices`) jälkeen, ennen
+  `jump64()`ia — täsmälleen OpenBSD:n järjestys. Tämä on turvallista
+  UEFI-spesifikaation mukaan: `EfiBootServicesCode`/`Data` vapautuu
+  käyttöjärjestelmälle heti `ExitBootServices`in onnistuttua, eikä ennen
+  sitä. Poistettu tarpeettomana: `efiallocdata()`, `diagscratchmap()`,
+  `BOOTSCRATCHBASE`. QEMU-testattu täydestä bootista `bootargs`-kehotteeseen:
+  `plan9.ini`n sisältö (`bootfile=`, `console=`) ja muistikartta
+  (`122 holes free`, `854212608 bytes free`) luettiin oikein kiinteistä
+  osoitteista, eli kierrätys toimii päästä päähän, ei vain käänny. Ei vielä
+  testattu T5600:lla.
 
 ## Seuraavaksi
 
@@ -194,10 +231,11 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 - **Uusi GOP-mappaus vaatii raudalla varmistuksen.** PCI BAR -heuristiikan poisto
   ja erillinen framebuffer-stride on käännetty, mutta T5600/P2000-yhdistelmän
   näyttötesti on vielä tekemättä.
-- **Loaderin low-memory-jatkopolku vaatii T5600-testin.** Uusi build tunnistuu
-  ensimmäisestä rivistä `[P2 L01] Plan2001 loader 2026-09-23 debug-1`; jos teksti
-  lakkaa `ExitBootServices`in jälkeen, alakulman ruutujen määrä kertoo viimeisen
-  saavutetun vaiheen.
+- **Loaderin alamuistiratkaisu (dynaaminen varaus + relokointi `ExitBootServices`in
+  jälkeen) vaatii T5600-testin.** Ei enää kiinteän osoitteen `AllocateAddress`-
+  varausta lainkaan — ks. yllä 23.9.2026. Jos teksti lakkaa `ExitBootServices`in
+  jälkeen (build tunnistuu rivistä `[P2 L01] Plan2001 loader 2026-09-23 debug-1`),
+  alakulman ruutujen määrä kertoo viimeisen saavutetun vaiheen.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
   32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit

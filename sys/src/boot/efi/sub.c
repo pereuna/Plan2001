@@ -180,7 +180,6 @@ timeout(int ms)
 #define	BOOTARGSLEN	(BOOTINFO-CONFADDR-BOOTLINELEN)
 #define	BOOTARGSEND	(BOOTARGS+BOOTARGSLEN)	/* BootInfo starts here, see mem.h */
 
-extern char *confaddr;
 static char *confend;
 
 char*
@@ -535,6 +534,14 @@ bootkern(void *f)
 			;
 	}
 	fbmark(2);
+
+	/*
+	 * Only now - after ExitBootServices - copy the plan9.ini text and
+	 * BootInfo down to the fixed CONFADDR/BOOTINFO addresses the kernel
+	 * expects them at (see efimain()'s and bootrelocate()'s comments in
+	 * efi.c for why not before). No print() from here on: ConOut is gone.
+	 */
+	bootrelocate();
 
 	fbmark(3);
 	jump64(e, fbmarkaddr(4), fbmarkpitch());
