@@ -301,6 +301,35 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
     saumattomasti perään (osa jo toisessa sarakkeessa), merkkirivi on
     pieni eikä peitä mitään. Ei vielä testattu T5600:lla.
 
+  **Katselmoinnin löydökset ja korjaukset (23.9.2026, `/code-review`).**
+  Kolme löydöstä edellisestä committista, kaikki vahvistettu koodista ennen
+  korjausta:
+  - **`l.s`:n vaiheen 4 merkki ei skaalautunut mukana.** Kun merkkiruutujen
+    koko pieneni 24px→8px (`efi.c`), assembly-piirretty neljäs ruutu
+    (kernel entry, ennen mitään C-koodia) jäi kiinteäksi 12×12px:ksi —
+    valuu naapuriruutuun ja `Barh`-rajan yli juuri sillä hetkellä kun
+    kehittäjä katsoisi merkkiriviä debugatakseen varhaista jumia. Korjattu:
+    `l.s` piirtää nyt 8×8.
+  - **Loaderin talteenotettu teksti ei ollut suojattu kernelin omalta
+    allokaattorilta.** `logbuf` (`efiallocany(..., EfiLoaderData)`) luokitellaan
+    `bootmemkind()`:ssä tavalliseksi `MemRAM`:ksi — toisin kuin `CONFADDR`/
+    `BOOTINFO`, sitä ei koskaan kopioida suojattuun matalaan alueeseen, joten
+    se jää mihin tahansa firmware sen sattui laittamaan. `xinit()` (yleinen
+    allokaattori) käynnistyy ennen `bootscreeninit()`ia (joka lukee sen
+    `bootlogtext()`in kautta) — kernelin oma varhainen muistinvaraus olisi
+    voinut ehtiä kirjoittaa juuri niiden sivujen päälle ennen kuin teksti
+    luetaan. Korjattu: uusi `memreserve(bootinfo->logbase, bootinfo->logsize)`
+    `meminit0()`:ssa (`memory.c`), samaan tapaan kuin `[0, CPU0END)`.
+  - **`vgascroll()`in flush-alue oli aina koko konsoli**, vaikka kaksi
+    kolmesta sarakkeenvaihdosta ei tyhjennä mitään (vain sarakkeesta 0
+    kiertäminen tekee). Ei virhe, mutta tarpeeton täysi uudelleenpiirto
+    joka rivinvaihdolla. Korjattu: `vgascroll()` ottaa nyt `flushr`in
+    parametrina ja yhdistää siihen vain sen minkä oikeasti piirsi;
+    kutsuja lisää vielä uuden sarakkeen alueen.
+  - QEMU-testattu uudelleen käännöksen jälkeen: `PASS`, kuvakaappaus
+    näyttää samalta kuin ennen (merkkirivi pieni, teksti ehjä). Ei vielä
+    testattu T5600:lla.
+
 ## Seuraavaksi
 
 T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — tämä

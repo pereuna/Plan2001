@@ -58,11 +58,17 @@ colrect(int c)
  * console area - real scrolling, now Ncol times rarer.
  */
 static void
-vgascroll(VGAscr* scr)
+vgascroll(VGAscr* scr, Rectangle *flushr)
 {
 	if(++curcol >= Ncol){
 		curcol = 0;
 		memimagedraw(scr->gscreen, fullwin, back, ZP, nil, ZP, S);
+		combinerect(flushr, fullwin);	/* the whole area was actually
+						 * redrawn; a plain column
+						 * switch below redraws nothing
+						 * itself, so only the new
+						 * column's rect (added by the
+						 * caller) needs to flush */
 	}
 	window = colrect(curcol);
 	curpos = window.min;
@@ -82,8 +88,8 @@ vgascreenputc(VGAscr* scr, char* buf, Rectangle *flushr)
 	switch(buf[0]){
 	case '\n':
 		if(curpos.y+h >= window.max.y){
-			vgascroll(scr);
-			*flushr = fullwin;
+			vgascroll(scr, flushr);
+			combinerect(flushr, window);
 		} else
 			curpos.y += h;
 		vgascreenputc(scr, "\r", flushr);

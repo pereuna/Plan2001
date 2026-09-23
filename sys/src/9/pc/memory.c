@@ -501,6 +501,20 @@ meminit0(void)
 	memreserve(0, PADDR(CPU0END));
 
 	/*
+	 * The loader's captured boot-log text (BootInfo.logbase/logsize -
+	 * see sys/src/boot/efi/sub.c's print(), sys/src/9/pc/bootfb.c's
+	 * bootlogtext()) sits in ordinary EfiLoaderData memory: MemRAM
+	 * above, freely reusable by this kernel's own allocator. Unlike
+	 * CONFADDR/BOOTINFO, it is never relocated into the always-reserved
+	 * low range - it stays wherever the firmware's allocator happened
+	 * to put it. Reserve it explicitly, before xinit() (called after
+	 * this) can hand its pages to something else: bootscreeninit(),
+	 * which reads it, runs well after xinit() in main().
+	 */
+	if(bootinfo != nil && bootinfo->logbase != 0 && bootinfo->logsize != 0)
+		memreserve(bootinfo->logbase, bootinfo->logsize);
+
+	/*
 	 * Addresses below 16MB default to be upper
 	 * memory blocks usable for ISA devices.
 	 */

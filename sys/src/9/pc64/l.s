@@ -39,10 +39,10 @@ TEXT _efi64<>(SB), 1, $-4
 	 */
 	TESTQ	R12, R12
 	JEQ	_efimarkdone
-	MOVL	$12, BX
+	MOVL	$8, BX		/* MarkSize in sys/src/boot/efi/efi.c - keep in sync */
 _efimarkrow:
 	MOVQ	R12, DI
-	MOVL	$12, CX
+	MOVL	$8, CX
 _efimarkpixel:
 	MOVL	$0x00ff00ff, (DI)
 	ADDQ	$4, DI
