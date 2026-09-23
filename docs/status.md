@@ -215,10 +215,24 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   `BOOTSCRATCHBASE`. QEMU-testattu täydestä bootista `bootargs`-kehotteeseen:
   `plan9.ini`n sisältö (`bootfile=`, `console=`) ja muistikartta
   (`122 holes free`, `854212608 bytes free`) luettiin oikein kiinteistä
-  osoitteista, eli kierrätys toimii päästä päähän, ei vain käänny. Ei vielä
-  testattu T5600:lla.
+  osoitteista, eli kierrätys toimii päästä päähän, ei vain käänny.
+
+  **Vahvistettu T5600:lla (23.9.2026, commit `fa5c461`).** Kone bootin
+  onnistuneesti tällä ratkaisulla — ensimmäinen kerta koko Plan2001-projektin
+  historiassa, kun vaihe 1+2:n UEFI-loader-polku on todistetusti käynnistynyt
+  oikealla raudalla, ei vain QEMU:ssa/VM:ssä. Kaksi vuorokautta kestänyt
+  alamuistivarauksen jäljitys (misalignment → halt-vs-continue → väärä
+  diagnostiikka → todellinen syy `EfiBootServicesCode`-konfliktissa →
+  arkkitehtuurin korjaus) päättyi tähän.
 
 ## Seuraavaksi
+
+T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — ensimmäinen
+todistettu oikean raudan boot koko projektissa. Seuraavaksi: varmistaa täysi
+userland (cpu+auth-palvelut, samaan tapaan kuin vaiheen 2 kohdat aiemmin
+VM:llä) myös T5600:lla, ei vain `bootargs`-kehotteeseen asti. Sen jälkeen
+vielä avoinna: GOP-framebufferin PCI-BAR-korjauksen (ks. yllä) erillinen
+näyttötesti T5600:lla, ja `reboot()`in 64-bittinen kexec-luovutus.
 
 Vaiheen 2 neljä tunnistettua ehdokasta on tehty. Jatkoehdokkaita ei ole vielä
 kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. PAT,
@@ -231,11 +245,10 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 - **Uusi GOP-mappaus vaatii raudalla varmistuksen.** PCI BAR -heuristiikan poisto
   ja erillinen framebuffer-stride on käännetty, mutta T5600/P2000-yhdistelmän
   näyttötesti on vielä tekemättä.
-- **Loaderin alamuistiratkaisu (dynaaminen varaus + relokointi `ExitBootServices`in
-  jälkeen) vaatii T5600-testin.** Ei enää kiinteän osoitteen `AllocateAddress`-
-  varausta lainkaan — ks. yllä 23.9.2026. Jos teksti lakkaa `ExitBootServices`in
-  jälkeen (build tunnistuu rivistä `[P2 L01] Plan2001 loader 2026-09-23 debug-1`),
-  alakulman ruutujen määrä kertoo viimeisen saavutetun vaiheen.
+- ~~Loaderin alamuistiratkaisu vaatii T5600-testin~~ **Tehty ja vahvistettu
+  (23.9.2026, commit `fa5c461`).** Dynaaminen `AllocateAnyPages`-varaus +
+  relokointi `ExitBootServices`in jälkeen, ei enää kiinteän osoitteen
+  `AllocateAddress`-varausta — ks. yllä 23.9.2026. T5600 bootti onnistuneesti.
 - Kernelin oma "lataa uusi kernel" -polku (`rebootcode.s`, `/dev/reboot`) käyttää yhä
   32-bittistä luovutusta, joka ei enää täsmää `_efi64`-sisäänmenon kanssa. `reboot()`
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit
@@ -245,7 +258,12 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   nyt ylivuotoon (`bootinfoinit()` pysäyttää koneen, commit `bc7b88b`) sen sijaan
   että käyttäisi katkennutta karttaa hiljaa — mutta itse 600 rivin riittävyyttä
   oikealla, pirstoutuneella UEFI-muistikartalla ei ole vielä arvioitu.
-- Vaihe 1+2 on QEMU- ja VM-testattu, mutta ei vielä oikealla raudalla (vain vaihe
-  A/B on). `pcboot`-pikatestikitti on vanhentunut rakenteen jälkeen; raudalla
-  testaus vaatii `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin
-  muistitikulle (ks. README).
+- ~~Vaihe 1+2 ei vielä oikealla raudalla~~ **Vahvistettu (23.9.2026): T5600
+  bootti onnistuneesti** commitilla `fa5c461` (alamuistin dynaaminen varaus +
+  relokointi). Yksittäisiä kohtia (GOP-framebufferin PCI-BAR-korjaus, vaiheen
+  2 legacy-poistot yksitellen) ei ole vielä kaikkia erikseen T5600:lla
+  varmistettu, mutta kokonaisuus käynnistyy. `pcboot`-pikatestikitti on
+  vanhentunut rakenteen jälkeen; raudalla testaus tapahtuu
+  `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin kautta
+  (`tools/test-qemu.sh` kopioi build/esp:n automaattisesti `C:\temp\esp`:hen,
+  ks. README).
