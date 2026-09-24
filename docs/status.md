@@ -392,3 +392,21 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin kautta
   (`tools/test-qemu.sh` kopioi build/esp:n automaattisesti `C:\temp\esp`:hen,
   ks. README).
+
+## K0: rivieditori ja kaksi konsolitilaa (24.9.2026)
+
+- `aux/kbdfs` (`lineproc()`) sai rivieditorin: nuolet, Home/End, Delete, Backspace,
+  `^K` leikkaa kursorista loppuun, `^U` leikkaa alusta kursoriin, `^W` sana,
+  `^Y` liitä, ylös/alas-historia (32 riviä, muistissa). rc ja `bootrc` ennallaan.
+- `vga.c`: ESC[nC, ESC[nD, ESC[K, ESC[H ja ESC[2J. ESC[2J (kbdfs lähettää sen
+  käynnistyessään) vaihtaa boot-lokitilasta (3 saraketta) interaktiiviseen tilaan:
+  yksi täysleveä sarake, oikea scrollaus, pehmeästi rivitettyjen rivien seuranta
+  (muokkaus rivinvaihdon yli) ja DOS-tyylinen ohjepalkki yläpalkissa.
+  Boot-merkkiruudut saavat kadota interaktiivisessa tilassa.
+- `devcons.c` (uusi seurattu kopio): ESC-alkuiset kirjoitukset eivät päädy
+  kmesgiin, jotta editorin uudelleenpiirto ei täytä lokia.
+- `tools/build.rc` kääntää kbdfs:n ja sitoo sen `/amd64/bin/aux`iin ennen
+  kerneliä, jolloin se päätyy `bootfs.paq`iin.
+- Testattu QEMUssa (sendkey): kursorin siirto, lisäys keskelle, Home/End,
+  ^U/^K/^W/^Y, historia. Raudalla testaamatta. Huom: jos kirjoittaa ennen
+  kehotetta (bootrc vielä tulostaa), editorin uudelleenpiirto sekoittuu tulosteeseen.

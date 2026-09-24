@@ -36,7 +36,9 @@ poistettu — ks. `docs/status.md`.
 | `sys/src/9/pc/bootargs.c` | plan9.ini-jäsennys; `*acpi`/`*bootscreen` `BootInfo`sta |
 | `sys/src/9/pc/memory.c` | Muistikartta `BootInfo`sta, BootServices-muisti vapaaksi |
 | `sys/src/9/pc/screen.c` | GOP-framebufferin tarkka osoite, näkyvä leveys ja stride erillään |
-| `sys/src/9/pc/vga.c` | Konsoli: ei splash-laatikkoa, kolme saraketta scrollauksen sijaan, toistaa loaderin tekstin |
+| `sys/src/9/pc/vga.c` | Konsoli: ei splash-laatikkoa, kolme saraketta scrollauksen sijaan, toistaa loaderin tekstin; ESC[2J vaihtaa interaktiiviseen tilaan (yksi sarake, ohjepalkki), ESC[nC/nD/K kursorinsiirto |
+| `sys/src/cmd/aux/kbdfs/kbdfs.c` | Rivieditori `/dev/cons`iin: nuolet, Home/End, Del, ^K/^U/^W/^Y, historia |
+| `sys/src/9/port/devcons.c` | Ainoa muutos: ESC-sekvenssit eivät mene kmesgiin |
 | `sys/src/9/pc64/l.s` | `_efi64`-sisäänmeno (ent. `_protected`+Multiboot+32-bit) |
 | `sys/src/9/pc64/main.c` | `bootmark`/`bootinfo*`-kutsut boot-järjestyksessä |
 | `sys/src/9/pc64/trap.c` | boot-merkki paniikista ja ensimmäisestä `exec`istä |

@@ -13,6 +13,24 @@ mkdir -p $d/9 $d/efi $d/inc
 echo '### kernel: overlay pc64 and pc from the repo onto the VM tree'
 dircp /sys/src/9 $d/9
 for(x in pc64 pc) dircp $hostsrc/sys/src/9/$x $d/9/$x
+cp $hostsrc/sys/src/9/port/devcons.c $d/9/port/devcons.c
+
+echo '### kbdfs: build the line-editing console server (goes into bootfs.paq)'
+mkdir -p $d/auxbin $d/kbdfs
+dircp /sys/src/cmd/aux/kbdfs $d/kbdfs
+cp $hostsrc/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
+@{
+	cd $d/kbdfs
+	mk 6.out >$d/kbdfs.log >[2=1]
+}
+if(! test -f $d/kbdfs/6.out){
+	tail -20 $d/kbdfs.log
+	echo KBDFS BUILD FAILED
+	exit kbdfs-build-failed
+}
+cp $d/kbdfs.log $hostbuild/kbdfs.log
+cp $d/kbdfs/6.out $d/auxbin/kbdfs
+bind -b $d/auxbin /amd64/bin/aux
 cp $hostsrc/sys/include/bootinfo.h $d/inc/bootinfo.h
 bind -b $d/inc /sys/include
 bind -c $d/9 /sys/src/9
