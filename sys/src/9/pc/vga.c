@@ -45,11 +45,15 @@ static uchar softrow[Maxrows];	/* row r continues row r-1 (wrapped, not a new li
 static int rowend[Maxrows];	/* for such a row: x where the previous row's text ended */
 static int escs, escn, eschave;	/* escape sequence parser state */
 static int *xp;
+enum { Curgap = 2 };	/* cursor bar reaches this many pixels into the previous cell */
+static Memimage *cursave;	/* the screen cell under the text cursor while it is drawn */
+static int curvis;
+static Point curat;
 static int xbuf[256];
 Lock vgascreenlock;
 
 static char helptext[] =
-	"Home/End move   ^K cut to end   ^U cut to start   ^W cut word   ^Y paste   Up/Down history";
+	"Home/End move   Shift+Home/End cut to start/end   Shift+Left/Right cut   ^W cut word   ^V paste   Up/Down history";
 
 void
 vgaimageinit(ulong)
@@ -330,6 +334,52 @@ escfeed(VGAscr *scr, int c, Rectangle *flushr)
 	return 1;
 }
 
+/*
+ * Text cursor (interactive mode only): an upside-down T between the previous and the current character.
+ * The cell is saved first and put back before any output, so the text
+ * under it is never disturbed.
+ */
+static void
+txtcuroff(VGAscr *scr, Rectangle *flushr)
+{
+	Rectangle r;
+
+	if(!curvis)
+		return;
+	curvis = 0;
+	r = Rect(curat.x-Curgap, curat.y, curat.x+cellw, curat.y+fonth);
+	memimagedraw(scr->gscreen, r, cursave, ZP, nil, ZP, S);
+	combinerect(flushr, r);
+}
+
+static void
+txtcuron(VGAscr *scr, Rectangle *flushr)
+{
+	Rectangle r, u;
+
+	if(!interactive || cursave == nil || curvis)
+		return;
+	if(curpos.x+cellw > window.max.x || curpos.y+fonth > window.max.y)
+		return;
+	curat = curpos;
+	r = Rect(curat.x-Curgap, curat.y, curat.x+cellw, curat.y+fonth);
+	memimagedraw(cursave, cursave->r, scr->gscreen, r.min, nil, ZP, S);
+
+	/*
+	 * An upside-down T between two characters: a 2px bar straddling the
+	 * cell boundary with a short 4px foot, no top bar (so it cannot be
+	 * mistaken for a letter I).
+	 */
+	u = Rect(curat.x-1, curat.y, curat.x+1, r.max.y);
+	memimagedraw(scr->gscreen, u, conscol, ZP, nil, ZP, S);
+	u = Rect(curat.x-2, r.max.y-2, curat.x+2, r.max.y);
+	memimagedraw(scr->gscreen, u, conscol, ZP, nil, ZP, S);
+	r = Rect(curat.x-Curgap, curat.y, curat.x+cellw, curat.y+fonth);
+
+	combinerect(flushr, r);
+	curvis = 1;
+}
+
 static void
 vgascreenputc(VGAscr* scr, char* buf, Rectangle *flushr)
 {
@@ -450,6 +500,7 @@ vgascreenputs(char* s, int n)
 
 	flushr = Rect(10000, 10000, -10000, -10000);
 
+	txtcuroff(scr, &flushr);
 	e = s + n;
 	while(s < e){
 		rb[nrb++] = *s++;
@@ -459,6 +510,7 @@ vgascreenputs(char* s, int n)
 			nrb = 0;
 		}
 	}
+	txtcuron(scr, &flushr);
 	flushmemscreen(flushr);
 
 	if(gotdraw)
@@ -486,6 +538,9 @@ vgascreenwin(VGAscr* scr)
 	fonth = h;
 	ncol = Ncol;
 	interactive = 0;
+	curvis = 0;
+	if(cursave == nil)
+		cursave = allocmemimage(Rect(0, 0, cellw+Curgap, h), scr->gscreen->chan);
 	memset(softrow, 0, sizeof softrow);
 
 	r = scr->gscreen->r;

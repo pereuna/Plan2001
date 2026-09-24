@@ -397,7 +397,7 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 
 - `aux/kbdfs` (`lineproc()`) sai rivieditorin: nuolet, Home/End, Delete, Backspace,
   `^K` leikkaa kursorista loppuun, `^U` leikkaa alusta kursoriin, `^W` sana,
-  `^Y` liitä, ylös/alas-historia (32 riviä, muistissa). rc ja `bootrc` ennallaan.
+  `^V` liitä, ylös/alas-historia (32 riviä, muistissa). rc ja `bootrc` ennallaan.
 - `vga.c`: ESC[nC, ESC[nD, ESC[K, ESC[H ja ESC[2J. ESC[2J (kbdfs lähettää sen
   käynnistyessään) vaihtaa boot-lokitilasta (3 saraketta) interaktiiviseen tilaan:
   yksi täysleveä sarake, oikea scrollaus, pehmeästi rivitettyjen rivien seuranta
@@ -410,3 +410,15 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
 - Testattu QEMUssa (sendkey): kursorin siirto, lisäys keskelle, Home/End,
   ^U/^K/^W/^Y, historia. Raudalla testaamatta. Huom: jos kirjoittaa ennen
   kehotetta (bootrc vielä tulostaa), editorin uudelleenpiirto sekoittuu tulosteeseen.
+
+### Rivieditorin hionta (24.9.2026)
+
+- Kursori piirretään pystyviivana merkkien väliin (ylösalaisin käännetty T:
+  2 px viiva, lyhyt 4 px jalka alhaalla, ei yläpalkkia, jottei se sekoitu
+  I-kirjaimeen). Solun pikselit tallennetaan ja palautetaan ennen jokaista
+  tulostetta (`vga.c`, `txtcuron`/`txtcuroff`).
+- Leikkaus siirrettiin Ctrl-yhdistelmistä Shift-näppäimille: Shift+Home leikkaa
+  alkuun, Shift+End loppuun, Shift+←/→ yhden merkin kerrallaan (peräkkäiset
+  painallukset kasvattavat leikattua tekstiä). Ei erillistä valintatilaa.
+  Liitä on `^V`; `^K`, `^U` ja `^Y` poistuivat, `^W` säilyi. Shift+nuolet ja
+  Shift+Home/End saavat kbdfs:ssä omat runet (`Lshiftesc1`-taulukko).

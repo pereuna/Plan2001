@@ -30,3 +30,11 @@ tr -d '\r' < "$b/serial.log" | sed 's/\x1b\[[0-9;=?]*[a-zA-Z]//g' | sed -n '/^ac
 convert "$b/screen.ppm" "$b/screen.png" 2>/dev/null && echo "screenshot: $b/screen.png"
 n=$(tr -d '\r' < "$b/serial.log" | grep -c '^Plan 9')
 grep -q '^bootargs is' "$b/serial.log" && [ "$n" = 1 ] && echo "PASS: kernel reached the bootargs prompt" || { echo "FAIL (banners: $n)"; exit 1; }
+
+# After a PASS: boot the same ESP in a Windows-side QEMU (WHPX, GTK window) so
+# the result can be looked at and tried by hand without booting real hardware.
+# The previous test window is replaced.  WIN_QEMU=0 skips this.
+if [ -d /mnt/c ] && [ "${WIN_QEMU:-1}" != 0 ] && command -v powershell.exe >/dev/null; then
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/vm/win-test.ps1")" >/dev/null 2>&1 \
+    && echo "Windows QEMU (plan2001test) started on C:\\temp\\esp"
+fi

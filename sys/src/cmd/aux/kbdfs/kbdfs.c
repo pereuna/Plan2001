@@ -148,6 +148,14 @@ char *layertab[Nlayers] = {
 	[Laltgrmod4]	"altgrmod4",
 };
 
+/* keys private to the line editor: shift-Home, -End, -Left, -Right */
+enum {
+	Kshome = 0xF870,
+	Ksend = 0xF871,
+	Ksleft = 0xF872,
+	Ksright = 0xF873,
+};
+
 /* /sys/lib/kbmap/ascii defaults */
 Rune ascii[Nlayers][Nscan] = {
 
@@ -229,8 +237,8 @@ Rune ascii[Nlayers][Nscan] = {
 	[0x28]	0,	0,	0,	0,	0,	0,	0,	0,
 	[0x30]	0,	0,	0,	0,	0,	0,	0,	0,
 	[0x38]	0,	0,	0,	0,	0,	0,	0,	0,
-	[0x40]	0,	0,	0,	0,	0,	0,	0,	0,
-	[0x48]	Kup,	0,	0,	0,	0,	0,	0,	0,
+	[0x40]	0,	0,	0,	0,	0,	0,	0,	Kshome,
+	[0x48]	Kup,	0,	0,	Ksleft,	0,	Ksright,	0,	Ksend,
 	[0x50]	0,	0,	0,	0,	0,	0,	0,	0,
 	[0x58]	0,	0,	0,	0,	0,	0,	0,	0,
 	[0x60]	0,	0,	0,	0,	0,	0,	0,	0,
@@ -939,10 +947,12 @@ mctlproc(void *)
  *	Backspace, Delete	delete before / at the cursor (Delete on an
  *				empty line or at its end is still the
  *				interrupt key)
- *	^K			cut from the cursor to the end of the line
- *	^U			cut from the start of the line to the cursor
+ *	Shift-End		cut from the cursor to the end of the line
+ *	Shift-Home		cut from the start of the line to the cursor
+ *	Shift-Left/Right	cut one character before/after the cursor; repeat
+ *				to cut more (consecutive cuts add up)
  *	^W			cut the word before the cursor
- *	^Y			paste the last cut text
+ *	^V			paste the last cut text
  *	Up Down			history
  *
  * The display is kept up to date with relative cursor moves (ESC[nC,
@@ -955,8 +965,7 @@ mctlproc(void *)
 enum {
 	Nline = 256,		/* runes per line, including the newline */
 	Nhist = 32,
-	Kcutend = 0x0b,		/* ^K */
-	Kyank = 0x19,		/* ^Y */
+	Kpaste = 0x16,		/* ^V */
 	Nout = 200,		/* longest single write to the console */
 };
 
@@ -1095,7 +1104,7 @@ lineproc(void *aux)
 	static Line l;
 	Channel *cook;
 	Rune r;
-	int i, hi, done, from;
+	int i, hi, done, from, cutkind, prevcut;
 	char *s;
 
 	cook = aux;
@@ -1106,9 +1115,12 @@ lineproc(void *aux)
 		l.n = l.cur = l.ccur = 0;
 		hi = nhist;
 		done = 0;
+		cutkind = 0;
 		do {
 			recv(cook, &r);
 			from = -1;
+			prevcut = cutkind;
+			cutkind = 0;
 			switch(r){
 			case Kdel:
 				if(l.n > 0 && l.cur < l.n){
@@ -1129,14 +1141,14 @@ lineproc(void *aux)
 					from = l.cur;
 				}
 				break;
-			case Knack:	/* ^U: cut line start .. cursor */
+			case Kshome:	/* shift-Home: cut line start .. cursor */
 				if(l.cur > 0){
 					delrange(&l, 0, l.cur, 1);
 					l.cur = 0;
 					from = 0;
 				}
 				break;
-			case Kcutend:	/* ^K: cut cursor .. line end */
+			case Ksend:	/* shift-End: cut cursor .. line end */
 				if(l.cur < l.n){
 					delrange(&l, l.cur, l.n, 1);
 					from = l.cur;
@@ -1154,9 +1166,35 @@ lineproc(void *aux)
 					from = i;
 				}
 				break;
-			case Kyank:	/* ^Y: paste */
+			case Kpaste:	/* ^V: paste */
 				from = l.cur;
 				l.cur += insert(&l, cutbuf, ncut);
+				break;
+			case Ksleft:	/* shift-Left: cut the character before the cursor */
+				if(l.cur > 0){
+					if(prevcut == 1 && ncut < Nline-1){
+						memmove(cutbuf+1, cutbuf, ncut*sizeof(Rune));
+						ncut++;
+					}else
+						ncut = 1;
+					cutbuf[0] = l.r[l.cur-1];
+					delrange(&l, l.cur-1, l.cur, 0);
+					l.cur--;
+					from = l.cur;
+					cutkind = 1;
+				}
+				break;
+			case Ksright:	/* shift-Right: cut the character at the cursor */
+				if(l.cur < l.n){
+					if(prevcut == 2 && ncut < Nline-1)
+						;
+					else
+						ncut = 0;
+					cutbuf[ncut++] = l.r[l.cur];
+					delrange(&l, l.cur, l.cur+1, 0);
+					from = l.cur;
+					cutkind = 2;
+				}
 				break;
 			case Kleft:
 				if(l.cur > 0)
