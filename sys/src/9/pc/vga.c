@@ -25,6 +25,7 @@ static Point curpos;
 static Rectangle window;	/* the current column's rectangle */
 static Rectangle fullwin;	/* the whole console area, across all columns */
 static int curcol;
+static int cellw;		/* width of one character cell, for the column gutters */
 static int *xp;
 static int xbuf[256];
 Lock vgascreenlock;
@@ -44,8 +45,8 @@ colrect(int c)
 	Rectangle r;
 
 	w = Dx(fullwin)/Ncol;
-	r.min.x = fullwin.min.x + c*w;
-	r.max.x = c == Ncol-1? fullwin.max.x: r.min.x+w;
+	r.min.x = fullwin.min.x + c*w + cellw;	/* blank cell at the left edge of every column */
+	r.max.x = c == Ncol-1? fullwin.max.x: fullwin.min.x + (c+1)*w;
 	r.min.y = fullwin.min.y;
 	r.max.y = fullwin.max.y;
 	return r;
@@ -202,9 +203,13 @@ void
 vgascreenwin(VGAscr* scr)
 {
 	Rectangle r;
-	int mh;
+	Point cell;
+	int mh, h, rows;
 
 	mh = bootmarkheight();
+	h = scr->memdefont->height;
+	cell = memsubfontwidth(scr->memdefont, " ");
+	cellw = cell.x;
 
 	r = scr->gscreen->r;
 	r.min.y += mh;
@@ -212,6 +217,18 @@ vgascreenwin(VGAscr* scr)
 
 	fullwin = scr->gscreen->clipr;
 	fullwin.min.y += mh;
+
+	/*
+	 * Whole text rows only, and one of them left blank at the bottom: the
+	 * last row on screen is often cut off by the display, and a partial
+	 * row (the scroll test in vgascreenputc() assumes the window height is
+	 * a multiple of the font height) is worse than none. Same at the right
+	 * edge: leave the last character cell empty.
+	 */
+	rows = Dy(fullwin)/h - 1;
+	fullwin.max.y = fullwin.min.y + rows*h;
+	fullwin.max.x -= cellw;
+
 	curcol = 0;
 	window = colrect(curcol);
 	curpos = window.min;

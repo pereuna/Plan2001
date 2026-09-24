@@ -330,6 +330,17 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
     näyttää samalta kuin ennen (merkkirivi pieni, teksti ehjä). Ei vielä
     testattu T5600:lla.
 
+- **Konsolin reunat (24.9.2026).** Oikeilla koneilla (kaikilla kokeilluilla
+  toimii) alin tekstirivi katkesi. Syy: `vgascreenwin()` ei pyöristänyt
+  konsoli-ikkunan korkeutta kokonaisiin fonttiriveihin, vaikka
+  `vgascreenputc()`in vieritystesti olettaa sen (alkuperäinen koodi teki
+  `(Dy/h)*h`) — viimeinen rivi saattoi jäädä osittain ruudun ulkopuolelle.
+  Nyt ikkuna pyöristetään kokonaisiin riveihin ja yksi rivi jätetään
+  tyhjäksi alareunaan; samoin oikeaan reunaan jätetään yksi tyhjä
+  merkkisolu, ja jokaisen sarakkeen vasempaan reunaan tulee yksi tyhjä
+  merkki (luettavuus, sarakkeet eivät kasva kiinni toisiinsa).
+  QEMU-testattu ja kuvakaapattu.
+
 ## Seuraavaksi
 
 T5600 bootii nyt onnistuneesti (23.9.2026, commit `fa5c461`) — tämä
