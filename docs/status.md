@@ -475,3 +475,21 @@ sarjakonsolin tekstillä.
 - Seuraavaksi asennusohjelmaa voidaan alkaa muokata. Muutokset tehdään
   `sys/`-kerrokseen, ja `tools/subset/test` toimii regressiotestinä.
 
+## USB-asennin, vain UEFI (25.9.2026)
+
+- Osajoukko bootattiin ensin 9frontin ISOn tavalla (ISO9660, BIOS-loaderit).
+  Se oli ristiriidassa Plan2001:n periaatteen kanssa, ja Plan2001:n loader ei
+  tue ISO9660:aa. Nyt media on **GPT-levykuva USB-tikulle** (`tools/subset/mkusb`):
+  ESP:ssä on Plan2001:n `bootx64.efi` ja `9pc64`, ja Plan 9 -osiolla hjfs, jossa
+  on osajoukko. `mk9660`, `9660srv`, `pbs`, `mbr`, `9bootfat` ja `bootia32.efi`
+  on jätetty pois perusteineen (`subset/files`: `excluded`).
+- `tools/subset/test`: asennus tikulta, ja asennettu levy bootaa rc:hen
+  Plan2001:n loaderilla. PASS kahdesti peräkkäin samalla tikulla.
+- Juurilevy valitaan `bootargs`-kehotteessa kuten 9frontissa. bootrc:n
+  oletus on tikun `fs`-osio.
+- Löydös: kirjoitettava tikku muisti edellisen asennuksen tilan
+  (`/tmp/copydone`). Nyt ylimmän tason hakemistot ovat `distproto`n mukaan
+  (`tmp d555`), joten `/tmp` on ramfs kuten ISOlla.
+- Seuraavaksi siivotaan asennusohjelman legacy-haarat (mbr-vaihtoehto,
+  pbs/9bootfat, 9660/cdboot) `sys/`-kerrokseen.
+

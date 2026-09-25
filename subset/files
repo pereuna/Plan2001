@@ -1,14 +1,5 @@
 # path	kind	how	why	md5 (tools/subset; generated, do not edit)
-/386/9bootfat	runtime	boot	9bootproto	-
-/386/9boothyb	runtime	boot	9bootproto	-
-/386/9bootiso	runtime	boot	9bootproto	-
-/386/9bootpxe	runtime	boot	9bootproto	-
-/386/bootia32.efi	runtime	boot	9bootproto	-
-/386/bootx64.efi	runtime	boot	9bootproto	-
-/386/efiboot.fat	runtime	boot	9bootproto	-
-/386/mbr	runtime	boot	9bootproto	-
-/386/mkfile	runtime	boot	9bootproto	02df25d314fc69d63522c2455adfbe88
-/386/pbs	runtime	boot	9bootproto	-
+/386/bootx64.efi	runtime	boot	UEFI loader	-
 /adm/timezone/Argentina	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	bb37e2a2277778f3ef1b8e6fa05410e3
 /adm/timezone/Asia_Bahrain	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	2735b624a2edbd21d89422f7841b1155
 /adm/timezone/Asia_India	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	8d44da80c518ef231c6acf5c9dd5392f
@@ -84,9 +75,8 @@
 /adm/timezone/WET	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	f8d8b7ce0cca9112399094ad4ddbe285
 /adm/timezone/local	runtime	static	named in /rc/bin/inst/tzsetup	4db3482545624ddf43e74c7cac996979
 /adm/users	runtime	static	named in /rc/bin/inst/mountcwfs	b73b40629b811877ca96c6c2605d962f
-/amd64/9pc64	runtime	boot	kernel bootdir / ISO boot	-
-/amd64/bin/9660srv	runtime	static	run by /rc/bin/inst/mountdist	-
-/amd64/bin/auth/factotum	runtime	boot	kernel bootdir / ISO boot	-
+/amd64/9pc64	runtime	boot	kernel bootdir	-
+/amd64/bin/auth/factotum	runtime	boot	kernel bootdir	-
 /amd64/bin/auth/secstore	runtime	boot	bootfs.proto	-
 /amd64/bin/aux/acpi	runtime	dynamic	boot + installer up to copydist	-
 /amd64/bin/aux/apm	runtime	static	run by /rc/bin/termrc	-
@@ -138,7 +128,7 @@
 /amd64/bin/nusb/ptp	runtime	static	run by /rc/bin/nusbrc	-
 /amd64/bin/nusb/serial	runtime	static	run by /rc/bin/nusbrc	-
 /amd64/bin/p	runtime	static	run by /rc/bin/fstype	-
-/amd64/bin/paqfs	runtime	boot	kernel bootdir / ISO boot	-
+/amd64/bin/paqfs	runtime	boot	kernel bootdir	-
 /amd64/bin/pipefile	runtime	static	run by /rc/bin/screenrc	-
 /amd64/bin/plumber	runtime	dynamic	boot + installer up to copydist	-
 /amd64/bin/pr	runtime	static	run by /rc/bin/inst/defs	-
@@ -170,7 +160,6 @@
 /amd64/bin/xargs	runtime	static	run by /rc/bin/g	-
 /amd64/bin/xd	runtime	boot	bootfs.proto	-
 /amd64/init	runtime	static	named in /sys/src/9/boot/bootrc	-
-/cfg/plan9.ini	runtime	boot	kernel bootdir / ISO boot	a8dc14c110b7efa2e56fac039fb5275b
 /lib/font/bit/vga/unicode.font	runtime	static	run by /usr/glenda/lib/profile	5cde09cf3776a7076f5ba1012dbc8c90
 /lib/namespace	runtime	iterative	init and newns(2) read it for every new namespace; the atime trace misses it (read before the trace mark is visible)	6d97d23160d643bb2df586f2fae38b54
 /lib/ndb/local	runtime	static	named in /rc/bin/inst/ndbsetup	e2a2819c3a1bcc120417c66fe8b8c93d
@@ -261,16 +250,17 @@
 /usr/glenda/lib/profile	runtime	dynamic	boot + installer up to copydist	540436b93d0499c0e7d8ec359ed99fa5
 /usr/glenda/lib/webcookies	runtime	dynamic	boot + installer up to copydist	451773d2c73adfd18aeaff4d7a835941
 /386/include/ureg.h	source	source	included by /sys/src/cmd/aux/realemu/loadcom.c	4ed1b419e3beaac7313c1ada6f0a3875
+/386/mkfile	source	source	mk template of /sys/src/libmp/386/mkfile	02df25d314fc69d63522c2455adfbe88
 /68020/mkfile	source	source	mk template of /sys/src/libc/68020/68881/mkfile	242c4b6d864d0020fa17e87f6e3a775f
-/amd64/include/u.h	source	source	included by /sys/src/cmd/9660srv/9660srv.c	9ded9e8ec3131ebb67931ed3b1296c3c
+/amd64/include/u.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	9ded9e8ec3131ebb67931ed3b1296c3c
 /amd64/include/ureg.h	source	source	included by /sys/src/libc/386/notejmp.c	2a5e96418f9d69f3c3e60b4c6a18e055
-/amd64/mkfile	source	source	mk template of /sys/src/cmd/9660srv/mkfile	2c687a6eab59523065ab17fe29f88816
+/amd64/mkfile	source	source	mk template of /sys/src/cmd/auth/factotum/mkfile	2c687a6eab59523065ab17fe29f88816
 /power/mkfile	source	source	mk template of /sys/src/libmp/power/mkfile	2818a74c01b3e22ab0cea95d1a27fe3e
 /sys/include/9p.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	09c6a5075c8b5fa4d86cb2a238c65f48
 /sys/include/String.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	be314b92e44b96ce50650f55f29835ea
 /sys/include/a.out.h	source	source	included by /sys/src/9/port/sysproc.c	1a71993ba2d810999f53f90f9a6618ac
 /sys/include/aml.h	source	source	included by /sys/src/cmd/aux/acpi.c	0485952eebdd10dea9479f5e856a066c
-/sys/include/auth.h	source	source	included by /sys/src/cmd/9660srv/9660srv.c	b5b8acd9ad58eaa9363eeccf752510f4
+/sys/include/auth.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	b5b8acd9ad58eaa9363eeccf752510f4
 /sys/include/authsrv.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	c7d560167423a22859d8a27b08e285e3
 /sys/include/avl.h	source	source	included by /sys/src/cmd/gefs/blk.c	db448a44945af2b2b455bddc5b12014d
 /sys/include/bio.h	source	source	included by /sys/src/cmd/auth/secstore/aescbc.c	ff39e780424ce6483c47b4bc40116b64
@@ -282,14 +272,14 @@
 /sys/include/draw.h	source	source	included by /sys/src/cmd/auth/factotum/fgui.c	0bc52e33d72190530bf59e9ca1e051f9
 /sys/include/dtracy.h	source	source	included by /sys/src/9/port/devdtracy.c	8cc18a614fb858d5a116ba82010fc565
 /sys/include/event.h	source	source	included by /sys/src/cmd/mothra/html.syntax.c	d94ddc45caf36b89c0f15f05d20e04f7
-/sys/include/fcall.h	source	source	included by /sys/src/cmd/9660srv/9660srv.c	2f7b6df830552f303e5acababd58caad
+/sys/include/fcall.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	2f7b6df830552f303e5acababd58caad
 /sys/include/fis.h	source	source	included by /sys/src/9/port/devaoe.c	474332f78810c683eb7155c6a1edbbd4
 /sys/include/flate.h	source	source	included by /sys/src/cmd/paqfs/mkpaqfs.c	ffc4b0ed98da2e21878c23eb2cb49b7f
 /sys/include/frame.h	source	source	included by /sys/src/cmd/rio/data.c	421a2e0bf2dd3fd1234f3f9e74670034
 /sys/include/geometry.h	source	source	included by /sys/src/libdraw/mkwarp.c	d49b22857853ad20cd245962395eff76
 /sys/include/ip.h	source	source	included by /sys/src/cmd/aux/timesync.c	a676ae08e2d4486d45e6fbe090f9410a
 /sys/include/keyboard.h	source	source	included by /sys/src/cmd/auth/factotum/fgui.c	d08c0f6bc6c4a0baefe16b36d581f007
-/sys/include/libc.h	source	source	included by /sys/src/cmd/9660srv/9660srv.c	f31f64b088c78d90a34a5aafb3a3f96c
+/sys/include/libc.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	f31f64b088c78d90a34a5aafb3a3f96c
 /sys/include/libsec.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	2a5bba8d70ae992113ece0695a2ba619
 /sys/include/memdraw.h	source	source	included by /sys/src/cmd/reform/pm.c	de30ec4a492532e87e51f09b91c3c95f
 /sys/include/memlayer.h	source	source	included by /sys/src/9/port/devdraw.c	6ceef1ab3c42e71b67c97eb2dc5a8b8f
@@ -642,30 +632,6 @@
 /sys/src/boot/efi/pxe.c	source	source	kernel / loader	5114abb65b198127fa2567c16a792144
 /sys/src/boot/efi/sub.c	source	source	kernel / loader	9974a2c95e303b223d494e5756f0676d
 /sys/src/boot/efi/x64.s	source	source	kernel / loader	3e696ec4def16872cba2d4cc8506087c
-/sys/src/boot/pc/a20.s	source	source	kernel / loader	8d03fc070aeae04b39b8cacc8b48f03e
-/sys/src/boot/pc/apm.s	source	source	kernel / loader	f567efebf76dd252a24f18148d512101
-/sys/src/boot/pc/e820.s	source	source	kernel / loader	b9b9f71a5f9975c7587bee85053febe9
-/sys/src/boot/pc/fat.c	source	source	kernel / loader	b8be66525c7f19a0a67c2b8c30046c97
-/sys/src/boot/pc/fns.h	source	source	kernel / loader	3ab281a5e4ace62a11b3027699857b02
-/sys/src/boot/pc/iso.c	source	source	kernel / loader	eeeb027d6a136a2979fff89bc124d482
-/sys/src/boot/pc/l.s	source	source	kernel / loader	9d9fe6fd81709e94c545a5ef40dcb9e3
-/sys/src/boot/pc/mbr.s	source	source	kernel / loader	e01d2e792e7a6098681c7e46d179b4ec
-/sys/src/boot/pc/mem.h	source	source	kernel / loader	6b81da82238a84fd15bb3e9b37473bce
-/sys/src/boot/pc/mkfile	source	source	kernel / loader	a1ecb1775011da3ca643708ea48211b3
-/sys/src/boot/pc/pbs.s	source	source	kernel / loader	1c886105dc872393c064421b492d34d1
-/sys/src/boot/pc/pxe.c	source	source	kernel / loader	0ec437dfc91b9bed28f439e06fcdbceb
-/sys/src/boot/pc/sub.c	source	source	kernel / loader	da3031caf309081f2d2959f8c0b241a5
-/sys/src/boot/pc/uart.s	source	source	kernel / loader	13098e90181c94dd55d835fced2f259b
-/sys/src/boot/pc/x16.h	source	source	kernel / loader	a7b2589a94e544b478027094b0a8a50f
-/sys/src/cmd/9660srv/9660srv.c	source	source	builds /amd64/bin/9660srv	d9efd52f79ddeb9d4d5884aa95878876
-/sys/src/cmd/9660srv/dat.h	source	source	builds /amd64/bin/9660srv	a0951cc6df358bfa18f89a2cdf99af84
-/sys/src/cmd/9660srv/data.c	source	source	builds /amd64/bin/9660srv	51c2ec59680b966cc62f11a29e01b957
-/sys/src/cmd/9660srv/fns.h	source	source	builds /amd64/bin/9660srv	83f87e160407032d3a3534df3fcd5cff
-/sys/src/cmd/9660srv/iobuf.c	source	source	builds /amd64/bin/9660srv	ea23f72f1bd08051dde5e292b3287362
-/sys/src/cmd/9660srv/iso9660.h	source	source	builds /amd64/bin/9660srv	69986f4fa8d338f00194df5f0285be70
-/sys/src/cmd/9660srv/main.c	source	source	builds /amd64/bin/9660srv	220bba2e1240b3482c8dd0f83b56e602
-/sys/src/cmd/9660srv/mkfile	source	source	builds /amd64/bin/9660srv	4dc38b2e56cebe5e8bc787ff4bbe2932
-/sys/src/cmd/9660srv/xfile.c	source	source	builds /amd64/bin/9660srv	40f1c47fedf7e595733f3d5aa50bd5de
 /sys/src/cmd/auth/factotum/apop.c	source	source	builds /amd64/bin/auth/factotum	acbaa88ed6c6f7525f745570cba6b800
 /sys/src/cmd/auth/factotum/chap.c	source	source	builds /amd64/bin/auth/factotum	be34581cc191d699de86fbe49a3dc99e
 /sys/src/cmd/auth/factotum/confirm.c	source	source	builds /amd64/bin/auth/factotum	8d4e591b7f69e583e87f6144d4a74f4c
@@ -1581,7 +1547,7 @@
 /sys/src/cmd/mkfile	source	source	builds /sys/src/cmd/basename.c	fc94f2cfd2ed3d320fe880dc0e661fc5
 /sys/src/cmd/mklib	source	source	mk template of /sys/src/cmd/mothra/libpanel/mkfile	a69b2f270d8ee8e05fb3a493ad68fd86
 /sys/src/cmd/mkmany	source	source	mk template of /sys/src/cmd/auth/factotum/mkfile	5149267bffb45cfe366faed891019feb
-/sys/src/cmd/mkone	source	source	mk template of /sys/src/cmd/9660srv/mkfile	e3a026d80d13128ad89adcbd53d0fecf
+/sys/src/cmd/mkone	source	source	mk template of /sys/src/cmd/aux/kbdfs/mkfile	e3a026d80d13128ad89adcbd53d0fecf
 /sys/src/cmd/mksyslib	source	source	mk template of /sys/src/libauth/mkfile	0275306ecf39fb2c17a5052a9529661f
 /sys/src/cmd/mktest	source	source	mk template of /sys/src/cmd/awk/test/mkfile	3cfad88c6f71aa465f3c669d5f87f947
 /sys/src/cmd/mntgen.c	source	source	builds /amd64/bin/mntgen	f81f85fa49aa5ac57d2c54c9004e4064
@@ -2934,3 +2900,8 @@
 /sys/src/libthread/threadimpl.h	source	source	LIB of /sys/src/cmd/rio/mkfile	8cc43183703baa5708958c049ba4a8ae
 /sys/src/libthread/tprimes.c	source	source	LIB of /sys/src/cmd/rio/mkfile	84ce8f35c100773294d6134f586e5a96
 /sys/src/mkfile.proto	source	source	mk template of /amd64/mkfile	a8ed56537fcf15494831f68a31691385
+/386/9bootfat	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (dynamic: installer after copydist)	-
+/386/bootia32.efi	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (dynamic: installer after copydist)	-
+/386/mbr	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (static: named in /rc/bin/inst/partdisk)	-
+/386/pbs	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (dynamic: installer after copydist)	-
+/amd64/bin/9660srv	excluded	legacy	ISO9660: the medium is a USB disk (static: run by /rc/bin/inst/mountdist)	-

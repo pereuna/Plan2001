@@ -1,5 +1,6 @@
 # 9front install subset (tools/subset); generated, do not edit
 386	d775 sys sys
+	bootx64.efi	664 sys sys
 acme	d775 sys sys
 adm	d775 adm adm
 	timezone	d775 adm adm
@@ -81,7 +82,6 @@ adm	d775 adm adm
 amd64	d775 sys sys
 	9pc64	775 sys sys
 	bin	d775 sys sys
-		9660srv	775 sys sys
 		auth	d775 sys sys
 			factotum	775 sys sys
 			secstore	775 sys sys
@@ -281,7 +281,7 @@ sys	d775 sys sys
 				bootrc	775 sys sys
 				net.rc	775 sys sys
 				reboot.rc	775 sys sys
-tmp	d775 sys sys
+tmp	d555 sys sys
 usr	d775 sys sys
 	glenda	d755 glenda glenda
 		lib	d775 glenda glenda

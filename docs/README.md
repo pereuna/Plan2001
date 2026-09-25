@@ -23,7 +23,8 @@ Seurauksena: **tämä repo ei käänny yksinään.** Kääntäminen tehdään ai
 
 `subset/` on eri asia: **koskematon kopio** 9front-11952:n asennusaikaisesta
 osajoukosta (`subset/9front/`: asennusohjelma, sen ohjelmien lähteet,
-kirjastot, kernel ja loader), sen proto-tiedosto ja tiedostolista. Kopio on
+kirjastot, kernel ja UEFI-loader, ei BIOS/ISO-legacyä), sen proto-tiedosto,
+josta USB-asennustikku rakennetaan, ja tiedostolista. Kopio on
 johdettu koneellisesti, ja sitä verrataan VM:n puuhun md5:llä
 (`tools/subset/check`). Sitä ei muokata, vaan omat muutokset tehdään `sys/`-hakemistoon. Ks.
 **`docs/install-subset.md`**.
@@ -86,9 +87,12 @@ USB-tikulle). `DISPLAY_QEMU=1` näyttää ruudun GTK-ikkunassa.
   `sdE0` järjestelmä, `sdE1` = `build/in.img` (raaka tar, lähteet sisään),
   `sdE2` = `build/out.img` (raaka tar, tulokset ulos). FATia ei käytetä, koska
   se ei hyväksy hakemistoa `aux` (varattu DOS-laitenimi).
-- `tools/vm-install ISO LEVY` asentaa 9frontin ISOlta levylle ilman käsin
-  tehtyjä askelia (vastaukset: `tools/inst.dialog`). `vm-setup` ja
-  `tools/subset/test` käyttävät sitä.
+- `tools/vm-install [--usb] MEDIA LEVY` asentaa 9frontin levylle ilman käsin
+  tehtyjä askelia (vastaukset: `tools/inst.dialog`). `vm-setup` käyttää
+  9frontin ISOa (käännös-VM), `tools/subset/test` Plan2001:n USB-tikkua.
+- `tools/subset/mkusb` rakentaa Plan2001:n **USB-asennustikun** (vain UEFI,
+  Plan2001:n loader ja kernel): `build/subset/plan2001-inst.img`, joka
+  kirjoitetaan tikulle `dd`:llä. Ks. `docs/install-subset.md`.
 - `tools/9run 'rc-komento'` ajaa komennon VM:ssä ja palauttaa sen `$status`in
   (0/1, aikakatkaisu 124). `tools/9run --dialog` vastaa kehotteisiin
   sääntötiedoston mukaan (asennus ja boot, ks. `tools/vm-setup`).
