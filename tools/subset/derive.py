@@ -9,8 +9,8 @@ B is build/subset: trace/{s1,s2} (tools/subset/trace), vm/tree and
 vm/text/ (tree.rc), src/ (fetch.rc).  Paths are absolute 9front paths.
 
 runtime: files a 9front install uses when it runs -
-  boot     the kernel's bootdir and bootfs.proto, the loader files of
-           9bootproto (what the ISO boots with)
+  boot     the kernel's bootdir and bootfs.proto, the UEFI loader
+           (Plan2001 boots from a USB disk by UEFI only: no ISO9660, no BIOS)
   dynamic  read or run during a real install (trace s1/s2: atime on cwfs)
   static   named by an rc script of the subset (inst/*, termrc, ...),
            followed script to script
@@ -33,7 +33,16 @@ IGNORE = re.compile(r'^/usr/glenda/(trace/|tmp/|snap\.rc$|export\.rc$)'
 # rc words that are not commands
 RCWORDS = set('if not for in while switch case fn eval exec exit shift cd builtin . ~ ! @ wait whatis rfork flag status'.split())
 KERNELDIRS = ['/sys/src/9/port', '/sys/src/9/pc', '/sys/src/9/pc64', '/sys/src/9/ip',
-	'/sys/src/9/boot', '/sys/src/boot/efi', '/sys/src/boot/pc', '/sys/src/boot/iso']
+	'/sys/src/9/boot', '/sys/src/boot/efi']
+# Legacy that Plan2001 leaves out even where a script names it (mountdist's
+# iso9660 branch, bootsetup's BIOS boot blocks): the install medium is a
+# USB disk booted by UEFI.  Listed in subset/files as excluded, with why.
+LEGACY = [
+	(r'^/386/(9bootiso|9boothyb|9bootpxe|9bootfat|pbs|mbr|bootia32\.efi|efiboot\.fat)$',
+		'BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi)'),
+	(r'^/amd64/bin/(9660srv|disk/mk9660|disk/dump9660)$', 'ISO9660: the medium is a USB disk'),
+	(r'^/sys/src/boot/(pc|iso)(/|$)', 'BIOS loaders: Plan2001 boots by UEFI only'),
+]
 SRCMAP = {	# binary -> source, where the name alone does not say it
 	'cwfs64x': '/sys/src/cmd/cwfs',
 	'9660srv': '/sys/src/cmd/9660srv',
@@ -108,18 +117,23 @@ def runtime(b):
 	tree = Tree(b)
 	have = {}	# path -> (how, why)
 
-	def add(p, how, why):
-		if p and p in tree.files and not IGNORE.match(p) and p not in have:
-			have[p] = (how, why)
-			return True
-		return False
+	tree.excluded = {}	# path -> why
 
-	# boot: kernel bootdir, bootfs.proto, loader files
-	for p in ['/%s/9pc64' % ARCH, '/%s/bin/paqfs' % ARCH, '/%s/bin/auth/factotum' % ARCH, '/cfg/plan9.ini']:
-		add(p, 'boot', 'kernel bootdir / ISO boot')
-	for p in tree.under('/386'):
-		if os.path.dirname(p) == '/386':
-			add(p, 'boot', '9bootproto')
+	def add(p, how, why):
+		if not p or p not in tree.files or IGNORE.match(p) or p in have:
+			return False
+		for rx, reason in LEGACY:
+			if re.search(rx, p):
+				tree.excluded.setdefault(p, '%s (%s: %s)' % (reason, how, why))
+				return False
+		have[p] = (how, why)
+		return True
+
+	# boot: the kernel and its bootdir, the UEFI loader (tools/subset/mkusb
+	# puts Plan2001's own builds of these two on the medium)
+	for p in ['/%s/9pc64' % ARCH, '/%s/bin/paqfs' % ARCH, '/%s/bin/auth/factotum' % ARCH]:
+		add(p, 'boot', 'kernel bootdir')
+	add('/386/bootx64.efi', 'boot', 'UEFI loader')
 	stack, out = [], []
 	for line in open(tree.text + '/sys/src/9/boot/bootfs.proto', encoding='latin1'):
 		if not line.strip():
@@ -211,8 +225,13 @@ def sources(b):
 	need = {}
 
 	def add(p, how, why):
-		if p not in need:
-			need[p] = (how, why)
+		if p in need:
+			return
+		for rx, reason in LEGACY:
+			if re.search(rx, p):
+				tree.excluded.setdefault(p, '%s (%s: %s)' % (reason, how, why))
+				return
+		need[p] = (how, why)
 
 	for p, (how, why) in sorted(have.items()):
 		if p.startswith(BIN[0] + '/'):

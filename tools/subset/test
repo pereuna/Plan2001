@@ -1,15 +1,20 @@
 #!/bin/bash
-# Acceptance test of the install subset: install 9front from
-# build/subset/subset.iso (tools/subset/mkiso) onto a fresh disk with the
-# usual answers, then boot the installed disk to an rc prompt
-# (tools/vm-install does both).  PASS or FAIL; log in build/vm/serial.log.
+# Acceptance test of the install subset: install from the Plan2001 USB
+# medium (build/subset/plan2001-inst.img, tools/subset/mkusb) onto a fresh
+# disk with the usual answers, then boot the installed disk to an rc
+# prompt (tools/vm-install does both) - and check that it booted through
+# Plan2001's own UEFI loader ([P2 L..] lines), not 9front's.
+# PASS or FAIL; log in build/vm/serial.log.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
 s=$root/build/subset
-[ -f "$s/subset.iso" ] || { echo "test: no $s/subset.iso (run tools/subset/mkiso)" >&2; exit 1; }
+img=$s/plan2001-inst.img
+[ -f "$img" ] || { echo "test: no $img (run tools/subset/mkusb)" >&2; exit 1; }
 rm -f "$s/test.qcow2"; qemu-img create -q -f qcow2 "$s/test.qcow2" 20G
-if "$tools/vm-install" "$s/subset.iso" "$s/test.qcow2"; then
-	echo "PASS: the subset ISO installs a system that boots to rc"
-else
+if ! "$tools/vm-install" --usb "$img" "$s/test.qcow2"; then
 	echo "FAIL: see $root/build/vm/serial.log"; exit 1
 fi
+if ! grep -q '^\[P2 L24\] boot' "$root/build/vm/serial.log"; then
+	echo "FAIL: the installed disk did not boot through Plan2001's loader"; exit 1
+fi
+echo "PASS: the USB medium installs a system that boots to rc through Plan2001's UEFI loader"

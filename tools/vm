@@ -5,6 +5,7 @@
 #   tools/vm start --disk FILE      boot FILE itself instead
 #   tools/vm start ... --iso ISO    also attach ISO and boot from it
 #   tools/vm start ... --scratch F  also attach disk F (qcow2) as sdE3
+#   tools/vm start ... --usb IMG    also attach IMG as a USB stick, boot it
 #   tools/vm stop                   quit QEMU; delete the overlay unless KEEP=1
 #   tools/vm status
 #
@@ -28,13 +29,14 @@ running() { [ -f "$vm/qemu.pid" ] && kill -0 "$(cat "$vm/qemu.pid")" 2>/dev/null
 
 case $1 in
 start)
-	shift; disk= iso= scratch=
+	shift; disk= iso= scratch= usb=
 	while [ $# -gt 0 ]; do
 		case $1 in
 		--disk) disk=$2; shift 2 ;;
 		--iso) iso=$2; shift 2 ;;
 		--scratch) scratch=$2; shift 2 ;;
-		*) echo "usage: tools/vm start [--disk FILE] [--iso ISO | --scratch FILE]" >&2; exit 2 ;;
+		--usb) usb=$2; shift 2 ;;
+		*) echo "usage: tools/vm start [--disk FILE] [--iso ISO | --scratch FILE] [--usb IMG]" >&2; exit 2 ;;
 		esac
 	done
 	running && { echo "vm: already running (tools/vm stop first)" >&2; exit 1; }
@@ -54,6 +56,8 @@ start)
 	cd=()
 	[ -n "$iso" ] && cd=(-drive file="$iso",if=none,id=cd,media=cdrom,readonly=on -device ide-cd,drive=cd,bus=ide.3,bootindex=0)
 	[ -n "$scratch" ] && cd=(-drive file="$scratch",if=none,id=sc,format=qcow2 -device ide-hd,drive=sc,bus=ide.3)
+	[ -n "$usb" ] && cd=("${cd[@]}" -device qemu-xhci,id=xhci -drive file="$usb",if=none,id=usb,format=raw \
+		-device usb-storage,bus=xhci.0,drive=usb,bootindex=0)
 	qemu-system-x86_64 -name plan2001-vm -accel kvm -cpu host -machine q35 -m 2048 -smp 2 \
 		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" -drive if=pflash,format=raw,file="$vm/vars.fd" \
 		-display none -vga none -nic none -rtc base=utc \

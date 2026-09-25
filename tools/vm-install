@@ -1,34 +1,49 @@
 #!/bin/bash
-# Install 9front from ISO onto the qcow2 DISK through the serial console,
+# Install 9front onto the qcow2 DISK through the serial console,
 # unattended (answers: tools/inst.dialog), then set DISK up to boot
 # straight to an rc prompt on COM1 and check that it does.
-#   tools/vm-install ISO DISK
-# Used by tools/vm-setup (the release ISO) and tools/subset/test (the
-# subset ISO).  The VM log is build/vm/serial.log.
+#   tools/vm-install ISO DISK         9front's release ISO (tools/vm-setup)
+#   tools/vm-install --usb IMG DISK   Plan2001's USB install medium
+#                                     (tools/subset/mkusb, tools/subset/test)
+# The VM log is build/vm/serial.log.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
-[ $# = 2 ] || { echo "usage: tools/vm-install ISO DISK" >&2; exit 2; }
-iso=$1 disk=$2
+kind=--iso
+[ "$1" = --usb ] && { kind=--usb; shift; }
+[ $# = 2 ] || { echo "usage: tools/vm-install [--usb] MEDIUM DISK" >&2; exit 2; }
+medium=$1 disk=$2
 vm=$root/build/vm
 
 run9() { "$here/9run" -d "$vm" "$@"; }
 halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog -; }
 trap '"$here/vm" stop' EXIT
 
-"$here/vm" start --disk "$disk" --iso "$iso"
-# The ISO's loader waits one second after plan9.ini for a key: take it to
-# set console=0, so that the kernel, bootrc and rc all use COM1.
-run9 -t 180 --dialog - <<'EOF'
-!now bootrc:[0-9]+: .*\n	!fail
-!now bootfile=\S+\n	\nconsole=0\nboot
+"$here/vm" start --disk "$disk" "$kind" "$medium"
+# The loader waits one second after plan9.ini for a key: take it to set
+# console=0, so that the kernel, bootrc and rc all use COM1.  The USB
+# medium asks for its root like 9front's own media; bootrc's default is
+# the stick's fs partition (its name, sdU<id>, differs per machine).
+{
+	printf '!now bootrc:[0-9]+: .*\\n\t!fail\n'
+	printf '!now bootfile=\\S+\\n\t\\nconsole=0\\nboot\n'
+	cat <<'EOF'
 bootargs is .*\] *	''
 user\[glenda\]: *	''
 vgasize is .*\] *	text
 mouseport is .*\] *	''
 term% 	!done
 EOF
-# finish halts and reboots; the dialog stops at the halt.
-sed 's/DEV/sdE0/g' "$here/inst.dialog" | run9 -t 1200 -s inst/start --dialog -
+} | run9 -t 180 --dialog -
+# finish halts and reboots; the dialog stops at the halt.  Booted from the
+# USB disk, the installer sees its Plan 9 partition and calls partdisk and
+# prepdisk done: run them for sdE0 first (as tools/subset/trace does).
+{
+	if [ $kind = --usb ]; then
+		printf '!once Task to do \\[mountfs\\]: *\tpartdisk\n'
+		printf '!once Task to do \\[mountfs\\]: *\tprepdisk\n'
+	fi
+	sed 's/DEV/sdE0/g' "$here/inst.dialog"
+} | run9 -t 1200 -s inst/start --dialog -
 "$here/vm" stop
 
 # Boot the installed disk once: the installer wrote console=0 into

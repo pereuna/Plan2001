@@ -26,7 +26,8 @@ last answer, once it has been quiet for QUIET seconds; the first match wins.
 REGEX prefixed with '!now ' is tried on every new chunk instead (for the
 loader, which waits only one second); '!once ' makes a rule fire only
 once.  ANSWER: text to type (\\n separates lines, each sent with a return;
-'' is a bare return), or !done (stop, exit 0) or !fail (exit 1).
+'' is a bare return; \\1..\\9 are the rule's groups), or !done (stop,
+exit 0) or !fail (exit 1).
 Output that is quiet, ends in a prompt ('...]: ', '...] ', '>>> ') and
 matches no rule is an unexpected question: exit 1.
 """
@@ -36,7 +37,7 @@ CHUNK, CHUNK_DELAY = 8, 0.01
 QUIET = 1.5
 LINE_DELAY = 0.3
 LOOP = 3
-PROMPT = re.compile(r'(\]:? *|>>> )$')
+PROMPT = re.compile(r'(\]:? *|>>> )\Z')
 ANSI = re.compile(r'\x1b\[[0-9;?=]*[A-Za-z]')
 
 
@@ -142,10 +143,11 @@ def dialog(ser, rules, timeout):
 		if ans == '!fail':
 			print('\n9run: failure matched: %s' % rx.pattern, file=sys.stderr)
 			return 1
+		m = rx.search(buf)
 		for i, line in enumerate(ans.split('\\n')):
 			if i:
 				time.sleep(LINE_DELAY)
-			ser.send(line)
+			ser.send(re.sub(r'\\([1-9])', lambda g: m.group(int(g.group(1))) or '', line))
 		buf, last = '', time.time()
 	print('\n9run: dialog timeout after %ds' % timeout, file=sys.stderr)
 	return 124
@@ -161,7 +163,7 @@ def parse(text):
 		once = rx.startswith('!once ')
 		rx = rx[6:] if once else rx
 		now = rx.startswith('!now ')
-		rx = rx[5:] if now else rx + '$'
+		rx = rx[5:] if now else rx + r'\Z'
 		rules.append((now, once, re.compile(rx), ans))
 	return rules
 
