@@ -453,3 +453,25 @@ sarjakonsolin tekstillä.
     (`sdE1` sisään, `sdE2` ulos). mtoolsia käytetään vain ESP-imageen.
   - `/dev/kvm`: pelkkä logindin ACL katoaa näytön lukittuessa, joten käyttäjä
     lisätään `kvm`-ryhmään.
+
+## Asennusaikainen osajoukko (25.9.2026)
+
+`docs/plan-linux-env.md`, vaihe 2. Tarkemmin: `docs/install-subset.md`.
+
+- 9front lukitaan toistaiseksi versioon 11952, ja osajoukko kopioidaan repoon
+  (`subset/9front/`, 2840 tiedostoa, 26 Mt). Kopio on koskematon
+  upstream-kopio, ja omat muutokset tehdään edelleen `sys/`-hakemistoon.
+- Johdettu kolmella tavalla: boot-säännöt, dynaaminen jäljitys (cwfs:n atime
+  oikeassa asennuksessa) ja staattinen rc-analyysi. Aukot katettiin
+  iteratiivisella testillä. Tuloksena 261 ajonaikaista tiedostoa, joista tehty
+  asennus-ISO on 21 Mt (täysi 505 Mt). `tools/subset/test`: ISO asentaa
+  järjestelmän, joka käynnistyy rc-kehotteeseen (PASS).
+- Samalla korjattu sarjakanava: QEMU:n sokettiin yhdistää nyt koko VM:n ajaksi
+  yksi `tools/9run --relay`. Aiemmin vaihtuvat asiakkaat kadottivat syötettä
+  yhteyden alussa, pysäyttivät tulosteen ja saivat QEMU:n lokiin kahdennettuja
+  merkkejä, mikä rikkoi kehotteiden tunnistuksen.
+- Asennuksen skriptaus on yhteistä: `tools/vm-install` + `tools/inst.dialog`
+  (käytössä `vm-setup`issa, jäljityksessä ja osajoukon testissä).
+- Seuraavaksi asennusohjelmaa voidaan alkaa muokata. Muutokset tehdään
+  `sys/`-kerrokseen, ja `tools/subset/test` toimii regressiotestinä.
+

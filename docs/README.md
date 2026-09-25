@@ -21,6 +21,13 @@ tässä repossa löytää vain oikeasti relevanttia koodia.
 Seurauksena: **tämä repo ei käänny yksinään.** Kääntäminen tehdään aina
 9front-VM:ssä (ks. alla), jonka `/sys/src` toimii pohjana.
 
+`subset/` on eri asia: **koskematon kopio** 9front-11952:n asennusaikaisesta
+osajoukosta (`subset/9front/`: asennusohjelma, sen ohjelmien lähteet,
+kirjastot, kernel ja loader), sen proto-tiedosto ja tiedostolista. Kopio on
+johdettu koneellisesti, ja sitä verrataan VM:n puuhun md5:llä
+(`tools/subset/check`). Sitä ei muokata, vaan omat muutokset tehdään `sys/`-hakemistoon. Ks.
+**`docs/install-subset.md`**.
+
 Historiallinen dokumentti `docs/upstream-scope-manifest.md` kuvaa alkuperäisen
 rajauksen (mitkä tiedostot boot-polku koskettaa ja miksi) siltä ajalta, kun repo
 vielä peilasi koko tiedostojoukkoa. Osa siinä mainituista funktioista on jo
@@ -79,6 +86,9 @@ USB-tikulle). `DISPLAY_QEMU=1` näyttää ruudun GTK-ikkunassa.
   `sdE0` järjestelmä, `sdE1` = `build/in.img` (raaka tar, lähteet sisään),
   `sdE2` = `build/out.img` (raaka tar, tulokset ulos). FATia ei käytetä, koska
   se ei hyväksy hakemistoa `aux` (varattu DOS-laitenimi).
+- `tools/vm-install ISO LEVY` asentaa 9frontin ISOlta levylle ilman käsin
+  tehtyjä askelia (vastaukset: `tools/inst.dialog`). `vm-setup` ja
+  `tools/subset/test` käyttävät sitä.
 - `tools/9run 'rc-komento'` ajaa komennon VM:ssä ja palauttaa sen `$status`in
   (0/1, aikakatkaisu 124). `tools/9run --dialog` vastaa kehotteisiin
   sääntötiedoston mukaan (asennus ja boot, ks. `tools/vm-setup`).
@@ -103,8 +113,9 @@ UEFI firmware
 ## AI/agentille
 
 - `docs/status.md`: mitä on tehty, mitä seuraavaksi.
-- `docs/plan-linux-env.md`: kehitysympäristön suunnitelma; vaihe 1 (Debian 13,
-  sarjakonsoliohjaus) tehty, **vaihe 2** (asennusaikainen osajoukko) seuraavana.
+- `docs/plan-linux-env.md`: kehitysympäristön suunnitelma. Vaiheet 1 (Debian 13,
+  sarjakonsoliohjaus) ja 2 (asennusaikainen osajoukko, `docs/install-subset.md`)
+  on tehty. Seuraavaksi voidaan alkaa muokata asennusohjelmaa.
 - `git log --oneline`: jokainen commit on itsenäinen, testattu askel.
 - Älä oleta paikallista lähdepuun kopiota olevan täydellinen — se EI ole,
   tarkoituksella (ks. yllä). Muita tiedostoja luetaan VM:stä:
