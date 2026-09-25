@@ -18,8 +18,16 @@ koko boot-polun 120+ tiedostosta repossa, mikä vanheni hiljaa käännöskoneen
 todellisesta tilasta ja teki koodihausta epäluotettavaa. Nyt jokainen `git grep`
 tässä repossa löytää vain oikeasti relevanttia koodia.
 
-Seurauksena: **tämä repo ei käänny yksinään.** Kääntäminen vaatii aina yhteyden
-oikeaan 9front-koneeseen (ks. alla), jonka `/sys/src` toimii pohjana.
+Seurauksena: **tämä repo ei käänny yksinään.** Kääntäminen tehdään aina
+9front-VM:ssä (ks. alla), jonka `/sys/src` toimii pohjana.
+
+`subset/` on eri asia: **koskematon kopio** 9front-11952:n asennusaikaisesta
+osajoukosta (`subset/9front/`: asennusohjelma, sen ohjelmien lähteet,
+kirjastot, kernel ja UEFI-loader, ei BIOS/ISO-legacyä), sen proto-tiedosto,
+josta USB-asennustikku rakennetaan, ja tiedostolista. Kopio on
+johdettu koneellisesti, ja sitä verrataan VM:n puuhun md5:llä
+(`tools/subset/check`). Sitä ei muokata, vaan omat muutokset tehdään `sys/`-hakemistoon. Ks.
+**`docs/install-subset.md`**.
 
 Historiallinen dokumentti `docs/upstream-scope-manifest.md` kuvaa alkuperäisen
 rajauksen (mitkä tiedostot boot-polku koskettaa ja miksi) siltä ajalta, kun repo
@@ -49,33 +57,49 @@ poistettu — ks. `docs/status.md`.
 
 ## Käännös ja testaus
 
-Tarvitset ajossa olevan 9front-VM:n cpu-palvelimena (ks. alla) ja `drawterm`in
-(`~/.local/bin/drawterm`, salasana `~/.9front-pass`).
+Isäntä on Debian 13 (x86-64, KVM). Kerran:
 
 ```
-tools/build.sh          # kääntää 9pc64 + bootx64.efi -> build/
-tools/test-qemu.sh       # käynnistää tuloksen QEMU:ssa, tarkistaa bootfb-merkit
+sudo apt install qemu-system-x86 qemu-utils ovmf mtools curl
+sudo adduser $USER kvm      # ja uudelleenkirjautuminen
+tools/vm-setup              # ISO välimuistiin + automaattinen asennus base.qcow2:een
 ```
 
-`tools/build.sh` löytää käännöskoneen automaattisesti (`ip route`, Windows-VM
-oletuksena). `NINE_HOST=127.0.0.1` pakottaa WSL:n oman QEMU:n
-(`tools/vm/wsl-run.sh`), jota tarvitaan vain silloin kun debuggaus vaatii
-`-d int,cpu_reset`-tyylistä QEMU-jäljitystä — sitä WHPX (Windows) ei tue.
+Joka kerta:
+
+```
+tools/build.sh           # kääntää 9pc64 + bootx64.efi -> build/
+tools/test-qemu.sh       # käynnistää tuloksen QEMU:ssa, PASS/FAIL sarjalokista
+```
+
+`test-qemu.sh` jättää ESP:n FAT-imageksi `build/esp.img` (suoraan `dd`:llä
+USB-tikulle). `DISPLAY_QEMU=1` näyttää ruudun GTK-ikkunassa.
 
 ### VM
 
-- **Ensisijainen: Windows-QEMU (WHPX).** `tools/vm/run.cmd` käynnistää levyn
-  `C:\VM\9front\9front.qcow2`. Nopea (laitteistokiihdytetty).
-- **Varalla: WSL-QEMU (TCG).** `tools/vm/wsl-run.sh` ajaa `~/vm9front/9front.qcow2`.
-  Hidas mutta tukee QEMU:n omia debug-lippuja.
-- Molemmissa: käyttäjä `glenda`, salasana `~/.9front-pass`-tiedostossa.
-  Yhdistä aina `-a 127.0.0.1 -s 127.0.0.1` (drawterm soittaa muuten auth-
-  ja secstore-palvelimelle, joka roikkuu jos sitä ei ole paikallisesti).
-- **rcpu kaatuu ajoittain** (tunnettu 9front/QEMU-kummallisuus, ei tämän
-  projektin bugi). Jos yhteys ei vastaa: tarkista QEMU:n konsoli
-  (`screendump` monitorin kautta) — järjestelmä on yleensä elossa, vain
-  kuuntelija jumissa. Käynnistä listener uudelleen tai `fshalt -r`
-  näppäinsyötöllä (`sendkey`) monitorin kautta.
+- Kaikki ohjaus kulkee **sarjakonsolin tekstinä** (`console=0`); ei näyttöä,
+  ei verkkoa eikä etäyhteyksiä. Ruutukaappauksia ei käytetä.
+- Välimuisti `${PLAN2001_CACHE:-~/.cache/plan2001}`: 9front-ISO
+  (`tools/9front.release`: versio + sha256) ja `base.qcow2`. `vm-setup` ei lataa
+  eikä asenna uudelleen, jos ne ovat jo olemassa.
+- `tools/vm start|stop|status`: käynnistää kertakäyttöisen overlayn
+  `base.qcow2`:n päälle (`KEEP=1 tools/vm stop` säilyttää sen). Levyt:
+  `sdE0` järjestelmä, `sdE1` = `build/in.img` (raaka tar, lähteet sisään),
+  `sdE2` = `build/out.img` (raaka tar, tulokset ulos). FATia ei käytetä, koska
+  se ei hyväksy hakemistoa `aux` (varattu DOS-laitenimi).
+- `tools/vm-install [--usb] MEDIA LEVY` asentaa 9frontin levylle ilman käsin
+  tehtyjä askelia (vastaukset: `tools/inst.dialog`). `vm-setup` käyttää
+  9frontin ISOa (käännös-VM), `tools/subset/test` Plan2001:n USB-tikkua.
+- `tools/subset/mkusb` rakentaa Plan2001:n **USB-asennustikun** (vain UEFI,
+  Plan2001:n loader ja kernel): `build/subset/plan2001-inst.img`, joka
+  kirjoitetaan tikulle `dd`:llä. Ks. `docs/install-subset.md`.
+- `tools/9run 'rc-komento'` ajaa komennon VM:ssä ja palauttaa sen `$status`in
+  (0/1, aikakatkaisu 124). `tools/9run --dialog` vastaa kehotteisiin
+  sääntötiedoston mukaan (asennus ja boot, ks. `tools/vm-setup`).
+- Lokit: `build/vm/serial.log` (koko sarjaistunto), `build/session.log`
+  (build.rc:n tuloste), `build/{kernel,loader,kbdfs}.log`.
+- Käyttäjä `glenda`, ei salasanaa. Jos `/dev/kvm` ei ole käytettävissä,
+  skriptit pysähtyvät virheeseen (ei hidasta TCG-varapolkua).
 
 ## Ohjelmisto-arkkitehtuuri
 
@@ -93,10 +117,10 @@ UEFI firmware
 ## AI/agentille
 
 - `docs/status.md`: mitä on tehty, mitä seuraavaksi.
-- `docs/plan-linux-env.md`: **seuraava työ** — kehitysympäristö Debian 13:een,
-  Windows/WSL/drawterm pois, sarjakonsoliohjaus. Alla olevat VM-ohjeet ovat
-  vanhentumassa sen myötä.
+- `docs/plan-linux-env.md`: kehitysympäristön suunnitelma. Vaiheet 1 (Debian 13,
+  sarjakonsoliohjaus) ja 2 (asennusaikainen osajoukko, `docs/install-subset.md`)
+  on tehty. Seuraavaksi voidaan alkaa muokata asennusohjelmaa.
 - `git log --oneline`: jokainen commit on itsenäinen, testattu askel.
 - Älä oleta paikallista lähdepuun kopiota olevan täydellinen — se EI ole,
-  tarkoituksella (ks. yllä). Käytä `tools/build.sh`/`tools/build.rc`-mallia
-  minkä tahansa muun tiedoston lukemiseen käännöskoneelta.
+  tarkoituksella (ks. yllä). Muita tiedostoja luetaan VM:stä:
+  `tools/vm start; tools/9run 'cat /sys/src/...'; tools/vm stop`.

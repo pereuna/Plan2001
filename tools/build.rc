@@ -1,14 +1,17 @@
 #!/bin/rc
-# Runs ON the 9front VM (sent by build.sh through rcpu).
+# Runs ON the 9front VM (tools/build.sh starts it with tools/9run).
 # Builds the pc64 kernel and the UEFI loader from the VM's own /sys/src with
 # this repo's changed files (sys/...) laid over it - the VM's sources are
 # the base, we only touch what we actually changed.
-# $hostsrc   this repo's root, seen through drawterm's /mnt/term
-# $hostbuild the host directory that receives the results
+# Sources come in as a tar stream on /dev/sdE1 (this repo's sys/ and this
+# script), results go out the same way on /dev/sdE2 (see tools/vm).
 rfork n
 d=/usr/glenda/plan2001build
 rm -rf $d
-mkdir -p $d/9 $d/efi $d/inc
+mkdir -p $d/9 $d/efi $d/inc $d/src $d/out
+@{cd $d/src && tar xf /dev/sdE1/data}
+hostsrc=$d/src
+hostbuild=$d/out
 
 echo '### kernel: overlay pc64 and pc from the repo onto the VM tree'
 dircp /sys/src/9 $d/9
@@ -64,4 +67,5 @@ if(! ~ $st '' || ! test -f bootx64.efi){
 md5sum bootx64.efi
 cp bootx64.efi $hostbuild/bootx64.efi
 
+@{cd $hostbuild && tar c .} >/dev/sdE2/data
 echo BUILD-DONE

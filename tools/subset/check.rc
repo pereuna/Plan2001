@@ -1,0 +1,7 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/check): md5 of every path in the file want
+# (from the in-disk, relative to /), onto the out-disk as md5.
+rfork e
+cd /tmp && tar xf /dev/sdE1/data want
+@{cd / && cat /tmp/want | xargs md5sum} >/tmp/md5 >[2]/tmp/md5.err
+@{cd /tmp && tar c md5 md5.err} >/dev/sdE2/data

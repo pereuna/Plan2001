@@ -390,8 +390,7 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   T5600:lla varmistettu, mutta kokonaisuus käynnistyy. `pcboot`-pikatestikitti
   on vanhentunut rakenteen jälkeen; raudalla testaus tapahtuu
   `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin kautta
-  (`tools/test-qemu.sh` kopioi build/esp:n automaattisesti `C:\temp\esp`:hen,
-  ks. README).
+  (`tools/test-qemu.sh` jättää ESP:n imageksi `build/esp.img`, ks. README).
 
 ## K0: rivieditori ja kaksi konsolitilaa (24.9.2026)
 
@@ -422,3 +421,75 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   painallukset kasvattavat leikattua tekstiä). Ei erillistä valintatilaa.
   Liitä on `^V`; `^K`, `^U` ja `^Y` poistuivat, `^W` säilyi. Shift+nuolet ja
   Shift+Home/End saavat kbdfs:ssä omat runet (`Lshiftesc1`-taulukko).
+
+## Kehitysympäristö Debian 13:een (25.9.2026)
+
+`docs/plan-linux-env.md`, vaihe 1. Windows-VM (WHPX), WSL, drawterm ja rcpu
+poistettu kokonaan. Isäntä on Debian 13 + KVM, ja VM:ää ohjataan vain
+sarjakonsolin tekstillä.
+
+- `tools/vm-setup` lataa kiinnitetyn 9front-releasen (`tools/9front.release`,
+  11952, sha256 julkaisutiedotteesta) ja asentaa sen `base.qcow2`:een ilman
+  käsin tehtyjä askelia noin 2,5 minuutissa. `tools/build.sh` vie kertakäyttöisestä
+  overlaysta käännöksen läpi noin 25 sekunnissa, ja `tools/test-qemu.sh`
+  bootaa tuloksen noin 5 sekunnissa.
+- Havainnot, joihin ratkaisut perustuvat:
+  - 9frontin EFI-loader lukee myös sarjakonsolia (OVMF ohjaa ConInin COM1:een)
+    ja odottaa `plan9.ini`n jälkeen yhden sekunnin näppäintä. Tällä asetetaan
+    ISO-bootissa `console=0` ilman ISOn muokkausta. Asennusohjelma kopioi
+    asetuksen asennetun levyn `plan9.ini`hin, ja `vm-setup` lisää
+    `nobootprompt=` ja `user=`.
+  - glendan profiili käynnistää rion aina. Jos VM:llä on näyttölaite (OVMF:n
+    GOP-framebuffer), rio vie näppäimistön, ja sarjasyöte päätyy
+    satunnaisesti fokuksessa olevaan ikkunaan. Siksi käännös-VM:ssä on
+    `-vga none`: rio ei käynnisty, ja rc jää COM1:een.
+  - Sarjasyöte lähetetään 8 tavun paloina, koska muuten UART pudottaa
+    merkkejä. QEMU pysäyttää vierasjärjestelmän tulosteen, jos yhdistetty
+    asiakas ei lue sokettia. Siksi `tools/9run` tyhjentää soketin jatkuvasti
+    ja lukee sisällön QEMU:n lokista (`logfile=`). Lisäksi se lähettää rivin
+    uudelleen, jos kaiku ei tule.
+  - FAT ei kelpaa lähdekanavaksi, koska hakemisto `aux` on varattu
+    DOS-laitenimi. Molemmat suunnat ovat siksi raakoja tar-levyjä
+    (`sdE1` sisään, `sdE2` ulos). mtoolsia käytetään vain ESP-imageen.
+  - `/dev/kvm`: pelkkä logindin ACL katoaa näytön lukittuessa, joten käyttäjä
+    lisätään `kvm`-ryhmään.
+
+## Asennusaikainen osajoukko (25.9.2026)
+
+`docs/plan-linux-env.md`, vaihe 2. Tarkemmin: `docs/install-subset.md`.
+
+- 9front lukitaan toistaiseksi versioon 11952, ja osajoukko kopioidaan repoon
+  (`subset/9front/`, 2840 tiedostoa, 26 Mt). Kopio on koskematon
+  upstream-kopio, ja omat muutokset tehdään edelleen `sys/`-hakemistoon.
+- Johdettu kolmella tavalla: boot-säännöt, dynaaminen jäljitys (cwfs:n atime
+  oikeassa asennuksessa) ja staattinen rc-analyysi. Aukot katettiin
+  iteratiivisella testillä. Tuloksena 261 ajonaikaista tiedostoa, joista tehty
+  asennus-ISO on 21 Mt (täysi 505 Mt). `tools/subset/test`: ISO asentaa
+  järjestelmän, joka käynnistyy rc-kehotteeseen (PASS).
+- Samalla korjattu sarjakanava: QEMU:n sokettiin yhdistää nyt koko VM:n ajaksi
+  yksi `tools/9run --relay`. Aiemmin vaihtuvat asiakkaat kadottivat syötettä
+  yhteyden alussa, pysäyttivät tulosteen ja saivat QEMU:n lokiin kahdennettuja
+  merkkejä, mikä rikkoi kehotteiden tunnistuksen.
+- Asennuksen skriptaus on yhteistä: `tools/vm-install` + `tools/inst.dialog`
+  (käytössä `vm-setup`issa, jäljityksessä ja osajoukon testissä).
+- Seuraavaksi asennusohjelmaa voidaan alkaa muokata. Muutokset tehdään
+  `sys/`-kerrokseen, ja `tools/subset/test` toimii regressiotestinä.
+
+## USB-asennin, vain UEFI (25.9.2026)
+
+- Osajoukko bootattiin ensin 9frontin ISOn tavalla (ISO9660, BIOS-loaderit).
+  Se oli ristiriidassa Plan2001:n periaatteen kanssa, ja Plan2001:n loader ei
+  tue ISO9660:aa. Nyt media on **GPT-levykuva USB-tikulle** (`tools/subset/mkusb`):
+  ESP:ssä on Plan2001:n `bootx64.efi` ja `9pc64`, ja Plan 9 -osiolla hjfs, jossa
+  on osajoukko. `mk9660`, `9660srv`, `pbs`, `mbr`, `9bootfat` ja `bootia32.efi`
+  on jätetty pois perusteineen (`subset/files`: `excluded`).
+- `tools/subset/test`: asennus tikulta, ja asennettu levy bootaa rc:hen
+  Plan2001:n loaderilla. PASS kahdesti peräkkäin samalla tikulla.
+- Juurilevy valitaan `bootargs`-kehotteessa kuten 9frontissa. bootrc:n
+  oletus on tikun `fs`-osio.
+- Löydös: kirjoitettava tikku muisti edellisen asennuksen tilan
+  (`/tmp/copydone`). Nyt ylimmän tason hakemistot ovat `distproto`n mukaan
+  (`tmp d555`), joten `/tmp` on ramfs kuten ISOlla.
+- Seuraavaksi siivotaan asennusohjelman legacy-haarat (mbr-vaihtoehto,
+  pbs/9bootfat, 9660/cdboot) `sys/`-kerrokseen.
+

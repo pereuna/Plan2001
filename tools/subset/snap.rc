@@ -1,0 +1,19 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/trace).  snap.rc NAME [FILE]: list every
+# file under / whose atime is at or after trace/t0 (or strictly after
+# FILE's mtime: copydist reads everything up to its last second) into
+# trace/NAME - on cwfs, reading or executing a file sets its atime.  /bin,
+# /boot and /root are other views of the same files and are skipped.
+# Never overwrites a snapshot: the installer may repeat a typed-ahead line.
+rfork e
+tr=/usr/glenda/trace
+if(test -e $tr/$1){
+	echo snap.rc: $tr/$1 exists
+	exit exists
+}
+t=`{cat $tr/t0}
+if(! ~ $#2 0)
+	t=`{echo `{walk -e m $2} + 1 | hoc}
+dirs=`{ls -d /* | grep -v '^/(bin|boot|dev|env|fd|mnt|n|net|proc|root|srv|tmp)$'}
+walk -f -e ap $dirs >[2]/dev/null | awk -v 't='^$t '$1 >= t { print $2 }' | sort -u >$tr/$1
+echo snap.rc: $1: `{wc -l <$tr/$1} files

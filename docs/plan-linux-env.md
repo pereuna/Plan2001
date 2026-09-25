@@ -1,8 +1,12 @@
 # Suunnitelma: kehitysympäristö Linuxiin, Windows/WSL pois
 
-Laadittu 25.9.2026. Toteutetaan paikallisessa Claude Code -sessiossa Debian 13
--kannettavalla. **Tämä on suunnitelma, ei vielä toteutettu.** Kun vaihe on tehty,
-kirjaa lopputulos `docs/status.md`:hen ja päivitä tämä dokumentti (tai poista se).
+Laadittu 25.9.2026. **Vaihe 1 on toteutettu 25.9.2026** (lopputulos ja
+havainnot: `docs/status.md`, "Kehitysympäristö Debian 13:een"). Toteutus poikkeaa
+alla kuvatusta kahdessa kohdassa: lähteet viedään sisään raakana tar-levynä
+(FAT ei hyväksy hakemistoa `aux`), ja käännös-VM:ssä ei ole näyttölaitetta
+(`-vga none`), jotta rio ei vie konsolia. **Vaihe 2 on toteutettu
+25.9.2026** (`docs/install-subset.md`). Päätökset: 9front pysyy lukittuna
+versioon 11952, ja osajoukko kopioidaan repoon (`subset/9front/`).
 
 ## Miksi
 

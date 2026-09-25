@@ -1,0 +1,45 @@
+#!/bin/bash
+# One-time setup of the 9front build VM: check the host, fetch the pinned
+# 9front ISO (tools/9front.release) into the cache, and install it into
+# base.qcow2 through the serial console - no display, no hands.  Does
+# nothing that is already done: an existing ISO is only checksummed, an
+# existing base.qcow2 ends the script.
+#   PLAN2001_CACHE  default ~/.cache/plan2001
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/9front.release"
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+vm=$root/build/vm
+
+missing=
+for p in qemu-system-x86 qemu-utils ovmf mtools python3 curl; do
+	dpkg -s "$p" >/dev/null 2>&1 || missing="$missing $p"
+done
+[ -z "$missing" ] || { echo "vm-setup: missing packages; run: sudo apt install$missing" >&2; exit 1; }
+[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+	echo "vm-setup: no access to /dev/kvm (sudo adduser $USER kvm, then log in again)" >&2; exit 1; }
+for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
+	[ -f "$f" ] || { echo "vm-setup: $f missing (package ovmf)" >&2; exit 1; }
+done
+
+mkdir -p "$cache"
+if [ ! -f "$cache/$ISO" ]; then
+	echo "vm-setup: downloading $URL"
+	curl -fL -o "$cache/$ISO.gz.part" "$URL"
+	echo "$ISO_GZ_SHA256  $cache/$ISO.gz.part" | sha256sum -c --quiet
+	gunzip -c "$cache/$ISO.gz.part" > "$cache/$ISO.part"
+	rm "$cache/$ISO.gz.part"; mv "$cache/$ISO.part" "$cache/$ISO"
+fi
+echo "$ISO_SHA256  $cache/$ISO" | sha256sum -c --quiet || { echo "vm-setup: $cache/$ISO: bad checksum" >&2; exit 1; }
+
+if [ -f "$cache/base.qcow2" ]; then
+	echo "vm-setup: $cache/base.qcow2 exists, nothing to do"
+	exit 0
+fi
+
+new=$cache/base.qcow2.part
+rm -f "$new"; qemu-img create -q -f qcow2 "$new" 20G
+echo "vm-setup: installing $NAME into $new (log: $vm/serial.log)"
+"$here/vm-install" "$cache/$ISO" "$new"
+mv "$new" "$cache/base.qcow2"
+echo "vm-setup: done, $cache/base.qcow2"

@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""Drive the 9front VM through its serial console (COM1, console=0).
+
+  9run [-d DIR] [-t SEC] 'rc command'   run it, print its output, exit 0 if
+                                       $status was empty, else 1 (status on
+                                       stderr); 124 on timeout
+  9run [-d DIR] [-t SEC] [-s LINE] --dialog FILE
+                                       answer prompts from FILE ('-' = stdin),
+                                       after typing LINE if given
+
+  9run --relay DIR                     (tools/vm starts this, one per VM)
+
+DIR (default build/vm) is where tools/vm keeps the VM.  The relay is the
+only client of QEMU's serial socket, for the VM's whole life: it appends
+everything the guest prints to DIR/serial.log (the whole session) and
+types what is written to the FIFO DIR/serial.in.  Everything else reads
+the log and writes the FIFO.  Found by trial (see docs/status.md):
+  - input goes in small paced chunks, or the guest's UART drops characters
+  - clients that come and go on QEMU's socket lose input right after
+    connecting, stall the guest's output while connected and not reading,
+    and see characters doubled in QEMU's own logfile - hence one relay
+
+A dialog file has one rule per line: REGEX<TAB>ANSWER, blank lines and
+#-comments ignored.  Rules are tried in order against the output since the
+last answer, once it has been quiet for QUIET seconds; the first match wins.
+REGEX prefixed with '!now ' is tried on every new chunk instead (for the
+loader, which waits only one second); '!once ' makes a rule fire only
+once.  ANSWER: text to type (\\n separates lines, each sent with a return;
+'' is a bare return; \\1..\\9 are the rule's groups), or !done (stop,
+exit 0) or !fail (exit 1).
+Output that is quiet, ends in a prompt ('...]: ', '...] ', '>>> ') and
+matches no rule is an unexpected question: exit 1.
+"""
+import os, re, select, socket, sys, time, uuid
+
+CHUNK, CHUNK_DELAY = 8, 0.01
+QUIET = 1.5
+LINE_DELAY = 0.3
+LOOP = 3
+PROMPT = re.compile(r'(\]:? *|>>> )\Z')
+ANSI = re.compile(r'\x1b\[[0-9;?=]*[A-Za-z]')
+
+
+def relay(d):
+	s = socket.socket(socket.AF_UNIX)
+	for _ in range(100):
+		try:
+			s.connect(os.path.join(d, 'serial.sock'))
+			break
+		except OSError:
+			time.sleep(0.1)
+	fifo = os.path.join(d, 'serial.in')
+	fin = os.open(fifo, os.O_RDWR)		# RDWR: never sees EOF
+	log = open(os.path.join(d, 'serial.log'), 'ab', buffering=0)
+	while True:
+		r, _, _ = select.select([s, fin], [], [])
+		if s in r:
+			x = s.recv(65536)
+			if not x:
+				return
+			log.write(x)
+		if fin in r:
+			b = os.read(fin, 4096)
+			for i in range(0, len(b), CHUNK):
+				s.sendall(b[i:i+CHUNK])
+				time.sleep(CHUNK_DELAY)
+
+
+class Serial:
+	def __init__(self, d):
+		self.log = open(os.path.join(d, 'serial.log'), 'rb')
+		self.log.seek(0, 2)
+		self.fifo = os.open(os.path.join(d, 'serial.in'), os.O_WRONLY)
+
+	def send(self, line):
+		"""Type line and a return."""
+		os.write(self.fifo, line.encode() + b'\r')
+
+	def read(self):
+		"""New guest output since the last call ('' if none yet)."""
+		x = self.log.read()
+		if not x:
+			time.sleep(0.05)
+			return ''
+		return ANSI.sub('', x.decode('latin1').replace('\r', ''))
+
+
+def run(ser, cmd, timeout):
+	tag = uuid.uuid4().hex[:12]
+	# rc joins __END_^tag^__ into __END_tag__; the echoed input line keeps the
+	# carets, so only the real output matches
+	ser.send(cmd + '; echo __END_^' + tag + '^__ $status')
+	end, buf = time.time() + timeout, ''
+	marker = re.compile(r'__END_' + tag + r'__ ?(.*)\n')
+	while time.time() < end:
+		buf += ser.read()
+		m = marker.search(buf)
+		if m:
+			out = buf[:m.start()]
+			out = out.split('\n', 1)[1] if '__END_^' in out.split('\n', 1)[0] else out
+			sys.stdout.write(out)
+			if m.group(1).strip():
+				print(m.group(1).strip(), file=sys.stderr)
+				return 1
+			return 0
+	sys.stdout.write(buf)
+	print('9run: timeout after %ds' % timeout, file=sys.stderr)
+	return 124
+
+
+def dialog(ser, rules, timeout):
+	end, buf, last = time.time() + timeout, '', time.time()
+	seen = {}
+	while time.time() < end:
+		x = ser.read()
+		if x:
+			sys.stdout.write(x)
+			sys.stdout.flush()
+			buf += x
+			last = time.time()
+		quiet = time.time() - last > QUIET
+		if not x and not quiet:
+			continue
+		for r in rules:
+			now, once, rx, ans = r
+			if now == bool(x) and rx.search(buf):
+				if once:
+					rules.remove(r)
+				break
+		else:
+			if quiet and buf and PROMPT.search(buf):
+				print('\n9run: unexpected prompt: %r' % buf[-200:], file=sys.stderr)
+				return 1
+			continue
+		if ans == '!done':
+			return 0
+		# the same question over and over: the answer is not taking
+		key = buf.rstrip('\n').rsplit('\n', 1)[-1]
+		seen[key] = seen.get(key, 0) + 1
+		if seen[key] > LOOP:
+			print('\n9run: asked %d times: %r' % (seen[key], key), file=sys.stderr)
+			return 1
+		if ans == '!fail':
+			print('\n9run: failure matched: %s' % rx.pattern, file=sys.stderr)
+			return 1
+		m = rx.search(buf)
+		for i, line in enumerate(ans.split('\\n')):
+			if i:
+				time.sleep(LINE_DELAY)
+			ser.send(re.sub(r'\\([1-9])', lambda g: m.group(int(g.group(1))) or '', line))
+		buf, last = '', time.time()
+	print('\n9run: dialog timeout after %ds' % timeout, file=sys.stderr)
+	return 124
+
+
+def parse(text):
+	rules = []
+	for line in text.splitlines():
+		if not line.strip() or line.startswith('#'):
+			continue
+		rx, ans = line.split('\t', 1)
+		ans = '' if ans == "''" else ans
+		once = rx.startswith('!once ')
+		rx = rx[6:] if once else rx
+		now = rx.startswith('!now ')
+		rx = rx[5:] if now else rx + r'\Z'
+		rules.append((now, once, re.compile(rx), ans))
+	return rules
+
+
+def main(a):
+	if a[:1] == ['--relay'] and len(a) == 2:
+		return relay(a[1])
+	d, timeout, dlg, first = 'build/vm', 300, None, None
+	while a and a[0].startswith('-') and a[0] != '-':
+		o = a.pop(0)
+		if o == '-d': d = a.pop(0)
+		elif o == '-t': timeout = float(a.pop(0))
+		elif o == '-s': first = a.pop(0)
+		elif o == '--dialog': dlg = a.pop(0)
+		else: sys.exit(__doc__)
+	if (dlg is None) == (len(a) != 1):
+		sys.exit(__doc__)
+	ser = Serial(d)
+	if dlg is not None:
+		f = sys.stdin if dlg == '-' else open(dlg)
+		rules = parse(f.read())
+		if first is not None:
+			ser.send(first)
+		return dialog(ser, rules, timeout)
+	return run(ser, a[0], timeout)
+
+
+if __name__ == '__main__':
+	sys.exit(main(sys.argv[1:]))

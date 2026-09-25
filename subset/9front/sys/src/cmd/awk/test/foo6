@@ -1,0 +1,7 @@
+awk: extra ] at foo4:5
+ context is
+	 >>> ] <<< 
+awk: syntax error at foo4:5
+awk: illegal statement at foo4:5
+	missing }
+	extra ]

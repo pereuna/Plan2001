@@ -1,0 +1,53 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/mkusb): the Plan2001 USB install medium,
+# written straight onto the out-disk /dev/sdE2, which becomes the image.
+# GPT with an EFI system partition (Plan2001's loader and kernel,
+# plan9.ini) and a Plan 9 partition holding an hjfs made from subset/proto
+# - the way /sys/lib/dist/mkfile's %.disk makes 9front's disk images, but
+# without their MBR, pbs and 9bootfat: UEFI only.
+rfork en
+i=/tmp/usbin
+rm -rf $i; mkdir -p $i
+@{cd $i && tar xf /dev/sdE1/data}
+d=/dev/sdE2
+
+disk/edisk -baw $d/data
+disk/prep -bw -a^(nvram fs) $d/plan9
+ls -l $d
+
+# ESP: \efi\boot\bootx64.efi, 9pc64 and plan9.ini
+disk/format -d -l PLAN2001 $d/esp
+dossrv -f $d/esp usbesp >[2]/dev/null
+mount -c /srv/usbesp /n/usbesp
+mkdir -p /n/usbesp/efi/boot
+cp $i/bootx64.efi /n/usbesp/efi/boot/bootx64.efi
+cp $i/9pc64 /n/usbesp/9pc64
+echo 'bootfile=9pc64' >/n/usbesp/plan9.ini
+ls -lR /n/usbesp
+unmount /n/usbesp
+rm -f /srv/usbesp
+
+# the root: hjfs with the subset, Plan2001's kernel and loader in place
+# of 9front's (the installer copies these two to the new disk's ESP)
+s=usbfs
+hjfs -f $d/fs -n $s -S -r
+{
+	echo echo on
+	echo create /dist sys sys 775 d
+	echo create /usr sys sys 775 d
+	echo newuser glenda
+	echo newuser adm +glenda
+	echo newuser sys +glenda
+	echo newuser upas +glenda
+	echo echo off
+	sleep 1
+} >>/srv/$s.cmd
+mount -N -c /srv/$s /n/usbnew
+bind $i/9pc64 /amd64/9pc64
+bind $i/bootx64.efi /386/bootx64.efi
+disk/mkfs -z 4096 -U -s / -d /n/usbnew $i/proto
+echo sync >>/srv/$s.cmd
+echo halt >>/srv/$s.cmd
+while(test -e /srv/$s.cmd)
+	sleep 1
+echo MKUSB-DONE

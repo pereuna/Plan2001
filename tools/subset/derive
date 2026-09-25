@@ -1,0 +1,31 @@
+#!/bin/bash
+# Static half of the install subset and the source closure (see derive.py).
+# Needs build/subset/trace from tools/subset/trace.  Boots one overlay VM,
+# fetches a listing of its tree and the rc scripts, works out the runtime
+# set, then fetches sources round by round until nothing new is needed.
+# Results: build/subset/{runtime,sources}.tsv, build/subset/src/ (the
+# fetched files, as in the VM's tree).
+set -e
+here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
+b=$root/build; s=$b/subset
+run9() { "$tools/9run" -d "$b/vm" "$@"; }
+[ -s "$s/trace/s1" ] || { echo "derive: no $s/trace (run tools/subset/trace)" >&2; exit 1; }
+rm -rf "$s/vm" "$s/src" "$b/in.img" "$b/out.img"; mkdir -p "$s/vm/text" "$s/src"
+tar cf "$b/in.img" --format=ustar -C "$here" tree.rc fetch.rc; truncate -s 64M "$b/in.img"
+export OUT_MB=1024
+trap '"$tools/vm" stop' EXIT
+"$tools/vm" start
+printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
+run9 -t 600 'cd /tmp && tar xf /dev/sdE1/data tree.rc fetch.rc && rc /tmp/tree.rc'
+tar xmf "$b/out.img" -C "$s/vm"; tar xmf "$s/vm/text.tar" -C "$s/vm/text"
+python3 "$here/derive.py" runtime "$s"
+for round in 1 2 3 4 5 6 7 8 9 10; do
+	python3 "$here/derive.py" want "$s" > "$s/want"
+	[ -s "$s/want" ] || break
+	echo "derive: round $round: fetching $(wc -l < "$s/want") paths"
+	tar cf "$b/in.img" --format=ustar -C "$s" want; truncate -s 64M "$b/in.img"
+	run9 -t 600 'rc /tmp/fetch.rc' >/dev/null
+	tar xmf "$b/out.img" -C "$s/src"
+done
+[ ! -s "$s/want" ] || { echo "derive: source closure did not settle in 10 rounds" >&2; exit 1; }
+python3 "$here/derive.py" sources "$s"

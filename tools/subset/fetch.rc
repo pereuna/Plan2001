@@ -1,0 +1,6 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/derive, check): the paths listed in the
+# file want (on the in-disk, one per line, relative to /) onto the out-disk.
+rfork e
+cd /tmp && tar xf /dev/sdE1/data want
+@{cd / && tar c `{cat /tmp/want}} >/dev/sdE2/data

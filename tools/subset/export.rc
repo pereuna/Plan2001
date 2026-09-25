@@ -1,0 +1,4 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/trace): the snapshots out on /dev/sdE2.
+@{cd /usr/glenda/trace && tar c .} >/dev/sdE2/data
+echo TRACE-DONE
