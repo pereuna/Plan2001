@@ -1,40 +1,40 @@
 #!/bin/bash
-# Boot build/9pc64 through build/bootx64.efi in QEMU+OVMF (no root disk, so
-# it stops at the bootargs prompt once the kernel is up) and check the boot
-# progress markers (see sys/src/9/pc/bootfb.c) via a screenshot.
-#   SECONDS_TO_RUN  default 75
+# Boot build/9pc64 through build/bootx64.efi in QEMU+KVM+OVMF (no root disk,
+# so it stops at the bootargs prompt once the kernel is up) and check the
+# serial log: PASS when bootargs is reached with exactly one Plan 9 banner.
+# The ESP is a FAT image made with mtools (build/esp.img), ready to be dd'd
+# to a USB stick for real-hardware testing.
+#   SECONDS_TO_RUN  give up after this many seconds, default 75
+#   DISPLAY_QEMU=1  also show the screen in a GTK window
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here"); b=$root/build
-esp=$b/esp; rm -rf "$esp" "$b/serial.log" "$b/mon.sock" "$b/screen.ppm"; mkdir -p "$esp/EFI/BOOT"
-cp "$b/bootx64.efi" "$esp/EFI/BOOT/BOOTX64.EFI"; cp "$b/9pc64" "$esp/9pc64"
-printf 'bootfile=/9pc64\nconsole=0\n' > "$esp/plan9.ini"
+[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+	echo "test-qemu: no access to /dev/kvm (add yourself to group kvm and log in again)" >&2; exit 1; }
+rm -f "$b/esp.img" "$b/serial.log" "$b/test-vars.fd"
+printf 'bootfile=/9pc64\nconsole=0\n' > "$b/plan9.ini"
+mformat -C -i "$b/esp.img" -T 65536 -h 64 -s 32 ::
+mmd -i "$b/esp.img" ::/EFI ::/EFI/BOOT
+mcopy -i "$b/esp.img" "$b/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI
+mcopy -i "$b/esp.img" "$b/9pc64" "$b/plan9.ini" ::/
+cp /usr/share/OVMF/OVMF_VARS_4M.fd "$b/test-vars.fd"
 
-# Also drop the built ESP at C:\temp\esp (Windows side), so it's a plain
-# copy-to-USB-stick away for real-hardware testing - independent of whether
-# the QEMU check below passes.
-win_esp=/mnt/c/temp/esp
-if [ -d /mnt/c ]; then
-  rm -rf "$win_esp"; mkdir -p "$win_esp"
-  cp -r "$esp/." "$win_esp/"
-  echo "esp copied to C:\\temp\\esp"
-fi
-
-qemu-system-x86_64 -machine q35 -m 2048 -smp 2 -cpu max -bios /usr/share/ovmf/OVMF.fd -vga std \
-  -drive file=fat:rw:"$esp",format=raw,if=none,id=esp -device ide-hd,drive=esp,bootindex=0 \
-  -display none -serial file:"$b/serial.log" -monitor unix:"$b/mon.sock",server,nowait &
+display=(-display none)
+[ "${DISPLAY_QEMU:-0}" = 1 ] && display=(-display gtk)
+qemu-system-x86_64 -name plan2001-test -accel kvm -cpu host -machine q35 -m 2048 -smp 2 \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+  -drive if=pflash,format=raw,file="$b/test-vars.fd" -vga std -nic none "${display[@]}" \
+  -drive file="$b/esp.img",format=raw,if=none,id=esp -device ide-hd,drive=esp,bootindex=0 \
+  -serial file:"$b/serial.log" 2>"$b/qemu-test.log" &
 q=$!
-sleep "${SECONDS_TO_RUN:-75}"
-echo "screendump $b/screen.ppm" | nc -U -q1 "$b/mon.sock" >/dev/null 2>&1; sleep 1
-kill $q 2>/dev/null || true
+trap 'kill $q 2>/dev/null || true' EXIT
+end=$((SECONDS + ${SECONDS_TO_RUN:-75}))
+until grep -q '^bootargs is' "$b/serial.log" 2>/dev/null || [ $SECONDS -ge $end ] || ! kill -0 $q 2>/dev/null; do
+  sleep 1
+done
+sleep 1
+[ "${DISPLAY_QEMU:-0}" = 1 ] || kill $q 2>/dev/null || true
 tr -d '\r' < "$b/serial.log" | sed 's/\x1b\[[0-9;=?]*[a-zA-Z]//g' | sed -n '/^acpi=/,$p' | grep -v '^0x0' | head -45
-convert "$b/screen.ppm" "$b/screen.png" 2>/dev/null && echo "screenshot: $b/screen.png"
 n=$(tr -d '\r' < "$b/serial.log" | grep -c '^Plan 9')
 grep -q '^bootargs is' "$b/serial.log" && [ "$n" = 1 ] && echo "PASS: kernel reached the bootargs prompt" || { echo "FAIL (banners: $n)"; exit 1; }
-
-# After a PASS: boot the same ESP in a Windows-side QEMU (WHPX, GTK window) so
-# the result can be looked at and tried by hand without booting real hardware.
-# The previous test window is replaced.  WIN_QEMU=0 skips this.
-if [ -d /mnt/c ] && [ "${WIN_QEMU:-1}" != 0 ] && command -v powershell.exe >/dev/null; then
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w "$here/vm/win-test.ps1")" >/dev/null 2>&1 \
-    && echo "Windows QEMU (plan2001test) started on C:\\temp\\esp"
-fi
+[ "${DISPLAY_QEMU:-0}" = 1 ] && { trap - EXIT; echo "QEMU window left running (pid $q)"; }
+exit 0

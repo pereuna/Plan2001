@@ -390,8 +390,7 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   T5600:lla varmistettu, mutta kokonaisuus käynnistyy. `pcboot`-pikatestikitti
   on vanhentunut rakenteen jälkeen; raudalla testaus tapahtuu
   `tools/build.sh` + `tools/test-qemu.sh` -tuloksen kopioinnin kautta
-  (`tools/test-qemu.sh` kopioi build/esp:n automaattisesti `C:\temp\esp`:hen,
-  ks. README).
+  (`tools/test-qemu.sh` jättää ESP:n imageksi `build/esp.img`, ks. README).
 
 ## K0: rivieditori ja kaksi konsolitilaa (24.9.2026)
 
@@ -422,3 +421,35 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   painallukset kasvattavat leikattua tekstiä). Ei erillistä valintatilaa.
   Liitä on `^V`; `^K`, `^U` ja `^Y` poistuivat, `^W` säilyi. Shift+nuolet ja
   Shift+Home/End saavat kbdfs:ssä omat runet (`Lshiftesc1`-taulukko).
+
+## Kehitysympäristö Debian 13:een (25.9.2026)
+
+`docs/plan-linux-env.md`, vaihe 1. Windows-VM (WHPX), WSL, drawterm ja rcpu
+poistettu kokonaan. Isäntä on Debian 13 + KVM, ja VM:ää ohjataan vain
+sarjakonsolin tekstillä.
+
+- `tools/vm-setup` lataa kiinnitetyn 9front-releasen (`tools/9front.release`,
+  11952, sha256 julkaisutiedotteesta) ja asentaa sen `base.qcow2`:een ilman
+  käsin tehtyjä askelia noin 2,5 minuutissa. `tools/build.sh` vie kertakäyttöisestä
+  overlaysta käännöksen läpi noin 25 sekunnissa, ja `tools/test-qemu.sh`
+  bootaa tuloksen noin 5 sekunnissa.
+- Havainnot, joihin ratkaisut perustuvat:
+  - 9frontin EFI-loader lukee myös sarjakonsolia (OVMF ohjaa ConInin COM1:een)
+    ja odottaa `plan9.ini`n jälkeen yhden sekunnin näppäintä. Tällä asetetaan
+    ISO-bootissa `console=0` ilman ISOn muokkausta. Asennusohjelma kopioi
+    asetuksen asennetun levyn `plan9.ini`hin, ja `vm-setup` lisää
+    `nobootprompt=` ja `user=`.
+  - glendan profiili käynnistää rion aina. Jos VM:llä on näyttölaite (OVMF:n
+    GOP-framebuffer), rio vie näppäimistön, ja sarjasyöte päätyy
+    satunnaisesti fokuksessa olevaan ikkunaan. Siksi käännös-VM:ssä on
+    `-vga none`: rio ei käynnisty, ja rc jää COM1:een.
+  - Sarjasyöte lähetetään 8 tavun paloina, koska muuten UART pudottaa
+    merkkejä. QEMU pysäyttää vierasjärjestelmän tulosteen, jos yhdistetty
+    asiakas ei lue sokettia. Siksi `tools/9run` tyhjentää soketin jatkuvasti
+    ja lukee sisällön QEMU:n lokista (`logfile=`). Lisäksi se lähettää rivin
+    uudelleen, jos kaiku ei tule.
+  - FAT ei kelpaa lähdekanavaksi, koska hakemisto `aux` on varattu
+    DOS-laitenimi. Molemmat suunnat ovat siksi raakoja tar-levyjä
+    (`sdE1` sisään, `sdE2` ulos). mtoolsia käytetään vain ESP-imageen.
+  - `/dev/kvm`: pelkkä logindin ACL katoaa näytön lukittuessa, joten käyttäjä
+    lisätään `kvm`-ryhmään.

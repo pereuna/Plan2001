@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Drive the 9front VM through its serial console (COM1, console=0).
+
+  9run [-d DIR] [-t SEC] 'rc command'   run it, print its output, exit 0 if
+                                       $status was empty, else 1 (status on
+                                       stderr); 124 on timeout
+  9run [-d DIR] [-t SEC] [-s LINE] --dialog FILE
+                                       answer prompts from FILE ('-' = stdin),
+                                       after typing LINE if given
+
+DIR (default build/vm) holds the VM's serial.sock and serial.log that
+tools/vm sets up.  QEMU writes everything the guest prints to serial.log,
+so that file is the whole session; this script reads output from there and
+writes input to the socket.  Found by trial (see docs/status.md):
+  - input goes in small paced chunks, or the guest's UART drops characters
+  - a line sent soon after connecting can vanish: wait CONNECT_DELAY, and
+    type a line again if the guest has not echoed anything in ECHO_WAIT
+  - QEMU stops the guest's output when a connected client does not read,
+    so the socket is drained all the time even though the log is the source
+
+A dialog file has one rule per line: REGEX<TAB>ANSWER, blank lines and
+#-comments ignored.  Rules are tried in order against the output since the
+last answer, once it has been quiet for QUIET seconds; the first match wins.
+REGEX prefixed with '!now ' is tried on every new chunk instead (for the
+loader, which waits only one second).  ANSWER: text to type (\\n separates
+lines, each sent with a return; '' is a bare return), or !done (stop,
+exit 0) or !fail (exit 1).
+Output that is quiet, ends in a prompt ('...]: ', '...] ', '>>> ') and
+matches no rule is an unexpected question: exit 1.
+"""
+import os, re, socket, sys, time, uuid
+
+CHUNK, CHUNK_DELAY = 8, 0.01
+CONNECT_DELAY = 0.3
+ECHO_WAIT, ECHO_TRIES = 2, 3
+QUIET = 1.5
+PROMPT = re.compile(r'(\]:? *|>>> )$')
+ANSI = re.compile(r'\x1b\[[0-9;?=]*[A-Za-z]')
+
+
+class Serial:
+	def __init__(self, d):
+		self.log = open(os.path.join(d, 'serial.log'), 'rb')
+		self.log.seek(0, 2)
+		self.s = socket.socket(socket.AF_UNIX)
+		self.s.connect(os.path.join(d, 'serial.sock'))
+		self.s.setblocking(False)
+		self.pending = ''
+		time.sleep(CONNECT_DELAY)
+
+	def send(self, line):
+		"""Type line and a return; again if the guest does not echo a thing."""
+		b = line.encode() + b'\r'
+		for _ in range(ECHO_TRIES):
+			for i in range(0, len(b), CHUNK):
+				self.s.sendall(b[i:i+CHUNK])
+				time.sleep(CHUNK_DELAY)
+			end = time.time() + ECHO_WAIT
+			while time.time() < end:
+				x = self._read()
+				if x:
+					self.pending += x
+					return
+		raise SystemExit('9run: guest does not echo input')
+
+	def _read(self):
+		try:
+			while self.s.recv(65536):
+				pass
+		except BlockingIOError:
+			pass
+		x = self.log.read()
+		if not x:
+			time.sleep(0.05)
+			return ''
+		return ANSI.sub('', x.decode('latin1').replace('\r', ''))
+
+	def read(self):
+		"""New guest output since the last call ('' if none yet)."""
+		x, self.pending = self.pending, ''
+		return x or self._read()
+
+
+def run(ser, cmd, timeout):
+	tag = uuid.uuid4().hex[:12]
+	# rc joins __END_^tag^__ into __END_tag__; the echoed input line keeps the
+	# carets, so only the real output matches
+	ser.send(cmd + '; echo __END_^' + tag + '^__ $status')
+	end, buf = time.time() + timeout, ''
+	marker = re.compile(r'__END_' + tag + r'__ ?(.*)\n')
+	while time.time() < end:
+		buf += ser.read()
+		m = marker.search(buf)
+		if m:
+			out = buf[:m.start()]
+			out = out.split('\n', 1)[1] if '__END_^' in out.split('\n', 1)[0] else out
+			sys.stdout.write(out)
+			if m.group(1).strip():
+				print(m.group(1).strip(), file=sys.stderr)
+				return 1
+			return 0
+	sys.stdout.write(buf)
+	print('9run: timeout after %ds' % timeout, file=sys.stderr)
+	return 124
+
+
+def dialog(ser, rules, timeout):
+	end, buf, last = time.time() + timeout, '', time.time()
+	while time.time() < end:
+		x = ser.read()
+		if x:
+			sys.stdout.write(x)
+			sys.stdout.flush()
+			buf += x
+			last = time.time()
+		quiet = time.time() - last > QUIET
+		if not x and not quiet:
+			continue
+		for now, rx, ans in rules:
+			if now == bool(x) and rx.search(buf):
+				break
+		else:
+			if quiet and buf and PROMPT.search(buf):
+				print('\n9run: unexpected prompt: %r' % buf[-200:], file=sys.stderr)
+				return 1
+			continue
+		if ans == '!done':
+			return 0
+		if ans == '!fail':
+			print('\n9run: failure matched: %s' % rx.pattern, file=sys.stderr)
+			return 1
+		for line in ans.split('\\n'):
+			ser.send(line)
+		buf, last = '', time.time()
+	print('\n9run: dialog timeout after %ds' % timeout, file=sys.stderr)
+	return 124
+
+
+def parse(text):
+	rules = []
+	for line in text.splitlines():
+		if not line.strip() or line.startswith('#'):
+			continue
+		rx, ans = line.split('\t', 1)
+		ans = '' if ans == "''" else ans
+		now = rx.startswith('!now ')
+		rules.append((now, re.compile((rx[5:] if now else rx) + ('' if now else '$')), ans))
+	return rules
+
+
+def main(a):
+	d, timeout, dlg, first = 'build/vm', 300, None, None
+	while a and a[0].startswith('-') and a[0] != '-':
+		o = a.pop(0)
+		if o == '-d': d = a.pop(0)
+		elif o == '-t': timeout = float(a.pop(0))
+		elif o == '-s': first = a.pop(0)
+		elif o == '--dialog': dlg = a.pop(0)
+		else: sys.exit(__doc__)
+	if (dlg is None) == (len(a) != 1):
+		sys.exit(__doc__)
+	ser = Serial(d)
+	if dlg is not None:
+		f = sys.stdin if dlg == '-' else open(dlg)
+		rules = parse(f.read())
+		if first is not None:
+			ser.send(first)
+		return dialog(ser, rules, timeout)
+	return run(ser, a[0], timeout)
+
+
+if __name__ == '__main__':
+	sys.exit(main(sys.argv[1:]))

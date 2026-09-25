@@ -1,0 +1,76 @@
+#!/bin/bash
+# Start/stop the 9front build VM (QEMU+KVM+OVMF, no display, no network).
+#
+#   tools/vm start                  boot a throwaway overlay on base.qcow2
+#   tools/vm start --disk FILE      boot FILE itself (tools/vm-setup)
+#   tools/vm start --disk FILE --iso   also attach the 9front ISO, boot it
+#   tools/vm stop                   quit QEMU; delete the overlay unless KEEP=1
+#   tools/vm status
+#
+# Everything lives in build/vm/: serial.sock + serial.log (-> the log of
+# the current run, serial-<time>.log) for tools/9run, mon.sock, qemu.pid,
+# vm.qcow2 (the overlay), OVMF vars.  Disks, in this order, so that 9front
+# names them the same every time:
+#   sdE0  system disk             sdE1  build/in.img  (raw tar, sources in)
+#   sdE2  build/out.img (raw tar, results out)        sdE3  ISO (--iso)
+# in.img/out.img are created empty if missing; tools/build.sh fills them.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/9front.release"
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+vm=$root/build/vm
+OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd OVMF_VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
+
+running() { [ -f "$vm/qemu.pid" ] && kill -0 "$(cat "$vm/qemu.pid")" 2>/dev/null; }
+
+case $1 in
+start)
+	shift; disk= iso=
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--disk) disk=$2; shift 2 ;;
+		--iso) iso=$cache/$ISO; shift ;;
+		*) echo "usage: tools/vm start [--disk FILE [--iso]]" >&2; exit 2 ;;
+		esac
+	done
+	running && { echo "vm: already running (tools/vm stop first)" >&2; exit 1; }
+	[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+		echo "vm: no access to /dev/kvm (add yourself to group kvm and log in again)" >&2; exit 1; }
+	mkdir -p "$vm"; rm -f "$vm"/*.sock "$vm/qemu.pid"
+	if [ -z "$disk" ]; then
+		[ -f "$cache/base.qcow2" ] || { echo "vm: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+		disk=$vm/vm.qcow2; rm -f "$disk"
+		qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$disk"
+	fi
+	for f in in out; do [ -f "$root/build/$f.img" ] || truncate -s 64M "$root/build/$f.img"; done
+	cp "$OVMF_VARS" "$vm/vars.fd"
+	log=serial-$(date +%Y%m%d-%H%M%S).log
+	ln -sfn "$log" "$vm/serial.log"; : > "$vm/$log"
+	cd=()
+	[ -n "$iso" ] && cd=(-drive file="$iso",if=none,id=cd,media=cdrom,readonly=on -device ide-cd,drive=cd,bus=ide.3,bootindex=0)
+	qemu-system-x86_64 -name plan2001-vm -accel kvm -cpu host -machine q35 -m 2048 -smp 2 \
+		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" -drive if=pflash,format=raw,file="$vm/vars.fd" \
+		-display none -vga none -nic none -rtc base=utc \
+		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off,logfile="$vm/$log" -serial chardev:ser \
+		-monitor unix:"$vm/mon.sock",server=on,wait=off \
+		-drive file="$disk",if=none,id=hd,format=qcow2 -device ide-hd,drive=hd,bus=ide.0,bootindex=1 \
+		-drive file="$root/build/in.img",if=none,id=in,format=raw -device ide-hd,drive=in,bus=ide.1 \
+		-drive file="$root/build/out.img",if=none,id=out,format=raw -device ide-hd,drive=out,bus=ide.2 \
+		"${cd[@]}" -daemonize -pidfile "$vm/qemu.pid"
+	;;
+stop)
+	if running; then
+		pid=$(cat "$vm/qemu.pid")
+		python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b"quit\n"); s.recv(100)' "$vm/mon.sock" 2>/dev/null || true
+		for i in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+		kill "$pid" 2>/dev/null || true
+	fi
+	rm -f "$vm"/*.sock "$vm/qemu.pid"
+	[ "$KEEP" = 1 ] || rm -f "$vm/vm.qcow2"
+	;;
+status)
+	running && echo "running (pid $(cat "$vm/qemu.pid"))" || { echo stopped; exit 1; }
+	;;
+*)
+	echo "usage: tools/vm start|stop|status" >&2; exit 2 ;;
+esac
