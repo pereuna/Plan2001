@@ -93,6 +93,9 @@ UEFI firmware
 ## AI/agentille
 
 - `docs/status.md`: mitä on tehty, mitä seuraavaksi.
+- `docs/plan-linux-env.md`: **seuraava työ** — kehitysympäristö Debian 13:een,
+  Windows/WSL/drawterm pois, sarjakonsoliohjaus. Alla olevat VM-ohjeet ovat
+  vanhentumassa sen myötä.
 - `git log --oneline`: jokainen commit on itsenäinen, testattu askel.
 - Älä oleta paikallista lähdepuun kopiota olevan täydellinen — se EI ole,
   tarkoituksella (ks. yllä). Käytä `tools/build.sh`/`tools/build.rc`-mallia
