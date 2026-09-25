@@ -289,7 +289,6 @@ reboot(void *entry, void *code, ulong size)
 	 */
 	panic("reboot: no 64-bit kexec handoff yet, refusing to load a new kernel");
 
-	writeconf();
 	vmxshutdown();
 
 	/*

@@ -377,10 +377,9 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   paniikkaa nyt siististi ennen kuin mitään laitetilaa ehditään sotkea (commit
   `bc7b88b`) — turvallista, mutta itse 64-bittinen kexec-luovutus on yhä
   kirjoittamatta; `/dev/reboot` ei toimi ollenkaan ennen sitä.
-- `BootInfo`-muistikartta on rajattu 600 riviin (`BootInfoMaxMem`). Kernel **reagoi**
-  nyt ylivuotoon (`bootinfoinit()` pysäyttää koneen, commit `bc7b88b`) sen sijaan
-  että käyttäisi katkennutta karttaa hiljaa — mutta itse 600 rivin riittävyyttä
-  oikealla, pirstoutuneella UEFI-muistikartalla ei ole vielä arvioitu.
+- ~~`BootInfo`-muistikartta on rajattu 600 riviin (`BootInfoMaxMem`).~~ **Poistettu
+  (25.9.2026, Boot ABI v1):** muistikartta on blobin osio, jonka kapasiteetti
+  seuraa firmwaren karttapuskuria (2457 aluetta). Ks. `docs/boot-abi.md`.
 - **T5600 vahvistettu (23.9.2026): bootti onnistuneesti** commitilla
   `fa5c461` (alamuistin dynaaminen varaus + relokointi). Kernel on bootannut
   koko projektin ajan muulla raudalla (kaksi kannettavaa); tämä koski
@@ -492,4 +491,28 @@ sarjakonsolin tekstillä.
   (`tmp d555`), joten `/tmp` on ramfs kuten ISOlla.
 - Seuraavaksi siivotaan asennusohjelman legacy-haarat (mbr-vaihtoehto,
   pbs/9bootfat, 9660/cdboot) `sys/`-kerrokseen.
+
+## Plan2001 Boot ABI v1 (25.9.2026)
+
+Loaderin ja kernelin välinen sopimus on nyt Plan2001:n oma
+(`docs/boot-abi.md`, `sys/include/bootinfo.h`): **RDI = BootInfo-blobin
+fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitetta.
+
+- Blob on `header | plan9.ini | loader log | muistikartta` yhdessä
+  `AllocateAnyPages`-varauksessa. Viitteet ovat offsetteja, joten blob
+  on relokoitava kokonaisuutena. Kopiota ei tehdä.
+- Poistui: `CONFADDR`, `BOOTINFO`, `BOOTSCRATCHEND`, `BOOTLINE`/`BOOTARGS`,
+  `bootrelocate()`, `writeconf()` sekä muistikartan 600 alueen raja
+  (kapasiteetti on nyt firmwaren karttapuskurin mukainen, 2457).
+- Kernel: `_efi64` tallentaa RDI:n, ja `bootinfoinit()` mappaa blobin
+  osoitteeseen `VMAP+pa` omilla sivutaulusivuillaan. `rampage()`ia ei voi
+  käyttää vielä, koska se tarvitsee muistikartan, joka on blobissa.
+  `meminit0()` varaa blobin kernelin koko elinajaksi.
+- Testattu: QEMU 2, 8 ja 16 GB, sekä kokeellinen build, jossa blob
+  pakotettiin 8 GB:n kohdalle. Molemmat PASS. USB-asennus tikulta PASS.
+  **Oikealla raudalla ei vielä testattu.** T5600:n alamuistiongelma
+  poistuu periaatteessa kokonaan, koska loader ei kirjoita enää mihinkään
+  kiinteään matalaan osoitteeseen.
+- Seuraavaksi mahdollisia: blobin vapautus, kun sen sisältö on kopioitu, ja
+  64-bittinen kexec, joka rakentaa uuden BootInfo v1:n.
 

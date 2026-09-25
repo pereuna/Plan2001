@@ -384,11 +384,11 @@ e820scan(void)
 	int i, kind;
 
 	/* passed by bootloader */
-	if(bootinfo == nil || bootinfo->nmem == 0)
+	if(bootinfo == nil || bootinfo->mmapcount == 0)
 		return -1;
 
-	for(i = 0; i < bootinfo->nmem; i++){
-		bm = &bootinfo->mem[i];
+	for(i = 0; i < bootinfo->mmapcount; i++){
+		bm = bootmem(i);
 		if(bm->len == 0 || (kind = bootmemkind(bm->type)) < 0)
 			continue;
 		memmapadd(bm->base, bm->len, kind);
@@ -501,18 +501,15 @@ meminit0(void)
 	memreserve(0, PADDR(CPU0END));
 
 	/*
-	 * The loader's captured boot-log text (BootInfo.logbase/logsize -
-	 * see sys/src/boot/efi/sub.c's print(), sys/src/9/pc/bootfb.c's
-	 * bootlogtext()) sits in ordinary EfiLoaderData memory: MemRAM
-	 * above, freely reusable by this kernel's own allocator. Unlike
-	 * CONFADDR/BOOTINFO, it is never relocated into the always-reserved
-	 * low range - it stays wherever the firmware's allocator happened
-	 * to put it. Reserve it explicitly, before xinit() (called after
-	 * this) can hand its pages to something else: bootscreeninit(),
-	 * which reads it, runs well after xinit() in main().
+	 * The BootInfo blob (pc/bootinfo.c) sits in EfiLoaderData, which
+	 * the map above calls MemRAM, freely reusable by this kernel's own
+	 * allocator.  It is ours for good (Plan2001 Boot ABI v1): confval[]
+	 * points into its config section and bootlogtext() (pc/bootfb.c)
+	 * reads its log section after xinit().  Reserve it before xinit()
+	 * can hand its pages to something else.
 	 */
-	if(bootinfo != nil && bootinfo->logbase != 0 && bootinfo->logsize != 0)
-		memreserve(bootinfo->logbase, bootinfo->logsize);
+	if(bootinfo != nil)
+		memreserve(bootinfopa, bootinfo->totalsize);
 
 	/*
 	 * Addresses below 16MB default to be upper

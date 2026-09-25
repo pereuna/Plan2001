@@ -6,6 +6,7 @@
 # to a USB stick for real-hardware testing.
 #   SECONDS_TO_RUN  give up after this many seconds, default 75
 #   DISPLAY_QEMU=1  also show the screen in a GTK window
+#   MEM             guest RAM in MiB, default 2048
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here"); b=$root/build
 [ -r /dev/kvm ] && [ -w /dev/kvm ] || {
@@ -20,7 +21,7 @@ cp /usr/share/OVMF/OVMF_VARS_4M.fd "$b/test-vars.fd"
 
 display=(-display none)
 [ "${DISPLAY_QEMU:-0}" = 1 ] && display=(-display gtk)
-qemu-system-x86_64 -name plan2001-test -accel kvm -cpu host -machine q35 -m 2048 -smp 2 \
+qemu-system-x86_64 -name plan2001-test -accel kvm -cpu host -machine q35 -m "${MEM:-2048}" -smp 2 \
   -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
   -drive if=pflash,format=raw,file="$b/test-vars.fd" -vga std -nic none "${display[@]}" \
   -drive file="$b/esp.img",format=raw,if=none,id=esp -device ide-hd,drive=esp,bootindex=0 \

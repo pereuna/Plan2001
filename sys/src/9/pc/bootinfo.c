@@ -5,17 +5,76 @@
 #include "fns.h"
 
 /*
- * The loader passes what it learned from UEFI in a BootInfo at BOOTINFO
- * (sys/include/bootinfo.h).  It is the only source of the memory map on
- * this UEFI-only kernel, so anything short of a complete, self-consistent
- * structure is fatal: bootinfoinit() below rejects an empty or truncated
- * memory map too, not just a garbled header, precisely so meminit0()
- * (pc/memory.c) never falls through to its old BIOS-era ramscan() fallback
- * - keeping that path unreachable is the point, not an accident. Nothing
- * can be printed this early; halt with interrupts off.
+ * The loader passes what it learned in a BootInfo blob (Plan2001 Boot ABI
+ * v1, sys/include/bootinfo.h) and tells us where: _efi64 (pc64/l.s) saves
+ * its RDI in bootinfopa.  There is no fixed address to look at.  The blob
+ * is the only source of the memory map on this UEFI-only kernel, so
+ * anything short of a complete, self-consistent blob is fatal:
+ * bootinfoinit() below rejects an empty memory map or a section that does
+ * not fit, not just a garbled header, precisely so meminit0() (pc/memory.c)
+ * never falls through to its old BIOS-era ramscan() fallback - keeping that
+ * path unreachable is the point, not an accident.  Nothing can be printed
+ * this early; halt with interrupts off.
  */
 
 BootInfo *bootinfo;
+
+/*
+ * The blob can be anywhere in physical memory, and the page tables _efi64
+ * built map only the kernel itself.  Map the blob at VMAP+pa - where
+ * vmap() (pc64/mmu.c) would put it too, so mmuinit() and later vmap()s
+ * carry on with these same tables - from a few page-table pages of our
+ * own: rampage() cannot be used yet, it needs the memory map, which is in
+ * the blob.  BootMapMax is this kernel's own limit, not part of the ABI:
+ * what these pages can map even across a 2MB, 1GB and 512GB boundary.
+ */
+enum {
+	BootMapPages	= 6,		/* 2 PDP, 2 PD, 2 PT */
+	BootMapMax	= 2*MiB,
+};
+static uchar bootmapmem[(BootMapPages+1)*BY2PG];
+static int bootmapused;
+
+static void
+bootinfohalt(void)
+{
+	for(;;)
+		halt();
+}
+
+static uintptr*
+bootmapnext(uintptr *pte)
+{
+	uintptr *t;
+
+	if((*pte & PTEVALID) == 0){
+		if(bootmapused >= BootMapPages)
+			bootinfohalt();
+		t = (uintptr*)(((uintptr)bootmapmem + BY2PG-1) & ~(BY2PG-1)) + bootmapused++*(BY2PG/sizeof(uintptr));
+		memset(t, 0, BY2PG);
+		*pte = PADDR(t) | PTEWRITE | PTEVALID;
+	}
+	return KADDR(*pte & 0x000FFFFFFFFFF000ull);
+}
+
+static void
+bootmap(uvlong pa, uvlong size)
+{
+	uvlong p;
+	uintptr va, *t;
+	int l;
+
+	if(pa + size > VMAPSIZE)
+		bootinfohalt();
+	for(p = pa & ~(uvlong)(BY2PG-1); p < pa + size; p += BY2PG){
+		va = VMAP + p;
+		t = (uintptr*)CPU0PML4;
+		for(l = 3; l > 0; l--)
+			t = bootmapnext(&t[PTLX(va, l)]);
+		t[PTLX(va, 0)] = p | PTEWRITE | PTEVALID;
+	}
+	putcr3(getcr3());
+}
 
 /*
  * Entropy from the loader's BootInfo, mixed in on top of whatever hwrandbuf
@@ -25,7 +84,7 @@ BootInfo *bootinfo;
  * working.  Used once by randominit() (port/random.c) to seed the entropy
  * pool alongside the kernel's own timing-based collection.  Self-clearing:
  * the seed is copied at most once, then wiped from BootInfo (it would
- * otherwise sit in low memory, readable, for the life of the machine) and
+ * otherwise sit in the blob, readable, for the life of the machine) and
  * hwrandbuf is put back to what it chains to, so a second call is cheap and
  * does not re-touch already-zeroed memory.
  */
@@ -52,22 +111,48 @@ bootinforand(void *p, ulong n)
 	hwrandbuf = bootinforandnext;
 }
 
+/* does the section [off, off+len) lie within the blob? */
+static int
+bootinfoin(BootInfo *b, uvlong off, uvlong len)
+{
+	return off >= b->headersize && off + len <= b->totalsize;
+}
+
 void
 bootinfoinit(void)
 {
 	BootInfo *b;
-	uintptr hdrsize;
 
-	b = (BootInfo*)BOOTINFO;
-	hdrsize = (uchar*)&b->mem[0] - (uchar*)b;
+	if(bootinfopa == 0 || (bootinfopa & (BY2PG-1)) != 0)
+		bootinfohalt();
+	bootmap(bootinfopa, BY2PG);
+	b = (BootInfo*)(VMAP + bootinfopa);
 	if(b->magic != BootInfoMagic || b->version != BootInfoVersion
-	|| b->size < hdrsize || b->size > BOOTINFOLEN
-	|| b->nmem == 0 || b->nmem > BootInfoMaxMem
-	|| b->size != hdrsize + (uintptr)b->nmem*sizeof(BootMem)
-	|| (b->flags & BootInfoMemTrunc) != 0)
-		for(;;)
-			halt();
+	|| b->headersize < sizeof(BootInfo) || b->headersize > BY2PG
+	|| b->totalsize < b->headersize || b->totalsize > BootMapMax)
+		bootinfohalt();
+	bootmap(bootinfopa, b->totalsize);
+	if(b->configlen == 0 || !bootinfoin(b, b->configoff, b->configlen)
+	|| ((char*)b)[b->configoff + b->configlen - 1] != '\0'
+	|| !bootinfoin(b, b->logoff, b->loglen)
+	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem)
+	|| !bootinfoin(b, b->mmapoff, (uvlong)b->mmapcount*b->mmapentsize))
+		bootinfohalt();
 	bootinfo = b;
+}
+
+/* entry i of the memory map, i < bootinfo->mmapcount */
+BootMem*
+bootmem(int i)
+{
+	return (BootMem*)((uchar*)bootinfo + bootinfo->mmapoff + (uvlong)i*bootinfo->mmapentsize);
+}
+
+/* the plan9.ini text, NUL-terminated (checked by bootinfoinit()) */
+char*
+bootconfig(void)
+{
+	return (char*)bootinfo + bootinfo->configoff;
 }
 
 /*

@@ -53,9 +53,12 @@ TEXT rebase(SB), 1, $-4
  * firmware's handlers are gone after ExitBootServices.
  */
 TEXT jump64(SB), 1, $-4
+	/* Plan2001 Boot ABI v1 (sys/include/bootinfo.h): RDI = BootInfo, RSI = 0 */
+	MOVQ	bootinfo+8(FP), DI
+	XORL	SI, SI
 	/* Preserve the fourth framebuffer marker for the kernel entry. */
-	MOVQ	mark+8(FP), R12
-	MOVL	pitch+16(FP), R13
+	MOVQ	mark+16(FP), R12
+	MOVL	pitch+24(FP), R13
 	CLI
 
 	/* load zero length idt */
@@ -82,5 +85,3 @@ TEXT _idtptr64p<>(SB), 1, $-4
 	WORD	$0
 	QUAD	$0
 
-GLOBL	confaddr(SB), $8
-DATA	confaddr(SB)/8, $CONFADDR

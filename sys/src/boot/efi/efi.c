@@ -88,14 +88,22 @@ efifree(uvlong pa, uvlong len)
 }
 
 /*
- * The BootInfo the kernel is entered with (see sys/include/bootinfo.h) is
- * built here, in scratch memory the firmware's own allocator actually
- * granted (see efimain()) - never directly at the fixed BOOTINFO physical
- * address the kernel expects it at. bootrelocate() copies it there, along
- * with the plan9.ini text at confaddr (sub.c), only after ExitBootServices:
- * see efimain()'s comment for why.
+ * The BootInfo blob the kernel is entered with (Plan2001 Boot ABI v1, see
+ * sys/include/bootinfo.h): one allocation, wherever the firmware's
+ * allocator puts it (efimain()), holding the header (bi), the plan9.ini
+ * text (confaddr, see sub.c), print()'s captured text (logbuf, sub.c) and
+ * the final memory map (bootexit()).  Nothing is copied anywhere: the
+ * kernel is handed its address in RDI (jump64).
  */
+enum {
+	ConfCap = 8*1024,	/* plan9.ini text, including the NUL */
+	LogCap = 4*1024,	/* print()'s captured text */
+};
 static BootInfo *bi;
+static void bootinfohdr(void);
+static uchar *blob;
+static ulong blobsize, mmapcap;
+char *confaddr;
 
 /*
  * Allocate len bytes wherever the firmware's allocator wants to put them
@@ -217,7 +225,8 @@ bootexit(void)
 	EFI_MEMORY_DESCRIPTOR *t;
 	uchar *p;
 	UINT32 entvers;
-	BootMem *m;
+	BootMem *m, *mem;
+	ulong n;
 	int try;
 
 	if(mapbuf == nil)
@@ -238,14 +247,20 @@ bootexit(void)
 	return -2;
 
 Left:
-	bi->nmem = 0;
+	/*
+	 * The map goes into the blob's own section, sized in efimain() for
+	 * as many entries as mapbuf can hold at the smallest descriptor
+	 * size, so it always fits: no fixed limit, no truncation.
+	 */
+	mem = (BootMem*)(blob + bi->mmapoff);
+	n = 0;
 	for(p = mapbuf; mapsize >= entsize; p += entsize, mapsize -= entsize){
 		t = (EFI_MEMORY_DESCRIPTOR*)p;
 		if(t->NumberOfPages == 0)
 			continue;
 		m = nil;
-		if(bi->nmem > 0){
-			m = &bi->mem[bi->nmem-1];
+		if(n > 0){
+			m = &mem[n-1];
 			if(m->type != t->Type || m->attr != (UINT32)t->Attribute
 			|| m->base + m->len != t->PhysicalStart)
 				m = nil;
@@ -254,17 +269,15 @@ Left:
 			m->len += t->NumberOfPages * 4096ULL;
 			continue;
 		}
-		if(bi->nmem >= BootInfoMaxMem){
-			bi->flags |= BootInfoMemTrunc;
-			break;
-		}
-		m = &bi->mem[bi->nmem++];
+		if(n >= mmapcap)
+			break;	/* cannot happen, see above */
+		m = &mem[n++];
 		m->base = t->PhysicalStart;
 		m->len = t->NumberOfPages * 4096ULL;
 		m->type = t->Type;
 		m->attr = (UINT32)t->Attribute;
 	}
-	bi->size = (uchar*)&bi->mem[bi->nmem] - (uchar*)bi;
+	bi->mmapcount = n;
 	return 0;
 }
 
@@ -562,10 +575,7 @@ void
 eficonfig(void)
 {
 	print("[P2 L05] BootInfo: initialise\n");
-	memset(bi, 0, sizeof(*bi));
-	bi->magic = BootInfoMagic;
-	bi->version = BootInfoVersion;
-	bi->size = sizeof(*bi) - sizeof(bi->mem);
+	bootinfohdr();
 
 	/* the memory map is added by bootexit(), right before leaving boot services */
 	print("[P2 L05] ACPI: probe\n");
@@ -584,25 +594,37 @@ eficonfig(void)
 }
 
 /*
- * Copy the plan9.ini text (confaddr, see sub.c) and the finished BootInfo
- * (bi) - both built in dynamically allocated scratch, never at their fixed
- * physical addresses directly - down to the fixed CONFADDR/BOOTINFO
- * addresses the kernel actually expects them at (sys/src/9/pc64/mem.h).
- * Called from bootkern() (sub.c) after bootexit() succeeds: see efimain()'s
- * comment for why this can only happen post-ExitBootServices.
+ * The blob's fixed part: magic, version and where its sections are.
+ * Called at the start (efimain()) and again from eficonfig() whenever
+ * the configuration is cleared, as that zeroes the header.
  */
-void
-bootrelocate(void)
+static void
+bootinfohdr(void)
 {
-	bi->logbase = logbuf != nil? (uvlong)(uintptr)logbuf: 0;
-	bi->logsize = logused;
-	memmove((void*)CONFADDR, confaddr, BOOTINFO-CONFADDR);
-	memmove((void*)BOOTINFO, bi, BOOTSCRATCHEND-BOOTINFO);
+	memset(bi, 0, sizeof(*bi));
+	bi->magic = BootInfoMagic;
+	bi->version = BootInfoVersion;
+	bi->headersize = sizeof(*bi);
+	bi->totalsize = blobsize;
+	bi->configoff = (sizeof(*bi) + 7) & ~7;
+	bi->logoff = bi->configoff + ConfCap;
+	bi->mmapoff = bi->logoff + LogCap;
+	bi->mmapentsize = sizeof(BootMem);
 }
 
-enum {
-	LogCap = 4096,
-};
+/*
+ * The blob's last fields, set once nothing is printed or configured any
+ * more: called from bootkern() (sub.c) after bootexit() succeeded, right
+ * before jump64() hands the kernel the blob.
+ */
+void*
+bootinfofinish(void)
+{
+	bi->configlen = conflen();
+	bi->loglen = logused;
+	return bi;
+}
+
 
 EFI_STATUS
 efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
@@ -615,48 +637,33 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	ST = st;
 
 	/*
-	 * Set up print()'s capture buffer before the very first print, so
-	 * nothing is missed. Not fatal if this fails - logbuf just stays
-	 * nil and print() skips capturing, same as any other diagnostic
-	 * convenience that isn't essential to booting.
+	 * The BootInfo blob, before the very first print() so that its
+	 * capture buffer (the blob's log section) misses nothing: wherever
+	 * the firmware's allocator puts it (AllocateAnyPages), its size fixed
+	 * here - the memory map section holds as many entries as mapbuf
+	 * (bootmapinit) can at the smallest descriptor size.  T5600: a fixed
+	 * low address can still be EfiBootServicesCode the firmware is
+	 * running, which is why nothing about the handoff is at a fixed
+	 * address any more (Plan2001 Boot ABI v1, sys/include/bootinfo.h).
 	 */
-	if((la = efiallocany(LogCap, EfiLoaderData)) != 0){
-		logbuf = (char*)la;
-		logcap = LogCap;
+	mmapcap = MapBufSize / sizeof(EFI_MEMORY_DESCRIPTOR);
+	blobsize = PGROUND(((sizeof(BootInfo) + 7) & ~7) + ConfCap + LogCap + mmapcap*sizeof(BootMem));
+	if((la = efiallocany(blobsize, EfiLoaderData)) == 0){
+		print("[P2 L02] FATAL: cannot allocate the BootInfo blob\n");
+		for(;;)
+			;
 	}
+	blob = (uchar*)la;
+	memset(blob, 0, blobsize);
+	bi = (BootInfo*)blob;
+	bootinfohdr();
+	confaddr = (char*)blob + bi->configoff;
+	logbuf = (char*)blob + bi->logoff;
+	logcap = LogCap;
 
-	print("[P2 L01] Plan2001 loader 2026-09-23 debug-1\n");
-
-	/*
-	 * plan9.ini text (confaddr, see sub.c) and BootInfo (bi) are built
-	 * here in scratch memory the firmware's allocator actually granted -
-	 * wherever that is (AllocateAnyPages), never by demanding the fixed
-	 * CONFADDR/BOOTINFO addresses directly. Confirmed on a Dell Precision
-	 * T5600: that fixed range can be EfiBootServicesCode firmware is
-	 * still executing (diagscratchmap found type=3, attr=0xf, no
-	 * EFI_MEMORY_RUNTIME bit) - safe to overwrite once boot services
-	 * have ended, per the UEFI spec's reclaim guarantee for
-	 * BootServicesCode/Data, but not before. bootrelocate() (above) does
-	 * the actual fixed-address copy, called from bootkern() (sub.c)
-	 * after bootexit() (ExitBootServices) succeeds - matching OpenBSD's
-	 * efiboot, which defers both its own fixed-address boot-args copy
-	 * and its kernel-image relocation the same way, for the same reason.
-	 */
-	print("[P2 L02] boot scratch: allocate dynamically\n");
-	{
-		uvlong ca, bia;
-
-		ca = efiallocany(BOOTINFO-CONFADDR, EfiLoaderData);
-		bia = efiallocany(BOOTSCRATCHEND-BOOTINFO, EfiLoaderData);
-		if(ca == 0 || bia == 0){
-			print("[P2 L02] FATAL: cannot allocate boot scratch memory\n");
-			for(;;)
-				;
-		}
-		confaddr = (char*)ca;
-		bi = (BootInfo*)bia;
-	}
-	print("[P2 L02] boot scratch: allocated\n");
+	print("[P2 L01] Plan2001 loader 2026-09-25 boot-abi-1\n");
+	tracehex("[P2 L02] BootInfo blob at 0x", la);
+	tracehex("[P2 L02] BootInfo blob bytes=0x", blobsize);
 
 	print("[P2 L03] memory-map buffer: AllocatePool 96 KiB\n");
 	if(bootmapinit() != 0){

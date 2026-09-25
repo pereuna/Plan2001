@@ -169,7 +169,10 @@ void*	vmap(uvlong, vlong);
 
 /* pc/bootinfo.c: what the UEFI loader told us, see sys/include/bootinfo.h */
 extern BootInfo*	bootinfo;
+extern uintptr	bootinfopa;
 void	bootinfoinit(void);
+BootMem*	bootmem(int);
+char*	bootconfig(void);
 void	bootinforandinit(void);
 void	bootinfoclock(void);
 
@@ -181,7 +184,6 @@ int	bootmarkheight(void);
 char*	bootlogtext(int*);
 void	vunmap(void*, vlong);
 void	wbinvd(void);
-void	writeconf(void);
 int	wrmsr(int, vlong);
 int	xchgw(ushort*, int);
 void	rdrandbuf(void*, ulong);

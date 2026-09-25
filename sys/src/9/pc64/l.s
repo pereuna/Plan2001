@@ -27,10 +27,15 @@ MODE $64
  * CPU0PML4..CPU0END, which is cleared below.  It has loaded an empty IDT and
  * disabled interrupts.  The stack is the firmware's; it is used only for the
  * far return that reloads CS.
+ *
+ * Plan2001 Boot ABI v1 (sys/include/bootinfo.h): RDI holds the physical
+ * address of the BootInfo blob.  Keep it, before anything else uses DI;
+ * bootinfoinit() (pc/bootinfo.c) maps and reads the blob.
  */
 TEXT _efi64<>(SB), 1, $-4
 	CLI
 	CLD
+	MOVQ	DI, bootinfopa-KZERO(SB)
 
 	/*
 	 * The loader leaves R12 at the fourth progress square and R13 at the
@@ -1266,3 +1271,8 @@ TEXT vectortable(SB), $0
 	CALL _strayintr(SB); BYTE $0xFD
 	CALL _strayintr(SB); BYTE $0xFE
 	CALL _strayintr(SB); BYTE $0xFF
+
+/* physical address of the BootInfo blob, from the loader's RDI (see _efi64) */
+GLOBL	bootinfopa(SB), $8
+DATA	bootinfopa(SB)/8, $0
+

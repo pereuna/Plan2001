@@ -5,7 +5,7 @@
 
 char hex[] = "0123456789abcdef";
 
-static void
+void
 tracehex(char *label, uvlong value)
 {
 	char buf[96], *p;
@@ -22,10 +22,9 @@ tracehex(char *label, uvlong value)
 }
 
 /*
- * Capture buffer for print()'s own text, set up by efimain() before
- * anything is printed (see logbuf's declaration in fns.h). logbuf stays
- * nil - capture is simply skipped - if that allocation failed; this is
- * diagnostic convenience, never fatal.
+ * Capture buffer for print()'s own text: the BootInfo blob's log section,
+ * set up by efimain() (efi.c) before anything is printed.  Text past
+ * logcap is not captured, only shown.
  */
 char *logbuf;
 int logcap;
@@ -186,20 +185,26 @@ timeout(int ms)
 	return 0;
 }
 
-#define BOOTLINE	confaddr
-#define BOOTLINELEN	64
-#define BOOTARGS	(confaddr+BOOTLINELEN)
-#define	BOOTARGSLEN	(BOOTINFO-CONFADDR-BOOTLINELEN)
-#define	BOOTARGSEND	(BOOTARGS+BOOTARGSLEN)	/* BootInfo starts here, see mem.h */
+/* the plan9.ini text: the BootInfo blob's config section (efi.c) */
+#define CONF	confaddr
+#define	CONFLEN	(8*1024)	/* efi.c's ConfCap */
+#define	CONFEND	(CONF+CONFLEN)
 
 static char *confend;
+
+/* bytes of plan9.ini text in CONF, with its terminating NUL */
+int
+conflen(void)
+{
+	return confend - CONF + 1;
+}
 
 char*
 findconf(char *s)
 {
 	char *p, *e;
 	int n = strlen(s);
-	for(p = BOOTARGS; p < confend; p = e+1){
+	for(p = CONF; p < confend; p = e+1){
 		for(e = p; e < confend && *e != '\n'; e++){
 			if(*e == '\0')
 				return nil;
@@ -255,10 +260,8 @@ configure(void *f, char *path)
 		once = 0;
 Clear:
 		print("[P2 L12] clear configuration and collect UEFI data\n");
-		memset(BOOTLINE, 0, BOOTLINELEN);
-
-		confend = BOOTARGS;
-		memset(confend, 0, BOOTARGSLEN);
+		confend = CONF;
+		memset(confend, 0, CONFLEN);
 		eficonfig();
 	}
 	nowait = 1;
@@ -266,7 +269,7 @@ Clear:
 Loop:
 	for(;;){
 		line = confend+1;
-		n = readline(f, line, BOOTARGSEND - line);
+		n = readline(f, line, CONFEND - line);
 		if(n == 0)
 			break;
 		if(n < 0){
@@ -288,7 +291,7 @@ Loop:
 			continue;
 		}
 		if(memcmp("show", line, 5) == 0){
-			print(BOOTARGS);
+			print(CONF);
 			continue;
 		}
 		if(memcmp("clear", line, 5) == 0){
@@ -548,15 +551,13 @@ bootkern(void *f)
 	fbmark(2);
 
 	/*
-	 * Only now - after ExitBootServices - copy the plan9.ini text and
-	 * BootInfo down to the fixed CONFADDR/BOOTINFO addresses the kernel
-	 * expects them at (see efimain()'s and bootrelocate()'s comments in
-	 * efi.c for why not before). No print() from here on: ConOut is gone.
+	 * No print() from here on: ConOut is gone.  The kernel gets the
+	 * BootInfo blob where it is, its address in RDI (Plan2001 Boot ABI
+	 * v1, sys/include/bootinfo.h) - nothing is copied to any fixed
+	 * address.
 	 */
-	bootrelocate();
-
 	fbmark(3);
-	jump64(e, fbmarkaddr(4), fbmarkpitch());
+	jump64(e, bootinfofinish(), fbmarkaddr(4), fbmarkpitch());
 
 Error:
 	if(elen != 0)

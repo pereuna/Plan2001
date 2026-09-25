@@ -38,11 +38,11 @@ poistettu — ks. `docs/status.md`.
 
 | Tiedosto | Mikä |
 |---|---|
-| `sys/include/bootinfo.h` | Loaderin kernelille välittämä rakenne (uusi) |
-| `sys/src/9/pc/bootinfo.c` | Kernel: `BootInfo`n luku, RNG/kello-kytkennät (uusi) |
+| `sys/include/bootinfo.h` | **Plan2001 Boot ABI v1**: BootInfo-blob, jonka osoite on RDI:ssä (uusi, ks. `docs/boot-abi.md`) |
+| `sys/src/9/pc/bootinfo.c` | Kernel: blobin mappaus (`VMAP+pa`) ja validointi, RNG/kello-kytkennät (uusi) |
 | `sys/src/9/pc/bootfb.c` | Kernel: boot-vaiheiden merkit UEFI-framebufferiin (uusi) |
-| `sys/src/9/pc/bootargs.c` | plan9.ini-jäsennys; `*acpi`/`*bootscreen` `BootInfo`sta |
-| `sys/src/9/pc/memory.c` | Muistikartta `BootInfo`sta, BootServices-muisti vapaaksi |
+| `sys/src/9/pc/bootargs.c` | plan9.ini-jäsennys blobin config-osiosta; `*acpi`/`*bootscreen` `BootInfo`sta |
+| `sys/src/9/pc/memory.c` | Muistikartta blobista, blobin varaus, BootServices-muisti vapaaksi |
 | `sys/src/9/pc/screen.c` | GOP-framebufferin tarkka osoite, näkyvä leveys ja stride erillään |
 | `sys/src/9/pc/vga.c` | Konsoli: ei splash-laatikkoa, kolme saraketta scrollauksen sijaan, toistaa loaderin tekstin; ESC[2J vaihtaa interaktiiviseen tilaan (yksi sarake, ohjepalkki), ESC[nC/nD/K kursorinsiirto |
 | `sys/src/cmd/aux/kbdfs/kbdfs.c` | Rivieditori `/dev/cons`iin: nuolet, Home/End, Del, Shift+Home/End/←/→ leikkaus, ^W, ^V liitä, historia |
@@ -50,10 +50,10 @@ poistettu — ks. `docs/status.md`.
 | `sys/src/9/pc64/l.s` | `_efi64`-sisäänmeno (ent. `_protected`+Multiboot+32-bit) |
 | `sys/src/9/pc64/main.c` | `bootmark`/`bootinfo*`-kutsut boot-järjestyksessä |
 | `sys/src/9/pc64/trap.c` | boot-merkki paniikista ja ensimmäisestä `exec`istä |
-| `sys/src/9/pc64/mem.h` | `BOOTINFO`-osoite |
+| `sys/src/9/pc64/mem.h` | kiinteät boot-osoitteet (`CONFADDR`, `BOOTINFO`) poistettu |
 | `sys/src/9/pc64/fns.h` | uusien funktioiden prototyypit |
 | `sys/src/9/pc64/pc64` | kernelin konfiguraatio (`bootinfo`, `bootfb` mukaan) |
-| `sys/src/boot/efi/*` | loader: `_efi64`-hyppy, `BootInfo`n kokoaminen, RNG/TSC/RTC |
+| `sys/src/boot/efi/*` | loader: BootInfo-blob (config, loki, muistikartta), `_efi64`-hyppy RDI = blob, RNG/TSC/RTC |
 
 ## Käännös ja testaus
 
@@ -106,11 +106,11 @@ USB-tikulle). `DISPLAY_QEMU=1` näyttää ruudun GTK-ikkunassa.
 ```
 UEFI firmware
   └─ bootx64.efi (sys/src/boot/efi/)
-       kokoaa BootInfo:n (muistikartta, ACPI, framebuffer, RNG, TSC, RTC)
+       AllocateAnyPages → BootInfo-blob: header | plan9.ini | loki | muistikartta
        └─ ExitBootServices
-            └─ _efi64 (sys/src/9/pc64/l.s)     ← ainoa sisäänmeno, long mode koko ajan
-                 └─ main() (pc64/main.c)
-                      bootinfoinit → ... → bootinforandinit → ... → bootinfoclock
+            └─ _efi64 (sys/src/9/pc64/l.s), RDI = blob   ← Plan2001 Boot ABI v1 (docs/boot-abi.md)
+                 └─ main() (pc64/main.c)                    ei kiinteitä boot-osoitteita
+                      bootinfoinit (mappaa VMAP+pa) → ... → bootinforandinit → ... → bootinfoclock
                       └─ exec("/boot/boot")
 ```
 

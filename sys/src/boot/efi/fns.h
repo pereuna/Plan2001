@@ -7,7 +7,7 @@ enum {
 extern char hex[];
 
 void usleep(int t);
-void jump64(void *pc, void *mark, ulong pitch);
+void jump64(void *pc, void *bootinfo, void *mark, ulong pitch);
 uvlong getcr3(void);
 uvlong getcr4(void);
 uvlong rdtsc(void);
@@ -22,7 +22,8 @@ void (*stop)(void);
 int readn(void *f, void *data, int len);
 int bootmapinit(void);
 int bootexit(void);
-void bootrelocate(void);
+void *bootinfofinish(void);
+int conflen(void);
 int efialloc(uvlong pa, uvlong len);
 void efifree(uvlong pa, uvlong len);
 void fbmark(int stage);
@@ -49,6 +50,7 @@ char *bootkern(void *f);
 char *findconf(char*);
 
 char *hexfmt(char *s, int i, uvlong a);
+void tracehex(char *label, uvlong value);
 char *decfmt(char *s, int i, ulong a);
 
 uintptr eficall(void *proc, ...);

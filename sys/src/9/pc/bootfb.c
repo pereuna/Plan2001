@@ -146,7 +146,7 @@ bootmark(int n)
 
 /*
  * The loader's own captured print() output (see sys/src/boot/efi/sub.c and
- * bootinfo.h's logbase/logsize), so a console can replay it before its own
+ * the BootInfo blob's log section, bootinfo.h), so a console can replay it before its own
  * history - otherwise those lines are simply gone once the console draws
  * over them. *np is set to the byte count; 0/nil if the loader had nothing
  * captured (eg its own capture-buffer allocation failed - non-fatal there
@@ -156,13 +156,10 @@ char*
 bootlogtext(int *np)
 {
 	BootInfo *b;
-	void *v;
 
 	*np = 0;
-	if((b = bootinfo) == nil || b->logbase == 0 || b->logsize == 0)
+	if((b = bootinfo) == nil || b->loglen == 0)
 		return nil;
-	if((v = vmap(b->logbase, b->logsize)) == nil)
-		return nil;
-	*np = b->logsize;
-	return v;
+	*np = b->loglen;
+	return (char*)b + b->logoff;
 }

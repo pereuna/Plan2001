@@ -62,8 +62,6 @@
 /*
  * Fundamental addresses
  */
-#define	CONFADDR	(KZERO+0x1200ull)		/* info passed from boot loader */
-#define	BOOTINFO	(KZERO+0x3000ull)		/* BootInfo from the loader, see bootinfo.h */
 #define	APBOOTSTRAP	(KZERO+0x7000ull)		/* AP bootstrap code */
 #define	IDTADDR		(KZERO+0x10000ull)		/* idt */
 #define	REBOOTADDR	(0x11000)			/* reboot code - physical address */
@@ -79,17 +77,6 @@
 #define CPU0END		(CPU0MACH+MACHSIZE)
 
 #define	MACHSIZE	(2*KSTACK)
-
-/*
- * Where configuration info is left for the loaded programme.
- * plan9.ini text goes from CONFADDR up to BOOTINFO; the BootInfo structure
- * (sys/include/bootinfo.h) fills the 16KB from BOOTINFO up to APBOOTSTRAP.
- */
-#define BOOTLINE	((char*)CONFADDR)
-#define BOOTLINELEN	64
-#define BOOTARGS	((char*)(CONFADDR+BOOTLINELEN))
-#define BOOTARGSLEN	(BOOTINFO-CONFADDR-BOOTLINELEN)
-#define BOOTINFOLEN	(APBOOTSTRAP-BOOTINFO)
 
 /*
  *  known x86 segments (in GDT) and their selectors

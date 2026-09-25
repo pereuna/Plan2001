@@ -37,10 +37,11 @@ bootargsinit(void)
 	char *cp, *line[MAXCONF], *p, *q;
 
 	/*
-	 *  parse configuration args from dos file plan9.ini
+	 *  parse configuration args from dos file plan9.ini: the BootInfo
+	 *  blob's config section (pc/bootinfo.c), kept for good, as
+	 *  confname[] and confval[] point into it
 	 */
-	cp = BOOTARGS;	/* where b.com leaves its config */
-	cp[BOOTARGSLEN-1] = 0;
+	cp = bootconfig();
 
 	/*
 	 * Strip out '\r', change '\t' -> ' '.
@@ -106,32 +107,4 @@ setconfenv(void)
 			ksetenv(confname[i], confval[i], 0);
 		ksetenv(confname[i], confval[i], 1);
 	}
-}
-
-void
-writeconf(void)
-{
-	char *p, *q;
-	int n;
-
-	p = getconfenv();
-	if(waserror()) {
-		free(p);
-		nexterror();
-	}
-
-	/* convert to name=value\n format */
-	for(q=p; *q; q++) {
-		q += strlen(q);
-		*q = '=';
-		q += strlen(q);
-		*q = '\n';
-	}
-	n = q - p + 1;
-	if(n >= BOOTARGSLEN)
-		error("kernel configuration too large");
-	memmove(BOOTARGS, p, n);
-	memset(BOOTLINE, 0, BOOTLINELEN);
-	poperror();
-	free(p);
 }
