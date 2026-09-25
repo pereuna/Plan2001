@@ -1,0 +1,52 @@
+#!/bin/bash
+# Install 9front from ISO onto the qcow2 DISK through the serial console,
+# unattended (answers: tools/inst.dialog), then set DISK up to boot
+# straight to an rc prompt on COM1 and check that it does.
+#   tools/vm-install ISO DISK
+# Used by tools/vm-setup (the release ISO) and tools/subset/test (the
+# subset ISO).  The VM log is build/vm/serial.log.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+[ $# = 2 ] || { echo "usage: tools/vm-install ISO DISK" >&2; exit 2; }
+iso=$1 disk=$2
+vm=$root/build/vm
+
+run9() { "$here/9run" -d "$vm" "$@"; }
+halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog -; }
+trap '"$here/vm" stop' EXIT
+
+"$here/vm" start --disk "$disk" --iso "$iso"
+# The ISO's loader waits one second after plan9.ini for a key: take it to
+# set console=0, so that the kernel, bootrc and rc all use COM1.
+run9 -t 180 --dialog - <<'EOF'
+!now bootrc:[0-9]+: .*\n	!fail
+!now bootfile=\S+\n	\nconsole=0\nboot
+bootargs is .*\] *	''
+user\[glenda\]: *	''
+vgasize is .*\] *	text
+mouseport is .*\] *	''
+term% 	!done
+EOF
+# finish halts and reboots; the dialog stops at the halt.
+sed 's/DEV/sdE0/g' "$here/inst.dialog" | run9 -t 1200 -s inst/start --dialog -
+"$here/vm" stop
+
+# Boot the installed disk once: the installer wrote console=0 into
+# plan9.ini; add the answers to the boot questions, so that every later
+# boot goes straight to an rc prompt on COM1.
+"$here/vm" start --disk "$disk"
+run9 -t 180 --dialog - <<'EOF'
+bootargs is .*\] *	''
+user\[glenda\]: *	''
+term% 	!done
+EOF
+run9 "test -e /srv/dos || dossrv >/dev/null >[2=1]; mount -c /srv/dos /n/9fat /dev/sdE0/9fat"
+run9 "{ grep -v '^(nobootprompt|user)=' /n/9fat/plan9.ini; echo 'nobootprompt=local!/dev/sdE0/fscache'; echo 'user=glenda' } >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini && cat /n/9fat/plan9.ini"
+halt9
+"$here/vm" stop
+
+# Check: boots to rc without a single question.
+"$here/vm" start --disk "$disk"
+printf 'term%% \t!done\n' | run9 -t 180 --dialog -
+run9 'cat /dev/sysname; echo; ls /dev/sdE1 /dev/sdE2'
+halt9

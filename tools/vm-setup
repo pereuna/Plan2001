@@ -37,59 +37,9 @@ if [ -f "$cache/base.qcow2" ]; then
 	exit 0
 fi
 
-run9() { "$here/9run" -d "$vm" "$@"; }
-halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog -; }
 new=$cache/base.qcow2.part
-trap '"$here/vm" stop' EXIT
 rm -f "$new"; qemu-img create -q -f qcow2 "$new" 20G
-
 echo "vm-setup: installing $NAME into $new (log: $vm/serial.log)"
-"$here/vm" start --disk "$new" --iso
-# The ISO's loader waits one second after plan9.ini for a key: take it to
-# set console=0, so that the kernel, bootrc and rc all use COM1.
-run9 -t 180 --dialog - <<'EOF'
-!now bootfile=\S+\n	\nconsole=0\nboot
-bootargs is .*\] *	''
-user\[glenda\]: *	''
-vgasize is .*\] *	text
-mouseport is .*\] *	''
-term% 	!done
-EOF
-# inst/start with its defaults (cwfs64x, GPT, 9fat, US_Eastern, ...) except
-# where it has none.  finish halts and reboots; stop at the halt.
-run9 -t 1200 -s inst/start --dialog - <<'EOF'
-Task to do \[finish\]: *	finish
-!now done halting	!done
-Disk to partition .*\[no default\]: *	sdE0
-Install mbr or gpt .*\[no default\]: *	gpt
->>> *	w\nq
-Plan 9 FAT partition .*\[no default\]: *	/dev/sdE0/9fat
-Initialize FAT on EFI system partition .*\[no default\]: *	yes
-\[no default\]: *	!fail
-.*\[[^]]*\]:? *	''
-EOF
-"$here/vm" stop
-
-# Boot the installed disk once: the installer wrote console=0 into
-# plan9.ini; add the answers to the boot questions, so that every later
-# boot goes straight to an rc prompt on COM1.
-"$here/vm" start --disk "$new"
-run9 -t 180 --dialog - <<'EOF'
-bootargs is .*\] *	''
-user\[glenda\]: *	''
-term% 	!done
-EOF
-run9 "test -e /srv/dos || dossrv >/dev/null >[2=1]; mount -c /srv/dos /n/9fat /dev/sdE0/9fat"
-run9 "{ grep -v '^(nobootprompt|user)=' /n/9fat/plan9.ini; echo 'nobootprompt=local!/dev/sdE0/fscache'; echo 'user=glenda' } >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini && cat /n/9fat/plan9.ini"
-halt9
-"$here/vm" stop
-
-# Check: boots to rc without a single question.
-"$here/vm" start --disk "$new"
-printf 'term%% \t!done\n' | run9 -t 180 --dialog -
-run9 'cat /dev/sysname; echo; ls /dev/sdE1 /dev/sdE2'
-halt9
-"$here/vm" stop
-trap - EXIT
+"$here/vm-install" "$cache/$ISO" "$new"
 mv "$new" "$cache/base.qcow2"
 echo "vm-setup: done, $cache/base.qcow2"

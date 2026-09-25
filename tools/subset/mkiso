@@ -1,0 +1,15 @@
+#!/bin/bash
+# Build the install ISO from subset/proto in the VM: build/subset/subset.iso.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
+b=$root/build; s=$b/subset
+run9() { "$tools/9run" -d "$b/vm" "$@"; }
+mkdir -p "$s"; rm -f "$b/in.img" "$b/out.img" "$s/subset.iso"
+tar cf "$b/in.img" --format=ustar -C "$here" mkiso.rc -C "$root/subset" proto; truncate -s 64M "$b/in.img"
+export OUT_MB=1024
+trap '"$tools/vm" stop' EXIT
+"$tools/vm" start
+printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
+run9 -t 900 '@{cd /tmp && tar xf /dev/sdE1/data mkiso.rc} && rc /tmp/mkiso.rc'
+tar xmf "$b/out.img" -C "$s" subset.iso
+echo "mkiso: $s/subset.iso $(du -h "$s/subset.iso" | cut -f1)"

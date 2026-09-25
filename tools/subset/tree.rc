@@ -1,0 +1,10 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/derive): a listing of the whole tree and
+# the text the static analysis reads, onto the out-disk.
+rfork e
+o=/tmp/subset
+rm -rf $o; mkdir -p $o
+dirs=`{ls -d /* | grep -v '^/(bin|boot|dev|env|fd|mnt|n|net|proc|root|srv|tmp)$'}
+walk -e xUGsp $dirs >$o/tree >[2]/dev/null
+@{cd / && tar c rc lib/namespace usr/glenda/lib sys/src/9/boot sys/src/9/pc64/pc64 sys/lib/sysconfig/proto} >$o/text.tar
+@{cd $o && tar c tree text.tar} >/dev/sdE2/data

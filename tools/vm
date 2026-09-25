@@ -2,21 +2,24 @@
 # Start/stop the 9front build VM (QEMU+KVM+OVMF, no display, no network).
 #
 #   tools/vm start                  boot a throwaway overlay on base.qcow2
-#   tools/vm start --disk FILE      boot FILE itself (tools/vm-setup)
-#   tools/vm start --disk FILE --iso   also attach the 9front ISO, boot it
+#   tools/vm start --disk FILE      boot FILE itself instead
+#   tools/vm start ... --iso ISO    also attach ISO and boot from it
+#   tools/vm start ... --scratch F  also attach disk F (qcow2) as sdE3
 #   tools/vm stop                   quit QEMU; delete the overlay unless KEEP=1
 #   tools/vm status
 #
-# Everything lives in build/vm/: serial.sock + serial.log (-> the log of
-# the current run, serial-<time>.log) for tools/9run, mon.sock, qemu.pid,
+# Everything lives in build/vm/: serial.log (-> the log of the current run,
+# serial-<time>.log) and the FIFO serial.in, kept by tools/9run's relay on
+# QEMU's serial.sock (relay.pid), mon.sock, qemu.pid,
 # vm.qcow2 (the overlay), OVMF vars.  Disks, in this order, so that 9front
 # names them the same every time:
 #   sdE0  system disk             sdE1  build/in.img  (raw tar, sources in)
-#   sdE2  build/out.img (raw tar, results out)        sdE3  ISO (--iso)
-# in.img/out.img are created empty if missing; tools/build.sh fills them.
+#   sdE2  build/out.img (raw tar, results out)
+#   sdE3  --iso ISO (as sdE3 too, a CD) or --scratch F
+# in.img/out.img are created empty if missing (out.img OUT_MB MiB, default
+# 64); tools/build.sh fills them.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
-. "$here/9front.release"
 cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
 vm=$root/build/vm
 OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd OVMF_VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
@@ -25,12 +28,13 @@ running() { [ -f "$vm/qemu.pid" ] && kill -0 "$(cat "$vm/qemu.pid")" 2>/dev/null
 
 case $1 in
 start)
-	shift; disk= iso=
+	shift; disk= iso= scratch=
 	while [ $# -gt 0 ]; do
 		case $1 in
 		--disk) disk=$2; shift 2 ;;
-		--iso) iso=$cache/$ISO; shift ;;
-		*) echo "usage: tools/vm start [--disk FILE [--iso]]" >&2; exit 2 ;;
+		--iso) iso=$2; shift 2 ;;
+		--scratch) scratch=$2; shift 2 ;;
+		*) echo "usage: tools/vm start [--disk FILE] [--iso ISO | --scratch FILE]" >&2; exit 2 ;;
 		esac
 	done
 	running && { echo "vm: already running (tools/vm stop first)" >&2; exit 1; }
@@ -42,21 +46,26 @@ start)
 		disk=$vm/vm.qcow2; rm -f "$disk"
 		qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$disk"
 	fi
-	for f in in out; do [ -f "$root/build/$f.img" ] || truncate -s 64M "$root/build/$f.img"; done
+	[ -f "$root/build/in.img" ] || truncate -s 64M "$root/build/in.img"
+	[ -f "$root/build/out.img" ] || truncate -s "${OUT_MB:-64}M" "$root/build/out.img"
 	cp "$OVMF_VARS" "$vm/vars.fd"
 	log=serial-$(date +%Y%m%d-%H%M%S).log
 	ln -sfn "$log" "$vm/serial.log"; : > "$vm/$log"
 	cd=()
 	[ -n "$iso" ] && cd=(-drive file="$iso",if=none,id=cd,media=cdrom,readonly=on -device ide-cd,drive=cd,bus=ide.3,bootindex=0)
+	[ -n "$scratch" ] && cd=(-drive file="$scratch",if=none,id=sc,format=qcow2 -device ide-hd,drive=sc,bus=ide.3)
 	qemu-system-x86_64 -name plan2001-vm -accel kvm -cpu host -machine q35 -m 2048 -smp 2 \
 		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" -drive if=pflash,format=raw,file="$vm/vars.fd" \
 		-display none -vga none -nic none -rtc base=utc \
-		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off,logfile="$vm/$log" -serial chardev:ser \
+		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 		-monitor unix:"$vm/mon.sock",server=on,wait=off \
 		-drive file="$disk",if=none,id=hd,format=qcow2 -device ide-hd,drive=hd,bus=ide.0,bootindex=1 \
 		-drive file="$root/build/in.img",if=none,id=in,format=raw -device ide-hd,drive=in,bus=ide.1 \
 		-drive file="$root/build/out.img",if=none,id=out,format=raw -device ide-hd,drive=out,bus=ide.2 \
 		"${cd[@]}" -daemonize -pidfile "$vm/qemu.pid"
+	rm -f "$vm/serial.in"; mkfifo "$vm/serial.in"
+	setsid python3 "$here/9run" --relay "$vm" </dev/null >/dev/null 2>&1 &
+	echo $! > "$vm/relay.pid"
 	;;
 stop)
 	if running; then
@@ -65,7 +74,8 @@ stop)
 		for i in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
 		kill "$pid" 2>/dev/null || true
 	fi
-	rm -f "$vm"/*.sock "$vm/qemu.pid"
+	[ -f "$vm/relay.pid" ] && kill "$(cat "$vm/relay.pid")" 2>/dev/null || true
+	rm -f "$vm"/*.sock "$vm/qemu.pid" "$vm/relay.pid" "$vm/serial.in"
 	[ "$KEEP" = 1 ] || rm -f "$vm/vm.qcow2"
 	;;
 status)

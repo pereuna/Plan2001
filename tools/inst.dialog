@@ -1,0 +1,19 @@
+# tools/9run --dialog rules for 9front's installer (inst/start): its
+# defaults (cwfs64x, GPT, 9fat, US_Eastern, ...) except where it has none.
+# DEV is the target disk (sdE0 when installing the VM's own disk, sdE3 for
+# tools/subset/trace); callers substitute it.  Rules added in front of these
+# take precedence (tools/subset/trace uses that to take its snapshots).
+Task to do \[finish\]: *	finish
+!now done halting	!done
+Disk to partition .*\[no default\]: *	DEV
+Install mbr or gpt .*\[no default\]: *	gpt
+>>> *	w\nq
+Plan 9 partition to subdivide .*: *	/dev/DEV/plan9
+Cwfs cache partition .*: *	/dev/DEV/fscache
+Cwfs worm partition .*: *	/dev/DEV/fsworm
+Cwfs other partition .*: *	/dev/DEV/other
+Plan 9 FAT partition .*\[no default\]: *	/dev/DEV/9fat
+Initialize FAT on EFI system partition .*\[no default\]: *	yes
+Distribution disk .*\[no default\]: *	/
+\[no default\]: *	!fail
+.*\[[^]]*\]:? *	''

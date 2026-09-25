@@ -1,0 +1,39 @@
+#!/bin/bash
+# Dynamic half of the install subset: which files does a real 9front
+# install read or run?  Boots an overlay of the full base system with an
+# empty scratch disk (sdE3), marks the time, reboots (so that the boot
+# itself is traced too), then runs inst/start onto sdE3 with the usual
+# answers (tools/inst.dialog).  cwfs sets a file's atime when it is read or
+# executed, so the files with a fresh atime are the ones used:
+#   trace/s1  from the mark up to the copydist task (boot + installer)
+#   trace/s2  after copydist (bootsetup, ndbsetup, ..., up to finish)
+# copydist itself reads everything (mkfs copies the whole tree), so it is
+# left out on purpose; its own few files are found by tools/subset/static.
+# Results: build/subset/trace/{t0,s1,s2}.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
+b=$root/build; out=$b/subset/trace
+run9() { "$tools/9run" -d "$b/vm" "$@"; }
+mkdir -p "$b/subset"; rm -rf "$out" "$b/in.img" "$b/out.img" "$b/subset/scratch.qcow2"
+tar cf "$b/in.img" --format=ustar -C "$here" snap.rc export.rc
+truncate -s 64M "$b/in.img"
+qemu-img create -q -f qcow2 "$b/subset/scratch.qcow2" 20G
+trap '"$tools/vm" stop; rm -f "$b/subset/scratch.qcow2"' EXIT
+
+"$tools/vm" start --scratch "$b/subset/scratch.qcow2"
+printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
+run9 'mkdir -p /usr/glenda/trace && @{cd /usr/glenda && tar xf /dev/sdE1/data} && date -n >/usr/glenda/trace/t0'
+printf 'term%% \t!done\n' | run9 -t 180 -s 'fshalt -r' --dialog - >/dev/null
+{
+	printf '!now TRACE-DONE\t!done\n'
+	# sdE0 is partitioned already, so the installer calls partdisk and
+	# prepdisk done and goes straight to mountfs: run them for sdE3 first
+	printf '!once Task to do \\[mountfs\\]: *\tpartdisk\n'
+	printf '!once Task to do \\[mountfs\\]: *\tprepdisk\n'
+	printf 'Task to do \\[copydist\\]: *\t!rc /usr/glenda/snap.rc s1\\ncopydist\n'
+	printf 'Task to do \\[finish\\]: *\t!rc /usr/glenda/snap.rc s2 /tmp/copydone\\n!rc /usr/glenda/export.rc\n'
+	sed 's/DEV/sdE3/g' "$tools/inst.dialog"
+} | run9 -t 1800 -s inst/start --dialog -
+"$tools/vm" stop
+mkdir -p "$out"; tar xmf "$b/out.img" -C "$out"
+echo "trace: $(wc -l < "$out/s1") files before copydist, $(wc -l < "$out/s2") after (build/subset/trace)"

@@ -1,0 +1,4 @@
+# Files the install needs that neither the trace nor the static analysis
+# can see, each with the reason (tools/subset/test must stay PASS).
+# path<TAB>why
+/lib/namespace	init and newns(2) read it for every new namespace; the atime trace misses it (read before the trace mark is visible)

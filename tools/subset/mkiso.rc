@@ -1,0 +1,15 @@
+#!/bin/rc
+# Runs ON the VM (tools/subset/mkiso): the subset install ISO, made the way
+# /sys/lib/dist/mkfile makes 9front's (%.pc.iso), but from subset/proto,
+# out on /dev/sdE2 as a tar holding subset.iso.
+rfork en
+cd /tmp && tar xf /dev/sdE1/data proto
+{grep -v '^bootfile=' /cfg/plan9.ini; echo 'bootfile=/amd64/9pc64'} >/env/plan9.ini
+bind /env/plan9.ini /cfg/plan9.ini
+o=/usr/glenda/subsetiso
+rm -rf $o; mkdir -p $o
+disk/mk9660 -c9j -B 386/9bootiso -E 386/efiboot.fat \
+	-p <{cat /tmp/proto /sys/lib/sysconfig/proto/9bootproto} \
+	-s / -v 'Plan 9 Front (amd64) install subset' $o/subset.iso
+ls -l $o/subset.iso
+@{cd $o && tar c subset.iso} >/dev/sdE2/data
