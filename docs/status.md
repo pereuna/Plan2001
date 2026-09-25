@@ -379,7 +379,7 @@ kartoitettu — seuraava askel on uusi katselmointikierros (esim. `mtrr.c` vs. P
   kirjoittamatta; `/dev/reboot` ei toimi ollenkaan ennen sitä.
 - ~~`BootInfo`-muistikartta on rajattu 600 riviin (`BootInfoMaxMem`).~~ **Poistettu
   (25.9.2026, Boot ABI v1):** muistikartta on blobin osio, jonka kapasiteetti
-  seuraa firmwaren karttapuskuria (2457 aluetta). Ks. `docs/boot-abi.md`.
+  seuraa loaderin karttapuskuria (96 KiB, noin 2457 kuvaajaa; ABI:ssa ei rajaa). Ks. `docs/boot-abi.md`.
 - **T5600 vahvistettu (23.9.2026): bootti onnistuneesti** commitilla
   `fa5c461` (alamuistin dynaaminen varaus + relokointi). Kernel on bootannut
   koko projektin ajan muulla raudalla (kaksi kannettavaa); tämä koski
@@ -503,9 +503,10 @@ fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitett
   on relokoitava kokonaisuutena. Kopiota ei tehdä.
 - Poistui: `CONFADDR`, `BOOTINFO`, `BOOTSCRATCHEND`, `BOOTLINE`/`BOOTARGS`,
   `bootrelocate()`, `writeconf()` sekä muistikartan 600 alueen raja
-  (kapasiteetti on nyt firmwaren karttapuskurin mukainen, 2457).
+  (ABI:ssa ei rajaa; nykyinen loader tukee 96 KiB raakaa karttaa, noin 2457
+  kuvaajaa).
 - Kernel: `_efi64` tallentaa RDI:n, ja `bootinfoinit()` mappaa blobin
-  osoitteeseen `VMAP+pa` omilla sivutaulusivuillaan. `rampage()`ia ei voi
+  kernelin omaan ikkunaan `BOOTMAPVA` omilla sivutaulusivuillaan. `rampage()`ia ei voi
   käyttää vielä, koska se tarvitsee muistikartan, joka on blobissa.
   `meminit0()` varaa blobin kernelin koko elinajaksi.
 - Testattu: QEMU 2, 8 ja 16 GB, sekä kokeellinen build, jossa blob
@@ -515,4 +516,19 @@ fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitett
   kiinteään matalaan osoitteeseen.
 - Seuraavaksi mahdollisia: blobin vapautus, kun sen sisältö on kopioitu, ja
   64-bittinen kexec, joka rakentaa uuden BootInfo v1:n.
+- Tarkennukset ennen v1:n jäädyttämistä (katselmoinnin pohjalta):
+  - Blob mapataan kernelin sisäiseen ikkunaan `BOOTMAPVA`, ei osoitteeseen
+    `VMAP+pa`, joten fyysisen osoitteen 1 TiB:n raja poistui.
+  - R12/R13-framebuffer-merkki on poistettu ABI:sta. Rekisterit ovat
+    RDI = blob, RSI = 0, muut määrittelemättömiä. Loader piirtää kolme
+    merkkiä, ja kernel jatkaa riviä.
+  - Sivutaulujen vaatimus on minimoitu: identiteettimappaus tarvitaan vain
+    kernelin imagelle ja boot-taulualueelle `0x13000–0x1C000`, ei koko
+    muistille.
+  - Validointi on ylivuototurvallinen, ja osioiden päällekkäisyys tarkistetaan.
+  - Löydös: loader varasi blobin ennen kernelin aluetta, joten matalalta
+    allokoiva firmware olisi voinut antaa blobin kernelin imagen tai
+    boot-taulujen kohdalta. Nyt `bloballoc()` hylkää alle 16 MB:n osoitteet.
+  - Seuraavaksi: testit T5600:lla ja kahdella kannettavalla. Sen jälkeen
+    ABI v1 voidaan merkitä vakaaksi.
 

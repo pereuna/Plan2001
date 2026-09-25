@@ -60,6 +60,15 @@
 #define KMAPSIZE	(2*MiB)
 
 /*
+ * Where bootinfoinit() (pc/bootinfo.c) maps the loader's BootInfo blob, at
+ * whatever physical address it is: KZERO's PML4 slot, PDP entry 1 (KZERO
+ * uses 510 and 511, l.s's double map 0), so every processor sees it
+ * through the shared KZERO PDP.  Kernel-internal, not part of the boot ABI.
+ */
+#define	BOOTMAPVA	(0xffffff8040000000ull)
+#define	BOOTMAPSIZE	(2*MiB)
+
+/*
  * Fundamental addresses
  */
 #define	APBOOTSTRAP	(KZERO+0x7000ull)		/* AP bootstrap code */

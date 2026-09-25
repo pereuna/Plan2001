@@ -5,16 +5,18 @@
  * include this file.
  *
  * Entry: the loader jumps to the kernel's entry point (_efi64 in
- * sys/src/9/pc64/l.s) with the CPU in long mode, paging on with page
- * tables that identity-map all of physical memory (the firmware's),
- * interrupts off, DF clear, a zero-length IDT and a usable stack, and
+ * sys/src/9/pc64/l.s) with the CPU in long mode, 4-level paging on,
+ * interrupts off, DF clear and a usable stack, and
  *	RDI	physical address of the BootInfo blob
  *	RSI	0
- *	R12	0, or the address of the fourth top-left framebuffer progress
- *		square for the kernel to paint (diagnostic, optional)
- *	R13	the framebuffer pitch in bytes when R12 is not 0
- * Every other register is undefined.  There is no fixed physical address
- * anywhere in this contract: the kernel reads its input where RDI says.
+ * Every other register is undefined.  The page tables need only
+ * identity-map what the kernel touches before it switches to its own: its
+ * image, where it is loaded, and its boot page tables and Mach at physical
+ * 0x13000-0x1C000 (CPU0PML4..CPU0END in sys/src/9/pc64/mem.h), which it
+ * clears first - so neither the loader's page tables, nor its stack, nor
+ * the blob may lie there or in the image.  The kernel does not read the
+ * blob through them; it maps it itself.  RDI is the kernel's only input:
+ * there is no fixed address to look anything up at.
  *
  * The blob is one contiguous, page-aligned range of physical memory:
  *

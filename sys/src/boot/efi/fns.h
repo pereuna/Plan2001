@@ -7,7 +7,7 @@ enum {
 extern char hex[];
 
 void usleep(int t);
-void jump64(void *pc, void *bootinfo, void *mark, ulong pitch);
+void jump64(void *pc, void *bootinfo);
 uvlong getcr3(void);
 uvlong getcr4(void);
 uvlong rdtsc(void);
@@ -27,8 +27,6 @@ int conflen(void);
 int efialloc(uvlong pa, uvlong len);
 void efifree(uvlong pa, uvlong len);
 void fbmark(int stage);
-void *fbmarkaddr(int stage);
-ulong fbmarkpitch(void);
 
 extern char *confaddr;
 extern char *logbuf;

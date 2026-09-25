@@ -21,16 +21,15 @@ BootInfo *bootinfo;
 
 /*
  * The blob can be anywhere in physical memory, and the page tables _efi64
- * built map only the kernel itself.  Map the blob at VMAP+pa - where
- * vmap() (pc64/mmu.c) would put it too, so mmuinit() and later vmap()s
- * carry on with these same tables - from a few page-table pages of our
- * own: rampage() cannot be used yet, it needs the memory map, which is in
- * the blob.  BootMapMax is this kernel's own limit, not part of the ABI:
- * what these pages can map even across a 2MB, 1GB and 512GB boundary.
+ * built map only the kernel itself.  Map it at BOOTMAPVA (pc64/mem.h), a
+ * virtual window of our own, so that no physical address is out of reach,
+ * from two page-table pages of our own (a PD and a PT under KZERO's PDP):
+ * rampage() cannot be used yet, it needs the memory map, which is in the
+ * blob.  BOOTMAPSIZE, what one PT maps, is this kernel's own limit on the
+ * blob, not part of the ABI.
  */
 enum {
-	BootMapPages	= 6,		/* 2 PDP, 2 PD, 2 PT */
-	BootMapMax	= 2*MiB,
+	BootMapPages	= 2,
 };
 static uchar bootmapmem[(BootMapPages+1)*BY2PG];
 static int bootmapused;
@@ -57,21 +56,22 @@ bootmapnext(uintptr *pte)
 	return KADDR(*pte & 0x000FFFFFFFFFF000ull);
 }
 
+/* map [pa, pa+size) at BOOTMAPVA; pa is page aligned */
 static void
 bootmap(uvlong pa, uvlong size)
 {
-	uvlong p;
+	uvlong o;
 	uintptr va, *t;
 	int l;
 
-	if(pa + size > VMAPSIZE)
+	if(size > BOOTMAPSIZE)
 		bootinfohalt();
-	for(p = pa & ~(uvlong)(BY2PG-1); p < pa + size; p += BY2PG){
-		va = VMAP + p;
+	for(o = 0; o < size; o += BY2PG){
+		va = BOOTMAPVA + o;
 		t = (uintptr*)CPU0PML4;
 		for(l = 3; l > 0; l--)
 			t = bootmapnext(&t[PTLX(va, l)]);
-		t[PTLX(va, 0)] = p | PTEWRITE | PTEVALID;
+		t[PTLX(va, 0)] = (pa + o) | PTEWRITE | PTEVALID;
 	}
 	putcr3(getcr3());
 }
@@ -111,32 +111,44 @@ bootinforand(void *p, ulong n)
 	hwrandbuf = bootinforandnext;
 }
 
-/* does the section [off, off+len) lie within the blob? */
+/* does the section [off, off+len) lie within the blob, after the header? */
 static int
 bootinfoin(BootInfo *b, uvlong off, uvlong len)
 {
-	return off >= b->headersize && off + len <= b->totalsize;
+	return off >= b->headersize && off <= b->totalsize && len <= b->totalsize - off;
+}
+
+/* do [a, a+al) and [b, b+bl), both within the blob, share a byte? */
+static int
+bootinfooverlap(uvlong a, uvlong al, uvlong b, uvlong bl)
+{
+	return al != 0 && bl != 0 && a < b + bl && b < a + al;
 }
 
 void
 bootinfoinit(void)
 {
 	BootInfo *b;
+	uvlong mmaplen;
 
 	if(bootinfopa == 0 || (bootinfopa & (BY2PG-1)) != 0)
 		bootinfohalt();
 	bootmap(bootinfopa, BY2PG);
-	b = (BootInfo*)(VMAP + bootinfopa);
+	b = (BootInfo*)BOOTMAPVA;
 	if(b->magic != BootInfoMagic || b->version != BootInfoVersion
 	|| b->headersize < sizeof(BootInfo) || b->headersize > BY2PG
-	|| b->totalsize < b->headersize || b->totalsize > BootMapMax)
+	|| b->totalsize < b->headersize || b->totalsize > BOOTMAPSIZE)
 		bootinfohalt();
 	bootmap(bootinfopa, b->totalsize);
+	mmaplen = (uvlong)b->mmapcount * b->mmapentsize;
 	if(b->configlen == 0 || !bootinfoin(b, b->configoff, b->configlen)
 	|| ((char*)b)[b->configoff + b->configlen - 1] != '\0'
 	|| !bootinfoin(b, b->logoff, b->loglen)
 	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem)
-	|| !bootinfoin(b, b->mmapoff, (uvlong)b->mmapcount*b->mmapentsize))
+	|| !bootinfoin(b, b->mmapoff, mmaplen)
+	|| bootinfooverlap(b->configoff, b->configlen, b->logoff, b->loglen)
+	|| bootinfooverlap(b->configoff, b->configlen, b->mmapoff, mmaplen)
+	|| bootinfooverlap(b->logoff, b->loglen, b->mmapoff, mmaplen))
 		bootinfohalt();
 	bootinfo = b;
 }

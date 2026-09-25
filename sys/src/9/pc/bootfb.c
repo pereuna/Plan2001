@@ -29,7 +29,7 @@
  */
 
 enum {
-	LoaderMarks = 4,	/* slots the loader already drew into, see above */
+	LoaderMarks = 3,	/* slots the loader already drew into, see above */
 	Nmark	= 5,		/* stages drawn as squares: BMMain..BMExec */
 	Size	= 8,		/* square size in pixels - kept small deliberately:
 				 * this row is a corner diagnostic, not meant to

@@ -143,9 +143,8 @@ enum {
 static uchar *mapbuf;
 
 /*
- * One colour per stage (1=EBS start, 2=EBS done, 3=jump; 4=kernel entry is
- * drawn from l.s, in assembly, as plain magenta - the one colour that reads
- * the same in either channel order, so it doesn't need this table).
+ * One colour per stage: 1=EBS start, 2=EBS done, 3=jump.  The kernel's
+ * own squares follow in the same row (sys/src/9/pc/bootfb.c).
  */
 static ulong markcolor[3] = {
 	0x0000FF,	/* EBS start: blue */
@@ -164,11 +163,11 @@ bootmapinit(void)
 /*
  * UEFI text output is gone after ExitBootServices. Leave visible progress
  * markers at the top-left of a 32-bit GOP framebuffer instead: one before
- * ExitBootServices, two after it returns, three before jump64, and four from
- * the first instructions of the kernel entry - slots 0..3 of the shared
- * marker row bootfb.c continues (see MarkSize's comment above).
+ * ExitBootServices, two after it returns, three before jump64 - slots 0..2
+ * of the shared marker row bootfb.c continues from slot 3 (its
+ * LoaderMarks; see MarkSize's comment above).
  */
-void*
+static void*
 fbmarkaddr(int stage)
 {
 	UINT32 x;
@@ -181,12 +180,6 @@ fbmarkaddr(int stage)
 	if(x+MarkSize > bi->fbwidth)
 		return nil;
 	return (UINT32*)(uintptr)bi->fbbase + (uvlong)MarkMargin*bi->fbstride + x;
-}
-
-ulong
-fbmarkpitch(void)
-{
-	return bi->fbstride * sizeof(UINT32);
 }
 
 void
@@ -594,6 +587,38 @@ eficonfig(void)
 }
 
 /*
+ * Allocate the blob anywhere but where the kernel itself goes (Boot ABI
+ * v1): its image, at the fixed physical address it is linked for and
+ * claimed only later (bootkern()), and its boot page tables and Mach at
+ * KBOOTLO..KBOOTHI, which _efi64 clears on entry - both below KernelLow.
+ * Firmware usually allocates top-down, so the first try is taken; pages
+ * rejected are held until a good range is found, so that the firmware
+ * does not offer them again, and then given back.
+ */
+enum {
+	KernelLow = 16*1024*1024,
+	BlobTries = 8,
+};
+
+static uvlong
+bloballoc(uvlong len)
+{
+	uvlong a, bad[BlobTries];
+	int i, n;
+
+	a = 0;
+	for(n = 0; n < BlobTries; n++){
+		if((a = efiallocany(len, EfiLoaderData)) == 0 || a >= KernelLow)
+			break;
+		bad[n] = a;
+		a = 0;
+	}
+	for(i = 0; i < n; i++)
+		efifree(bad[i], len);
+	return a;
+}
+
+/*
  * The blob's fixed part: magic, version and where its sections are.
  * Called at the start (efimain()) and again from eficonfig() whenever
  * the configuration is cleared, as that zeroes the header.
@@ -648,7 +673,7 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 */
 	mmapcap = MapBufSize / sizeof(EFI_MEMORY_DESCRIPTOR);
 	blobsize = PGROUND(((sizeof(BootInfo) + 7) & ~7) + ConfCap + LogCap + mmapcap*sizeof(BootMem));
-	if((la = efiallocany(blobsize, EfiLoaderData)) == 0){
+	if((la = bloballoc(blobsize)) == 0){
 		print("[P2 L02] FATAL: cannot allocate the BootInfo blob\n");
 		for(;;)
 			;

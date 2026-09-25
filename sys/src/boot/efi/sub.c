@@ -532,7 +532,7 @@ bootkern(void *f)
 	if(stop) (*stop)();
 	print("[P2 L23] boot device stopped\n");
 
-	print("[P2 L24] framebuffer markers: top-left 1=EBS start 2=EBS done 3=jump 4=kernel entry\n");
+	print("[P2 L24] framebuffer markers: top-left 1=EBS start 2=EBS done 3=jump, then the kernel's\n");
 	print("[P2 L24] boot\n");
 	fbmark(1);
 
@@ -557,7 +557,7 @@ bootkern(void *f)
 	 * address.
 	 */
 	fbmark(3);
-	jump64(e, bootinfofinish(), fbmarkaddr(4), fbmarkpitch());
+	jump64(e, bootinfofinish());
 
 Error:
 	if(elen != 0)

@@ -50,15 +50,12 @@ TEXT rebase(SB), 1, $-4
  * Enter the kernel at its 64-bit entry (_efi64 in sys/src/9/pc64/l.s), in
  * the mode we are in: long mode, firmware page tables.  bootkern has checked
  * that this is safe.  Only the IDT is replaced, by an empty one, as the
- * firmware's handlers are gone after ExitBootServices.
+ * firmware's handlers are gone after ExitBootServices.  Plan2001 Boot ABI
+ * v1 (sys/include/bootinfo.h): RDI = BootInfo, RSI = 0, nothing else.
  */
 TEXT jump64(SB), 1, $-4
-	/* Plan2001 Boot ABI v1 (sys/include/bootinfo.h): RDI = BootInfo, RSI = 0 */
 	MOVQ	bootinfo+8(FP), DI
 	XORL	SI, SI
-	/* Preserve the fourth framebuffer marker for the kernel entry. */
-	MOVQ	mark+16(FP), R12
-	MOVL	pitch+24(FP), R13
 	CLI
 
 	/* load zero length idt */
