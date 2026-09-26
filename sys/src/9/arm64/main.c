@@ -171,10 +171,11 @@ main(void)
 		m->ticks = MACHP(0)->ticks;
 		schedinit();
 	}
+	bootinfoinit();		/* Plan2001: the loader's BootInfo, before anything uses it */
 	uartconsinit();
 	quotefmtinstall();
+	meminit();		/* from the BootInfo memory map */
 	bootargsinit();
-	meminit();
 	confinit();
 	xinit();
 	printinit();
@@ -184,7 +185,9 @@ main(void)
 	intrinit();
 	clockinit();
 	cpuidprint();
+	bootinforandinit();
 	timersinit();
+	bootinfoclock();
 	pageinit();
 	procinit0();
 	initseg();
@@ -239,7 +242,14 @@ rebootjump(void *entry, void *code, ulong size)
 void
 reboot(void*, void *code, ulong size)
 {
-	writeconf();
+	/*
+	 * A new kernel expects a BootInfo blob in X0 (Plan2001 Boot ABI v1);
+	 * nothing builds one here yet, and the old fixed CONFADDR handoff
+	 * is gone.  Refuse before the shutdown below undoes anything, as
+	 * pc64 does, rather than jump into a kernel certain to halt.
+	 */
+	panic("reboot: no BootInfo handoff for a new kernel yet");
+
 	while(m->machno != 0){
 		procwired(up, 0);
 		sched();

@@ -35,6 +35,16 @@ archentry(uvlong entry)
 }
 
 /*
+ * where 7l starts the kernel's data after its text: the next 64 KB (its
+ * default -R; the kernel's mkfile links without one), not the next page
+ */
+ulong
+archdataround(void)
+{
+	return 0x10000;
+}
+
+/*
  * May the BootInfo blob lie at [pa, pa+len)?  Not in the first 16 MB of RAM
  * (the kernel's image and boot page tables), and within the physical range
  * the kernel maps at KZERO.

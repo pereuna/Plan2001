@@ -3,6 +3,8 @@
 #include "fns.h"
 #include "mem.h"
 
+#define ROUNDUP(x, n)	(((x) + (n)-1) & ~((uintptr)(n)-1))
+
 char hex[] = "0123456789abcdef";
 
 void
@@ -395,7 +397,7 @@ bootkern(void *f)
 {
 	uchar *e, *d, *t;
 	uvlong entry;
-	ulong n, ktext, elen;
+	ulong n, ktext, elen, dround;
 	char *errmsg, *why;
 	Exec ex;
 
@@ -435,7 +437,8 @@ bootkern(void *f)
 	 * loader code so the firmware's page tables let it run.
 	 */
 	ktext = beswal(ex.text);
-	elen = PGROUND(PGROUND((uintptr)e + ktext) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e;
+	dround = archdataround();	/* where the ISA's linker starts data after text */
+	elen = PGROUND(ROUNDUP((uintptr)e + ktext, dround) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e;
 	tracehex("[P2 L16] kernel text bytes=0x", ktext);
 	tracehex("[P2 L16] kernel data bytes=0x", beswal(ex.data));
 	tracehex("[P2 L16] kernel bss bytes=0x", beswal(ex.bss));
@@ -457,7 +460,7 @@ bootkern(void *f)
 	if(readn(f, t, n) != n)
 		goto Error;
 	t += n;
-	d = (uchar*)PGROUND((uintptr)t);
+	d = (uchar*)ROUNDUP((uintptr)t, dround);
 	memset(t, 0, d - t);
 	n = beswal(ex.data);
 	print("[P2 L20] load kernel data\n");

@@ -1,3 +1,5 @@
+#include <bootinfo.h>
+
 #include "../port/portfns.h"
 
 /* l.s */
@@ -134,7 +136,6 @@ extern void dmaflush(int, void*, ulong);
 /* main */
 extern char *getconf(char *name);
 extern void setconfenv(void);
-extern void writeconf(void);
 
 extern int isaconfig(char*, int, ISAConf*);
 extern void links(void);
@@ -170,3 +171,20 @@ extern void pciintrdisable(int tbdf, void (*f)(Ureg*, void*), void *a);
 
 /* bootargs */
 extern void bootargsinit(void);
+
+/* port/bootinfo.c: what the loader told us, see sys/include/bootinfo.h */
+extern BootInfo*	bootinfo;
+extern uintptr	bootinfopa;
+void	bootinfoinit(void);
+void	bootinforandinit(void);
+void	bootinfoclock(void);
+BootMem*	bootmem(int);
+char*	bootconfig(void);
+uchar*	bootfdt(ulong*);
+enum { BootInfoArch = BootArchArm64 };	/* the blob must be made for this ISA */
+enum { BootClassRAM, BootClassACPI, BootClassReserved };
+int	bootmemclass(u32int);
+/* arm64/bootarch.c: the ARM64 side of port/bootinfo.c and port/bootfb.c */
+void*	bootearlymap(uvlong, uvlong);
+void*	fbmap(uvlong, uvlong);
+void	halt(void);

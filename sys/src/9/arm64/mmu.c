@@ -111,8 +111,11 @@ l1map(uintptr va, uintptr pa, uintptr pe, uintptr attr)
 			memset(l0, 0, BY2PG);
 			l1[PTL1X(va, 1)] = PTEVALID | PTETABLE | PADDR(l0);
 		}
-		assert(l0[PTLX(va, 0)] == 0);
-		l0[PTLX(va, 0)] = PTEVALID | PTEPAGE | pa | attr;
+		/* bootearlymap() (bootarch.c) may have made this very entry */
+		if(l0[PTLX(va, 0)] != (PTEVALID | PTEPAGE | pa | attr)){
+			assert(l0[PTLX(va, 0)] == 0);
+			l0[PTLX(va, 0)] = PTEVALID | PTEPAGE | pa | attr;
+		}
 		va += BY2PG;
 		pa += BY2PG;
 	}

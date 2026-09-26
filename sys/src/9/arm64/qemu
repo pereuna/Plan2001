@@ -40,6 +40,8 @@ ip
 	igmp
 	ipmux
 misc
+	bootinfo
+	bootarch
 	gic
 	uartqemu
 	sdvirtio10	pci sdscsi virtio10mem

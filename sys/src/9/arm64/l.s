@@ -49,6 +49,14 @@ _zerobss:
 	CMP	R1, R2
 	BNE	_zerobss
 
+	/*
+	 * Plan2001 Boot ABI v1, ARM64 entry (docs/boot-abi-arm64.md): X0,
+	 * kept in R26 above, is the BootInfo blob's physical address; the
+	 * MMU is off, so this store is physical too.  bootinfoinit()
+	 * (port/bootinfo.c) maps and reads the blob.
+	 */
+	MOV	R26, bootinfopa(SB)
+
 	/* setup page tables */
 	MOV	$(L1BOT-KZERO), R0
 	BL	mmuidmap(SB)

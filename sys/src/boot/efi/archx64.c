@@ -56,6 +56,13 @@ archentry(uvlong entry)
 	return entry & 0x0FFFFFFFULL;
 }
 
+/* where 6l starts the kernel's data after its text: the next page */
+ulong
+archdataround(void)
+{
+	return 4096;
+}
+
 /*
  * May the BootInfo blob lie at [pa, pa+len)?  Not where the kernel goes:
  * its image, at the fixed physical address it is linked for and claimed
