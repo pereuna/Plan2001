@@ -3,6 +3,7 @@
 # repo's changed files laid over the VM's own (complete, current) source
 # tree - see tools/build.rc for exactly what gets overlaid.
 #   TARGET  amd64 (default); see tools/targets
+#   WHAT    all (default) or loader: the UEFI loader alone
 # Results: build/$TARGET/<kernel>, <loader>, *.log (amd64: 9pc64, bootx64.efi).
 #
 # Boots a throwaway overlay of the base VM (tools/vm, set up once by
@@ -18,7 +19,7 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 out=$tbuild; b=$root/build
 mkdir -p "$out"; rm -f "$out/$kernel" "$out/$loader" "$out"/*.log "$b"/in.img "$b"/out.img
 
-cp "$here/targets/$TARGET" "$b/target"
+cp "$here/targets/$TARGET" "$b/target"; echo "what=${WHAT:-all}" >> "$b/target"
 tar cf "$b/in.img" --format=ustar -C "$root" sys -C "$here" build.rc -C "$b" target
 truncate -s 64M "$b/in.img" "$b/out.img"
 
@@ -32,5 +33,8 @@ set -e
 "$here/vm" stop; trap - EXIT
 
 tar xmf "$b/out.img" -C "$out"
-[ "$st" = 0 ] && grep -q BUILD-DONE "$out/session.log" && [ -s "$out/$kernel" ] && [ -s "$out/$loader" ] || { echo "build failed"; exit 1; }
-echo "results in $out: $(cd "$out" && ls -l "$kernel" "$loader" | awk '{print $5, $9}' | tr '\n' ' ')"
+[ "${WHAT:-all}" = loader ] || results="$kernel"
+results="$results $loader"
+[ "$st" = 0 ] && grep -q BUILD-DONE "$out/session.log" || { echo "build failed"; exit 1; }
+for f in $results; do [ -s "$out/$f" ] || { echo "build failed: no $f"; exit 1; }; done
+echo "results in $out: $(cd "$out" && ls -l $results | awk '{print $5, $9}' | tr '\n' ' ')"

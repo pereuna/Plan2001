@@ -11,6 +11,8 @@ loaderdir=arm64
 espname=BOOTAA64.EFI
 bootarch=2
 qemu=qemu-system-aarch64
-qemuargs=(-machine virt -cpu cortex-a72)
+# acpi=off: AAVMF then hands over QEMU's device tree (and no ACPI)
+qemuargs=(-machine virt,acpi=off -cpu cortex-a72)
+espdev=(-device virtio-blk-pci,drive=esp,bootindex=0)
 fwcode=/usr/share/AAVMF/AAVMF_CODE.fd
 fwvars=/usr/share/AAVMF/AAVMF_VARS.fd

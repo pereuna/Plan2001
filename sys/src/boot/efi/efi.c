@@ -14,11 +14,16 @@ void (*stop)(void);
 
 /*
  * on ia32 and amd64, we use IMAGE_FILE_RELOCS_STRIPPED which
- * disables relocations, so this is a no-op.
+ * disables relocations, so rebase() is a no-op.
  *
- * on arm64, the EFI loader can move our code, so we need to
- * update some of our stored addresses (such as callbacks)
- * which assume we are loaded at our requested base address.
+ * on arm64, the EFI loader can move our code, so we need to update
+ * some of our stored addresses which assume we are loaded at our
+ * requested base address: a function's (the callbacks, see efimain())
+ * and an uninitialised (bss) global's taken as a value.  Found on QEMU
+ * virt with AAVMF: &mapbuf came out as its link-time address while the
+ * address of initialised data (a GUID, a string) was already right.
+ * So nothing here hands the firmware the address of a bss global:
+ * bootmapinit() passes a local instead.
  */
 extern void *rebase(void *addr);
 
@@ -157,9 +162,14 @@ static ulong markcolor[3] = {
 int
 bootmapinit(void)
 {
-	mapbuf = nil;
-	return eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData,
-		(UINTN)MapBufSize, &mapbuf) != 0 || mapbuf == nil;
+	void *p;	/* a local: see rebase() above */
+
+	p = nil;
+	if(eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData,
+		(UINTN)MapBufSize, &p) != 0 || p == nil)
+		return -1;
+	mapbuf = p;
+	return 0;
 }
 
 /*
@@ -606,7 +616,7 @@ bloballoc(uvlong len)
  */
 enum {
 	FdtMagic = 0xd00dfeed,
-	FdtMax = 1024*1024,
+	FdtMax = 2*1024*1024,	/* EDK2 pads QEMU virt's tree to 1 MB + 4 KB */
 };
 
 static ulong

@@ -12,5 +12,6 @@ espname=BOOTRISCV64.EFI
 bootarch=3
 qemu=qemu-system-riscv64
 qemuargs=(-machine virt)
+espdev=(-device virtio-blk-pci,drive=esp,bootindex=0)
 fwcode=
 fwvars=

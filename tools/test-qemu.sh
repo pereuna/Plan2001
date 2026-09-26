@@ -31,7 +31,7 @@ display=(-display none)
 "$qemu" -name plan2001-test "${qemuargs[@]}" -m "${MEM:-2048}" -smp 2 \
   -drive if=pflash,format=raw,readonly=on,file="$fwcode" \
   -drive if=pflash,format=raw,file="$b/test-vars.fd" -nic none "${display[@]}" \
-  -drive file="$b/esp.img",format=raw,if=none,id=esp -device ide-hd,drive=esp,bootindex=0 \
+  -drive file="$b/esp.img",format=raw,if=none,id=esp "${espdev[@]}" \
   -serial file:"$b/serial.log" 2>"$b/qemu-test.log" &
 q=$!
 trap 'kill $q 2>/dev/null || true' EXIT
