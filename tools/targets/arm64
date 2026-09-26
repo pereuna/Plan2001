@@ -11,8 +11,11 @@ loaderdir=arm64
 espname=BOOTAA64.EFI
 bootarch=2
 qemu=qemu-system-aarch64
-# acpi=off: AAVMF then hands over QEMU's device tree (and no ACPI)
-qemuargs=(-machine virt,acpi=off -cpu cortex-a72)
-espdev=(-device virtio-blk-pci,drive=esp,bootindex=0)
+# acpi=off: AAVMF then hands over QEMU's device tree (and no ACPI);
+# gic-version=3: the kernel drives the GIC by its v3 system registers;
+# highmem-ecam=off: pciqemu.c has PCI config space at 0x3F000000 (to do:
+# take it from the device tree instead)
+qemuargs=(-machine 'virt,acpi=off,gic-version=3,highmem-ecam=off' -cpu cortex-a72)
+espdev=(-device 'virtio-blk-pci,disable-legacy=on,drive=esp,bootindex=0')
 fwcode=/usr/share/AAVMF/AAVMF_CODE.fd
 fwvars=/usr/share/AAVMF/AAVMF_VARS.fd

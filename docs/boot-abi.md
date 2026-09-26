@@ -10,7 +10,7 @@ Sopimus siitä, miten loader luovuttaa koneen kernelille. Sopimus on kaksiosaine
 | ISA | Entry | Dokumentti | Tila |
 |---|---|---|---|
 | AMD64 | `RDI` = BootInfo PA | `docs/boot-abi-amd64.md` | käytössä |
-| ARM64 | `X0` = BootInfo PA | `docs/boot-abi-arm64.md` | suunniteltu (vaihe 4) |
+| ARM64 | `X0` = BootInfo PA | `docs/boot-abi-arm64.md` | QEMU virt: bootargs-kehotteeseen asti (vaihe 4) |
 | RV64 | `a0` = BootInfo PA, `a1` = boot-hartin id | `docs/boot-abi-riscv64.md` | tulevaisuus |
 
 Periaate: **loader kertoo osoitteen, kernel ei arvaa.** Kummassakaan osassa
@@ -100,8 +100,8 @@ esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muut
 
 | | Yhteinen | ISA:n (AMD64) |
 |---|---|---|
-| Kernel | `sys/src/9/port/bootinfo.c`: headerin, `arch`in ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootfdt()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
-| Loader | `efi.c`, `sub.c`: boot-taltio, plan9.ini, kernelin a.out, blob, ACPI RSDP, DTB:n kopio, muistikartta, `ExitBootServices`. | `archx64.c`: `archconf()` (`arch`, TSC), `archentry()`, `archblobok()`, `archcheck()`, `archjump()`. Asm: `x64.s`. |
+| Kernel (AMD64; ARM64 vastaavasti `arm64/bootarch.c`, `arm64/mem.c`) | `sys/src/9/port/bootinfo.c`: headerin, `arch`in ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootfdt()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`, FDT:stä `*ncpu` ja `/chosen`-bootargsit. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
+| Loader | `efi.c`, `sub.c`: boot-taltio, plan9.ini, kernelin a.out, blob, ACPI RSDP, DTB:n kopio, muistikartta, `ExitBootServices`. | `archx64.c` / `archaa64.c`: `archconf()` (`arch`, TSC), `archentry()`, `archdataround()`, `archblobok()`, `archcheck()`, `archjump()`. Asm: `x64.s` / `aa64.s`. |
 
 Uusi ISA toteuttaa kernelissä `bootearlymap()`- ja `fbmap()`-hookit,
 entryn, joka tallentaa blobin osoitteen muuttujaan `bootinfopa`, sekä

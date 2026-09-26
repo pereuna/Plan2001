@@ -18,6 +18,6 @@ bootarch=1
 # testing in QEMU (tools/test-qemu.sh)
 qemu=qemu-system-x86_64
 qemuargs=(-accel kvm -cpu host -machine q35 -vga std)
-espdev=(-device ide-hd,drive=esp,bootindex=0)
+espdev=(-device 'ide-hd,drive=esp,bootindex=0')
 fwcode=/usr/share/OVMF/OVMF_CODE_4M.fd
 fwvars=/usr/share/OVMF/OVMF_VARS_4M.fd

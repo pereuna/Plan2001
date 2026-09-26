@@ -591,3 +591,24 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
   siirrot). test-qemu, USB-asennus ja check (2815, 0 eroa) PASS.
 - Seuraavaksi vaihe 4: ARM64 (QEMU virt + AAVMF + serial + virtio).
 
+## Monialustaisuus, vaihe 4: ARM64 (26.–27.9.2026, haara `phase4-arm64`)
+
+- **Tulos:** QEMU virt + AAVMF → `bootaa64.efi` (Plan2001:n yhteinen loader +
+  `archaa64.c`) → `9qemu` (upstreamin arm64-kernel Plan2001:n BootInfolla) →
+  `bootargs`-kehote. Kaksi prosessoria (`*ncpu` FDT:stä), muisti UEFI-kartasta
+  (2041 MB), ESP näkyy `sdF0`:na. amd64 ennallaan: test-qemu ja USB-asennus PASS.
+- **Loader:** `aa64.s` upstreamista (X0 = BootInfo). Uusi arch-hook
+  `archdataround()`, koska `7l` pyöristää datan 64 KB:iin. Firmwarelle ei
+  anneta bss-osoitteita (ARM64:llä loader siirtyy muistissa). `FdtMax` on 2 MB.
+- **Kernel** (`sys/src/9/arm64/`, upstreamin tiedostot ensin muuttamattomina,
+  commit `36245f4`): X0 → `bootinfopa`, `bootearlymap()` samaan osoitteeseen
+  kuin `kmapram()`, `meminit()` UEFI-kartasta (8 pankkia, blob leikattuna pois),
+  `DTBADDR`/`CONFADDR`/`writeconf` pois ja `reboot()` → `panic`.
+  `port/bootargs.c` lukee FDT:stä `*ncpu`:n ja `/chosen`-bootargsit.
+- **Työkalut:** `tools/vm-target` kääntää ARM64-käyttäjätilan base-imageen
+  (noin 2 min). `build.sh` tukee valintaa `WHAT=loader`, ja `ALLOW_PLANNED=1`
+  sallii suunnitellun kohteen. Kohdekuvauksissa on `espdev`, ja
+  `test-qemu.sh` käyttää sitä.
+- Avoimet asiat: ks. `docs/boot-abi-arm64.md`. Näitä ovat laitteiden osoitteet
+  FDT:stä, välimuistin siivous raudalle sekä ARM64-asennusmedia.
+
