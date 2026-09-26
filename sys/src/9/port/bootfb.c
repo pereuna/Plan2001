@@ -119,15 +119,11 @@ bootfbinit(void)
 	sz = b->fbsize;
 	if(sz == 0)
 		sz = b->fbstride * b->fbheight * 4;
-	if((v = vmap(b->fbbase, sz)) == nil)
+	if((v = fbmap(b->fbbase, sz)) == nil)	/* the ISA's, eg pc64/bootarch.c */
 		return;
-	patwc(v, sz);
 	stride = b->fbstride;
 	height = b->fbheight;
 	fb = v;
-
-	/* there is a display: let panic hang with the marks visible, not reboot */
-	conf.monitor = 1;
 
 	for(i = 0; i < Nmark; i++)
 		rect(Margin + (LoaderMarks+i)*(Size+Gap), Margin, Size, Size, Dark);

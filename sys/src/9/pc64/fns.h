@@ -167,16 +167,21 @@ void	vmxprocrestore(Proc *);
 void	vmxshutdown(void);
 void*	vmap(uvlong, vlong);
 
-/* pc/bootinfo.c: what the UEFI loader told us, see sys/include/bootinfo.h */
+/* port/bootinfo.c: what the loader told us, see sys/include/bootinfo.h */
 extern BootInfo*	bootinfo;
 extern uintptr	bootinfopa;
 void	bootinfoinit(void);
 BootMem*	bootmem(int);
 char*	bootconfig(void);
+enum { BootClassRAM, BootClassACPI, BootClassReserved };
+int	bootmemclass(u32int);
+/* pc64/bootarch.c: the AMD64 side of port/bootinfo.c and port/bootfb.c */
+void*	bootearlymap(uvlong, uvlong);
+void*	fbmap(uvlong, uvlong);
 void	bootinforandinit(void);
 void	bootinfoclock(void);
 
-/* pc/bootfb.c: boot progress markers on the UEFI framebuffer */
+/* port/bootfb.c: boot progress markers on the UEFI framebuffer */
 enum { BMMain, BMMem, BMDevs, BMUser, BMExec, BMPanic };
 void	bootfbinit(void);
 void	bootmark(int);

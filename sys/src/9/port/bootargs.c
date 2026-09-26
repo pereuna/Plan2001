@@ -38,7 +38,7 @@ bootargsinit(void)
 
 	/*
 	 *  parse configuration args from dos file plan9.ini: the BootInfo
-	 *  blob's config section (pc/bootinfo.c), kept for good, as
+	 *  blob's config section (port/bootinfo.c), kept for good, as
 	 *  confname[] and confval[] point into it
 	 */
 	cp = bootconfig();

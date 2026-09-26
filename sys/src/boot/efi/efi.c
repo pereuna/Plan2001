@@ -131,7 +131,7 @@ efiallocany(uvlong len, int memtype)
 enum {
 	MapBufSize = 96*1024,
 	/*
-	 * Same grid as sys/src/9/pc/bootfb.c's (Size/Gap/Margin), continued
+	 * Same grid as sys/src/9/port/bootfb.c's (Size/Gap/Margin), continued
 	 * by it at slot LoaderMarks (its own constant, kept in sync by
 	 * comment, same as this one): one shared top-left marker row
 	 * spanning the whole boot, not two separate marker areas.
@@ -144,7 +144,7 @@ static uchar *mapbuf;
 
 /*
  * One colour per stage: 1=EBS start, 2=EBS done, 3=jump.  The kernel's
- * own squares follow in the same row (sys/src/9/pc/bootfb.c).
+ * own squares follow in the same row (sys/src/9/port/bootfb.c).
  */
 static ulong markcolor[3] = {
 	0x0000FF,	/* EBS start: blue */
