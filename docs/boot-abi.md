@@ -1,58 +1,42 @@
-# Plan2001 Boot ABI v1 (x86-64)
+# Plan2001 Boot ABI v1
 
-Sopimus siitä, missä tilassa loader luovuttaa koneen kernelille ja miten
-loaderin keräämä tieto välitetään. Koneluettava puoli on
-`sys/include/bootinfo.h`, jota molemmat osapuolet käyttävät. Voimassa
-25.9.2026 alkaen.
+Sopimus siitä, miten loader luovuttaa koneen kernelille. Sopimus on kaksiosainen:
 
-Periaate: **loader kertoo osoitteen, kernel ei arvaa.** Sopimuksessa ei ole
-yhtään kiinteää fyysistä osoitetta. UEFI-loader (`sys/src/boot/efi`) on
+1. **Data-ABI** (tämä dokumentti): BootInfo-blob, **sama kaikille ISA:ille**.
+   Koneluettava puoli on `sys/include/bootinfo.h`, jota loader ja kernel
+   käyttävät.
+2. **Entry-ABI**: CPU:n tila ja rekisterit hypyn hetkellä, **ISA-kohtainen**:
+
+| ISA | Entry | Dokumentti | Tila |
+|---|---|---|---|
+| AMD64 | `RDI` = BootInfo PA | `docs/boot-abi-amd64.md` | käytössä |
+| ARM64 | `X0` = BootInfo PA | `docs/boot-abi-arm64.md` | suunniteltu (vaihe 4) |
+| RV64 | `a0` = BootInfo PA, `a1` = boot-hartin id | `docs/boot-abi-riscv64.md` | tulevaisuus |
+
+Periaate: **loader kertoo osoitteen, kernel ei arvaa.** Kummassakaan osassa
+ei ole yhtään kiinteää fyysistä osoitetta. UEFI-loader (`sys/src/boot/efi`) on
 vain yksi ohjelma, joka tuottaa BootInfo v1:n ja käynnistää kernelin.
 Tuleva kexec, VM-loader tai verkkoboot voi tehdä saman.
 
-## Entry
-
-Loader hyppää kernelin entryyn (`_efi64`, `sys/src/9/pc64/l.s`) seuraavassa tilassa:
-
-| | |
-|---|---|
-| CPU | x86-64 long mode, 4-tasoinen paging päällä (CR4.LA57 = 0) |
-| Keskeytykset | pois (IF = 0) |
-| DF | 0 |
-| Stack | käyttökelpoinen |
-| `RDI` | **BootInfo-blobin fyysinen osoite** |
-| `RSI` | 0 |
-| muut rekisterit | määrittelemättömiä |
-
-**Sivutaulut.** Niiden tarvitsee identiteettimapata vain se, mihin kernel
-koskee ennen kuin se vaihtaa omiin tauluihinsa:
-- kernelin image siinä kohdassa, johon se on ladattu (suoritettavana)
-- kernelin boot-sivutaulut ja Mach fyysisessä osoitteessa `0x13000–0x1C000`
-  (`CPU0PML4..CPU0END`), jotka kernel nollaa ensimmäisenä.
-
-Siksi loaderin omat sivutaulut, stack tai blob eivät saa olla tällä alueella
-eivätkä kernelin imagessa. Koko fyysisen muistin identiteettimappausta ei
-vaadita: kernel ei lue blobia loaderin tauluilla, vaan mappaa sen itse.
-Esimerkiksi tuleva kexec voi siis rakentaa minimaaliset taulut.
-
-UEFI-loader varmistaa lisäksi, että kernelin muistialue on varattu
-`EfiLoaderCode`na ja että firmwaren sivutaulut eivät ole kernelin
-boot-alueella. Nämä ovat UEFI-loaderin omia ehtoja, eivät ABI:n.
+Rajaperiaate: **BootInfo on koneesta riippumaton protokolla. Kernelin entry,
+MMU, trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.** Loader
+välittää firmwaren raakakuvauksen (ACPI, myöhemmin FDT) eikä normalisoi
+keskeytysohjaimia, ajastimia tai prosessorien käynnistystä.
 
 ## BootInfo-blob
 
-Yksi yhtenäinen, sivutasattu fyysinen alue:
+Yksi yhtenäinen, sivutasattu fyysinen alue, jonka osoite annetaan entryssä:
 
 ```
-RDI ──> +----------------------+  offset 0
-        | BootInfo header      |  headersize
-        +----------------------+  configoff
-        | config (plan9.ini)   |  configlen, NUL-päätteinen
-        +----------------------+  logoff
-        | loader log           |  loglen
-        +----------------------+  mmapoff
-        | memory map           |  mmapcount × mmapentsize (BootMem)
-        +----------------------+  totalsize
+entry ──> +----------------------+  offset 0
+          | BootInfo header      |  headersize
+          +----------------------+  configoff
+          | config (plan9.ini)   |  configlen, NUL-päätteinen
+          +----------------------+  logoff
+          | loader log           |  loglen
+          +----------------------+  mmapoff
+          | memory map           |  mmapcount × mmapentsize (BootMem)
+          +----------------------+  totalsize
 ```
 
 - **Offsetit** (`…off`) lasketaan blobin alusta, joten blob on relokoitava
@@ -60,9 +44,15 @@ RDI ──> +----------------------+  offset 0
   (`acpi`, `fbbase`) ovat fyysisiä osoitteita.
 - **Header:** `magic` = `"P2BI"`, `version` = 1, `headersize`, `totalsize`,
   `flags` sekä osioiden kuvaajat ja kiinteät kentät: ACPI RSDP,
-  framebuffer, TSC-taajuus, UTC-aika (`epoch`) ja RNG-siemen.
+  framebuffer (GOP), UTC-aika (`epoch`) ja RNG-siemen.
+- **`tscfreq`** on AMD64:n kenttä (TSC-taajuus, ristiintarkistukseksi). Muilla
+  ISA:illa loader kirjoittaa siihen 0, eikä kernel saa nojata siihen. CPU:n
+  ajastimet (TSC, ARM generic timer, RISC-V timebase) kuuluvat kernelin
+  ISA-portille. Kentän poistaminen headerin keskeltä vaatisi v2:n, joten se
+  jää paikalleen.
 - **Muistikartta:** UEFI:n kartta juuri ennen `ExitBootServices`ia.
-  Vierekkäiset saman tyypin ja attribuuttien alueet on yhdistetty.
+  Vierekkäiset saman tyypin ja attribuuttien alueet on yhdistetty. Tyypit ovat
+  UEFI:n omat (`BootMem*`), jotka ovat jo ISA-riippumattomia.
   **ABI:ssa ei ole alueiden määrän rajaa.** Nykyinen UEFI-loader tukee
   enintään 96 KiB raakaa UEFI-muistikarttaa (noin 2457 kuvaajaa).
   Suurempi kartta ei katkea hiljaa, vaan `GetMemoryMap` epäonnistuu ja
@@ -72,7 +62,7 @@ RDI ──> +----------------------+  offset 0
 ## Omistajuus
 
 Blob on kernelin entrystä alkaen. Se on `EfiLoaderData`-muistissa, jonka
-kartta sanoo vapaaksi, joten kernelin on varattava `[RDI, RDI+totalsize)`
+kartta sanoo vapaaksi, joten kernelin on varattava `[blob, blob+totalsize)`
 ennen kuin se jakaa vapaata muistia. Muuten kernel söisi oman
 syötteensä. Blob on voimassa, kunnes kernel itse vapauttaa sen. Plan2001:n
 kernel pitää sen koko elinaikansa, koska `confval[]` osoittaa
@@ -82,34 +72,21 @@ config-tekstiin ja konsoli toistaa loaderin lokin. Blob on noin 72 KB.
 
 Kernel hyväksyy blobin, jonka `magic` ja `version` ovat sen omat ja
 `headersize` on vähintään sen oma `sizeof(BootInfo)`. Tuntemattomat
-loppukentät ohitetaan. Muutos, joka rikkoo tämän, vaatii uuden
-`BootInfoVersion`in.
+loppukentät ohitetaan, joten **uudet kentät lisätään headerin loppuun
+ilman versionnostoa** (seuraavaksi `fdtoff`/`fdtlen` ja `arch`, vaihe 2).
+Muutos, joka rikkoo tämän, vaatii uuden `BootInfoVersion`in. Tällainen olisi
+esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muutos.
 
-## Toteutus Plan2001:ssä
+## Toteutus: mikä on yhteistä ja mikä ISA:n
 
-- **Loader** (`sys/src/boot/efi/efi.c`): varaa blobin yhdellä
-  `AllocateAnyPages`-kutsulla ennen ensimmäistä tulostusta. Loki kaapataan
-  suoraan blobiin, plan9.ini luetaan blobin config-osioon, ja
-  muistikartta kirjoitetaan `ExitBootServices`in jälkeen blobin
-  mmap-osioon. `jump64(entry, bootinfo, …)` asettaa `RDI`:n. Mitään ei
-  kopioida.
-- **Kernel:** `_efi64` tallentaa `RDI`:n muuttujaan `bootinfopa`
-  ensimmäisenä. Kernelin omat varhaiset sivutaulut kattavat vain kernelin
-  itsensä, eikä `rampage()`ia voi vielä käyttää, koska se tarvitsee
-  muistikartan, joka on blobissa. Siksi `bootinfoinit()`
-  (`sys/src/9/pc/bootinfo.c`) mappaa blobin kernelin omaan
-  virtuaali-ikkunaan `BOOTMAPVA` (`KZERO`:n PML4-slotti, PDP-indeksi 1, jonka
-  kaikki prosessorit jakavat) kahdella omalla sivutaulusivulla. Fyysinen
-  osoite voi olla mikä tahansa. Validointi tehdään ylivuototurvallisesti:
-  jokainen osio on headerin jälkeen ja `totalsize`n sisällä, osiot eivät mene
-  päällekkäin, config on NUL-päätteinen ja `mmapentsize ≥ sizeof(BootMem)`.
-  Sen jälkeen `meminit0()` varaa blobin, `bootargsinit()` jäsentää configin
-  ja `bootlogtext()` toistaa lokin.
-- **Kernelin sisäinen raja** (ei ABI:n osa): blob ≤ 2 MB (`BOOTMAPSIZE`,
-  yhden sivutaulun kattama alue).
-- **Framebuffer-merkit:** UEFI-loader piirtää kolme merkkiä (EBS alku,
-  EBS valmis, hyppy), ja kernel jatkaa samaa riviä omillaan (`bootfb.c`).
-  Merkit eivät ole ABI:n osa.
+| | Yhteinen | ISA:n (AMD64) |
+|---|---|---|
+| Kernel | `sys/src/9/port/bootinfo.c`: headerin ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
+| Loader | `efi.c`, `sub.c`: boot-taltio, plan9.ini, kernelin a.out, blob, muistikartta, `ExitBootServices`. | `archx64.c`: `archconf()` (TSC), `archentry()`, `archblobok()`, `archcheck()`, `archjump()`. Asm: `x64.s`. |
+
+Uusi ISA toteuttaa kernelissä `bootearlymap()`- ja `fbmap()`-hookit sekä
+entryn, joka tallentaa blobin osoitteen muuttujaan `bootinfopa`. Loaderissa
+se toteuttaa viisi `arch*()`-funktiota ja hypyn.
 
 ## Mitä poistui
 
@@ -120,23 +97,3 @@ loppukentät ohitetaan. Muutos, joka rikkoo tämän, vaatii uuden
 jokaisen tulevan loaderin tuntemaan Plan2001:n debug-merkit). T5600:n vuoksi tehty
 `AllocateAnyPages` jää, mutta nyt se on arkkitehtuurin normaali osa, ei
 yhteensopivuusratkaisun puolikas.
-
-## Jäljellä oleva kiinteä alue
-
-Kernelin boot-sivutaulut ja Mach ovat edelleen fyysisessä osoitteessa
-`0x13000–0x1C000`, ja kernel lataa itsensä linkitysosoitteeseensa. Nämä eivät
-ole handoffin osa (RDI hoitaa sen), mutta loaderin on vältettävä niitä.
-UEFI-loader varaa blobin 16 MB:n yläpuolelta (`bloballoc()`). Boot-taulujen
-siirto kernelin omaan bss:ään poistaisi viimeisen kiinteän matalan alueen.
-
-## Testattu
-
-- QEMU/OVMF, 2, 8 ja 16 GB: blob osoitteessa `0x7e379000`, PASS.
-- Kokeellinen build, jossa blob pakotettiin osoitteeseen `0x200000000`
-  (8 GB, 16 GB:n kone): PASS. Kernel mappaa ja lukee blobin 4 GB:n
-  yläpuolelta.
-- USB-asennus (`tools/subset/test`): asennettu järjestelmä bootaa uudella ABI:lla.
-- Yli 600 alueen muistikartta on mahdollinen rakenteen puolesta
-  (kapasiteetti 2457 aluetta), mutta sitä ei ole ajettu, koska QEMUn kartta
-  on pieni.
-- Oikealla raudalla (T5600 ja kannettavat) ei vielä testattu.

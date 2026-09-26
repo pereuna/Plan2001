@@ -532,3 +532,25 @@ fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitett
   - Seuraavaksi: testit T5600:lla ja kahdella kannettavalla. Sen jälkeen
     ABI v1 voidaan merkitä vakaaksi.
 
+## Monialustaisuus, vaihe 1: arkkitehtuuriraja (26.9.2026, haara `phase1-arch-boundary`)
+
+Suunnitelma: design-kanvaasi "Plan2001 moniarkkitehtuuri" (vaiheet 1–5).
+ARM64 otetaan huomioon heti ja RISC-V tulevaisuuden mahdollisuutena.
+Rajaperiaate: **BootInfo on koneesta riippumaton protokolla. Entry, MMU,
+trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
+
+- **Boot ABI kahtia:** data-ABI `docs/boot-abi.md` ja `sys/include/bootinfo.h`
+  (yhteinen), entry-ABI `docs/boot-abi-amd64.md` (RDI). ARM64 (X0) ja RV64
+  (a0, a1 = hart) on kirjattu tuleviksi. `tscfreq` on AMD64:n kenttä, muilla 0.
+- **Kernel:** `bootinfo.c`, `bootargs.c` ja `bootfb.c` siirretty `pc/` → `port/`.
+  ISA-hookit ovat `pc64/bootarch.c`:ssä: `bootearlymap()` ja `fbmap()`.
+  `bootmemclass()` muuntaa UEFI-tyypin RAM-, ACPI- tai varattu-luokaksi,
+  ja PC:n muistityypit jäävät `pc/memory.c`:hen.
+- **Loader:** yhteinen `efi.c`/`sub.c` ja AMD64:n `archx64.c`, jossa ovat
+  `archconf()` (TSC), `archentry()`, `archblobok()`, `archcheck()` ja
+  `archjump()`.
+- **Build:** `tools/build.rc` kopioi repon koko `port/`- ja `efi/`-hakemiston ja poistaa
+  VM:n `pc/`-kopion tiedostoista, jotka repo pitää `port/`:issa.
+- Hyväksymisehto: AMD64 toimii ennallaan (test-qemu, 8 GB:n blob, USB-asennus).
+- Seuraavaksi vaihe 2: `fdtoff`/`fdtlen` ja `arch` headerin loppuun.
+

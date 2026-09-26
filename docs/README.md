@@ -38,10 +38,11 @@ poistettu — ks. `docs/status.md`.
 
 | Tiedosto | Mikä |
 |---|---|
-| `sys/include/bootinfo.h` | **Plan2001 Boot ABI v1**: BootInfo-blob, jonka osoite on RDI:ssä (uusi, ks. `docs/boot-abi.md`) |
-| `sys/src/9/pc/bootinfo.c` | Kernel: blobin mappaus (`VMAP+pa`) ja validointi, RNG/kello-kytkennät (uusi) |
-| `sys/src/9/pc/bootfb.c` | Kernel: boot-vaiheiden merkit UEFI-framebufferiin (uusi) |
-| `sys/src/9/pc/bootargs.c` | plan9.ini-jäsennys blobin config-osiosta; `*acpi`/`*bootscreen` `BootInfo`sta |
+| `sys/include/bootinfo.h` | **Plan2001 Boot ABI v1, data-osa**: BootInfo-blob, sama kaikille ISA:ille (uusi, ks. `docs/boot-abi.md`; AMD64-entry `docs/boot-abi-amd64.md`) |
+| `sys/src/9/port/bootinfo.c` | Kernel, ISA-riippumaton: blobin validointi, muistikartan luokat, RNG/kello-kytkennät (uusi) |
+| `sys/src/9/pc64/bootarch.c` | Kernel, AMD64:n hookit: `bootearlymap()` (blob `BOOTMAPVA`:han) ja `fbmap()` (PAT WC) (uusi) |
+| `sys/src/9/port/bootfb.c` | Kernel, ISA-riippumaton: boot-vaiheiden merkit UEFI-framebufferiin, lokin toisto (uusi) |
+| `sys/src/9/port/bootargs.c` | ISA-riippumaton plan9.ini-jäsennys blobin config-osiosta; `*acpi`/`*bootscreen` `BootInfo`sta (siirretty pc/:stä) |
 | `sys/src/9/pc/memory.c` | Muistikartta blobista, blobin varaus, BootServices-muisti vapaaksi |
 | `sys/src/9/pc/screen.c` | GOP-framebufferin tarkka osoite, näkyvä leveys ja stride erillään |
 | `sys/src/9/pc/vga.c` | Konsoli: ei splash-laatikkoa, kolme saraketta scrollauksen sijaan, toistaa loaderin tekstin; ESC[2J vaihtaa interaktiiviseen tilaan (yksi sarake, ohjepalkki), ESC[nC/nD/K kursorinsiirto |
@@ -53,7 +54,7 @@ poistettu — ks. `docs/status.md`.
 | `sys/src/9/pc64/mem.h` | kiinteät boot-osoitteet (`CONFADDR`, `BOOTINFO`) poistettu |
 | `sys/src/9/pc64/fns.h` | uusien funktioiden prototyypit |
 | `sys/src/9/pc64/pc64` | kernelin konfiguraatio (`bootinfo`, `bootfb` mukaan) |
-| `sys/src/boot/efi/*` | loader: BootInfo-blob (config, loki, muistikartta), `_efi64`-hyppy RDI = blob, RNG/TSC/RTC |
+| `sys/src/boot/efi/*` | loader: yhteinen osa (`efi.c`, `sub.c`: BootInfo-blob, config, loki, muistikartta, RNG/RTC) ja AMD64-osa `archx64.c` (TSC, entry-tarkistukset, hyppy RDI = blob) |
 
 ## Käännös ja testaus
 
