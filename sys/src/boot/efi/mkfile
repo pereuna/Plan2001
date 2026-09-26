@@ -33,7 +33,7 @@ bootia32.efi:	ia32.8 efi.8 fs.8 pxe.8 iso.8 sub.8
 # a Dell Precision T5600). The ia32/aa64 targets below are untouched
 # upstream and keep building pxe.c/iso.c - Plan2001 doesn't build or
 # maintain them.
-bootx64.efi:	x64.6 efi.6 fs.6 sub.6
+bootx64.efi:	x64.6 efi.6 fs.6 sub.6 archx64.6
 	6l -l -s -R1 -T0x8200 -o bootx64.out $prereq
 	aux/aout2efi -Z$IMAGEBASE -o $target bootx64.out
 %.6:	$HFILES

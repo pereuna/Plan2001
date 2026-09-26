@@ -93,7 +93,7 @@ efifree(uvlong pa, uvlong len)
  * allocator puts it (efimain()), holding the header (bi), the plan9.ini
  * text (confaddr, see sub.c), print()'s captured text (logbuf, sub.c) and
  * the final memory map (bootexit()).  Nothing is copied anywhere: the
- * kernel is handed its address in RDI (jump64).
+ * kernel is handed its address as its ISA's entry ABI says (archjump()).
  */
 enum {
 	ConfCap = 8*1024,	/* plan9.ini text, including the NUL */
@@ -163,7 +163,7 @@ bootmapinit(void)
 /*
  * UEFI text output is gone after ExitBootServices. Leave visible progress
  * markers at the top-left of a 32-bit GOP framebuffer instead: one before
- * ExitBootServices, two after it returns, three before jump64 - slots 0..2
+ * ExitBootServices, two after it returns, three before archjump - slots 0..2
  * of the shared marker row bootfb.c continues from slot 3 (its
  * LoaderMarks; see MarkSize's comment above).
  */
@@ -272,25 +272,6 @@ Left:
 	}
 	bi->mmapcount = n;
 	return 0;
-}
-
-/*
- * TSC frequency, measured against the firmware's own timer (Stall).  Not as
- * accurate as the kernel's own HPET-based measurement, but available before
- * any kernel code runs, and a sanity check for it.  0 if RDTSC is not usable
- * this early for some reason; the kernel falls back to its own calibration.
- */
-static void
-tscconf(void)
-{
-	uvlong t0, t1;
-	enum { Ms = 50 };
-
-	t0 = rdtsc();
-	eficall(ST->BootServices->Stall, (UINTN)(Ms*1000));
-	t1 = rdtsc();
-	if(t1 > t0)
-		bi->tscfreq = (t1 - t0) * 1000 / Ms;
 }
 
 /*
@@ -574,9 +555,7 @@ eficonfig(void)
 	print("[P2 L05] ACPI: probe\n");
 	acpiconf();
 	screenconf();
-	print("[P2 L07] TSC: measure\n");
-	tscconf();
-	print(bi->tscfreq != 0? "[P2 L07] TSC: ok\n": "[P2 L07] TSC: unavailable\n");
+	archconf(bi);
 	print("[P2 L08] RTC: read\n");
 	timeconf();
 	print(bi->epoch != 0? "[P2 L08] RTC: ok\n": "[P2 L08] RTC: unavailable\n");
@@ -587,16 +566,13 @@ eficonfig(void)
 }
 
 /*
- * Allocate the blob anywhere but where the kernel itself goes (Boot ABI
- * v1): its image, at the fixed physical address it is linked for and
- * claimed only later (bootkern()), and its boot page tables and Mach at
- * KBOOTLO..KBOOTHI, which _efi64 clears on entry - both below KernelLow.
- * Firmware usually allocates top-down, so the first try is taken; pages
- * rejected are held until a good range is found, so that the firmware
- * does not offer them again, and then given back.
+ * Allocate the blob anywhere the ISA's kernel lets it be (archblobok(),
+ * eg archx64.c: not where the kernel itself goes).  Firmware usually
+ * allocates top-down, so the first try is taken; pages rejected are held
+ * until a good range is found, so that the firmware does not offer them
+ * again, and then given back.
  */
 enum {
-	KernelLow = 16*1024*1024,
 	BlobTries = 8,
 };
 
@@ -608,7 +584,7 @@ bloballoc(uvlong len)
 
 	a = 0;
 	for(n = 0; n < BlobTries; n++){
-		if((a = efiallocany(len, EfiLoaderData)) == 0 || a >= KernelLow)
+		if((a = efiallocany(len, EfiLoaderData)) == 0 || archblobok(a, len))
 			break;
 		bad[n] = a;
 		a = 0;
@@ -640,7 +616,7 @@ bootinfohdr(void)
 /*
  * The blob's last fields, set once nothing is printed or configured any
  * more: called from bootkern() (sub.c) after bootexit() succeeded, right
- * before jump64() hands the kernel the blob.
+ * before archjump() hands the kernel the blob.
  */
 void*
 bootinfofinish(void)

@@ -390,65 +390,13 @@ beswall(uvlong l)
 	return ((uvlong)p[0]<<56) | ((uvlong)p[1]<<48) | ((uvlong)p[2]<<40) | ((uvlong)p[3]<<32) | ((uvlong)p[4]<<24) | ((uvlong)p[5]<<16) | ((uvlong)p[6]<<8) | (uvlong)p[7];
 }
 
-/*
- * The kernel is entered at its 64-bit entry with the firmware's page tables
- * still active, so it must be safe: paging must be 4-level (a processor in
- * long mode cannot change that) and none of the firmware's page tables may
- * lie in the range the kernel entry clears.
- */
-enum {
-	PtPresent	= 1<<0,
-	PtLarge		= 1<<7,
-	Cr4La57		= 1<<12,
-};
-#define PTADDR(e)	((e) & 0x000FFFFFFFFFF000ull)
-
-static int
-ptbad(uvlong pa, uvlong lo, uvlong hi)
-{
-	return pa < hi && pa+4096 > lo;
-}
-
-static int
-ptclear(uvlong lo, uvlong hi)
-{
-	uvlong *l4, *l3, *l2, e;
-	int i, j, k;
-
-	l4 = (uvlong*)PTADDR(getcr3());
-	if(ptbad((uvlong)l4, lo, hi))
-		return 0;
-	for(i = 0; i < 512; i++){
-		if((l4[i] & PtPresent) == 0)
-			continue;
-		l3 = (uvlong*)PTADDR(l4[i]);
-		if(ptbad((uvlong)l3, lo, hi))
-			return 0;
-		for(j = 0; j < 512; j++){
-			e = l3[j];
-			if((e & PtPresent) == 0 || (e & PtLarge) != 0)
-				continue;
-			l2 = (uvlong*)PTADDR(e);
-			if(ptbad((uvlong)l2, lo, hi))
-				return 0;
-			for(k = 0; k < 512; k++){
-				e = l2[k];
-				if((e & PtPresent) == 0 || (e & PtLarge) != 0)
-					continue;
-				if(ptbad(PTADDR(e), lo, hi))
-					return 0;
-			}
-		}
-	}
-	return 1;
-}
-
 char*
 bootkern(void *f)
 {
 	uchar *e, *d, *t;
+	uvlong entry;
 	ulong n, ktext, elen;
-	char *errmsg;
+	char *errmsg, *why;
 	Exec ex;
 
 	/*
@@ -458,6 +406,7 @@ bootkern(void *f)
 	 * loop, eg after a transient read error) would find the same range
 	 * already allocated and fail immediately instead of trying again.
 	 */
+	e = nil;
 	elen = 0;
 	errmsg = "i/o error";
 
@@ -465,20 +414,20 @@ bootkern(void *f)
 		return "bad header";
 	print("[P2 L14] kernel header read\n");
 
-	e = (uchar*)(beswal(ex.entry) & ~0xF0000000UL);
+	entry = beswal(ex.entry);
 	switch(beswal(ex.magic)){
 	case S_MAGIC:
 	case R_MAGIC:
-		if(readn(f, &e, 8) != 8)
+		if(readn(f, &entry, 8) != 8)
 			goto Error;
-		/* load low address */
-		e = (uchar*)(beswall((uvlong)e) & 0x0FFFFFFFUL);
+		entry = beswall(entry);
 		break;
 	case I_MAGIC:
 		break;
 	default:
 		return "bad magic";
 	}
+	e = (uchar*)(uintptr)archentry(entry);	/* where the ISA's kernel goes, eg archx64.c */
 	tracehex("[P2 L15] kernel entry physical=0x", (uvlong)e);
 
 	/*
@@ -496,15 +445,11 @@ bootkern(void *f)
 		return "cannot claim the kernel's memory range";
 	}
 	print("[P2 L17] kernel memory claimed executable\n");
-	if(getcr4() & Cr4La57){
-		errmsg = "5-level paging is active, the kernel needs 4-level";
+	if((why = archcheck()) != nil){
+		errmsg = why;
 		goto Error;
 	}
-	if(!ptclear(KBOOTLO, KBOOTHI)){
-		errmsg = "firmware page tables overlap the kernel's boot area";
-		goto Error;
-	}
-	print("[P2 L18] paging: 4-level and boot area clear\n");
+	print("[P2 L18] entry state checked\n");
 
 	t = e;
 	n = beswal(ex.text);
@@ -557,7 +502,7 @@ bootkern(void *f)
 	 * address.
 	 */
 	fbmark(3);
-	jump64(e, bootinfofinish());
+	archjump(e, bootinfofinish());
 
 Error:
 	if(elen != 0)
