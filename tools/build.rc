@@ -13,10 +13,13 @@ mkdir -p $d/9 $d/efi $d/inc $d/src $d/out
 hostsrc=$d/src
 hostbuild=$d/out
 
-echo '### kernel: overlay pc64 and pc from the repo onto the VM tree'
+echo '### kernel: overlay port, pc and pc64 from the repo onto the VM tree'
 dircp /sys/src/9 $d/9
-for(x in pc64 pc) dircp $hostsrc/sys/src/9/$x $d/9/$x
-cp $hostsrc/sys/src/9/port/devcons.c $d/9/port/devcons.c
+for(x in port pc pc64) dircp $hostsrc/sys/src/9/$x $d/9/$x
+# a file this repo moved to port/ must not also be found in pc/ (the
+# kernel mkfile has a rule for each directory): drop the VM's pc/ copy
+for(f in `{ls $hostsrc/sys/src/9/port})
+	rm -f $d/9/pc/`{basename $f}
 
 echo '### kbdfs: build the line-editing console server (goes into bootfs.paq)'
 mkdir -p $d/auxbin $d/kbdfs
@@ -53,7 +56,7 @@ cp 9pc64 $hostbuild/9pc64
 
 echo '### loader: overlay our changed boot/efi files onto the VM tree'
 dircp /sys/src/boot/efi $d/efi
-cp $hostsrc/sys/src/boot/efi/^(x64.s efi.c efi.h fns.h mem.h sub.c fs.c mkfile) $d/efi
+dircp $hostsrc/sys/src/boot/efi $d/efi
 bind -c $d/efi /sys/src/boot/efi
 cd /sys/src/boot/efi
 mk bootx64.efi >$d/loader.log >[2=1]
