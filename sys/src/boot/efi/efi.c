@@ -103,6 +103,8 @@ static BootInfo *bi;
 static void bootinfohdr(void);
 static uchar *blob;
 static ulong blobsize, mmapcap;
+static uchar *fdtsrc;		/* the firmware's device tree, if any (fdtfind()) */
+static ulong fdtsize;
 char *confaddr;
 
 /*
@@ -595,6 +597,53 @@ bloballoc(uvlong len)
 }
 
 /*
+ * The firmware's flattened device tree, if it gives one (ARM64 and RISC-V
+ * firmware usually does, PC firmware only ACPI): found in the configuration
+ * table, checked for its magic and size, and later copied whole into the
+ * blob's own section (efimain()), so that it is owned, relocated and kept
+ * the same way as the rest of the blob.  A bad or oversized one is left
+ * out, with a message: the hardware may still be described by ACPI.
+ */
+enum {
+	FdtMagic = 0xd00dfeed,
+	FdtMax = 1024*1024,
+};
+
+static ulong
+be32(uchar *p)
+{
+	return (ulong)p[0]<<24 | p[1]<<16 | p[2]<<8 | p[3];
+}
+
+static void
+fdtfind(void)
+{
+	static EFI_GUID DEVICE_TREE_GUID = {
+		0xb1b621d5, 0xf19c, 0x41a5,
+		0x83, 0x0b, 0xd9, 0x15,
+		0x2c, 0x69, 0xaa, 0xe0,
+	};
+	EFI_CONFIGURATION_TABLE *t;
+	uchar *p;
+	int n;
+
+	t = ST->ConfigurationTable;
+	n = ST->NumberOfTableEntries;
+	for(; --n >= 0; t++){
+		if(memcmp(&t->VendorGuid, &DEVICE_TREE_GUID, sizeof(EFI_GUID)) != 0)
+			continue;
+		p = t->VendorTable;
+		if(p == nil || be32(p) != FdtMagic || be32(p+4) < 40 || be32(p+4) > FdtMax){
+			print("[P2 L02] FDT: ignored, bad header or too large\n");
+			return;
+		}
+		fdtsrc = p;
+		fdtsize = be32(p+4);
+		return;
+	}
+}
+
+/*
  * The blob's fixed part: magic, version and where its sections are.
  * Called at the start (efimain()) and again from eficonfig() whenever
  * the configuration is cleared, as that zeroes the header.
@@ -609,7 +658,9 @@ bootinfohdr(void)
 	bi->totalsize = blobsize;
 	bi->configoff = (sizeof(*bi) + 7) & ~7;
 	bi->logoff = bi->configoff + ConfCap;
-	bi->mmapoff = bi->logoff + LogCap;
+	bi->fdtoff = bi->logoff + LogCap;
+	bi->fdtlen = fdtsize;
+	bi->mmapoff = bi->fdtoff + ((fdtsize + 7) & ~7);
 	bi->mmapentsize = sizeof(BootMem);
 }
 
@@ -647,8 +698,9 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 * running, which is why nothing about the handoff is at a fixed
 	 * address any more (Plan2001 Boot ABI v1, sys/include/bootinfo.h).
 	 */
+	fdtfind();
 	mmapcap = MapBufSize / sizeof(EFI_MEMORY_DESCRIPTOR);
-	blobsize = PGROUND(((sizeof(BootInfo) + 7) & ~7) + ConfCap + LogCap + mmapcap*sizeof(BootMem));
+	blobsize = PGROUND(((sizeof(BootInfo) + 7) & ~7) + ConfCap + LogCap + ((fdtsize + 7) & ~7) + mmapcap*sizeof(BootMem));
 	if((la = bloballoc(blobsize)) == 0){
 		print("[P2 L02] FATAL: cannot allocate the BootInfo blob\n");
 		for(;;)
@@ -661,10 +713,14 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	confaddr = (char*)blob + bi->configoff;
 	logbuf = (char*)blob + bi->logoff;
 	logcap = LogCap;
+	if(fdtsize != 0)
+		memmove(blob + bi->fdtoff, fdtsrc, fdtsize);
 
 	print("[P2 L01] Plan2001 loader 2026-09-25 boot-abi-1\n");
 	tracehex("[P2 L02] BootInfo blob at 0x", la);
 	tracehex("[P2 L02] BootInfo blob bytes=0x", blobsize);
+	if(fdtsize != 0)
+		tracehex("[P2 L02] FDT copied into the blob, bytes=0x", fdtsize);
 
 	print("[P2 L03] memory-map buffer: AllocatePool 96 KiB\n");
 	if(bootmapinit() != 0){

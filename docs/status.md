@@ -554,3 +554,19 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 - Hyväksymisehto: AMD64 toimii ennallaan (test-qemu, 8 GB:n blob, USB-asennus).
 - Seuraavaksi vaihe 2: `fdtoff`/`fdtlen` ja `arch` headerin loppuun.
 
+## Monialustaisuus, vaihe 2: FDT ja arch (26.9.2026, haara `phase2-fdt-arch`)
+
+- BootInfo-headerin loppuun lisättiin `arch`, `fdtoff` ja `fdtlen`. Versio on
+  yhä 1, koska vanha kernel hyväksyy suuremman `headersize`n.
+- Loader hakee DTB:n EFI-konfiguraatiotaulusta, tarkistaa sen magicin ja
+  koon (enintään 1 MB) ja kopioi sen kokonaan blobin omaan osioon.
+  `archconf()` kirjoittaa `arch`in.
+- Kernel pysähtyy väärään `arch`iin, validoi neljä osiota pareittain
+  päällekkäisyyden ja rajojen suhteen, tarkistaa FDT:n headerin ja tarjoaa
+  sen `bootfdt()`:llä. Laitteistokuvaus on nyt "ACPI tai FDT".
+- Testattu: OVMF (x86) ei anna DTB:tä, joten `fdtlen` on 0 ja PASS.
+  Kokeellinen build, jossa loaderilla oli 64 tavun FDT: kopioitu ja
+  hyväksytty (`bootinfo: device tree 64 bytes`). Kokeellinen build, jossa
+  `arch` oli arm64: kernel pysähtyy ennen ensimmäistä riviä. USB-asennus PASS.
+- Seuraavaksi vaihe 3: build ja subset parametrisoidaan (`amd64`, `arm64`, `riscv64`).
+

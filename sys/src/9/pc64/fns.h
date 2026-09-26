@@ -173,6 +173,8 @@ extern uintptr	bootinfopa;
 void	bootinfoinit(void);
 BootMem*	bootmem(int);
 char*	bootconfig(void);
+uchar*	bootfdt(ulong*);
+enum { BootInfoArch = BootArchAmd64 };	/* the blob must be made for this ISA */
 enum { BootClassRAM, BootClassACPI, BootClassReserved };
 int	bootmemclass(u32int);
 /* pc64/bootarch.c: the AMD64 side of port/bootinfo.c and port/bootfb.c */

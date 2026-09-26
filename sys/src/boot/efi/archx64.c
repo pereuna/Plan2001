@@ -35,10 +35,11 @@ tscconf(BootInfo *bi)
 		bi->tscfreq = (t1 - t0) * 1000 / Ms;
 }
 
-/* ISA facts the firmware can tell us, into the BootInfo: the TSC frequency */
+/* the ISA, and ISA facts the firmware can tell us, into the BootInfo: the TSC frequency */
 void
 archconf(BootInfo *bi)
 {
+	bi->arch = BootArchAmd64;
 	print("[P2 L07] TSC: measure\n");
 	tscconf(bi);
 	print(bi->tscfreq != 0? "[P2 L07] TSC: ok\n": "[P2 L07] TSC: unavailable\n");

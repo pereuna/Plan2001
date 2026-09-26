@@ -34,10 +34,15 @@ entry ──> +----------------------+  offset 0
           | config (plan9.ini)   |  configlen, NUL-päätteinen
           +----------------------+  logoff
           | loader log           |  loglen
+          +----------------------+  fdtoff
+          | device tree (FDT)    |  fdtlen, 0 jos ei ole
           +----------------------+  mmapoff
           | memory map           |  mmapcount × mmapentsize (BootMem)
           +----------------------+  totalsize
 ```
+
+Osioiden järjestys on loaderin valinta. Kernel lukee osiot offsettien
+perusteella.
 
 - **Offsetit** (`…off`) lasketaan blobin alusta, joten blob on relokoitava
   yhtenä kokonaisuutena. **Blobin ulkopuolelle** osoittavat arvot
@@ -45,6 +50,20 @@ entry ──> +----------------------+  offset 0
 - **Header:** `magic` = `"P2BI"`, `version` = 1, `headersize`, `totalsize`,
   `flags` sekä osioiden kuvaajat ja kiinteät kentät: ACPI RSDP,
   framebuffer (GOP), UTC-aika (`epoch`) ja RNG-siemen.
+- **`arch`** (lisätty loppuun): ISA, jolle loader teki blobin
+  (`BootArchAmd64` = 1, `BootArchArm64` = 2, `BootArchRiscv64` = 3). Kernel
+  pysähtyy, jos arvo ei ole sen oma. Väärä loader- ja kernel-pari on siis
+  sama virhe kuin väärä magic.
+- **Laitteiston kuvaus: ACPI tai FDT.** UEFI on firmware-raja, mutta
+  laitteiston kuvaus ei ole sidottu ACPI:hin. `acpi` on RSDP:n fyysinen
+  osoite, koska ACPI-taulut viittaavat toisiinsa fyysisillä osoitteilla ja
+  ovat firmwaren omaa, muistikartassa varattua muistia. **FDT kopioidaan
+  kokonaan blobiin** (`fdtoff`/`fdtlen`, lisätty loppuun), joten sen
+  omistus, elinikä ja relokaatio ovat samat kuin configilla ja
+  muistikartalla. Tästä on hyötyä myös kexecissä. Loader ottaa DTB:n
+  EFI-konfiguraatiotaulusta (GUID `b1b621d5-f19c-41a5-830b-d9152c69aae0`),
+  jos firmware antaa sen. PC-firmware ei yleensä anna, joten silloin
+  `fdtlen` = 0. Kernel tarkistaa FDT:n magicin ja koon.
 - **`tscfreq`** on AMD64:n kenttä (TSC-taajuus, ristiintarkistukseksi). Muilla
   ISA:illa loader kirjoittaa siihen 0, eikä kernel saa nojata siihen. CPU:n
   ajastimet (TSC, ARM generic timer, RISC-V timebase) kuuluvat kernelin
@@ -73,7 +92,7 @@ config-tekstiin ja konsoli toistaa loaderin lokin. Blob on noin 72 KB.
 Kernel hyväksyy blobin, jonka `magic` ja `version` ovat sen omat ja
 `headersize` on vähintään sen oma `sizeof(BootInfo)`. Tuntemattomat
 loppukentät ohitetaan, joten **uudet kentät lisätään headerin loppuun
-ilman versionnostoa** (seuraavaksi `fdtoff`/`fdtlen` ja `arch`, vaihe 2).
+ilman versionnostoa** (näin lisättiin `arch`, `fdtoff` ja `fdtlen`).
 Muutos, joka rikkoo tämän, vaatii uuden `BootInfoVersion`in. Tällainen olisi
 esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muutos.
 
@@ -81,11 +100,12 @@ esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muut
 
 | | Yhteinen | ISA:n (AMD64) |
 |---|---|---|
-| Kernel | `sys/src/9/port/bootinfo.c`: headerin ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
-| Loader | `efi.c`, `sub.c`: boot-taltio, plan9.ini, kernelin a.out, blob, muistikartta, `ExitBootServices`. | `archx64.c`: `archconf()` (TSC), `archentry()`, `archblobok()`, `archcheck()`, `archjump()`. Asm: `x64.s`. |
+| Kernel | `sys/src/9/port/bootinfo.c`: headerin, `arch`in ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootfdt()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
+| Loader | `efi.c`, `sub.c`: boot-taltio, plan9.ini, kernelin a.out, blob, ACPI RSDP, DTB:n kopio, muistikartta, `ExitBootServices`. | `archx64.c`: `archconf()` (`arch`, TSC), `archentry()`, `archblobok()`, `archcheck()`, `archjump()`. Asm: `x64.s`. |
 
-Uusi ISA toteuttaa kernelissä `bootearlymap()`- ja `fbmap()`-hookit sekä
-entryn, joka tallentaa blobin osoitteen muuttujaan `bootinfopa`. Loaderissa
+Uusi ISA toteuttaa kernelissä `bootearlymap()`- ja `fbmap()`-hookit,
+entryn, joka tallentaa blobin osoitteen muuttujaan `bootinfopa`, sekä
+määrittelee oman `BootInfoArch`-arvonsa. Loaderissa
 se toteuttaa viisi `arch*()`-funktiota ja hypyn.
 
 ## Mitä poistui

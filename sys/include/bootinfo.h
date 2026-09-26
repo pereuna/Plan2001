@@ -13,7 +13,11 @@
  *	BootInfo header		(headersize bytes)
  *	config			plan9.ini text, configlen bytes, NUL-terminated
  *	loader log		the loader's printed text, loglen bytes
+ *	device tree		the firmware's flattened device tree, fdtlen bytes
  *	memory map		mmapcount BootMem entries, mmapentsize bytes apart
+ *
+ * Sections do not overlap each other or the header; their order is the
+ * loader's choice, a kernel goes by the offsets.
  *
  * Offsets (…off) are from the start of the blob; addresses of things
  * outside it (acpi, fbbase) are physical.  The blob belongs to the kernel
@@ -23,11 +27,20 @@
  *
  * Compatibility: a kernel takes a blob with its magic and version and a
  * headersize at least its own sizeof(BootInfo); fields past what it knows
- * are ignored.  A change that breaks that needs a new BootInfoVersion.
+ * are ignored, so new fields are added at the end of the header without a
+ * new version (arch, fdtoff and fdtlen were).  A change that breaks that
+ * needs a new BootInfoVersion.
  */
 enum {
 	BootInfoMagic	= 0x49423250,	/* "P2BI" */
 	BootInfoVersion	= 1,
+};
+
+/* BootInfo.arch: the ISA the loader made the blob for */
+enum {
+	BootArchAmd64	= 1,
+	BootArchArm64	= 2,
+	BootArchRiscv64	= 3,
 };
 
 /* BootMem.type: UEFI EFI_MEMORY_TYPE */
@@ -98,4 +111,9 @@ struct BootInfo {
 	u32int	fbstride;	/* pixels per scan line, ie the pitch */
 	u32int	fbdepth;	/* bits per pixel */
 	char	fbchan[16];	/* Plan 9 channel descriptor, eg x8r8g8b8 */
+
+	/* added at the end, still v1 */
+	u32int	arch;		/* BootArch*: a kernel for another ISA must stop */
+	u32int	fdtoff;		/* the firmware's flattened device tree, copied whole */
+	u32int	fdtlen;		/* bytes, 0 if the firmware gave none (eg ACPI only) */
 };

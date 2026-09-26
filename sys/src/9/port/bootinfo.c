@@ -79,11 +79,19 @@ bootinfooverlap(uvlong a, uvlong al, uvlong b, uvlong bl)
 	return al != 0 && bl != 0 && a < b + bl && b < a + al;
 }
 
+static ulong
+bootbe32(uchar *p)
+{
+	return (ulong)p[0]<<24 | p[1]<<16 | p[2]<<8 | p[3];
+}
+
 void
 bootinfoinit(void)
 {
 	BootInfo *b;
-	uvlong mmaplen;
+	uvlong off[4], len[4];
+	uchar *fdt;
+	int i, j;
 
 	if(bootinfopa == 0 || (bootinfopa & (BY2PG-1)) != 0)
 		bootinfohalt();
@@ -91,20 +99,34 @@ bootinfoinit(void)
 		bootinfohalt();
 	if(b->magic != BootInfoMagic || b->version != BootInfoVersion
 	|| b->headersize < sizeof(BootInfo) || b->headersize > BY2PG
-	|| b->totalsize < b->headersize)
+	|| b->totalsize < b->headersize
+	|| b->arch != BootInfoArch)		/* a blob made for another ISA */
 		bootinfohalt();
 	if(bootearlymap(bootinfopa, b->totalsize) != b)
 		bootinfohalt();
-	mmaplen = (uvlong)b->mmapcount * b->mmapentsize;
-	if(b->configlen == 0 || !bootinfoin(b, b->configoff, b->configlen)
-	|| ((char*)b)[b->configoff + b->configlen - 1] != '\0'
-	|| !bootinfoin(b, b->logoff, b->loglen)
-	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem)
-	|| !bootinfoin(b, b->mmapoff, mmaplen)
-	|| bootinfooverlap(b->configoff, b->configlen, b->logoff, b->loglen)
-	|| bootinfooverlap(b->configoff, b->configlen, b->mmapoff, mmaplen)
-	|| bootinfooverlap(b->logoff, b->loglen, b->mmapoff, mmaplen))
+
+	/* every section after the header, within the blob, none overlapping */
+	off[0] = b->configoff, len[0] = b->configlen;
+	off[1] = b->logoff, len[1] = b->loglen;
+	off[2] = b->fdtoff, len[2] = b->fdtlen;
+	off[3] = b->mmapoff, len[3] = (uvlong)b->mmapcount * b->mmapentsize;
+	for(i = 0; i < nelem(off); i++){
+		if(!bootinfoin(b, off[i], len[i]))
+			bootinfohalt();
+		for(j = 0; j < i; j++)
+			if(bootinfooverlap(off[i], len[i], off[j], len[j]))
+				bootinfohalt();
+	}
+	if(b->configlen == 0 || ((char*)b)[b->configoff + b->configlen - 1] != '\0'
+	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem))
 		bootinfohalt();
+
+	/* a device tree, if there is one, is a whole one */
+	if(b->fdtlen != 0){
+		fdt = (uchar*)b + b->fdtoff;
+		if(b->fdtlen < 40 || bootbe32(fdt) != 0xd00dfeed || bootbe32(fdt+4) > b->fdtlen)
+			bootinfohalt();
+	}
 	bootinfo = b;
 }
 
@@ -144,6 +166,22 @@ bootmemclass(u32int type)
 		return BootClassReserved;
 	}
 	return -1;
+}
+
+/*
+ * The firmware's flattened device tree, copied whole into the blob by the
+ * loader (checked by bootinfoinit()), and its size; nil if there is none,
+ * as on PCs, which describe themselves by ACPI.
+ */
+uchar*
+bootfdt(ulong *len)
+{
+	if(bootinfo == nil || bootinfo->fdtlen == 0){
+		*len = 0;
+		return nil;
+	}
+	*len = bootinfo->fdtlen;
+	return (uchar*)bootinfo + bootinfo->fdtoff;
 }
 
 /* the plan9.ini text, NUL-terminated (checked by bootinfoinit()) */
@@ -197,4 +235,6 @@ bootinfoclock(void)
 		todset(bootinfo->epoch * 1000000000LL, 0, 0);
 	if(bootinfo->epoch != 0 || bootinfo->tscfreq != 0)
 		print("bootinfo: epoch %llud tscfreq %llud\n", bootinfo->epoch, bootinfo->tscfreq);
+	if(bootinfo->fdtlen != 0)
+		print("bootinfo: device tree %ud bytes\n", bootinfo->fdtlen);
 }
