@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Write the install subset into the repo from build/subset (derive.py).
 
-  make.py B REPO
+  TARGET=<target> make.py B REPO      (B: build/subset/<target>)
 
-  REPO/subset/proto    9front proto (mkfs) of the runtime files, with their
-                       modes and owners from the VM: the whole root of the
-                       USB install medium (tools/subset/mkusb)
-  REPO/subset/files    path, kind (runtime|source|excluded), how, why, md5
+  REPO/subset/<target>/proto  9front proto (mkfs) of the runtime files, with
+                       their modes and owners from the VM: the whole root of
+                       the target's USB install medium (tools/subset/mkusb)
+  REPO/subset/<target>/files  path, kind (runtime|source|excluded), how, why, md5
                        ('-' where nothing is copied: compiled binaries, and
                        the legacy left out)
-  REPO/subset/9front/  the copied files, in their 9front paths: every
-                       runtime file that is not a compiled binary, and the
-                       sources the binaries are built from
+  REPO/subset/9front/  the copied files, in their 9front paths, shared by
+                       every target: every runtime file that is not a
+                       compiled binary, and the sources the binaries are
+                       built from.  A file no target's list names any more
+                       is removed.
 """
 import hashlib, os, re, shutil, sys
 
@@ -20,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import derive
 
 # top-level directories of 9front's distproto that are not arch trees
-TOP = ['adm', 'cfg', 'cron', 'lib', 'rc', 'mail', '386', 'amd64', 'acme', 'sys', 'tmp', 'usr', 'dist']
+TOP = ['adm', 'cfg', 'cron', 'lib', 'rc', 'mail', derive.ARCH, derive.T['loaderdir'], 'acme', 'sys', 'tmp', 'usr', 'dist']
 
 
 def topattrs(b):
@@ -57,10 +59,10 @@ def main(b, repo):
 	stree, need, _ = derive.sources(b)
 	for p, why in stree.excluded.items():
 		tree.excluded.setdefault(p, why)
-	out = os.path.join(repo, 'subset')
-	cp = os.path.join(out, '9front')
-	shutil.rmtree(cp, ignore_errors=True)
-	os.makedirs(cp)
+	out = os.path.join(repo, 'subset', derive.TARGET)
+	cp = os.path.join(repo, 'subset', '9front')
+	os.makedirs(out, exist_ok=True)
+	os.makedirs(cp, exist_ok=True)
 
 	# proto: a tree of the runtime paths plus the top-level directories
 	paths = sorted(have) + ['/dist/9front/']
@@ -123,8 +125,26 @@ def main(b, repo):
 		f.write('# path\tkind\thow\twhy\tmd5 (tools/subset; generated, do not edit)\n')
 		for r in rows:
 			f.write('\t'.join(r) + '\n')
+	# the shared copy holds what some target's list names, nothing else
+	keep = set()
+	for d in os.listdir(os.path.join(repo, 'subset')):
+		f = os.path.join(repo, 'subset', d, 'files')
+		if d != '9front' and os.path.isfile(f):
+			for l in open(f):
+				r = l.rstrip('\n').split('\t')
+				if not l.startswith('#') and len(r) == 5 and r[4] != '-':
+					keep.add(r[0])
+	gone = 0
+	for dirpath, dirs, files in os.walk(cp, topdown=False):
+		for fn in files:
+			p = os.path.join(dirpath, fn)[len(cp):]
+			if p not in keep:
+				os.remove(cp + p)
+				gone += 1
+		if dirpath != cp and not os.listdir(dirpath):
+			os.rmdir(dirpath)
 	n = sum(1 for r in rows if r[4] != '-')
-	print('make: %d proto entries, %d files listed, %d copied to %s' % (len(lines), len(rows), n, cp))
+	print('make: %s: %d proto entries, %d files listed, %d copied to %s, %d stale removed' % (derive.TARGET, len(lines), len(rows), n, cp, gone))
 
 
 if __name__ == '__main__':

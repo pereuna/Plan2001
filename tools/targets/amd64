@@ -1,0 +1,22 @@
+# Plan2001 target: x86-64 PCs, UEFI only.  Read by tools/*.sh (bash),
+# tools/build.rc (rc) and tools/subset/*.py: plain name=value and
+# name=(list), the same syntax in bash and rc.  See tools/targets/README.
+status=supported
+objtype=amd64
+# the kernel: /sys/src/9/$kdir, configuration $kconf, binary $kernel
+kdir=pc64
+kconf=pc64
+kernel=9pc64
+# kernel source directories this repo overlays and the subset copies
+ksrc=(port pc pc64 ip boot)
+# the UEFI loader: mk target in /sys/src/boot/efi, where an installed
+# system keeps it (inst/bootsetup copies it to the ESP), its ESP name
+loader=bootx64.efi
+loaderdir=386
+espname=BOOTX64.EFI
+bootarch=1
+# testing in QEMU (tools/test-qemu.sh)
+qemu=qemu-system-x86_64
+qemuargs=(-accel kvm -cpu host -machine q35 -vga std)
+fwcode=/usr/share/OVMF/OVMF_CODE_4M.fd
+fwvars=/usr/share/OVMF/OVMF_VARS_4M.fd

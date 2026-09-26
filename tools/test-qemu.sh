@@ -1,29 +1,36 @@
 #!/bin/bash
-# Boot build/9pc64 through build/bootx64.efi in QEMU+KVM+OVMF (no root disk,
-# so it stops at the bootargs prompt once the kernel is up) and check the
-# serial log: PASS when bootargs is reached with exactly one Plan 9 banner.
-# The ESP is a FAT image made with mtools (build/esp.img), ready to be dd'd
-# to a USB stick for real-hardware testing.
+# Boot a target's kernel through its UEFI loader (build/$TARGET, from
+# tools/build.sh) in QEMU with UEFI firmware (no root disk, so it stops at
+# the bootargs prompt once the kernel is up) and check the serial log: PASS
+# when bootargs is reached with exactly one Plan 9 banner.  The ESP is a FAT
+# image made with mtools (build/$TARGET/esp.img), ready to be dd'd to a USB
+# stick for real-hardware testing.
+#   TARGET          amd64 (default); see tools/targets
 #   SECONDS_TO_RUN  give up after this many seconds, default 75
 #   DISPLAY_QEMU=1  also show the screen in a GTK window
 #   MEM             guest RAM in MiB, default 2048
 set -e
-here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here"); b=$root/build
-[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
-	echo "test-qemu: no access to /dev/kvm (add yourself to group kvm and log in again)" >&2; exit 1; }
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+b=$tbuild
+case " ${qemuargs[*]} " in
+*" kvm "*)
+	[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
+		echo "test-qemu: no access to /dev/kvm (add yourself to group kvm and log in again)" >&2; exit 1; } ;;
+esac
 rm -f "$b/esp.img" "$b/serial.log" "$b/test-vars.fd"
-printf 'bootfile=/9pc64\nconsole=0\n' > "$b/plan9.ini"
+printf 'bootfile=/%s\nconsole=0\n' "$kernel" > "$b/plan9.ini"
 mformat -C -i "$b/esp.img" -T 65536 -h 64 -s 32 ::
 mmd -i "$b/esp.img" ::/EFI ::/EFI/BOOT
-mcopy -i "$b/esp.img" "$b/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI
-mcopy -i "$b/esp.img" "$b/9pc64" "$b/plan9.ini" ::/
-cp /usr/share/OVMF/OVMF_VARS_4M.fd "$b/test-vars.fd"
+mcopy -i "$b/esp.img" "$b/$loader" "::/EFI/BOOT/$espname"
+mcopy -i "$b/esp.img" "$b/$kernel" "$b/plan9.ini" ::/
+cp "$fwvars" "$b/test-vars.fd"
 
 display=(-display none)
 [ "${DISPLAY_QEMU:-0}" = 1 ] && display=(-display gtk)
-qemu-system-x86_64 -name plan2001-test -accel kvm -cpu host -machine q35 -m "${MEM:-2048}" -smp 2 \
-  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-  -drive if=pflash,format=raw,file="$b/test-vars.fd" -vga std -nic none "${display[@]}" \
+"$qemu" -name plan2001-test "${qemuargs[@]}" -m "${MEM:-2048}" -smp 2 \
+  -drive if=pflash,format=raw,readonly=on,file="$fwcode" \
+  -drive if=pflash,format=raw,file="$b/test-vars.fd" -nic none "${display[@]}" \
   -drive file="$b/esp.img",format=raw,if=none,id=esp -device ide-hd,drive=esp,bootindex=0 \
   -serial file:"$b/serial.log" 2>"$b/qemu-test.log" &
 q=$!

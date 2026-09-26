@@ -1,0 +1,16 @@
+# Plan2001 target: RISC-V 64, UEFI only - future: 9front has no riscv64
+# kernel or compiler yet (see docs/boot-abi.md).  Names reserved.
+status=future
+objtype=riscv64
+kdir=riscv64
+kconf=riscv64
+kernel=9riscv64
+ksrc=(port riscv64 ip boot)
+loader=bootriscv64.efi
+loaderdir=riscv64
+espname=BOOTRISCV64.EFI
+bootarch=3
+qemu=qemu-system-riscv64
+qemuargs=(-machine virt)
+fwcode=
+fwvars=

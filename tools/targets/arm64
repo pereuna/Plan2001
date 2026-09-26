@@ -1,0 +1,16 @@
+# Plan2001 target: ARM64, UEFI only - planned (phase 4): the values are
+# upstream 9front's arm64 port as it is, before Plan2001 takes it over.
+status=planned
+objtype=arm64
+kdir=arm64
+kconf=qemu
+kernel=9qemu
+ksrc=(port arm64 ip boot)
+loader=bootaa64.efi
+loaderdir=arm64
+espname=BOOTAA64.EFI
+bootarch=2
+qemu=qemu-system-aarch64
+qemuargs=(-machine virt -cpu cortex-a72)
+fwcode=/usr/share/AAVMF/AAVMF_CODE.fd
+fwvars=/usr/share/AAVMF/AAVMF_VARS.fd

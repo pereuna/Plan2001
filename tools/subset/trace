@@ -9,12 +9,15 @@
 #   trace/s2  after copydist (bootsetup, ndbsetup, ..., up to finish)
 # copydist itself reads everything (mkfs copies the whole tree), so it is
 # left out on purpose; its own few files are found by tools/subset/static.
-# Results: build/subset/trace/{t0,s1,s2}.
+# Results: build/subset/$TARGET/trace/{t0,s1,s2}.  The trace runs on the
+# build VM, so only for the target it is (amd64).
 set -e
 here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
-b=$root/build; out=$b/subset/trace
+. "$tools/target.sh"
+[ "$TARGET" = amd64 ] || { echo "trace: the build VM is amd64; no trace for $TARGET yet" >&2; exit 2; }
+b=$root/build; out=$b/subset/$TARGET/trace
 run9() { "$tools/9run" -d "$b/vm" "$@"; }
-mkdir -p "$b/subset"; rm -rf "$out" "$b/in.img" "$b/out.img" "$b/subset/scratch.qcow2"
+mkdir -p "$b/subset/$TARGET"; rm -rf "$out" "$b/in.img" "$b/out.img" "$b/subset/scratch.qcow2"
 tar cf "$b/in.img" --format=ustar -C "$here" snap.rc export.rc
 truncate -s 64M "$b/in.img"
 qemu-img create -q -f qcow2 "$b/subset/scratch.qcow2" 20G
@@ -36,4 +39,4 @@ printf 'term%% \t!done\n' | run9 -t 180 -s 'fshalt -r' --dialog - >/dev/null
 } | run9 -t 1800 -s inst/start --dialog -
 "$tools/vm" stop
 mkdir -p "$out"; tar xmf "$b/out.img" -C "$out"
-echo "trace: $(wc -l < "$out/s1") files before copydist, $(wc -l < "$out/s2") after (build/subset/trace)"
+echo "trace: $(wc -l < "$out/s1") files before copydist, $(wc -l < "$out/s2") after ($out)"

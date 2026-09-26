@@ -570,3 +570,24 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
   `arch` oli arm64: kernel pysähtyy ennen ensimmäistä riviä. USB-asennus PASS.
 - Seuraavaksi vaihe 3: build ja subset parametrisoidaan (`amd64`, `arm64`, `riscv64`).
 
+## Monialustaisuus, vaihe 3: kohteet (26.9.2026, haara `phase3-targets`)
+
+- `tools/targets/{amd64,arm64,riscv64}` ja `tools/target.sh`: yksi kuvaus per
+  ISA (kernel: `kdir`, `kconf`, `kernel`, `ksrc`; loader: `loader`,
+  `loaderdir`, `espname`; `bootarch`; QEMU ja firmware). Syntaksi on sama
+  bashille, rc:lle ja Pythonille. `arm64` on arvoiltaan upstreamin portti
+  sellaisenaan (`kdir=arm64`, `kconf=qemu`, `9qemu`, `bootaa64.efi` → `/arm64`)
+  ja tilaltaan `planned`. `riscv64` on `future`.
+- `build.sh`/`build.rc`, `test-qemu.sh` ja kaikki `tools/subset/*` ottavat
+  `TARGET`in (oletus `amd64`). Tulokset menevät hakemistoon `build/$TARGET/`
+  ja osajoukko hakemistoon `subset/$TARGET/{proto,files}`. `subset/9front/` on
+  kaikkien kohteiden yhteinen kopio, josta `make.py` poistaa vain tiedostot,
+  joita mikään kohde ei enää nimeä. `check` tarkistaa kaikkien kohteiden
+  listat. Muut kuin `supported`-kohteet torjutaan selvällä viestillä.
+- Hyväksymisehto: amd64:n tulokset ovat samat. Loader on bitilleen sama (md5).
+  Kernelin text ja bss ovat samat, ja data vaihtelee `bootfs.paq`in päiväyksen
+  mukaan (3335040 tai 3335064 tavua) myös saman koodin kahdessa buildissa.
+  Uudelleen johdettu osajoukko on sisällöltään sama (git näyttää vain
+  siirrot). test-qemu, USB-asennus ja check (2815, 0 eroa) PASS.
+- Seuraavaksi vaihe 4: ARM64 (QEMU virt + AAVMF + serial + virtio).
+

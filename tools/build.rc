@@ -1,11 +1,13 @@
 #!/bin/rc
 # Runs ON the 9front VM (tools/build.sh starts it with tools/9run).
-# Builds the pc64 kernel and the UEFI loader from the VM's own /sys/src with
+# Builds a target's kernel and UEFI loader from the VM's own /sys/src with
 # this repo's changed files (sys/...) laid over it - the VM's sources are
 # the base, we only touch what we actually changed.
-# Sources come in as a tar stream on /dev/sdE1 (this repo's sys/ and this
-# script), results go out the same way on /dev/sdE2 (see tools/vm).
-rfork n
+# Sources come in as a tar stream on /dev/sdE1 (this repo's sys/, this
+# script and the target, tools/targets/$TARGET as /tmp/target), results go
+# out the same way on /dev/sdE2 (see tools/vm).
+rfork en
+. /tmp/target
 d=/usr/glenda/plan2001build
 rm -rf $d
 mkdir -p $d/9 $d/efi $d/inc $d/src $d/out
@@ -13,9 +15,9 @@ mkdir -p $d/9 $d/efi $d/inc $d/src $d/out
 hostsrc=$d/src
 hostbuild=$d/out
 
-echo '### kernel: overlay port, pc and pc64 from the repo onto the VM tree'
+echo '### kernel: overlay '^$"ksrc^' from the repo onto the VM tree'
 dircp /sys/src/9 $d/9
-for(x in port pc pc64) dircp $hostsrc/sys/src/9/$x $d/9/$x
+for(x in $ksrc) if(test -d $hostsrc/sys/src/9/$x) dircp $hostsrc/sys/src/9/$x $d/9/$x
 # a file this repo moved to port/ must not also be found in pc/ (the
 # kernel mkfile has a rule for each directory): drop the VM's pc/ copy
 for(f in `{ls $hostsrc/sys/src/9/port})
@@ -27,48 +29,49 @@ dircp /sys/src/cmd/aux/kbdfs $d/kbdfs
 cp $hostsrc/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
 @{
 	cd $d/kbdfs
-	mk 6.out >$d/kbdfs.log >[2=1]
+	mk >$d/kbdfs.log >[2=1]
 }
-if(! test -f $d/kbdfs/6.out){
+o=`{ls $d/kbdfs/?.out >[2]/dev/null}
+if(~ $#o 0){
 	tail -20 $d/kbdfs.log
 	echo KBDFS BUILD FAILED
 	exit kbdfs-build-failed
 }
 cp $d/kbdfs.log $hostbuild/kbdfs.log
-cp $d/kbdfs/6.out $d/auxbin/kbdfs
-bind -b $d/auxbin /amd64/bin/aux
+cp $o $d/auxbin/kbdfs
+bind -b $d/auxbin /$objtype/bin/aux
 cp $hostsrc/sys/include/bootinfo.h $d/inc/bootinfo.h
 bind -b $d/inc /sys/include
 bind -c $d/9 /sys/src/9
-cd /sys/src/9/pc64
-time mk >$d/kernel.log >[2=1]
+cd /sys/src/9/$kdir
+time mk 'CONF='$kconf >$d/kernel.log >[2=1]
 st = $status
 echo kernel mk status: $st
 tail -3 $d/kernel.log
 cp $d/kernel.log $hostbuild/kernel.log
-if(! ~ $st '' || ! test -f 9pc64){
+if(! ~ $st '' || ! test -f $kernel){
 	echo KERNEL BUILD FAILED
 	exit kernel-build-failed
 }
-size 9pc64
-md5sum 9pc64
-cp 9pc64 $hostbuild/9pc64
+size $kernel
+md5sum $kernel
+cp $kernel $hostbuild/$kernel
 
 echo '### loader: overlay our changed boot/efi files onto the VM tree'
 dircp /sys/src/boot/efi $d/efi
 dircp $hostsrc/sys/src/boot/efi $d/efi
 bind -c $d/efi /sys/src/boot/efi
 cd /sys/src/boot/efi
-mk bootx64.efi >$d/loader.log >[2=1]
+mk $loader >$d/loader.log >[2=1]
 st = $status
 echo loader mk status: $st
 cp $d/loader.log $hostbuild/loader.log
-if(! ~ $st '' || ! test -f bootx64.efi){
+if(! ~ $st '' || ! test -f $loader){
 	echo LOADER BUILD FAILED
 	exit loader-build-failed
 }
-md5sum bootx64.efi
-cp bootx64.efi $hostbuild/bootx64.efi
+md5sum $loader
+cp $loader $hostbuild/$loader
 
 @{cd $hostbuild && tar c .} >/dev/sdE2/data
 echo BUILD-DONE
