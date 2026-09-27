@@ -257,10 +257,29 @@ window.monolith = { push, get flushes() { return flushes; } };
 if (!crossOriginIsolated)
 	setstatus('not cross-origin isolated: serve with tools/serve (COOP/COEP) on localhost or HTTPS');
 
-// drawterm starts once there is a password
-function start() {
+// drawterm starts once there is a password.  drawterm.js is fetched once
+// (retried) and given to the page and to every thread as a Blob: each of
+// Emscripten's workers would otherwise fetch it again, and on a slow link
+// some of those fail.
+async function start() {
+	let text;
+	for (let i = 0; ; i++) {
+		try {
+			const r = await fetch('drawterm.js');
+			if (!r.ok) throw new Error('HTTP ' + r.status);
+			text = await r.text();
+			break;
+		} catch (e) {
+			rlog('drawterm.js: ' + e);
+			if (i == 4) { setstatus('could not load drawterm.js: ' + e); return; }
+			await new Promise(t => setTimeout(t, 1000 * (i + 1)));
+		}
+	}
+	const blob = new Blob([text], { type: 'text/javascript' });
+	Module.mainScriptUrlOrBlob = blob;
+	Module.locateFile = f => new URL(f, location.href).href;
 	const sc = document.createElement('script');
-	sc.src = 'drawterm.js';
+	sc.src = URL.createObjectURL(blob);
 	document.body.appendChild(sc);
 }
 if (pass || textonly && !q.getAll('a').includes('-u')) {
