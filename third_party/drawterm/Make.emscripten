@@ -21,3 +21,5 @@ LDADD=-sPROXY_TO_PTHREAD -sPTHREAD_POOL_SIZE=24 \
 	-sEXPORTED_RUNTIME_METHODS=ENV,UTF8ToString -sEXPORTED_FUNCTIONS=_main,_malloc,_free
 LDFLAGS=$(PTHREAD)
 TARG=drawterm.js
+# rcpu over wss without TLS-PSK: only cpu.c's tlsClient goes to gui-web/wsock.c
+cpu.$O: CFLAGS += -DtlsClient=monolithtlsclient

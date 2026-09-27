@@ -7,7 +7,8 @@
 | 1c | `gui-web`: rio selaimessa | headless-testi raportoi rion flushin, ja käyttäjä kokeilee Chromessa | headless valmis 27.9. (`tools/test-rio`), käyttäjän kokeilu odottaa |
 | 2a | Oma WebSocket-transportti ja Plan2001:n `webterm` (WS → rcpu/auth) | rio ilman Emscriptenin socket-proxya | valmis 27.9. |
 | 2b | WSS: Plan2001 tarjoilee sivun ja WebSocketit HTTPS:llä (tlssrv + webterm) | `https://`/`wss://` Chromessa ilman Chromen asetuksia | valmis 27.9. |
-| 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää, JS + WASM -raja | ei TLS:ää TLS:n sisällä | |
+| 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää | ei TLS:ää TLS:n sisällä | valmis 27.9. |
+| 2d | JS + WASM -raja (drawinit, drawwrite ... kuten arkkitehtuurissa) | | |
 | 3 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö
@@ -138,5 +139,16 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
   konteksti, joten SharedArrayBuffer toimii ilman `chrome://flags`-asetusta.
 - Testit: `--vm` lataa sivun VM:ltä, ja Chromium luottaa vain tämän
   varmenteen avaimeen (`--ignore-certificate-errors-spki-list`, `tools/spki`).
-- TLS on nyt kahdesti: WSS:n ja drawtermin oman rcpu-TLS:n. Vaihe 2c poistaa
-  sisemmän.
+
+## Vaihe 2c: ei TLS:ää TLS:n sisällä (27.9.)
+
+- Plan2001: `webterm -s` (vain tlssrv:n takana, portti 17443) tarjoaa
+  polun `/rcpu`: webterm tekee itse sen, minkä `tlssrv -a` tekee rcpu:lle
+  (p9any/dp9ik palvelimena, `auth_chuid`, rcpu-skripti), mutta ilman
+  TLS-PSK:ta. Salaamattomassa portissa 17080 `/rcpu`:ta ei ole (404).
+- Selain: kun `MONOLITH_WS` on `wss:`, rcpu (portti 17019) menee polkuun
+  `/rcpu`, ja cpu.c:n `tlsClient` (vain cpu.c, `-DtlsClient=monolithtlsclient`)
+  jättää p9authtls:n TLS-PSK:n (`pskID p9secret`) pois. Tavallisella
+  `ws://`:llä (tools/serve) sisempi TLS säilyy.
+- Auth (DP9IK) kulkee WSS:n sisällä; auth-palvelimen yhteys (`/567`) on
+  ennallaan.

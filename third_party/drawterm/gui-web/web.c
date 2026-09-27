@@ -15,6 +15,7 @@
 #include <memdraw.h>
 #include <keyboard.h>
 #include <cursor.h>
+#include <libsec.h>
 #include "screen.h"
 
 /* events from the page (web/index.html) */
@@ -29,6 +30,8 @@ void	webscreensize(int*, int*);
 void	webresize(int, int);
 void	webflush(void*, int, int, int, int, int);
 void	webcursor(uchar*, int, int);
+
+int	wsrcpuplain(void);
 
 Memimage *gscreen;
 static char *snarfbuf;
@@ -186,4 +189,18 @@ setcursor(void)
 void
 titlewrite(char *buf)
 {
+}
+
+/*
+ * cpu.c's tlsClient (-DtlsClient=monolithtlsclient for cpu.c only): over
+ * wss, rcpu's connection is webterm's /rcpu, authenticated and not
+ * encrypted again, so its TLS-PSK (pskID p9secret, cpu.c p9authtls) is
+ * left out.  Everything else is libsec's.
+ */
+int
+monolithtlsclient(int fd, TLSconn *c)
+{
+	if(wsrcpuplain() && c->pskID != nil && strcmp(c->pskID, "p9secret") == 0)
+		return fd;
+	return tlsClient(fd, c);
 }

@@ -5,6 +5,11 @@
  * fills; send() hands the bytes to the main thread and returns.  The
  * address in connect() is not used: the WebSocket server is the machine.
  *
+ * Over wss the rcpu connection (port 17019) is MONOLITH_WS/rcpu instead:
+ * webterm authenticates and runs rcpu without its TLS-PSK, the WebSocket's
+ * TLS being enough, and cpu.c's tlsClient (-DtlsClient=monolithtlsclient
+ * for cpu.c only, in web.c) leaves that connection as it is.
+ *
  * drawterm's calls come here by renaming (Make.emscripten: -Dsocket=wssocket
  * ...); the rest of drawterm's file descriptors pass through.  No drawterm
  * headers: their type macros clash with Emscripten's.
@@ -132,7 +137,7 @@ int
 wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 {
 	Conn *c;
-	char *base;
+	char *base, path[16];
 	int i, gen, ok;
 
 	if((c = conn(fd)) == NULL)
@@ -150,10 +155,14 @@ wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 	base = getenv("MONOLITH_WS");
 	if(base == NULL)
 		base = "ws://127.0.0.1:8081";
+	if(c->port == 17019 && wsrcpuplain())
+		strcpy(path, "rcpu");
+	else
+		snprintf(path, sizeof path, "%d", c->port);
 	MAIN_THREAD_EM_ASM({
 		var i = $0;
 		var gen = $1;
-		var ws = new WebSocket(UTF8ToString($2) + '/' + $3);
+		var ws = new WebSocket(UTF8ToString($2) + '/' + UTF8ToString($3));
 		ws.binaryType = 'arraybuffer';
 		Module.monolithWs = Module.monolithWs || {};
 		Module.monolithWs[i] = ws;
@@ -174,7 +183,7 @@ wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 			_wsdata(i, gen, p, d.length);
 			_free(p);
 		};
-	}, i, gen, base, c->port);
+	}, i, gen, base, path);
 	pthread_mutex_lock(&lk);
 	while(c->gen == gen && c->state == Connecting)
 		pthread_cond_wait(&cv, &lk);
@@ -305,4 +314,14 @@ wsgetpeername(int fd, struct sockaddr *a, socklen_t *alen)
 	if((c = conn(fd)) == NULL)
 		return getpeername(fd, a, alen);
 	return fakeaddr(c, a, alen, c->port);
+}
+
+/* rcpu goes to MONOLITH_WS/rcpu, without TLS-PSK (web.c's tlsClient) */
+int
+wsrcpuplain(void)
+{
+	char *base;
+
+	base = getenv("MONOLITH_WS");
+	return base != NULL && strncmp(base, "wss:", 4) == 0;
 }
