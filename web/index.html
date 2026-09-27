@@ -39,6 +39,7 @@ body { display: flex; flex-direction: column; }
 	<button>Connect</button>
 </form></div>
 <div id="status">loading drawterm…</div>
+<script src="monolith.js"></script>
 <script>
 // drawterm in the page.  Arguments come from the query
 // (?a=-h&a=127.0.0.1...), the password from the fragment (#pass=...), which
@@ -48,8 +49,6 @@ body { display: flex; flex-direction: column; }
 // the mouse button for the next touch and opens the on-screen keyboard.
 (() => {
 const q = new URLSearchParams(location.search);
-let ready = false;	// the runtime is up: _webpush may be called
-let flushes = 0;
 const frag = new URLSearchParams(location.hash.slice(1));
 // the password: #pass=... (taken out of the address bar at once) or the
 // login form; the user: ?user=... or the form, default glenda
@@ -63,7 +62,6 @@ const textonly = args.includes('-G');
 const touchui = q.has('touch') ? q.get('touch') !== '0' : matchMedia('(pointer: coarse)').matches;
 const box = document.getElementById('box');
 const canvas = document.getElementById('screen');
-const ctx = canvas.getContext('2d', { alpha: false });
 const out = document.getElementById('out');
 const bar = document.getElementById('bar');
 const kbd = document.getElementById('kbd');
@@ -88,12 +86,12 @@ if (remote) {
 	setInterval(() => {
 		const res = performance.getEntriesByType('resource').filter(r => /drawterm\.(js|wasm)/.test(r.name))
 			.map(r => r.name.split('/').pop() + ':' + (r.responseEnd / 1000).toFixed(1) + 's/' + r.transferSize);
-		rlog('alive ready=' + ready + ' flushes=' + flushes + ' loaded=' + res.length + ' ' + res.slice(0, 3).join(' '));
+		rlog('alive ready=' + mo.ready + ' flushes=' + mo.flushes + ' loaded=' + res.length + ' ' + res.slice(0, 3).join(' '));
 	}, 5000);
 }
 function setstatus(t) { status.textContent = t; if (t) { console.log('monolith: ' + t); rlog('status: ' + t); } }
 function show(t) { out.textContent += t + '\n'; console.log(t); rlog('out: ' + t); }
-function push(type, a, b, c) { if (ready) Module._webpush(type, a, b, c); }
+function push(type, a, b, c) { mo.input(type, a, b, c); }
 const Evmouse = 1, Evkey = 2, Evresize = 3;
 
 // screen: the box above the bar, one Plan 9 pixel per CSS pixel
@@ -217,10 +215,20 @@ function resized() {
 window.addEventListener('resize', resized);
 new ResizeObserver(resized).observe(box);
 
-// the canvas and cursor, called by gui-web (webjs.c) on the main thread
-const cursorcanvas = document.createElement('canvas');
-cursorcanvas.width = cursorcanvas.height = 16;
+// drawterm's side of the page: screen, cursor, connections (monolith.js)
+const mo = Monolith({
+	canvas,
+	size,
+	log: rlog,
+	onready: () => setstatus(textonly ? 'drawterm ' + args.join(' ') : 'connecting…'),
+	onflush: n => {
+		if (n !== 1) return;
+		setstatus(''); console.log('MONOLITH-FLUSH first'); rlog('first flush');
+		if (!touchui) canvas.focus();
+	},
+});
 window.Module = {
+	monolith: mo,
 	arguments: args,
 	preRun: [m => {
 		if (pass) m.ENV.PASS = pass;
@@ -232,28 +240,10 @@ window.Module = {
 	}],
 	print: show,
 	printErr: show,
-	onRuntimeInitialized: () => { ready = true; setstatus(textonly ? 'drawterm ' + args.join(' ') : 'connecting…'); },
 	onExit: code => { setstatus('drawterm exited (' + code + ')'); console.log('MONOLITH-EXIT ' + code); },
-	monolithSize: size,
-	monolithResize: (w, h) => {
-		canvas.width = w; canvas.height = h;
-		canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-	},
-	monolithFlush: (img, x, y) => {
-		ctx.putImageData(img, x, y);
-		if (flushes++ === 0) {
-			setstatus(''); console.log('MONOLITH-FLUSH first'); rlog('first flush');
-			if (!touchui) canvas.focus();
-		}
-	},
-	monolithCursor: (img, hx, hy) => {
-		cursorcanvas.getContext('2d').putImageData(img, 0, 0);
-		hx = Math.min(15, Math.max(0, hx)); hy = Math.min(15, Math.max(0, hy));
-		canvas.style.cursor = `url(${cursorcanvas.toDataURL()}) ${hx} ${hy}, default`;
-	},
 };
 // for tests driving the page (tools/test-rio)
-window.monolith = { push, get flushes() { return flushes; } };
+window.monolith = { push, get flushes() { return mo.flushes; } };
 
 if (!crossOriginIsolated)
 	setstatus('not cross-origin isolated: serve with tools/serve (COOP/COEP) on localhost or HTTPS');

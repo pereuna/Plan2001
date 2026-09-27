@@ -1,9 +1,9 @@
 /*
  * gui-web: drawterm's screen, mouse and keyboard in the browser.
  * The screen is an XBGR32 Memimage whose changed rectangles
- * flushmemscreen copies into the page's canvas; the page queues mouse,
- * key and resize events, and a kproc hands them to drawterm.
- * webjs.c is the browser side, bridge.c main and the socket bridge.
+ * flushmemscreen gives the page (js_flush); the page's mouse, key and
+ * resize events come through events.c to a kproc here.  monolith.h is
+ * the whole boundary with the page; wsock.c the connections.
  */
 #include "u.h"
 #include "lib.h"
@@ -18,18 +18,7 @@
 #include <libsec.h>
 #include "screen.h"
 
-/* events from the page (web/index.html) */
-enum {
-	Evmouse = 1,	/* x, y, buttons */
-	Evkey,		/* rune, down */
-	Evresize,	/* width, height */
-};
-
-void	webnext(int*, int*, int*, int*);
-void	webscreensize(int*, int*);
-void	webresize(int, int);
-void	webflush(void*, int, int, int, int, int);
-void	webcursor(uchar*, int, int);
+#include "monolith.h"
 
 int	wsrcpuplain(void);
 
@@ -49,7 +38,7 @@ inputproc(void *v)
 
 	USED(v);
 	for(;;){
-		webnext(&t, &a, &b, &c);
+		mo_nextinput(&t, &a, &b, &c);
 		switch(t){
 		case Evmouse:
 			absmousetrack(a, b, c, ticks());
@@ -71,7 +60,7 @@ screeninit(void)
 	int w, h;
 
 	memimageinit();
-	webscreensize(&w, &h);
+	js_screensize(&w, &h);
 	r = Rect(0, 0, w, h);
 	screensize(r, XBGR32);
 	if(gscreen == nil)
@@ -97,7 +86,7 @@ screensize(Rectangle r, ulong chan)
 		freememimage(gscreen);
 	gscreen = m;
 	gscreen->clipr = ZR;
-	webresize(Dx(r), Dy(r));
+	js_resize(Dx(r), Dy(r));
 }
 
 Memdata*
@@ -119,7 +108,7 @@ flushmemscreen(Rectangle r)
 	assert(!canqlock(&drawlock));
 	if(rectclip(&r, gscreen->clipr) == 0)
 		return;
-	webflush(byteaddr(gscreen, gscreen->r.min), gscreen->width*sizeof(ulong),
+	js_flush(byteaddr(gscreen, gscreen->r.min), gscreen->width*sizeof(ulong),
 		r.min.x, r.min.y, r.max.x, r.max.y);
 }
 
@@ -182,7 +171,7 @@ setcursor(void)
 			}else
 				p[0] = p[1] = p[2] = p[3] = 0;
 		}
-	webcursor(img, -cursor.offset.x, -cursor.offset.y);
+	js_cursor(img, -cursor.offset.x, -cursor.offset.y);
 	qunlock(&drawlock);
 }
 

@@ -8,7 +8,8 @@
 | 2a | Oma WebSocket-transportti ja Plan2001:n `webterm` (WS → rcpu/auth) | rio ilman Emscriptenin socket-proxya | valmis 27.9. |
 | 2b | WSS: Plan2001 tarjoilee sivun ja WebSocketit HTTPS:llä (tlssrv + webterm) | `https://`/`wss://` Chromessa ilman Chromen asetuksia | valmis 27.9. |
 | 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää | ei TLS:ää TLS:n sisällä | valmis 27.9. |
-| 2d | JS + WASM -raja (drawinit, drawwrite ... kuten arkkitehtuurissa) | | |
+| 2d | JS + WASM -raja: `gui-web/monolith.h`, `library.js`, `web/monolith.js` | ei selainkoodia C:ssä (`EM_ASM`) | valmis 27.9. |
+| 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | selain taustalle ja takaisin, rio jatkuu | |
 | 3 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö
@@ -152,3 +153,24 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
   `ws://`:llä (tools/serve) sisempi TLS säilyy.
 - Auth (DP9IK) kulkee WSS:n sisällä; auth-palvelimen yhteys (`/567`) on
   ennallaan.
+
+## Uudelleenyhdistys (suunnitelma, vaihe 2e)
+
+Kännykässä selain katkaisee tausta-välilehden WebSocketit, ja mobiiliverkko
+katkeilee; nyt kumpikin päättää istunnon (`exportfs: short write in reply`).
+drawtermissa on tähän valmis mekanismi, **aan** (`-p`, `aan.c`): se numeroi
+datan ja lähettää kuittaamattoman uudelleen uudella yhteydellä, ja
+palvelimella rcpu ajaa `aan`-suodattimen. Suunnitelma:
+
+1. Selvitä, toimiiko drawtermin `-p` (aan) webtermin kautta sellaisenaan:
+   aan tekee uuden yhteyden rcpu-porttiin, mikä on WebSocketeilla uusi
+   `/rcpu`. Sisempi TLS: aan ajetaan TLS:n alla, joten 2c:n ohitus pitää
+   sovittaa (`startaan` + `p9authtls`).
+2. Sivu: `visibilitychange` ja `online`-tapahtumat; kun sivu palaa,
+   katkennut yhteys avataan uudelleen (`js_netopen` samalle connille),
+   ja aan jatkaa.
+3. Jos aan ei sovi: oma kevyt jatko webtermissä (istuntotunniste,
+   kuittaamattomien kehysten puskuri molemmissa päissä).
+4. Testi: `test-rio --vm` katkaisee WebSocketit kesken (DevTools
+   `Network.emulateNetworkConditions offline`) ja tarkistaa, että rio
+   jatkuu.

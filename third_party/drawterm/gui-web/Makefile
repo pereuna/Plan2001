@@ -5,7 +5,7 @@ LIB=libgui.a
 OFILES=\
 	web.$O\
 	wsock.$O\
-	webjs.$O\
+	events.$O\
 
 default: $(LIB)
 $(LIB): $(OFILES)

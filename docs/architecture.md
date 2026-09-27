@@ -27,9 +27,10 @@ Chrome
       main.c, cpu.c, kern/, exportfs/, libauth*, libsec, libmp,
       libdraw, libmemdraw, libmemlayer, posix-port/
       + gui-web/ (uusi): attachscreen, flushmemscreen → canvas, syöte
-         │ gui-web/wsock.c: jokainen TCP-yhteys on WebSocket (vaihe 2a)
+         │ gui-web/wsock.c + web/monolith.js: jokainen TCP-yhteys on WebSocket
          ▼
-      Plan2001: webterm (portti 17080) → rcpu (17019) ja auth (567)
+      Plan2001: tlssrv + webterm (17443, wss) → /rcpu (auth, ei sisempää TLS:ää),
+      /567 auth; ilman TLS:ää portti 17080 → rcpu (17019) ja auth (567)
 ```
 
 - **pthreadit:** drawtermin kprocit ovat POSIX-säikeitä. Emscripten tukee niitä
@@ -43,23 +44,33 @@ Chrome
   muuttuneen alueen canvasiin. Syöte (pointer lock, näppäimet, rulla, koko,
   leikepöytä) kulkee drawtermin omiin rajapintoihin.
 
-## Vaihe 2: JS + WASM -raja ja oma transportti
+## Vaihe 2: JS + WASM -raja ja oma transportti (tehty)
 
-JavaScript hoitaa selaimen asiat: WSS, syötteen, leikepöydän, koon,
-canvasin ja WebGPU:n. WASM hoitaa Plan 9 -asiat: 9P:n, `/dev/draw`in,
-`/dev/mouse`n, `/dev/kbd`:n ja `/dev/cons`in sekä devdraw.c:n, libmemdraw:n
-ja libmemlayerin. Rajapinta on pieni:
+JavaScript hoitaa selaimen asiat: WebSocketit, syötteen, näytön ja kursorin
+(myöhemmin leikepöydän ja WebGPU:n). WASM hoitaa Plan 9 -asiat: 9P:n,
+`/dev/draw`in, `/dev/mouse`n, `/dev/kbd`:n ja `/dev/cons`in sekä devdraw.c:n,
+libmemdraw:n ja libmemlayerin. Koko raja on `gui-web/monolith.h`:
 
 ```
-drawinit(w, h)  drawwrite(buf, n)  drawread(buf, n)
-drawmouse(x, y, buttons, time)  drawkey(rune)  drawresize(w, h)
-JS:n importit: jsflush(rect, pixels, stride)  jscursor(...)  jssend(buf, n)
+importit (wasm → sivu, pääsäikeessä; gui-web/library.js → Module.monolith)
+  js_ready()                          sivu voi kutsua exportteja
+  js_screensize(&w, &h)  js_resize(w, h)
+  js_flush(base, stride, x0, y0, x1, y1)   XBGR32-suorakaide → present(ImageData)
+  js_cursor(rgba16x16, hx, hy)
+  js_netopen(conn, gen, url)  js_netsend(conn, p, n)  js_netclose(conn)
+exportit (sivu → wasm)
+  mo_input(type, a, b, c)             hiiri, näppäin, koko
+  mo_netstate(conn, gen, state)  mo_netdata(conn, gen, p, n)
 ```
 
-Verkko: `wss://plan2001/term`, jonka sisällä DP9IK-auth ja 9P. **Ei TLS:ää
-TLS:n sisällä:** WSS on jo TLS, joten rcpun TLS-PSK jää pois. Plan2001:lle
-tulee webterm-kuuntelija cpu-palvelun rinnalle, ja klassinen rcpu ja natiivi
-drawterm toimivat edelleen.
+Sivun puoli on `web/monolith.js` (`Monolith({canvas, size, ...})`): se omistaa
+WebSocketit, canvasin ja kursorin. WebGPU-esitys on muutos vain siihen.
+
+Verkko: jokainen drawtermin TCP-yhteys on WebSocket Plan2001:n webtermiin
+(`wss://kone/17019`, `/567`; `/rcpu` WSS:n yli). **Ei TLS:ää TLS:n sisällä:**
+`/rcpu` tekee DP9IK-kirjautumisen WSS:n sisällä ilman rcpun TLS-PSK:ta.
+Webterm tarjoilee myös sivun (tlssrv, portti 17443), ja klassinen rcpu ja
+natiivi drawterm toimivat edelleen.
 
 ## Vaihe 3: WebGPU
 

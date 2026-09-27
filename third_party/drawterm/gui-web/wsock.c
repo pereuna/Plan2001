@@ -1,8 +1,9 @@
 /*
  * drawterm's TCP connections as WebSockets: each connect() opens
  * MONOLITH_WS/PORT (Plan2001's webterm: /17019 rcpu, /567 auth), and the
- * bytes stream both ways.  recv() waits on a buffer the page's onmessage
- * fills; send() hands the bytes to the main thread and returns.  The
+ * bytes stream both ways.  The page owns the WebSockets (js_netopen ...,
+ * monolith.h); recv() waits on a buffer its mo_netdata fills, send()
+ * hands the bytes over and returns.  The
  * address in connect() is not used: the WebSocket server is the machine.
  *
  * Over wss the rcpu connection (port 17019) is MONOLITH_WS/rcpu instead:
@@ -29,7 +30,9 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <stdio.h>
 #include <emscripten.h>
+#include "monolith.h"
 
 enum {
 	Nconn	= 64,
@@ -38,8 +41,8 @@ enum {
 	Free	= 0,
 	New,
 	Connecting,
-	Open,
-	Closed,
+	Open = Netopen,
+	Closed = Netclosed,
 };
 
 typedef struct Conn Conn;
@@ -65,9 +68,9 @@ conn(int fd)
 	return &conns[fd-Fdbase];
 }
 
-/* from the page, main thread: the WebSocket opened (Open) or closed (Closed) */
+/* from the page, main thread: the WebSocket opened (Netopen) or closed (Netclosed) */
 EMSCRIPTEN_KEEPALIVE void
-wsevent(int i, int gen, int state)
+mo_netstate(int i, int gen, int state)
 {
 	pthread_mutex_lock(&lk);
 	if(conns[i].gen == gen && conns[i].state != Free)
@@ -78,7 +81,7 @@ wsevent(int i, int gen, int state)
 
 /* from the page, main thread: n bytes at p arrived */
 EMSCRIPTEN_KEEPALIVE void
-wsdata(int i, int gen, unsigned char *p, int n)
+mo_netdata(int i, int gen, unsigned char *p, int n)
 {
 	Conn *c;
 	unsigned char *nb;
@@ -137,7 +140,7 @@ int
 wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 {
 	Conn *c;
-	char *base, path[16];
+	char *base, path[16], url[512];
 	int i, gen, ok;
 
 	if((c = conn(fd)) == NULL)
@@ -159,31 +162,8 @@ wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 		strcpy(path, "rcpu");
 	else
 		snprintf(path, sizeof path, "%d", c->port);
-	MAIN_THREAD_EM_ASM({
-		var i = $0;
-		var gen = $1;
-		var ws = new WebSocket(UTF8ToString($2) + '/' + UTF8ToString($3));
-		ws.binaryType = 'arraybuffer';
-		Module.monolithWs = Module.monolithWs || {};
-		Module.monolithWs[i] = ws;
-		/* events can come after drawterm has exited */
-		ws.onopen = function() { if(!runtimeExited) _wsevent(i, gen, 3); };
-		ws.onclose = function() {
-			if(Module.monolithWs[i] === ws)
-				delete Module.monolithWs[i];
-			if(!runtimeExited)
-				_wsevent(i, gen, 4);
-		};
-		ws.onmessage = function(e) {
-			if(runtimeExited)
-				return;
-			var d = new Uint8Array(e.data);
-			var p = _malloc(d.length);
-			HEAPU8.set(d, p);
-			_wsdata(i, gen, p, d.length);
-			_free(p);
-		};
-	}, i, gen, base, path);
+	snprintf(url, sizeof url, "%s/%s", base, path);
+	js_netopen(i, gen, url);
 	pthread_mutex_lock(&lk);
 	while(c->gen == gen && c->state == Connecting)
 		pthread_cond_wait(&cv, &lk);
@@ -240,13 +220,8 @@ wssend(int fd, const void *p, size_t n, int flags)
 		return -1;
 	}
 	memcpy(q, p, n);
-	/* in order with the other calls to the main thread; ws.send copies */
-	MAIN_THREAD_ASYNC_EM_ASM({
-		var ws = Module.monolithWs && Module.monolithWs[$0];
-		if(ws && ws.readyState === 1)
-			ws.send(HEAPU8.slice($1, $1 + $2));
-		_free($1);
-	}, c - conns, q, n);
+	/* in order with the other calls to the main thread */
+	js_netsend(c - conns, q, n);
 	return n;
 }
 
@@ -259,13 +234,7 @@ wsclose(int fd)
 	if((c = conn(fd)) == NULL)
 		return close(fd);
 	i = c - conns;
-	MAIN_THREAD_ASYNC_EM_ASM({
-		var ws = Module.monolithWs && Module.monolithWs[$0];
-		if(ws){
-			delete Module.monolithWs[$0];
-			ws.close();
-		}
-	}, i);
+	js_netclose(i);
 	pthread_mutex_lock(&lk);
 	c->state = Free;
 	c->gen++;
