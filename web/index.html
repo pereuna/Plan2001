@@ -243,7 +243,12 @@ window.Module = {
 	onExit: code => { setstatus('drawterm exited (' + code + ')'); console.log('MONOLITH-EXIT ' + code); },
 };
 // for tests driving the page (tools/test-rio)
-window.monolith = { push, get flushes() { return mo.flushes; } };
+window.monolith = { push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, dropnet: () => mo.dropnet() };
+
+// back from the background or offline: resume dropped connections now
+document.addEventListener('visibilitychange', () => { if (!document.hidden) mo.wake(); });
+addEventListener('online', () => mo.wake());
+addEventListener('pageshow', () => mo.wake());
 
 if (!crossOriginIsolated)
 	setstatus('not cross-origin isolated: serve with tools/serve (COOP/COEP) on localhost or HTTPS');

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase 1c acceptance: rio in headless Chromium, driven like a user.
 
-  tools/test-rio [--mobile] [--slow] [--vm] [--login] [URL-QUERY]
+  tools/test-rio [--mobile] [--slow] [--vm] [--login] [--drop] [URL-QUERY]
 
 Starts tools/serve and Chromium with the DevTools protocol, opens the page
 (drawterm's console on the Plan2001 CPU VM), types 'rio', opens a window
@@ -15,6 +15,9 @@ backspace; screenshots build/rio-mobile-*.png.  --slow throttles the
 CPU 6x and adds 300 ms latency (1 Mbit/s).  --vm loads the page from
 Plan2001's webterm (https://127.0.0.1:17443/, wss) instead of tools/serve.
 --login types the password into the page's login form, not #pass=.
+--drop (with --vm) drops the WebSockets just before typing into the
+window, as a phone's browser in the background does; the session must
+resume and the keys typed meanwhile arrive.
 Needs the VM running and its password in ~/.cache/plan2001/cpu.pass.
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -106,7 +109,8 @@ def main():
 	slow = '--slow' in argv
 	vm = '--vm' in argv
 	login = '--login' in argv
-	argv = [a for a in argv if a not in ('--mobile', '--slow', '--vm', '--login')]
+	drop = '--drop' in argv
+	argv = [a for a in argv if a not in ('--mobile', '--slow', '--vm', '--login', '--drop')]
 	query = argv[0] if argv else ''
 	tmp = tempfile.mkdtemp()
 	serve = None
@@ -195,6 +199,11 @@ def main():
 					windowsVirtualKeyCode=8, nativeVirtualKeyCode=8)
 			time.sleep(0.3)
 
+		# the keys typed right after go out when the session has resumed
+		def dropnet():
+			cdp.js('window.monolith.dropnet()')
+			print('test-rio: WebSockets dropped')
+
 		def shot(name):
 			png = cdp.call('Page.captureScreenshot', format='png')['data']
 			path = os.path.join(root, 'build', f'rio-{prefix}{name}.png')
@@ -235,6 +244,8 @@ def main():
 			time.sleep(3)
 			if cdp.js("document.querySelector('[data-b=\"1\"]').classList.contains('on')") is not True:
 				raise SystemExit('test-rio: the bar did not go back to button 1 after a touch')
+			if drop:
+				dropnet()
 			tapbar('#showkbd')
 			t0 = time.time()
 			type('echo MONOLITH-OX')
@@ -254,8 +265,13 @@ def main():
 			mouse(660, 410, 0)
 			time.sleep(3)
 			mouse(300, 200, 0)
+			if drop:
+				dropnet()
 			t0 = time.time()
 			type('echo MONOLITH-OK; cat /dev/sysname; echo\n')
+		if drop:
+			wait(cdp, 'window.monolith.resumes > 0', 30, 'the session to resume')
+			print('test-rio: resumed')
 		settle(t0)
 		shot('window')
 		n = cdp.js('window.monolith.flushes')

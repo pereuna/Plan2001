@@ -9,7 +9,7 @@
 | 2b | WSS: Plan2001 tarjoilee sivun ja WebSocketit HTTPS:llä (tlssrv + webterm) | `https://`/`wss://` Chromessa ilman Chromen asetuksia | valmis 27.9. |
 | 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää | ei TLS:ää TLS:n sisällä | valmis 27.9. |
 | 2d | JS + WASM -raja: `gui-web/monolith.h`, `library.js`, `web/monolith.js` | ei selainkoodia C:ssä (`EM_ASM`) | valmis 27.9. |
-| 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | selain taustalle ja takaisin, rio jatkuu | |
+| 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | `test-rio --vm --drop`: yhteydet poikki, rio jatkuu, välissä kirjoitetut näppäimet perille | valmis 27.9. |
 | 3 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö
@@ -154,23 +154,24 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
 - Auth (DP9IK) kulkee WSS:n sisällä; auth-palvelimen yhteys (`/567`) on
   ennallaan.
 
-## Uudelleenyhdistys (suunnitelma, vaihe 2e)
+## Vaihe 2e: uudelleenyhdistys (27.9.)
 
-Kännykässä selain katkaisee tausta-välilehden WebSocketit, ja mobiiliverkko
-katkeilee; nyt kumpikin päättää istunnon (`exportfs: short write in reply`).
-drawtermissa on tähän valmis mekanismi, **aan** (`-p`, `aan.c`): se numeroi
-datan ja lähettää kuittaamattoman uudelleen uudella yhteydellä, ja
-palvelimella rcpu ajaa `aan`-suodattimen. Suunnitelma:
+drawtermin aan ei sovellu sellaisenaan: se avaa uuden TCP-portin
+satunnaisesta numerosta ja tekee TLS-kättelyn uudelleen, eikä kumpikaan
+kulje webtermin WebSocketien kautta. Jatko on siksi siinä kerroksessa, joka
+omistaa yhteydet:
 
-1. Selvitä, toimiiko drawtermin `-p` (aan) webtermin kautta sellaisenaan:
-   aan tekee uuden yhteyden rcpu-porttiin, mikä on WebSocketeilla uusi
-   `/rcpu`. Sisempi TLS: aan ajetaan TLS:n alla, joten 2c:n ohitus pitää
-   sovittaa (`startaan` + `p9authtls`).
-2. Sivu: `visibilitychange` ja `online`-tapahtumat; kun sivu palaa,
-   katkennut yhteys avataan uudelleen (`js_netopen` samalle connille),
-   ja aan jatkaa.
-3. Jos aan ei sovi: oma kevyt jatko webtermissä (istuntotunniste,
-   kuittaamattomien kehysten puskuri molemmissa päissä).
-4. Testi: `test-rio --vm` katkaisee WebSocketit kesken (DevTools
-   `Network.emulateNetworkConditions offline`) ja tarkistaa, että rio
-   jatkuu.
+- Plan2001:n webterm: `/rcpu` on istunto, joka pitää rcpu-prosessin, kun
+  WebSocket katkeaa. Istunto antaa tunnisteen (`s TOKEN`), molemmat päät
+  laskevat vastaanotetut tavut ja kuittaavat ne (`a N`), ja kuittaamaton
+  data pysyy puskurissa. `GET /resume/TOKEN/N` liittyy istuntoon `/srv`:n
+  kautta (ohjausputki `/srv/webterm.HASH`, jossa HASH tunnisteen SHA-1:stä,
+  ja liitoksen oma putki), ja istunto lähettää `r M` ja puuttuvan datan.
+  `e`: istunto päättyi tai sitä ei ole; `x`: sivu lopettaa. Istunto ilman
+  liitosta päättyy 10 minuutissa.
+- Sivu (`web/monolith.js`, `Link`): pitää lähetetyn datan kuittaukseen asti,
+  yhdistää katkoksen jälkeen kasvavin välein ja heti, kun sivu palaa
+  näkyviin tai verkko palaa (`visibilitychange`, `online`, `pageshow`).
+  drawterm (wasm) ei näe katkosta; yhteys suljetaan sille vasta, kun
+  jatko ei onnistu 10 minuutissa.
+- Vain `wss://`:n rcpu-yhteys on jatkuva; auth (`/567`) on lyhyt.
