@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase 1c acceptance: rio in headless Chromium, driven like a user.
 
-  tools/test-rio [--mobile] [URL-QUERY]
+  tools/test-rio [--mobile] [--slow] [URL-QUERY]
 
 Starts tools/serve and Chromium with the DevTools protocol, opens the page
 (drawterm's console on the Plan2001 CPU VM), types 'rio', opens a window
@@ -11,7 +11,8 @@ event queue (window.monolith.push), the same path as real events.
 --mobile emulates a phone: touch events on the screen and the button bar
 (button 3 for the menu and the sweep), and text typed through the
 on-screen keyboard's path (Input.insertText, as an IME does), with a
-backspace; screenshots build/rio-mobile-*.png.
+backspace; screenshots build/rio-mobile-*.png.  --slow throttles the
+CPU 6x and adds 300 ms latency (1 Mbit/s).
 Needs the VM running and its password in ~/.cache/plan2001/cpu.pass.
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -100,7 +101,8 @@ def wait(cdp, expr, secs, what):
 def main():
 	argv = sys.argv[1:]
 	mobile = '--mobile' in argv
-	argv = [a for a in argv if a != '--mobile']
+	slow = '--slow' in argv
+	argv = [a for a in argv if a not in ('--mobile', '--slow')]
 	query = argv[0] if argv else ''
 	tmp = tempfile.mkdtemp()
 	serve = subprocess.Popen([os.path.join(root, 'tools/serve'), str(HTTP), str(PROXY)],
@@ -123,6 +125,11 @@ def main():
 			cdp.call('Emulation.setDeviceMetricsOverride', width=412, height=915,
 				deviceScaleFactor=2.625, mobile=True)
 			cdp.call('Emulation.setTouchEmulationEnabled', enabled=True, maxTouchPoints=5)
+		if slow:	# a phone behind a slow tunnel: 6x slower CPU, 300 ms each way
+			cdp.call('Network.enable')
+			cdp.call('Network.emulateNetworkConditions', offline=False, latency=300,
+				downloadThroughput=100_000 // 8 * 10, uploadThroughput=100_000 // 8 * 10)
+			cdp.call('Emulation.setCPUThrottlingRate', rate=6)
 		url = f'http://127.0.0.1:{HTTP}/index.html?bridge=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
 		cdp.call('Page.navigate', url=url)
 		prefix = 'mobile-' if mobile else ''
@@ -180,7 +187,7 @@ def main():
 					break
 			print(f'test-rio: typed line settled in {time.time() - t0 - 1:.1f}s')
 
-		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, "drawterm's console")
+		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 180, "drawterm's console")
 		time.sleep(8)	# until rc's prompt (the profile runs first)
 		shot('console')
 		if mobile:

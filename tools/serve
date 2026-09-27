@@ -44,6 +44,8 @@ MONOLITH_BUILD=$root/build python3 - "$addr" "$http" <<'PY' &
 import email.utils, gzip, http.server, os, sys
 zipped = {}	# path -> (mtime, gzip bytes)
 class H(http.server.SimpleHTTPRequestHandler):
+	# keep-alive: on a lossy link every new connection risks a lost SYN
+	protocol_version = 'HTTP/1.1'
 	# html, js and wasm go gzipped (a third of the size; slow links)
 	def do_GET(self):
 		path = self.translate_path(self.path)
@@ -56,6 +58,7 @@ class H(http.server.SimpleHTTPRequestHandler):
 			try:
 				if int(email.utils.parsedate_to_datetime(ims).timestamp()) >= mtime:
 					self.send_response(304)
+					self.send_header('Content-Length', '0')
 					self.end_headers()
 					return
 			except (TypeError, ValueError):
@@ -80,6 +83,7 @@ class H(http.server.SimpleHTTPRequestHandler):
 		with open(os.path.join(os.environ['MONOLITH_BUILD'], 'page.log'), 'a') as f:
 			f.write(f'{self.client_address[0]} {line}\n')
 		self.send_response(204)
+		self.send_header('Content-Length', '0')
 		self.end_headers()
 	def end_headers(self):
 		self.send_header('Cross-Origin-Opener-Policy', 'same-origin')

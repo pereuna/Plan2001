@@ -67,7 +67,11 @@ if (remote) {
 	addEventListener('error', e => rlog('error: ' + e.message + ' ' + (e.filename || '') + ':' + (e.lineno || '')));
 	addEventListener('unhandledrejection', e => rlog('rejection: ' + e.reason));
 	rlog('start ' + navigator.userAgent + ' isolated=' + crossOriginIsolated + ' cores=' + navigator.hardwareConcurrency);
-	setInterval(() => rlog('alive ready=' + ready + ' flushes=' + flushes), 5000);
+	setInterval(() => {
+		const res = performance.getEntriesByType('resource').filter(r => /drawterm\.(js|wasm)/.test(r.name))
+			.map(r => r.name.split('/').pop() + ':' + (r.responseEnd / 1000).toFixed(1) + 's/' + r.transferSize);
+		rlog('alive ready=' + ready + ' flushes=' + flushes + ' loaded=' + res.length + ' ' + res.slice(0, 3).join(' '));
+	}, 5000);
 }
 function setstatus(t) { status.textContent = t; if (t) { console.log('monolith: ' + t); rlog('status: ' + t); } }
 function show(t) { out.textContent += t + '\n'; console.log(t); rlog('out: ' + t); }
