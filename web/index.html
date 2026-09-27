@@ -18,6 +18,11 @@ body { display: flex; flex-direction: column; }
 #bar button.on { background: var(--on); color: #000; }
 #kbd { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; resize: none; }
 .hidden { display: none !important; }
+#login { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 16px; }
+#login form { display: flex; flex-direction: column; gap: 10px; width: min(320px, 100%); }
+#login input, #login button { font: 16px monospace; padding: 10px; border-radius: 6px; border: 1px solid var(--key); background: var(--bar); color: var(--fg); }
+#login button { background: var(--on); color: #000; border: 0; }
+#login h1 { font: 20px monospace; margin: 0 0 6px; }
 </style>
 </head>
 <body>
@@ -27,6 +32,12 @@ body { display: flex; flex-direction: column; }
 	<button id="esc">Esc</button><button id="showkbd">⌨</button>
 </div>
 <textarea id="kbd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+<div id="login" class="hidden"><form>
+	<h1>Monolith</h1>
+	<input id="user" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="user">
+	<input id="pass" type="password" autocomplete="current-password" placeholder="password">
+	<button>Connect</button>
+</form></div>
 <div id="status">loading drawterm…</div>
 <script>
 // drawterm in the page.  Arguments come from the query
@@ -40,8 +51,14 @@ const q = new URLSearchParams(location.search);
 let ready = false;	// the runtime is up: _webpush may be called
 let flushes = 0;
 const frag = new URLSearchParams(location.hash.slice(1));
+// the password: #pass=... (taken out of the address bar at once) or the
+// login form; the user: ?user=... or the form, default glenda
+let pass = frag.get('pass');
+let user = q.get('user') || 'glenda';
+if (location.hash)
+	history.replaceState(null, '', location.pathname + location.search);
 const args = q.getAll('a').length ? q.getAll('a')
-	: ['-h', 'plan2001', '-a', 'tcp!plan2001!567', '-u', q.get('user') || 'glenda'];
+	: ['-h', 'plan2001', '-a', 'tcp!plan2001!567', '-u', user];
 const textonly = args.includes('-G');
 const touchui = q.has('touch') ? q.get('touch') !== '0' : matchMedia('(pointer: coarse)').matches;
 const box = document.getElementById('box');
@@ -205,8 +222,8 @@ cursorcanvas.width = cursorcanvas.height = 16;
 window.Module = {
 	arguments: args,
 	preRun: [m => {
-		if (frag.get('pass')) m.ENV.PASS = frag.get('pass');
-		m.ENV.USER = q.get('user') || 'glenda';
+		if (pass) m.ENV.PASS = pass;
+		m.ENV.USER = user;
 		// from Plan2001's webterm over https: its wss on the same origin;
 		// from tools/serve: its relay on the next port
 		m.ENV.MONOLITH_WS = q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
@@ -240,8 +257,33 @@ window.monolith = { push, get flushes() { return flushes; } };
 if (!crossOriginIsolated)
 	setstatus('not cross-origin isolated: serve with tools/serve (COOP/COEP) on localhost or HTTPS');
 
+// drawterm starts once there is a password
+function start() {
+	const sc = document.createElement('script');
+	sc.src = 'drawterm.js';
+	document.body.appendChild(sc);
+}
+if (pass || textonly && !q.getAll('a').includes('-u')) {
+	start();
+} else {
+	const login = document.getElementById('login');
+	const uin = document.getElementById('user'), pin = document.getElementById('pass');
+	uin.value = user;
+	login.classList.remove('hidden');
+	setstatus('');
+	(user ? pin : uin).focus();
+	login.querySelector('form').addEventListener('submit', e => {
+		e.preventDefault();
+		if (!pin.value) return;
+		user = uin.value || 'glenda';
+		pass = pin.value;
+		if (!q.getAll('a').length) args[args.length - 1] = user;
+		login.classList.add('hidden');
+		setstatus('loading drawterm…');
+		start();
+	});
+}
 })();
 </script>
-<script src="drawterm.js"></script>
 </body>
 </html>

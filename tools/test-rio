@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase 1c acceptance: rio in headless Chromium, driven like a user.
 
-  tools/test-rio [--mobile] [--slow] [--vm] [URL-QUERY]
+  tools/test-rio [--mobile] [--slow] [--vm] [--login] [URL-QUERY]
 
 Starts tools/serve and Chromium with the DevTools protocol, opens the page
 (drawterm's console on the Plan2001 CPU VM), types 'rio', opens a window
@@ -14,6 +14,7 @@ on-screen keyboard's path (Input.insertText, as an IME does), with a
 backspace; screenshots build/rio-mobile-*.png.  --slow throttles the
 CPU 6x and adds 300 ms latency (1 Mbit/s).  --vm loads the page from
 Plan2001's webterm (https://127.0.0.1:17443/, wss) instead of tools/serve.
+--login types the password into the page's login form, not #pass=.
 Needs the VM running and its password in ~/.cache/plan2001/cpu.pass.
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -104,7 +105,8 @@ def main():
 	mobile = '--mobile' in argv
 	slow = '--slow' in argv
 	vm = '--vm' in argv
-	argv = [a for a in argv if a not in ('--mobile', '--slow', '--vm')]
+	login = '--login' in argv
+	argv = [a for a in argv if a not in ('--mobile', '--slow', '--vm', '--login')]
 	query = argv[0] if argv else ''
 	tmp = tempfile.mkdtemp()
 	serve = None
@@ -142,7 +144,16 @@ def main():
 			url = f'https://127.0.0.1:17443/index.html?{query}#pass={password}'
 		else:
 			url = f'http://127.0.0.1:{HTTP}/index.html?ws=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
+		if login:
+			url = url.split('#')[0]
 		cdp.call('Page.navigate', url=url)
+		if login:
+			wait(cdp, "document.activeElement && document.activeElement.id === 'pass'", 30, 'the login form')
+			cdp.call('Input.insertText', text=password)
+			cdp.call('Input.dispatchKeyEvent', type='keyDown', key='Enter', code='Enter', windowsVirtualKeyCode=13, text='\r')
+			cdp.call('Input.dispatchKeyEvent', type='keyUp', key='Enter', code='Enter', windowsVirtualKeyCode=13)
+			if '#' in cdp.js('location.href'):
+				raise SystemExit('test-rio: the address still has a fragment')
 		prefix = 'mobile-' if mobile else ''
 
 		def push(*ev):
