@@ -1,6 +1,6 @@
 # Monolith
 
-**Plan2001:n drawterm selaimessa.** Chrome on Plan2001:n terminaali: se yhdistää
+**Plan2001:n drawterm selaimessa.** Selain on Plan2001:n terminaali: se yhdistää
 Plan2001:een cpu-palvelimena ja tarjoaa sille näytön, hiiren ja näppäimistön,
 kuten drawterm tekee X11:n, Waylandin tai Win32:n päällä. CPU-palvelin
 mounttaa ne `/mnt/term`iin, ja rio, sam ja acme toimivat tavalliseen tapaan.
@@ -21,7 +21,7 @@ GPU-ajureita, vaan ne jäävät selaimen ja asiakkaan käyttöjärjestelmän vas
 Plan2001 CPU server
         │  9P (rcpu nyt, WSS myöhemmin)
         ▼
-Chrome: Monolith
+Selain: Monolith
    ├── JavaScript: WebSocket, näppäimistö, hiiri, leikepöytä, canvas/WebGPU
    └── WASM: drawterm (auth, 9P, /dev/draw, libmemdraw, libmemlayer)
 ```
@@ -29,7 +29,7 @@ Chrome: Monolith
 ## Tila
 
 Vaihe 1: **9frontin drawterm kokonaisena WASMiksi** Emscriptenillä, ja
-drawtermiin uusi `gui-web`-näyttöbackend. `drawterm.wasm` Chromessa kirjautuu
+drawtermiin uusi `gui-web`-näyttöbackend. `drawterm.wasm` selaimessa kirjautuu
 Plan2001:een (dp9ik, TLS, 9P), ja rio toimii canvasissa hiirellä ja
 näppäimistöllä. Käyttö: [docs/roadmap.md](docs/roadmap.md#käyttö). Suunnitelma ja vaiheet:
 [docs/roadmap.md](docs/roadmap.md). Arkkitehtuuri:

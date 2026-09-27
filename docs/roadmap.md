@@ -3,10 +3,10 @@
 | Vaihe | Tavoite | Hyväksyntä | Tila |
 |---|---|---|---|
 | 1a | Natiivi drawterm → Plan2001-VM cpu-palvelimena | `drawterm -G -c 'echo MONOLITH-OK'` tulostaa merkin | valmis 27.9. |
-| 1b | `drawterm.wasm` ilman grafiikkaa (`-G`) Chromessa | headless Chromiumin konsolilokissa `MONOLITH-OK` | valmis 27.9. (`tools/test-headless`) |
-| 1c | `gui-web`: rio selaimessa | headless-testi raportoi rion flushin, ja käyttäjä kokeilee Chromessa | headless valmis 27.9. (`tools/test-rio`), käyttäjän kokeilu odottaa |
+| 1b | `drawterm.wasm` ilman grafiikkaa (`-G`) selaimessa | headless Chromiumin konsolilokissa `MONOLITH-OK` | valmis 27.9. (`tools/test-headless`) |
+| 1c | `gui-web`: rio selaimessa | headless-testi raportoi rion flushin, ja käyttäjä kokeilee selaimessa | valmis 27.9. (`tools/test-rio`; kokeiltu kännykän Chromella ja Firefoxilla) |
 | 2a | Oma WebSocket-transportti ja Plan2001:n `webterm` (WS → rcpu/auth) | rio ilman Emscriptenin socket-proxya | valmis 27.9. |
-| 2b | WSS: Plan2001 tarjoilee sivun ja WebSocketit HTTPS:llä (tlssrv + webterm) | `https://`/`wss://` Chromessa ilman Chromen asetuksia | valmis 27.9. |
+| 2b | WSS: Plan2001 tarjoilee sivun ja WebSocketit HTTPS:llä (tlssrv + webterm) | `https://`/`wss://` selaimessa ilman selaimen asetusmuutoksia | valmis 27.9. |
 | 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää | ei TLS:ää TLS:n sisällä | valmis 27.9. |
 | 2d | JS + WASM -raja: `gui-web/monolith.h`, `library.js`, `web/monolith.js` | ei selainkoodia C:ssä (`EM_ASM`) | valmis 27.9. |
 | 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | `test-rio --vm --drop`: yhteydet poikki, rio jatkuu, välissä kirjoitetut näppäimet perille | valmis 27.9. |
@@ -42,7 +42,7 @@ Selaimessa `http://127.0.0.1:8080/#pass=SALASANA` avaa drawtermin
 konsolin (`-h plan2001 -a tcp!plan2001!567 -u glenda`; osoitteet eivät merkitse, WebSocket menee aina webtermiin), ja `rio`
 käynnistää rion. Muut argumentit kyselynä (`?a=-h&a=...`; `-G` näyttää vain
 tekstin). Salasana on fragmentissa, joten se ei lähde palvelimelle. Jos
-Chrome on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
+selain on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
 8081:127.0.0.1:8081 debian-kone`.
 
 ## Vaihe 1b: mitä selvisi
@@ -93,13 +93,13 @@ Chrome on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
 koneen 127.0.0.1:n portteihin `MONOLITH_ALLOW` (oletus VM:n 17019 ja 5670),
 ei `bind`iä eikä `listen`iä sivun puolesta, ja kuuntelee vain ADDR:ssa.
 Selain antaa SharedArrayBufferin vain localhostille ja HTTPS:lle, joten
-Chromessa osoite lisätään kohtaan `chrome://flags` → *Insecure origins
+esimerkiksi Chromessa osoite lisätään kohtaan `chrome://flags` → *Insecure origins
 treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
 (`http://localhost:8080`) asetusta ei tarvita.
 
 ## Kännykkä WireGuardin yli (27.9.): mitä selvisi
 
-- Sivu, auth, konsoli ja näppäimistö toimivat kännykän Chromella
+- Sivu, auth, konsoli ja näppäimistö toimivat kännykän selaimella (Chrome, Firefox)
   (`tools/serve --listen 10.77.0.5`, `?log=1` lokiin `build/page.log`).
 - Emscriptenin socket-silta tekee jokaisesta socket-kutsusta kiertomatkan
   proxyyn, ja drawterm lukee auth-merkkijonot tavu kerrallaan.
@@ -137,7 +137,8 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
   factotumiin (`proto=rsa service=tls role=client owner=*`,
   `/cfg/cirno/cpustart`). CA on ladattavissa: `/plan2001-ca.crt`.
 - Kun CA on asennettu selaimeen tai kännykkään, sivu on suojattu
-  konteksti, joten SharedArrayBuffer toimii ilman `chrome://flags`-asetusta.
+  konteksti, joten SharedArrayBuffer toimii ilman selaimen asetusmuutoksia
+  (kuten Chromen `chrome://flags`).
 - Testit: `--vm` lataa sivun VM:ltä, ja Chromium luottaa vain tämän
   varmenteen avaimeen (`--ignore-certificate-errors-spki-list`, `tools/spki`).
 

@@ -21,7 +21,7 @@ drawterm: exportfs → /mnt/term palvelimelle
 ## Vaihe 1: koko drawterm WASMiksi
 
 ```
-Chrome
+Selain
 ├── JS: sivu, canvas, syöte, Emscriptenin runtime
 └── WASM (Emscripten, pthreadit): drawterm sellaisenaan
       main.c, cpu.c, kern/, exportfs/, libauth*, libsec, libmp,

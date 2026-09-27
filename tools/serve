@@ -8,7 +8,8 @@
 #                      127.0.0.1:17080), so the page reaches the VM from here
 # ADDR is 127.0.0.1 unless --listen says otherwise (e.g. a WireGuard
 # address; browsers give SharedArrayBuffer only to localhost and HTTPS, so
-# there Chrome needs the origin in chrome://flags "Insecure origins treated
+# there the browser must be told to trust the origin, e.g. Chrome's
+# chrome://flags "Insecure origins treated
 # as secure").
 #   tools/serve [--listen ADDR] [HTTPPORT [WSPORT]]
 set -e
