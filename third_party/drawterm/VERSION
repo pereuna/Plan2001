@@ -1,0 +1,4 @@
+# 9front drawterm, vendored by tools/import-drawterm
+source git://git.9front.org/plan9front/drawterm
+commit 2840502ea9ec3d35d21ed22894addea7d3be3517
+date 2026-09-26 12:36:36 +0000
