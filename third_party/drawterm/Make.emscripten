@@ -5,13 +5,15 @@
 # getcallerpc() (lock debugging only) is 0: __builtin_return_address would
 # need -sUSE_OFFSET_CONVERTER, which is slow on every lock.  main is
 # gui-web/bridge.c's, which opens the socket bridge and calls drawterm's,
-# and bridge.c works around getsockname and getpeername in Emscripten 3.1.69.
+# and bridge.c works around getsockname and getpeername in Emscripten 3.1.69
+# and buffers recv (each bridge call is a round trip).  posix-factotum.c
+# #undefs socket and calls it undeclared (a local factotum, unused here).
 PTHREAD=-pthread
 AR=emar
 AS=emcc
 RANLIB=emranlib
 CC=emcc
-CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -Wno-unused-but-set-variable -g -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -Dlinux -D_THREAD_SAFE -DPTHREAD $(PTHREAD) -D_REENTRANT '-D__builtin_return_address(x)=0' -Dmain=drawtermmain -Dgetsockname=monolithgetsockname -Dgetpeername=monolithgetpeername -O2
+CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -Wno-unused-but-set-variable -Wno-implicit-function-declaration -g -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -Dlinux -D_THREAD_SAFE -DPTHREAD $(PTHREAD) -D_REENTRANT '-D__builtin_return_address(x)=0' -Dmain=drawtermmain -Dgetsockname=monolithgetsockname -Dgetpeername=monolithgetpeername -Drecv=monolithrecv -Dsocket=monolithsocket -O2
 O=o
 OS=posix
 GUI=web

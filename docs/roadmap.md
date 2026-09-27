@@ -89,3 +89,16 @@ Selain antaa SharedArrayBufferin vain localhostille ja HTTPS:lle, joten
 Chromessa osoite lisätään kohtaan `chrome://flags` → *Insecure origins
 treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
 (`http://localhost:8080`) asetusta ei tarvita.
+
+## Kännykkä WireGuardin yli (27.9.): mitä selvisi
+
+- Sivu, auth, konsoli ja näppäimistö toimivat kännykän Chromella
+  (`tools/serve --listen 10.77.0.5`, `?log=1` lokiin `build/page.log`).
+- Emscriptenin socket-silta tekee jokaisesta socket-kutsusta kiertomatkan
+  proxyyn, ja drawterm lukee auth-merkkijonot tavu kerrallaan.
+  `bridge.c` puskuroi `recv`:n, mutta 200 ms kiertoajalla `-c`-komento vie
+  silti lähes kolme minuuttia (jokainen `send` odottaa vastauksen).
+  Vaihe 2:n oma WSS-transportti poistaa tämän: tavut virtaavat, eikä
+  jokainen kutsu odota.
+- Tunnelin MTU 1280 (mobiiliosuus pudotti isommat), gzip (1 Mt → 310 kt),
+  HTTP/1.1 keep-alive.
