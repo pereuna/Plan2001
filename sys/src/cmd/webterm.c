@@ -9,7 +9,8 @@
  *
  * With -w DIR it also serves the page: GET / or /NAME for a file in DIR
  * (no subdirectories), NAME.gz instead when the browser takes gzip, with
- * the COOP/COEP headers the page's threads need.  tlssrv in front of it
+ * the COOP/COEP headers the page's threads need; POST /log appends the
+ * page's log line (its ?log=1) to /sys/log/monolith.  tlssrv in front of it
  * (/rc/bin/service/tcp17443) makes that https and wss on one origin.
  */
 #include <u.h>
@@ -284,6 +285,32 @@ upstream(int sfd)
 	}
 }
 
+/* POST /log: one line of the page's log, to /sys/log/monolith */
+static void
+logline(char *hdr)
+{
+	char *cl, buf[4096+1];
+	long n;
+	int fd;
+
+	cl = header(hdr, "Content-Length");
+	n = cl != nil ? atol(cl) : 0;
+	if(n < 0 || n > 4096)
+		reply("413 Content Too Large");
+	if(readn(0, buf, n) != n)
+		exits("eof");
+	buf[n] = 0;
+	for(cl = buf; *cl; cl++)
+		if(*cl == '\n' || *cl == '\r')
+			*cl = ' ';
+	if((fd = open("/sys/log/monolith", OWRITE)) >= 0){
+		seek(fd, 0, 2);
+		fprint(fd, "%s\n", buf);
+		close(fd);
+	}
+	status("204 No Content");
+}
+
 static void
 usage(void)
 {
@@ -341,6 +368,10 @@ main(int argc, char **argv)
 	/* requests on one connection until it closes or becomes a WebSocket */
 	for(;;){
 		hdr = readhdr();
+		if(webdir != nil && strncmp(hdr, "POST /log ", 10) == 0){
+			logline(hdr);
+			continue;
+		}
 		if(strncmp(hdr, "GET /", 5) != 0)
 			reply("405 Method Not Allowed");
 		path = hdr+4;

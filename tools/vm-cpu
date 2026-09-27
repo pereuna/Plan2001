@@ -67,6 +67,8 @@ webterm() {
 	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
 	echo "vm-cpu: https and wss on 17443"
 	run9 -t 60 "@{cd /tmp && tar xf /dev/sdE1/data chain.pem cpu.key plan2001-ca.crt} && mkdir -p /sys/lib/tls /sys/lib/monolith /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
+	# the page's ?log=1 lines (webterm runs as none)
+	run9 -t 30 "test -e /sys/log/monolith || { touch /sys/log/monolith && chmod 666 /sys/log/monolith }"
 	# the CA, for browsers to install: https://.../plan2001-ca.crt
 	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/plan2001-ca.crt"
 	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
