@@ -1,0 +1,24 @@
+#!/bin/bash
+# Vendor 9front's drawterm into third_party/drawterm at a pinned commit.
+#   tools/import-drawterm [COMMIT]   default: the one in VERSION
+# Clones git://git.9front.org/plan9front/drawterm, exports the commit's tree
+# (no .git) over third_party/drawterm, keeping Monolith's own files there
+# (gui-web/, Make.emscripten), and records the commit in VERSION.
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd); dst=$root/third_party/drawterm
+commit=${1:-$(sed -n 's/^commit //p' "$dst/VERSION" 2>/dev/null)}
+[ -n "$commit" ] || { echo "import-drawterm: no commit given and none in VERSION" >&2; exit 2; }
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+git clone -q git://git.9front.org/plan9front/drawterm "$tmp/dt"
+git -C "$tmp/dt" archive --format=tar "$commit" > "$tmp/dt.tar"
+mkdir -p "$dst"
+find "$dst" -mindepth 1 -maxdepth 1 ! -name gui-web ! -name Make.emscripten ! -name VERSION -exec rm -rf {} +
+tar xf "$tmp/dt.tar" -C "$dst"
+{
+	echo "# 9front drawterm, vendored by tools/import-drawterm"
+	echo "source git://git.9front.org/plan9front/drawterm"
+	echo "commit $(git -C "$tmp/dt" rev-parse "$commit")"
+	echo "date $(git -C "$tmp/dt" log -1 --format=%ci "$commit")"
+} > "$dst/VERSION.new"
+mv "$dst/VERSION.new" "$dst/VERSION"
+echo "import-drawterm: $(sed -n 's/^commit //p' "$dst/VERSION")"
