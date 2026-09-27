@@ -37,6 +37,8 @@ body { display: flex; flex-direction: column; }
 // the mouse button for the next touch and opens the on-screen keyboard.
 (() => {
 const q = new URLSearchParams(location.search);
+let ready = false;	// the runtime is up: _webpush may be called
+let flushes = 0;
 const frag = new URLSearchParams(location.hash.slice(1));
 const args = q.getAll('a').length ? q.getAll('a')
 	: ['-h', '127.0.0.1', '-a', 'tcp!127.0.0.1!5670', '-u', q.get('user') || 'glenda'];
@@ -53,14 +55,26 @@ const status = document.getElementById('status');
 if (touchui && !textonly)
 	bar.classList.remove('hidden');
 
-function setstatus(t) { status.textContent = t; if (t) console.log('monolith: ' + t); }
-function show(t) { out.textContent += t + '\n'; console.log(t); }
-let ready = false;	// the runtime is up: _webpush may be called
+// ?log=1: the page's log, errors and a heartbeat also go to tools/serve
+// (build/page.log), for browsers without a console at hand (phones)
+const remote = q.get('log') === '1';
+const t0 = Date.now();
+function rlog(t) {
+	if (remote)
+		fetch('/log', { method: 'POST', body: ((Date.now() - t0) / 1000).toFixed(1) + ' ' + t, keepalive: true }).catch(() => {});
+}
+if (remote) {
+	addEventListener('error', e => rlog('error: ' + e.message + ' ' + (e.filename || '') + ':' + (e.lineno || '')));
+	addEventListener('unhandledrejection', e => rlog('rejection: ' + e.reason));
+	rlog('start ' + navigator.userAgent + ' isolated=' + crossOriginIsolated + ' cores=' + navigator.hardwareConcurrency);
+	setInterval(() => rlog('alive ready=' + ready + ' flushes=' + flushes), 5000);
+}
+function setstatus(t) { status.textContent = t; if (t) { console.log('monolith: ' + t); rlog('status: ' + t); } }
+function show(t) { out.textContent += t + '\n'; console.log(t); rlog('out: ' + t); }
 function push(type, a, b, c) { if (ready) Module._webpush(type, a, b, c); }
 const Evmouse = 1, Evkey = 2, Evresize = 3;
 
 // screen: the box above the bar, one Plan 9 pixel per CSS pixel
-let flushes = 0;
 function size() { return [Math.max(64, box.clientWidth | 0), Math.max(64, box.clientHeight | 0)]; }
 
 // mouse: DOM buttons 1 left, 2 right, 4 middle; Plan 9 1 left, 2 middle,
@@ -203,7 +217,7 @@ window.Module = {
 	monolithFlush: (img, x, y) => {
 		ctx.putImageData(img, x, y);
 		if (flushes++ === 0) {
-			setstatus(''); console.log('MONOLITH-FLUSH first');
+			setstatus(''); console.log('MONOLITH-FLUSH first'); rlog('first flush');
 			if (!touchui) canvas.focus();
 		}
 	},

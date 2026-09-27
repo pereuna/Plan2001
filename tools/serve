@@ -12,7 +12,8 @@
 # tools/proxy.patch: it listens on ADDR only, connects only to this
 # machine's 127.0.0.1 ports in MONOLITH_ALLOW (default the VM's 17019 and
 # 5670), and never binds or listens for the page.  Phase 2 replaces it with
-# Plan2001's own WSS listener.
+# Plan2001's own WSS listener.  The page's ?log=1 posts its log to
+# build/page.log.
 #   tools/serve [--listen ADDR] [HTTPPORT [PROXYPORT]]
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,7 +40,7 @@ trap 'kill $pids 2>/dev/null' EXIT
 trap 'exit 1' INT TERM
 MONOLITH_LISTEN=$addr stdbuf -oL "$proxy" "$ws" >"$root/build/proxy.log" 2>&1 &
 pids="$pids $!"
-python3 - "$addr" "$http" <<'PY' &
+MONOLITH_BUILD=$root/build python3 - "$addr" "$http" <<'PY' &
 import email.utils, gzip, http.server, os, sys
 zipped = {}	# path -> (mtime, gzip bytes)
 class H(http.server.SimpleHTTPRequestHandler):
@@ -70,6 +71,16 @@ class H(http.server.SimpleHTTPRequestHandler):
 		self.send_header('Last-Modified', email.utils.formatdate(mtime, usegmt=True))
 		self.end_headers()
 		self.wfile.write(body)
+	# the page's ?log=1 lines, to build/page.log
+	def do_POST(self):
+		if self.path != '/log':
+			return self.send_error(404)
+		n = min(int(self.headers.get('Content-Length', 0)), 4096)
+		line = self.rfile.read(n).decode('utf-8', 'replace').replace('\n', ' ')
+		with open(os.path.join(os.environ['MONOLITH_BUILD'], 'page.log'), 'a') as f:
+			f.write(f'{self.client_address[0]} {line}\n')
+		self.send_response(204)
+		self.end_headers()
 	def end_headers(self):
 		self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
 		self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
