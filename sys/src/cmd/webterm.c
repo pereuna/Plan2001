@@ -126,7 +126,7 @@ status(char *s)
 static void
 servefile(char *hdr, char *path)
 {
-	char name[256], file[512], *ae, *enc, *ims, *lm, buf[Iosize];
+	char name[256], file[512], *ae, *enc, *ims, *lm, *cc, buf[Iosize];
 	Dir *d;
 	int fd;
 	long n;
@@ -159,16 +159,18 @@ servefile(char *hdr, char *path)
 	}
 	lm = strdup(httpdate(d->mtime));
 	ims = header(hdr, "If-Modified-Since");
-	if(ims != nil && strcmp(ims, lm) == 0){
+	/* the page itself is never kept: a new one must not wait for revalidation */
+	cc = strstr(name, ".html") != nil ? "no-store" : "no-cache";
+	if(ims != nil && strcmp(ims, lm) == 0 && strcmp(cc, "no-cache") == 0){
 		fprint(1, "HTTP/1.1 304 Not Modified\r\nLast-Modified: %s\r\n"
 			"Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n"
 			"Content-Length: 0\r\n\r\n", lm);
 	}else{
 		fprint(1, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n%s%s%s"
-			"Content-Length: %lld\r\nLast-Modified: %s\r\nCache-Control: no-cache\r\nVary: Accept-Encoding\r\n"
+			"Content-Length: %lld\r\nLast-Modified: %s\r\nCache-Control: %s\r\nVary: Accept-Encoding\r\n"
 			"Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n\r\n",
 			mimetype(name), enc ? "Content-Encoding: " : "", enc ? enc : "", enc ? "\r\n" : "",
-			d->length, lm);
+			d->length, lm, cc);
 		while((n = read(fd, buf, sizeof buf)) > 0)
 			if(write(1, buf, n) != n)
 				exits("write");
