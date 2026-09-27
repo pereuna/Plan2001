@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monolith</title>
+<style>
+:root { --bg: #000; --fg: #d8d8d8; --dim: #777; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 monospace; }
+#out { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; }
+#status { padding: 8px 16px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="status">loading drawterm…</div>
+<pre id="out"></pre>
+<script>
+// drawterm's arguments come from the query (?a=-G&a=-h&a=127.0.0.1...),
+// the password from the fragment (#pass=...), which is never sent to the
+// server.  Defaults: the Plan2001 VM through tools/serve's proxy.
+(() => {
+const q = new URLSearchParams(location.search);
+const frag = new URLSearchParams(location.hash.slice(1));
+const args = q.getAll('a').length ? q.getAll('a')
+	: ['-G', '-h', '127.0.0.1', '-a', 'tcp!127.0.0.1!5670', '-u', 'glenda'];
+const out = document.getElementById('out');
+const status = document.getElementById('status');
+function setstatus(t) { status.textContent = t; console.log('monolith: ' + t); }
+function show(t) { out.textContent += t + '\n'; console.log(t); }
+window.Module = {
+	arguments: args,
+	preRun: [m => {
+		if (frag.get('pass')) m.ENV.PASS = frag.get('pass');
+		m.ENV.USER = q.get('user') || 'glenda';
+		m.ENV.MONOLITH_BRIDGE = q.get('bridge') || 'ws://127.0.0.1:8081';
+	}],
+	print: show,
+	printErr: show,
+	onRuntimeInitialized: () => setstatus('drawterm ' + args.join(' ')),
+	onExit: code => { setstatus('exit ' + code); console.log('MONOLITH-EXIT ' + code); },
+};
+if (!crossOriginIsolated)
+	setstatus('not cross-origin isolated: serve with tools/serve (COOP/COEP)');
+})();
+</script>
+<script src="drawterm.js"></script>
+</body>
+</html>

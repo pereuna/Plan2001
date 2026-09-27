@@ -1,0 +1,24 @@
+#!/bin/bash
+# Build drawterm from third_party/drawterm in a copy under build/.
+#   tools/build [wasm|native]   default wasm
+#     wasm:   build/wasm/drawterm.{js,wasm}  (Emscripten, gui-web)
+#     native: build/native/drawterm          (Linux, X11, the baseline)
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+what=${1:-wasm}
+out=$root/build/$what
+mkdir -p "$out"
+# copy the sources over the old build; make rebuilds what changed (the
+# top Makefile descends into a directory only when its library is missing)
+cp -rpu "$root/third_party/drawterm/." "$out/"
+cd "$out"
+rm -f */*.a *.a
+case $what in
+wasm)	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
+	ls -l drawterm.js drawterm.wasm ;;
+native)	make CONF=linux GUI=x11 AUDIO=none -j"$(nproc)" \
+		'CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -ggdb -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -D_THREAD_SAFE -DPTHREAD -pthread -D_REENTRANT -O2' \
+		'LDADD=-lX11 -ggdb -lm -lrt' >build.log 2>&1 || { tail -30 build.log; exit 1; }
+	ls -l drawterm ;;
+*)	echo "usage: tools/build [wasm|native]" >&2; exit 2 ;;
+esac
