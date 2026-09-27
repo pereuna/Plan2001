@@ -629,3 +629,7 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   (`up->nerrlab == 0`, bisect).
 - 9run: syötepalat 8 → 4 merkkiä ja 10 → 20 ms, koska UART pudotti
   satunnaisesti merkin.
+- webterm (`sys/src/cmd/webterm.c`): WebSocket rcpuun (`/17019`) ja authiin
+  (`/567`) portissa 17080, Monolithin vaihe 2a. `tools/vm-cpu` kääntää ja
+  asentaa sen (`--update` olemassa olevaan cpu.qcow2:een), ja `tools/vm
+  --net` ohjaa 127.0.0.1:17080:n siihen.

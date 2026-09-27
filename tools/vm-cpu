@@ -8,7 +8,11 @@
 #   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
 #                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
 #   plan9.ini           service=cpu
+#   webterm             sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
+#                       for the browser drawterm, on port 17080 (aux/listen)
 # The password is generated into cpu.pass in the cache (not the repo).
+#   tools/vm-cpu            create cpu.qcow2 (if missing)
+#   tools/vm-cpu --update   reinstall webterm in it
 # Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
 # and connect:  PASS=$(cat ~/.cache/plan2001/cpu.pass) drawterm \
 #                 -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda
@@ -21,7 +25,29 @@ run9() { "$here/9run" -d "$vm" "$@"; }
 redact() { sed "s/$pass/<password>/g"; }
 halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog - >/dev/null; }
 
+# webterm from sys/src/cmd, through build/in.img (sdE1), compiled in the VM
+webterm() {
+	echo "vm-cpu: webterm"
+	run9 -t 120 "@{cd /tmp && tar xf /dev/sdE1/data webterm.c && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6}"
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
+}
+mkdir -p "$root/build"
+tar cf "$root/build/in.img" --format=ustar -C "$root/sys/src/cmd" webterm.c
+truncate -s 64M "$root/build/in.img"
+
 [ -f "$cache/base.qcow2" ] || { echo "vm-cpu: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+if [ "$1" = --update ]; then
+	[ -f "$cpu" ] || { echo "vm-cpu: no $cpu" >&2; exit 1; }
+	pass=
+	"$here/vm" stop 2>/dev/null || true
+	trap '"$here/vm" stop' EXIT
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	webterm
+	halt9
+	echo "vm-cpu: webterm updated in $cpu"
+	exit 0
+fi
 if [ -f "$cpu" ]; then
 	echo "vm-cpu: $cpu exists, nothing to do"
 	exit 0
@@ -65,6 +91,7 @@ run9 -t 60 "echo 'ipnet=plan2001 ip=10.0.2.0 ipmask=255.255.255.0 ipgw=10.0.2.2 
 run9 -t 60 "echo 'sys=cirno ether=525400123456 ip=10.0.2.15' >>/tmp/ndb; cp /tmp/ndb /lib/ndb/local"
 run9 -t 60 "9fs 9fat"
 run9 -t 60 "{ grep -v '^service=' /n/9fat/plan9.ini; echo 'service=cpu' } >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini"
+webterm
 halt9
 "$here/vm" stop
 
@@ -72,11 +99,12 @@ halt9
 "$here/vm" start --disk "$new" --net
 printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
 for i in 1 2 3 4 5 6; do
-	run9 -t 30 "netstat -n | grep -s 'Listen +567 ' && netstat -n | grep -s 'Listen +17019 '" >/dev/null && break
+	run9 -t 30 "netstat -n | grep -s 'Listen +567 ' && netstat -n | grep -s 'Listen +17080 '" >/dev/null && break
 	sleep 5
 done
 run9 -t 30 "netstat -n | grep Listen"
 run9 -t 30 "netstat -n | grep -s 'Listen +567 '" >/dev/null || { echo "vm-cpu: no auth listener" >&2; exit 1; }
+run9 -t 30 "netstat -n | grep -s 'Listen +17080 '" >/dev/null || { echo "vm-cpu: no webterm listener" >&2; exit 1; }
 halt9
 "$here/vm" stop
 trap - EXIT
