@@ -5,6 +5,7 @@ LIB=libgui.a
 OFILES=\
 	web.$O\
 	bridge.$O\
+	webjs.$O\
 
 default: $(LIB)
 $(LIB): $(OFILES)

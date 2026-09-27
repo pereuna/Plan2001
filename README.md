@@ -29,9 +29,9 @@ Chrome: Monolith
 ## Tila
 
 Vaihe 1: **9frontin drawterm kokonaisena WASMiksi** Emscriptenillä, ja
-drawtermiin uusi `gui-web`-näyttöbackend. Vaihe 1b toimii: `drawterm.wasm`
-Chromessa kirjautuu Plan2001:een (dp9ik, TLS, 9P) ja ajaa komentoja
-(`-G`). Seuraavaksi 1c, rio canvasiin. Suunnitelma ja vaiheet:
+drawtermiin uusi `gui-web`-näyttöbackend. `drawterm.wasm` Chromessa kirjautuu
+Plan2001:een (dp9ik, TLS, 9P), ja rio toimii canvasissa hiirellä ja
+näppäimistöllä. Käyttö: [docs/roadmap.md](docs/roadmap.md#käyttö). Suunnitelma ja vaiheet:
 [docs/roadmap.md](docs/roadmap.md). Arkkitehtuuri:
 [docs/architecture.md](docs/architecture.md).
 
