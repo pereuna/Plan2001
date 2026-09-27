@@ -11,5 +11,8 @@ plan2001=${PLAN2001:-$(dirname "$root")/Plan2001}
 site=$root/build/deploy
 rm -rf "$site"; mkdir -p "$site"
 cp "$root"/web/* "$root/build/wasm/drawterm.js" "$root/build/wasm/drawterm.wasm" "$site/"
+build=$(date -u +%Y%m%d-%H%M%S)-$(git -C "$root" rev-parse --short HEAD)
+sed -i "s/const BUILD = 'dev';/const BUILD = '$build';/" "$site/index.html"
+echo "deploy: build $build"
 "$plan2001/tools/vm-cpu" --update --web "$site"
 echo "deploy: https://127.0.0.1:17443/"

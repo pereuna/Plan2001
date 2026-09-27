@@ -75,6 +75,7 @@ if (touchui && !textonly)
 // ?log=1: the page's log, errors and a heartbeat also go to tools/serve
 // (build/page.log), for browsers without a console at hand (phones)
 const remote = q.get('log') === '1';
+const BUILD = 'dev';	// tools/deploy stamps it
 const t0 = Date.now();
 function rlog(t) {
 	if (remote)
@@ -83,7 +84,7 @@ function rlog(t) {
 if (remote) {
 	addEventListener('error', e => rlog('error: ' + e.message + ' ' + (e.filename || '') + ':' + (e.lineno || '')));
 	addEventListener('unhandledrejection', e => rlog('rejection: ' + e.reason));
-	rlog('start ' + navigator.userAgent + ' isolated=' + crossOriginIsolated + ' cores=' + navigator.hardwareConcurrency);
+	rlog('start build=' + BUILD + ' blob=' + (typeof Blob) + ' ' + navigator.userAgent + ' isolated=' + crossOriginIsolated + ' cores=' + navigator.hardwareConcurrency);
 	setInterval(() => {
 		const res = performance.getEntriesByType('resource').filter(r => /drawterm\.(js|wasm)/.test(r.name))
 			.map(r => r.name.split('/').pop() + ':' + (r.responseEnd / 1000).toFixed(1) + 's/' + r.transferSize);
