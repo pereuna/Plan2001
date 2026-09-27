@@ -641,3 +641,7 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
 - `webterm -s` (Monolithin vaihe 2c): `/rcpu` tlssrv:n takana tekee
   p9any-kirjautumisen, `auth_chuid`:n ja rcpu-skriptin ilman TLS-PSK:ta,
   koska WSS salaa jo. Portissa 17080 (ei TLS:ää) sitä ei ole.
+- webterm-istunnot (Monolithin vaihe 2e): `/rcpu` säilyy WebSocketin
+  katketessa; `/resume/TOKEN/N` liittyy istuntoon `/srv/webterm.HASH`:n
+  kautta, kuittaamaton data lähetetään uudelleen, ja istunto ilman
+  liitosta päättyy 10 minuutissa.

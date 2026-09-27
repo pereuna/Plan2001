@@ -17,6 +17,7 @@
  * rcpu without its own TLS: webterm does what tlssrv -a does for rcpu -
  * p9any as the server, auth_chuid, the rcpu server script - but the
  * authenticated bytes go straight through the WebSocket, not TLS-PSK.
+ * Such a session survives its WebSocket: GET /resume/TOKEN/N (below).
  */
 #include <u.h>
 #include <libc.h>
@@ -190,9 +191,9 @@ servefile(char *hdr, char *path)
 	close(fd);
 }
 
-/* one frame to the browser: unmasked, binary (or op) */
+/* one frame to the browser on fd: unmasked, binary (or op) */
 static int
-sendframe(int op, uchar *data, long n)
+sendframeto(int fd, int op, uchar *data, long n)
 {
 	uchar *b;
 	int h, r;
@@ -219,9 +220,60 @@ sendframe(int op, uchar *data, long n)
 		h = 10;
 	}
 	memmove(b+h, data, n);
-	r = write(1, b, h+n);
+	r = write(fd, b, h+n);
 	free(b);
 	return r == h+n ? 0 : -1;
+}
+
+static int
+sendframe(int op, uchar *data, long n)
+{
+	return sendframeto(1, op, data, n);
+}
+
+/* one frame from the browser on fd (masked), unmasked into *pp (malloc'd) */
+static int
+readframe(int fd, int *op, uchar **pp, long *np)
+{
+	uchar h[14], *p, *mask;
+	vlong n;
+	int i;
+
+	if(readn(fd, h, 2) != 2)
+		return -1;
+	*op = h[0] & 0x0F;
+	if((h[1] & 0x80) == 0)
+		return -1;		/* clients must mask */
+	n = h[1] & 0x7F;
+	if(n == 126){
+		if(readn(fd, h+2, 2) != 2)
+			return -1;
+		n = h[2]<<8 | h[3];
+	}else if(n == 127){
+		if(readn(fd, h+2, 8) != 8)
+			return -1;
+		n = 0;
+		for(i = 2; i < 10; i++)
+			n = n<<8 | h[i];
+	}
+	if(n > Maxmsg)
+		return -1;
+	mask = h+10;
+	if(readn(fd, mask, 4) != 4)
+		return -1;
+	p = malloc(n+1);
+	if(p == nil)
+		return -1;
+	if(readn(fd, p, n) != n){
+		free(p);
+		return -1;
+	}
+	for(i = 0; i < n; i++)
+		p[i] ^= mask[i%4];
+	p[n] = 0;
+	*pp = p;
+	*np = n;
+	return 0;
 }
 
 /* service to browser */
@@ -241,42 +293,11 @@ downstream(int sfd)
 static void
 upstream(int sfd)
 {
-	uchar h[14], *p, *mask;
-	vlong n;
-	int op, i;
+	uchar *p;
+	long n;
+	int op;
 
-	for(;;){
-		if(readn(0, h, 2) != 2)
-			return;
-		op = h[0] & 0x0F;
-		if((h[1] & 0x80) == 0)
-			return;		/* clients must mask */
-		n = h[1] & 0x7F;
-		if(n == 126){
-			if(readn(0, h+2, 2) != 2)
-				return;
-			n = h[2]<<8 | h[3];
-		}else if(n == 127){
-			if(readn(0, h+2, 8) != 8)
-				return;
-			n = 0;
-			for(i = 2; i < 10; i++)
-				n = n<<8 | h[i];
-		}
-		if(n > Maxmsg)
-			return;
-		mask = h+10;
-		if(readn(0, mask, 4) != 4)
-			return;
-		p = malloc(n+1);
-		if(p == nil)
-			return;
-		if(readn(0, p, n) != n){
-			free(p);
-			return;
-		}
-		for(i = 0; i < n; i++)
-			p[i] ^= mask[i%4];
+	while(readframe(0, &op, &p, &n) == 0){
 		switch(op){
 		case 0:		/* continuation */
 		case 1:		/* text */
@@ -378,17 +399,374 @@ websocket(char *hdr, char *s)
 }
 
 /*
+ * rcpu sessions that outlive their WebSocket (a phone's browser drops
+ * its connections in the background).  The session process holds the
+ * rcpu end and talks WebSocket frames to one attachment at a time: first
+ * the connection that made it, then each GET /resume/TOKEN/N.  The page
+ * and the session count the bytes each has received; data frames stay in
+ * a buffer until acknowledged, and a new attachment gets again what the
+ * other side has not.  Text frames are control:
+ *	s TOKEN	(to the page, first) the session's token
+ *	r N	(to the page, on attach) the session has N bytes from the page
+ *	a N	(both ways) acknowledgement: N bytes received
+ *	x	(from the page) end the session
+ *	e	(to the page) the session has ended, or there is none
+ * An attachment reaches the session through /srv: its ctl pipe,
+ * /srv/webterm.HASH (HASH from the token, so a listing of /srv does not
+ * give the token), gets "attach TOKEN SRVNAME N", and SRVNAME in /srv is
+ * the attachment's own pipe.  A session without an attachment for Keep
+ * seconds ends.
+ */
+enum {
+	Keep	= 10*60,
+	Ackevery	= 16*1024,
+};
+
+typedef struct Session Session;
+struct Session {
+	QLock	lk;
+	Rendez	attached;
+	QLock	wlk;		/* frames to the attachment */
+	char	token[33];
+	int	sfd;		/* rcpu */
+	int	att;		/* the attachment, -1 none */
+	int	gen;
+	long	since;		/* without an attachment since */
+	uchar	*buf;		/* to the page, unacknowledged: [base, base+nbuf) */
+	vlong	base;
+	long	nbuf;
+	long	cap;
+	vlong	rcvd;		/* bytes from the page */
+	vlong	acked;		/* rcvd as last acknowledged */
+	int	done;
+};
+
+static Session ses;
+
+/* n bytes at p as lower-case hex into buf */
+static void
+hex(char *buf, uchar *p, int n)
+{
+	int i;
+
+	for(i = 0; i < n; i++)
+		sprint(buf+2*i, "%02x", p[i]);
+}
+
+static void
+srvname(char *buf, int nbuf, char *token)
+{
+	uchar d[SHA1dlen];
+	char h[17];
+
+	sha1((uchar*)token, strlen(token), d, nil);
+	hex(h, d, 8);
+	snprint(buf, nbuf, "webterm.%s", h);
+}
+
+static int
+text(Session *s, int fd, char *fmt, ...)
+{
+	char buf[128];
+	va_list arg;
+	int r;
+
+	va_start(arg, fmt);
+	vsnprint(buf, sizeof buf, fmt, arg);
+	va_end(arg);
+	qlock(&s->wlk);
+	r = sendframeto(fd, 1, (uchar*)buf, strlen(buf));
+	qunlock(&s->wlk);
+	return r;
+}
+
+/* the attachment of generation gen failed or closed */
+static void
+detach(Session *s, int gen)
+{
+	qlock(&s->lk);
+	if(s->gen == gen && s->att >= 0){
+		close(s->att);
+		s->att = -1;
+		s->since = time(0);
+	}
+	qunlock(&s->lk);
+}
+
+static void
+sessionend(Session *s)
+{
+	s->done = 1;
+	close(s->sfd);
+	postnote(PNGROUP, getpid(), "kill");
+	exits(nil);
+}
+
+/* rcpu to the page */
+static void
+sessiondown(Session *s)
+{
+	uchar buf[Iosize];
+	long n;
+	int fd, gen, r;
+
+	while((n = read(s->sfd, buf, sizeof buf)) > 0){
+		qlock(&s->lk);
+		if(s->nbuf+n > s->cap){
+			s->cap = (s->nbuf+n)*2;
+			s->buf = realloc(s->buf, s->cap);
+			if(s->buf == nil)
+				sysfatal("out of memory");
+		}
+		memmove(s->buf+s->nbuf, buf, n);
+		s->nbuf += n;
+		fd = s->att;
+		gen = s->gen;
+		qunlock(&s->lk);
+		if(fd >= 0){
+			qlock(&s->wlk);
+			r = sendframeto(fd, 2, buf, n);
+			qunlock(&s->wlk);
+			if(r < 0)
+				detach(s, gen);
+		}
+	}
+	qlock(&s->lk);
+	if(s->att >= 0){
+		qlock(&s->wlk);
+		sendframeto(s->att, 1, (uchar*)"e", 1);
+		sendframeto(s->att, 8, nil, 0);
+		qunlock(&s->wlk);
+	}
+	qunlock(&s->lk);
+	sessionend(s);
+}
+
+/* drop what the page has acknowledged */
+static void
+trim(Session *s, vlong n)
+{
+	long d;
+
+	if(n <= s->base || n > s->base + s->nbuf)
+		return;
+	d = n - s->base;
+	memmove(s->buf, s->buf+d, s->nbuf-d);
+	s->nbuf -= d;
+	s->base = n;
+}
+
+/* the page to rcpu, from whichever attachment there is */
+static void
+sessionup(Session *s)
+{
+	uchar *p;
+	long n;
+	int fd, gen, op, ack;
+
+	for(;;){
+		qlock(&s->lk);
+		while(s->att < 0)
+			rsleep(&s->attached);
+		fd = s->att;
+		gen = s->gen;
+		qunlock(&s->lk);
+		while(readframe(fd, &op, &p, &n) == 0){
+			switch(op){
+			case 0:
+			case 2:
+				if(write(s->sfd, p, n) != n)
+					sessionend(s);
+				qlock(&s->lk);
+				s->rcvd += n;
+				ack = s->rcvd - s->acked >= Ackevery;
+				if(ack)
+					s->acked = s->rcvd;
+				qunlock(&s->lk);
+				if(ack)
+					text(s, fd, "a %lld", s->acked);
+				break;
+			case 1:
+				if(p[0] == 'a' && p[1] == ' '){
+					qlock(&s->lk);
+					trim(s, strtoll((char*)p+2, nil, 10));
+					qunlock(&s->lk);
+				}else if(p[0] == 'x')
+					sessionend(s);
+				break;
+			case 9:
+				qlock(&s->wlk);
+				sendframeto(fd, 10, p, n);
+				qunlock(&s->wlk);
+				break;
+			}
+			free(p);
+			if(op == 8)
+				break;
+		}
+		detach(s, gen);
+	}
+}
+
+/* attachments: "attach TOKEN SRVNAME N" on the ctl pipe */
+static void
+sessionctl(Session *s, int ctl)
+{
+	char buf[256], path[128], *f[5];
+	vlong have;
+	int n, fd, first;
+
+	while((n = read(ctl, buf, sizeof buf - 1)) > 0){
+		buf[n] = 0;
+		if(tokenize(buf, f, nelem(f)) != 4 || strcmp(f[0], "attach") != 0
+		|| strcmp(f[1], s->token) != 0 || strchr(f[2], '/') != nil)
+			continue;
+		snprint(path, sizeof path, "/srv/%s", f[2]);
+		fd = open(path, ORDWR);
+		remove(path);
+		if(fd < 0)
+			continue;
+		have = strtoll(f[3], nil, 10);
+		qlock(&s->lk);
+		if(have < s->base || have > s->base + s->nbuf){
+			qunlock(&s->lk);
+			close(fd);		/* cannot continue from there */
+			continue;
+		}
+		trim(s, have);
+		if(s->att >= 0)
+			close(s->att);	/* the old one's splice ends */
+		s->att = fd;
+		s->gen++;
+		first = s->gen == 1;
+		qlock(&s->wlk);
+		if(first){
+			snprint(buf, sizeof buf, "s %s", s->token);
+			sendframeto(fd, 1, (uchar*)buf, strlen(buf));
+		}
+		snprint(buf, sizeof buf, "r %lld", s->rcvd);
+		sendframeto(fd, 1, (uchar*)buf, strlen(buf));
+		if(s->nbuf > 0)
+			sendframeto(fd, 2, s->buf, s->nbuf);
+		qunlock(&s->wlk);
+		rwakeup(&s->attached);
+		qunlock(&s->lk);
+	}
+}
+
+/* acknowledgements now and then; the end of an unattached session */
+static void
+sessiontimer(Session *s)
+{
+	int fd;
+	vlong n;
+
+	for(;;){
+		sleep(2000);
+		qlock(&s->lk);
+		if(s->att < 0 && time(0) - s->since > Keep){
+			qunlock(&s->lk);
+			sessionend(s);
+		}
+		fd = -1;
+		n = 0;
+		if(s->att >= 0 && s->rcvd != s->acked){
+			s->acked = n = s->rcvd;
+			fd = s->att;
+		}
+		qunlock(&s->lk);
+		if(fd >= 0)
+			text(s, fd, "a %lld", n);
+	}
+}
+
+/* the page's side: fd 0 and 1 to and from pipe end fd; does not return */
+static void
+splice(int fd)
+{
+	char buf[Iosize];
+	long n;
+	int pid, parent;
+
+	parent = getpid();
+	switch(pid = rfork(RFPROC|RFFDG|RFMEM)){
+	case -1:
+		exits("rfork");
+	case 0:
+		/* the session is done with us: end the other half too, which
+		   may be waiting on a connection that is gone */
+		while((n = read(fd, buf, sizeof buf)) > 0)
+			if(write(1, buf, n) != n)
+				break;
+		postnote(PNPROC, parent, "kill");
+		exits(nil);
+	}
+	while((n = read(0, buf, sizeof buf)) > 0)
+		if(write(fd, buf, n) != n)
+			break;
+	postnote(PNPROC, pid, "kill");
+	exits(nil);
+}
+
+/* attach this connection to the session with token, having n bytes of it */
+static void
+attach(char *token, vlong n)
+{
+	char name[64], att[80];
+	int ctl, p[2], fd;
+
+	srvname(name, sizeof name, token);
+	snprint(att, sizeof att, "/srv/%s", name);
+	if((ctl = open(att, OWRITE)) < 0){
+		sendframe(1, (uchar*)"e", 1);
+		sendframe(8, nil, 0);
+		exits("no session");
+	}
+	if(pipe(p) < 0)
+		exits("pipe");
+	snprint(att, sizeof att, "/srv/%s.%d", name, getpid());
+	if((fd = create(att, OWRITE, 0600)) < 0)
+		exits("srv");
+	fprint(fd, "%d", p[1]);
+	close(fd);
+	close(p[1]);
+	fprint(ctl, "attach %s %s.%d %lld", token, name, getpid(), n);
+	close(ctl);
+	splice(p[0]);
+}
+
+/* GET /resume/TOKEN/N: attach to that session; does not return */
+static void
+resume(char *hdr, char *arg)
+{
+	char *f[3], *tok;
+	int i;
+
+	if(getfields(arg, f, nelem(f), 1, "/") != 2 || strlen(f[0]) != 32)
+		reply("404 Not Found");
+	tok = f[0];
+	for(i = 0; i < 32; i++)
+		if(strchr("0123456789abcdef", tok[i]) == nil)
+			reply("404 Not Found");
+	wsaccept(hdr);
+	attach(tok, strtoll(f[1], nil, 10));
+}
+
+/*
  * rcpu over the WebSocket without TLS-PSK: a child authenticates on one
- * end of a pipe, becomes the user and runs the rcpu script; the frames
- * go to the other end.  Does not return.
+ * end of a pipe, becomes the user and runs the rcpu script; a session
+ * holds the other end, and this connection is its first attachment.
+ * Does not return.
  */
 static void
 rcpu(char *hdr)
 {
 	AuthInfo *ai;
-	int p[2];
+	uchar rnd[16];
+	char name[64], path[80];
+	int p[2], c[2], fd;
 
-	if(pipe(p) < 0)
+	if(pipe(p) < 0 || pipe(c) < 0)
 		reply("500 Internal Server Error");
 	wsaccept(hdr);
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
@@ -410,7 +788,42 @@ rcpu(char *hdr)
 		exits("exec");
 	}
 	close(p[1]);
-	relay(p[0]);
+
+	genrandom(rnd, sizeof rnd);
+	hex(ses.token, rnd, sizeof rnd);
+	srvname(name, sizeof name, ses.token);
+	snprint(path, sizeof path, "/srv/%s", name);
+	if((fd = create(path, OWRITE|ORCLOSE, 0600)) < 0)
+		exits("srv");
+	fprint(fd, "%d", c[1]);
+	close(c[1]);
+	ses.sfd = p[0];
+	ses.att = -1;
+	ses.since = time(0);
+	ses.attached.l = &ses.lk;
+
+	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
+	case -1:
+		exits("rfork");
+	case 0:
+		/* the session: rcpu, ctl and its srv entry; not the network */
+		close(0);
+		close(1);
+		open("/dev/null", OREAD);
+		open("/dev/null", OWRITE);
+		if(rfork(RFPROC|RFMEM) == 0)
+			sessiondown(&ses);
+		if(rfork(RFPROC|RFMEM) == 0)
+			sessionup(&ses);
+		if(rfork(RFPROC|RFMEM) == 0)
+			sessiontimer(&ses);
+		sessionctl(&ses, c[0]);
+		sessionend(&ses);
+	}
+	close(p[0]);
+	close(c[0]);
+	close(fd);
+	attach(ses.token, 0);
 }
 
 void
@@ -452,6 +865,8 @@ main(int argc, char **argv)
 		if(up != nil && cistrcmp(up, "websocket") == 0){
 			if(secure && strcmp(path, "/rcpu") == 0)
 				rcpu(hdr);
+			if(secure && strncmp(path, "/resume/", 8) == 0)
+				resume(hdr, path+8);
 			for(s = services; *s != nil; s++)
 				if(strcmp(path+1, *s) == 0)
 					websocket(hdr, *s);
