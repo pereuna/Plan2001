@@ -12,11 +12,17 @@
  * the COOP/COEP headers the page's threads need; POST /log appends the
  * page's log line (its ?log=1) to /sys/log/monolith.  tlssrv in front of it
  * (/rc/bin/service/tcp17443) makes that https and wss on one origin.
+ *
+ * With -s (the connection is already TLS, as behind tlssrv) GET /rcpu is
+ * rcpu without its own TLS: webterm does what tlssrv -a does for rcpu -
+ * p9any as the server, auth_chuid, the rcpu server script - but the
+ * authenticated bytes go straight through the WebSocket, not TLS-PSK.
  */
 #include <u.h>
 #include <libc.h>
 #include <mp.h>
 #include <libsec.h>
+#include <auth.h>
 
 enum {
 	Maxhdr	= 8192,
@@ -26,6 +32,10 @@ enum {
 
 static char *services[] = { "17019", "567", nil };
 static char *webdir;
+static int secure;	/* -s: the connection is TLS already */
+
+/* the rcpu server (/rc/bin/service/tcp17019 runs it after tlssrv -a) */
+static char rcpuscript[] = ". <{n=`{read} && ! ~ $#n 0 && read -c $n} >[2=1]";
 static char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 static void
@@ -316,40 +326,91 @@ logline(char *hdr)
 static void
 usage(void)
 {
-	fprint(2, "usage: webterm [-w webdir]\n");
+	fprint(2, "usage: webterm [-s] [-w webdir]\n");
 	exits("usage");
 }
 
-/* the WebSocket to service s; does not return */
+/* the handshake's 101 answer */
 static void
-websocket(char *hdr, char *s)
+wsaccept(char *hdr)
 {
 	char *key, buf[128], accept[64];
 	uchar digest[SHA1dlen];
-	int sfd, pid;
 
 	if((key = header(hdr, "Sec-WebSocket-Key")) == nil)
 		reply("400 Bad Request");
 	snprint(buf, sizeof buf, "%s%s", key, guid);
 	sha1((uchar*)buf, strlen(buf), digest, nil);
 	enc64(accept, sizeof accept, digest, SHA1dlen);
-
-	sfd = dial(netmkaddr(sysname(), "tcp", s), nil, nil, nil);
-	if(sfd < 0)
-		reply("502 Bad Gateway");
 	fprint(1, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
 		"Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", accept);
+}
+
+/* the WebSocket's frames to and from fd; does not return */
+static void
+relay(int fd)
+{
+	int pid;
 
 	switch(pid = rfork(RFPROC|RFFDG|RFMEM)){
 	case -1:
 		exits("rfork");
 	case 0:
-		downstream(sfd);
+		downstream(fd);
 		exits(nil);
 	}
-	upstream(sfd);
+	upstream(fd);
 	postnote(PNPROC, pid, "kill");
 	exits(nil);
+}
+
+/* the WebSocket to service s; does not return */
+static void
+websocket(char *hdr, char *s)
+{
+	int sfd;
+
+	sfd = dial(netmkaddr(sysname(), "tcp", s), nil, nil, nil);
+	if(sfd < 0)
+		reply("502 Bad Gateway");
+	wsaccept(hdr);
+	relay(sfd);
+}
+
+/*
+ * rcpu over the WebSocket without TLS-PSK: a child authenticates on one
+ * end of a pipe, becomes the user and runs the rcpu script; the frames
+ * go to the other end.  Does not return.
+ */
+static void
+rcpu(char *hdr)
+{
+	AuthInfo *ai;
+	int p[2];
+
+	if(pipe(p) < 0)
+		reply("500 Internal Server Error");
+	wsaccept(hdr);
+	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
+	case -1:
+		exits("rfork");
+	case 0:
+		close(p[0]);
+		dup(p[1], 0);
+		dup(p[1], 1);
+		dup(p[1], 2);	/* not the network: tlssrv's TLS is on 0 and 1 only */
+		close(p[1]);
+		ai = auth_proxy(0, nil, "proto=p9any role=server");
+		if(ai == nil)
+			exits("auth_proxy");
+		if(auth_chuid(ai, nil) < 0)
+			exits("auth_chuid");
+		auth_freeAI(ai);
+		execl("/bin/rc", "rc", "-c", rcpuscript, nil);
+		exits("exec");
+	}
+	close(p[1]);
+	relay(p[0]);
 }
 
 void
@@ -360,6 +421,9 @@ main(int argc, char **argv)
 	ARGBEGIN{
 	case 'w':
 		webdir = EARGF(usage());
+		break;
+	case 's':
+		secure = 1;
 		break;
 	default:
 		usage();
@@ -386,6 +450,8 @@ main(int argc, char **argv)
 			*e = 0;
 		up = header(hdr, "Upgrade");
 		if(up != nil && cistrcmp(up, "websocket") == 0){
+			if(secure && strcmp(path, "/rcpu") == 0)
+				rcpu(hdr);
 			for(s = services; *s != nil; s++)
 				if(strcmp(path+1, *s) == 0)
 					websocket(hdr, *s);

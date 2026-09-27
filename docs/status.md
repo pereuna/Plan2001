@@ -638,3 +638,6 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   `tools/vm-cpu` tekee kehitys-CA:n ja varmenteen (`CPU_CERT_SANS`), vie
   avaimen factotumiin (`/cfg/cirno/cpustart`) ja CA:n ladattavaksi
   (`/plan2001-ca.crt`); `--update --web DIR` asentaa sivun tiedostot.
+- `webterm -s` (Monolithin vaihe 2c): `/rcpu` tlssrv:n takana tekee
+  p9any-kirjautumisen, `auth_chuid`:n ja rcpu-skriptin ilman TLS-PSK:ta,
+  koska WSS salaa jo. Portissa 17080 (ei TLS:ää) sitä ei ole.

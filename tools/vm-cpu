@@ -73,7 +73,7 @@ webterm() {
 	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/plan2001-ca.crt"
 	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s monolith.key /cfg/cirno/cpustart || echo 'cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl' >>/cfg/cirno/cpustart"
-	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /bin/webterm -w /sys/lib/monolith' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /bin/webterm -s -w /sys/lib/monolith' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"
 		run9 -t 60 "@{cd /tmp && rm -rf web && tar xf /dev/sdE1/data web} && cp /tmp/web/* /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/* && ls -l /sys/lib/monolith"
