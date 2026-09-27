@@ -15,8 +15,8 @@ tmp=$(mktemp -d)
 srv=$!
 trap 'kill $srv 2>/dev/null; rm -rf "$tmp"' EXIT
 sleep 2
-url="http://127.0.0.1:18080/index.html?bridge=ws://127.0.0.1:18081"
-for a in -G -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -c 'echo MONOLITH-OK'; do
+url="http://127.0.0.1:18080/index.html?ws=ws://127.0.0.1:18081"
+for a in -G -h 127.0.0.1 -a 'tcp!127.0.0.1!567' -u glenda -c 'echo MONOLITH-OK'; do
 	url="$url&a=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$a")"
 done
 timeout "$secs" chromium --headless=new --no-sandbox --disable-gpu --user-data-dir="$tmp" \

@@ -1,34 +1,22 @@
 #!/bin/bash
 # Development server for the browser drawterm:
 #   http://ADDR:8080/  web/ and build/wasm/drawterm.{js,wasm}, with the
-#                      COOP/COEP headers that pthreads need
-#   ws://ADDR:8081     Emscripten's websocket_to_posix_proxy: the page's POSIX
-#                      sockets, i.e. rcpu and auth to the Plan2001 VM
-#                      (tools/vm --net in the Plan2001 repo)
+#                      COOP/COEP headers that pthreads need; html, js and
+#                      wasm gzipped; the page's ?log=1 posts to build/page.log
+#   ADDR:8081          a TCP relay to the Plan2001 VM's webterm (WebSockets
+#                      to rcpu and auth; tools/vm --net forwards it to
+#                      127.0.0.1:17080), so the page reaches the VM from here
 # ADDR is 127.0.0.1 unless --listen says otherwise (e.g. a WireGuard
 # address; browsers give SharedArrayBuffer only to localhost and HTTPS, so
 # there Chrome needs the origin in chrome://flags "Insecure origins treated
-# as secure").  The proxy is built from Emscripten's source with
-# tools/proxy.patch: it listens on ADDR only, connects only to this
-# machine's 127.0.0.1 ports in MONOLITH_ALLOW (default the VM's 17019 and
-# 5670), and never binds or listens for the page.  Phase 2 replaces it with
-# Plan2001's own WSS listener.  The page's ?log=1 posts its log to
-# build/page.log.
-#   tools/serve [--listen ADDR] [HTTPPORT [PROXYPORT]]
+# as secure").
+#   tools/serve [--listen ADDR] [HTTPPORT [WSPORT]]
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 addr=127.0.0.1
 [ "$1" = --listen ] && { addr=$2; shift 2; }
 http=${1:-8080} ws=${2:-8081}
-proxy=$root/build/proxy/websocket_to_posix_proxy
-src=${EMSCRIPTEN_ROOT:-/usr/share/emscripten}/tools/websocket_to_posix_proxy/src
-if [ ! -x "$proxy" ] || [ "$root/tools/proxy.patch" -nt "$proxy" ]; then
-	rm -rf "$root/build/proxy"
-	mkdir -p "$root/build/proxy/src"
-	cp "$src"/* "$root/build/proxy/src/"
-	(cd "$root/build/proxy" && patch -s -p1 <"$root/tools/proxy.patch")
-	(cd "$root/build/proxy/src" && gcc -O2 -c *.c && g++ -O2 -pthread -o "$proxy" *.cpp *.o)
-fi
+webterm=${MONOLITH_WEBTERM:-17080}
 site=$root/build/site
 mkdir -p "$site"
 ln -sfn "$root"/web/* "$site/"
@@ -38,7 +26,27 @@ cd "$site"
 pids=
 trap 'kill $pids 2>/dev/null' EXIT
 trap 'exit 1' INT TERM
-MONOLITH_LISTEN=$addr stdbuf -oL "$proxy" "$ws" >"$root/build/proxy.log" 2>&1 &
+python3 - "$addr" "$ws" "$webterm" <<'PY' &
+import asyncio, sys
+async def pipe(r, w):
+	try:
+		while (b := await r.read(65536)):
+			w.write(b)
+			await w.drain()
+	finally:
+		w.close()
+async def relay(cr, cw):
+	try:
+		vr, vw = await asyncio.open_connection('127.0.0.1', int(sys.argv[3]))
+	except OSError:
+		cw.close()
+		return
+	await asyncio.gather(pipe(cr, vw), pipe(vr, cw), return_exceptions=True)
+async def main():
+	srv = await asyncio.start_server(relay, sys.argv[1], int(sys.argv[2]))
+	await srv.serve_forever()
+asyncio.run(main())
+PY
 pids="$pids $!"
 MONOLITH_BUILD=$root/build python3 - "$addr" "$http" <<'PY' &
 import email.utils, gzip, http.server, os, sys
@@ -96,5 +104,5 @@ H.extensions_map['.wasm'] = 'application/wasm'
 http.server.ThreadingHTTPServer((sys.argv[1], int(sys.argv[2])), H).serve_forever()
 PY
 pids="$pids $!"
-echo "serve: http://$addr:$http/  proxy ws://$addr:$ws"
+echo "serve: http://$addr:$http/  webterm ws://$addr:$ws (-> 127.0.0.1:$webterm)"
 wait -n

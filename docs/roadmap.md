@@ -5,7 +5,9 @@
 | 1a | Natiivi drawterm → Plan2001-VM cpu-palvelimena | `drawterm -G -c 'echo MONOLITH-OK'` tulostaa merkin | valmis 27.9. |
 | 1b | `drawterm.wasm` ilman grafiikkaa (`-G`) Chromessa | headless Chromiumin konsolilokissa `MONOLITH-OK` | valmis 27.9. (`tools/test-headless`) |
 | 1c | `gui-web`: rio selaimessa | headless-testi raportoi rion flushin, ja käyttäjä kokeilee Chromessa | headless valmis 27.9. (`tools/test-rio`), käyttäjän kokeilu odottaa |
-| 2 | JS + WASM -raja, oma WSS-transportti, Plan2001:n webterm-kuuntelija, DP9IK ilman sisäkkäistä TLS:ää | selain → WSS → rio ilman WS→TCP-siltaa | |
+| 2a | Oma WebSocket-transportti ja Plan2001:n `webterm` (WS → rcpu/auth) | rio ilman Emscriptenin socket-proxya | valmis 27.9. |
+| 2b | WSS (TLS webtermin eteen, varmenne) | `wss://` Chromessa | |
+| 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää, JS + WASM -raja | ei TLS:ää TLS:n sisällä | |
 | 3 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö
@@ -18,7 +20,7 @@
 ## Käyttö
 
 ```
-# Plan2001-repossa (kerran: tools/vm-cpu), sitten:
+# Plan2001-repossa (kerran: tools/vm-cpu; webtermin päivitys: tools/vm-cpu --update), sitten:
 tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
 
 # Monolithissa
@@ -27,12 +29,12 @@ tools/build native        # build/native/drawterm (vertailukohta)
 tools/test-headless       # vaiheen 1b hyväksyntätesti
 tools/test-rio            # vaiheen 1c: rio, hiiri ja näppäimistö (DevTools)
 tools/test-rio --mobile   # sama kännykkäemulaatiossa: kosketus ja IME
-tools/serve               # http://127.0.0.1:8080/ ja proxy ws://127.0.0.1:8081
+tools/serve               # http://127.0.0.1:8080/ ja ws://127.0.0.1:8081 → VM:n webterm
 tools/serve --listen 10.77.0.5   # esim. WireGuard-osoitteessa (kännykkä)
 ```
 
 Selaimessa `http://127.0.0.1:8080/#pass=SALASANA` avaa drawtermin
-konsolin (`-h 127.0.0.1 -a tcp!127.0.0.1!5670 -u glenda`), ja `rio`
+konsolin (`-h plan2001 -a tcp!plan2001!567 -u glenda`; osoitteet eivät merkitse, WebSocket menee aina webtermiin), ja `rio`
 käynnistää rion. Muut argumentit kyselynä (`?a=-h&a=...`; `-G` näyttää vain
 tekstin). Salasana on fragmentissa, joten se ei lähde palvelimelle. Jos
 Chrome on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
@@ -102,3 +104,18 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
   jokainen kutsu odota.
 - Tunnelin MTU 1280 (mobiiliosuus pudotti isommat), gzip (1 Mt → 310 kt),
   HTTP/1.1 keep-alive.
+
+## Vaihe 2a: oma transportti (27.9.)
+
+- Plan2001: `sys/src/cmd/webterm.c`, aux/listenin palvelu portissa 17080
+  (`tools/vm-cpu` kääntää ja asentaa sen VM:ssä). `GET /17019` on rcpu ja
+  `GET /567` auth, muita ei. Tavut kulkevat muuttumattomina binäärikehyksissä,
+  joten drawtermin auth ja TLS toimivat sen sisällä kuten TCP:n yli.
+- Selain: `gui-web/wsock.c`. drawtermin `socket`, `connect`, `send`,
+  `recv`, `close` ... ohjataan (Make.emscripten `-D`) omaan kerrokseen:
+  jokainen yhteys on WebSocket `MONOLITH_WS/PORTTI`, `recv` odottaa
+  puskuria, jonka sivun `onmessage` täyttää, ja `send` ei odota.
+  Emscriptenin socket-proxy ja `tools/proxy.patch` poistuivat;
+  `tools/serve` välittää portin 8081 suoraan VM:n webtermiin.
+- Mittaus 200 ms kiertoajalla (netem loopbackissa): kirjautuminen ja
+  `-c`-komento 13 s, proxyn kautta noin 170 s.

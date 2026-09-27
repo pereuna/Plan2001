@@ -27,9 +27,9 @@ Chrome
       main.c, cpu.c, kern/, exportfs/, libauth*, libsec, libmp,
       libdraw, libmemdraw, libmemlayer, posix-port/
       + gui-web/ (uusi): attachscreen, flushmemscreen → canvas, syöte
-         │ POSIX-socketit Emscriptenin WebSocket-emuloinnilla
+         │ gui-web/wsock.c: jokainen TCP-yhteys on WebSocket (vaihe 2a)
          ▼
-      WS→TCP-silta (kehitysvaihe) → Plan2001-VM:n rcpu (17019) ja auth (567)
+      Plan2001: webterm (portti 17080) → rcpu (17019) ja auth (567)
 ```
 
 - **pthreadit:** drawtermin kprocit ovat POSIX-säikeitä. Emscripten tukee niitä

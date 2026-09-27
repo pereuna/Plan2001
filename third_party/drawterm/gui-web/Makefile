@@ -4,7 +4,7 @@ LIB=libgui.a
 
 OFILES=\
 	web.$O\
-	bridge.$O\
+	wsock.$O\
 	webjs.$O\
 
 default: $(LIB)

@@ -130,7 +130,7 @@ def main():
 			cdp.call('Network.emulateNetworkConditions', offline=False, latency=300,
 				downloadThroughput=100_000 // 8 * 10, uploadThroughput=100_000 // 8 * 10)
 			cdp.call('Emulation.setCPUThrottlingRate', rate=6)
-		url = f'http://127.0.0.1:{HTTP}/index.html?bridge=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
+		url = f'http://127.0.0.1:{HTTP}/index.html?ws=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
 		cdp.call('Page.navigate', url=url)
 		prefix = 'mobile-' if mobile else ''
 
