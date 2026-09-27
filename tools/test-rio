@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase 1c acceptance: rio in headless Chromium, driven like a user.
 
-  tools/test-rio [--mobile] [--slow] [URL-QUERY]
+  tools/test-rio [--mobile] [--slow] [--vm] [URL-QUERY]
 
 Starts tools/serve and Chromium with the DevTools protocol, opens the page
 (drawterm's console on the Plan2001 CPU VM), types 'rio', opens a window
@@ -12,7 +12,8 @@ event queue (window.monolith.push), the same path as real events.
 (button 3 for the menu and the sweep), and text typed through the
 on-screen keyboard's path (Input.insertText, as an IME does), with a
 backspace; screenshots build/rio-mobile-*.png.  --slow throttles the
-CPU 6x and adds 300 ms latency (1 Mbit/s).
+CPU 6x and adds 300 ms latency (1 Mbit/s).  --vm loads the page from
+Plan2001's webterm (https://127.0.0.1:17443/, wss) instead of tools/serve.
 Needs the VM running and its password in ~/.cache/plan2001/cpu.pass.
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -102,12 +103,19 @@ def main():
 	argv = sys.argv[1:]
 	mobile = '--mobile' in argv
 	slow = '--slow' in argv
-	argv = [a for a in argv if a not in ('--mobile', '--slow')]
+	vm = '--vm' in argv
+	argv = [a for a in argv if a not in ('--mobile', '--slow', '--vm')]
 	query = argv[0] if argv else ''
 	tmp = tempfile.mkdtemp()
-	serve = subprocess.Popen([os.path.join(root, 'tools/serve'), str(HTTP), str(PROXY)],
-		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-	chrome = subprocess.Popen(['chromium', '--headless=new', '--no-sandbox', '--disable-gpu',
+	serve = None
+	certflag = []
+	if vm:
+		spki = subprocess.run([os.path.join(root, 'tools/spki')], capture_output=True, text=True).stdout.strip()
+		certflag = [f'--ignore-certificate-errors-spki-list={spki}']
+	else:
+		serve = subprocess.Popen([os.path.join(root, 'tools/serve'), str(HTTP), str(PROXY)],
+			stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+	chrome = subprocess.Popen(['chromium', '--headless=new', '--no-sandbox', '--disable-gpu', *certflag,
 		f'--user-data-dir={tmp}', f'--remote-debugging-port={DEVTOOLS}',
 		'--window-size=1024,768', 'about:blank'],
 		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -130,7 +138,10 @@ def main():
 			cdp.call('Network.emulateNetworkConditions', offline=False, latency=300,
 				downloadThroughput=100_000 // 8 * 10, uploadThroughput=100_000 // 8 * 10)
 			cdp.call('Emulation.setCPUThrottlingRate', rate=6)
-		url = f'http://127.0.0.1:{HTTP}/index.html?ws=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
+		if vm:
+			url = f'https://127.0.0.1:17443/index.html?{query}#pass={password}'
+		else:
+			url = f'http://127.0.0.1:{HTTP}/index.html?ws=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
 		cdp.call('Page.navigate', url=url)
 		prefix = 'mobile-' if mobile else ''
 
@@ -240,9 +251,10 @@ def main():
 		print(f'test-rio: {n} flushes')
 	finally:
 		chrome.terminate()
-		serve.terminate()
 		chrome.wait()
-		serve.wait()
+		if serve:
+			serve.terminate()
+			serve.wait()
 
 
 main()

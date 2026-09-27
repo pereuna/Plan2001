@@ -6,7 +6,7 @@
 | 1b | `drawterm.wasm` ilman grafiikkaa (`-G`) Chromessa | headless Chromiumin konsolilokissa `MONOLITH-OK` | valmis 27.9. (`tools/test-headless`) |
 | 1c | `gui-web`: rio selaimessa | headless-testi raportoi rion flushin, ja käyttäjä kokeilee Chromessa | headless valmis 27.9. (`tools/test-rio`), käyttäjän kokeilu odottaa |
 | 2a | Oma WebSocket-transportti ja Plan2001:n `webterm` (WS → rcpu/auth) | rio ilman Emscriptenin socket-proxya | valmis 27.9. |
-| 2b | WSS (TLS webtermin eteen, varmenne) | `wss://` Chromessa | |
+| 2b | WSS: Plan2001 tarjoilee sivun ja WebSocketit HTTPS:llä (tlssrv + webterm) | `https://`/`wss://` Chromessa ilman Chromen asetuksia | valmis 27.9. |
 | 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää, JS + WASM -raja | ei TLS:ää TLS:n sisällä | |
 | 3 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
@@ -29,6 +29,9 @@ tools/build native        # build/native/drawterm (vertailukohta)
 tools/test-headless       # vaiheen 1b hyväksyntätesti
 tools/test-rio            # vaiheen 1c: rio, hiiri ja näppäimistö (DevTools)
 tools/test-rio --mobile   # sama kännykkäemulaatiossa: kosketus ja IME
+tools/deploy              # sivu Plan2001-VM:ään: https://127.0.0.1:17443/
+tools/test-headless --vm  # testit sivulla VM:ltä (https, wss); myös test-rio --vm
+tools/relay 10.77.0.5 17443   # VM:n https WireGuard-osoitteeseen
 tools/serve               # http://127.0.0.1:8080/ ja ws://127.0.0.1:8081 → VM:n webterm
 tools/serve --listen 10.77.0.5   # esim. WireGuard-osoitteessa (kännykkä)
 ```
@@ -119,3 +122,21 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
   `tools/serve` välittää portin 8081 suoraan VM:n webtermiin.
 - Mittaus 200 ms kiertoajalla (netem loopbackissa): kirjautuminen ja
   `-c`-komento 13 s, proxyn kautta noin 170 s.
+
+## Vaihe 2b: WSS (27.9.)
+
+- Plan2001:n `webterm -w /sys/lib/monolith` tarjoilee myös sivun
+  (index.html, drawterm.js, drawterm.wasm, gzip-versiot, COOP/COEP,
+  keep-alive), ja `tlssrv` sen edessä portissa 17443 tekee siitä
+  `https://` ja `wss://` samaan originiin. `tools/serve`:a ei tarvita.
+- Varmenne: Plan2001:n `tools/vm-cpu` tekee kehitys-CA:n
+  (`~/.cache/plan2001/ca/ca.pem`) ja sillä allekirjoitetun varmenteen
+  (`CPU_CERT_SANS`, esim. `IP:127.0.0.1,IP:10.77.0.5,...`). Avain menee
+  factotumiin (`proto=rsa service=tls role=client owner=*`,
+  `/cfg/cirno/cpustart`). CA on ladattavissa: `/plan2001-ca.crt`.
+- Kun CA on asennettu selaimeen tai kännykkään, sivu on suojattu
+  konteksti, joten SharedArrayBuffer toimii ilman `chrome://flags`-asetusta.
+- Testit: `--vm` lataa sivun VM:ltä, ja Chromium luottaa vain tämän
+  varmenteen avaimeen (`--ignore-certificate-errors-spki-list`, `tools/spki`).
+- TLS on nyt kahdesti: WSS:n ja drawtermin oman rcpu-TLS:n. Vaihe 2c poistaa
+  sisemmän.

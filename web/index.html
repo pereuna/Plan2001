@@ -207,7 +207,10 @@ window.Module = {
 	preRun: [m => {
 		if (frag.get('pass')) m.ENV.PASS = frag.get('pass');
 		m.ENV.USER = q.get('user') || 'glenda';
-		m.ENV.MONOLITH_WS = q.get('ws') || `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`;
+		// from Plan2001's webterm over https: its wss on the same origin;
+		// from tools/serve: its relay on the next port
+		m.ENV.MONOLITH_WS = q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
+			: `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`);
 	}],
 	print: show,
 	printErr: show,
