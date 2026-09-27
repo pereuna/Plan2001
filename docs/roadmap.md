@@ -28,6 +28,7 @@ tools/test-headless       # vaiheen 1b hyväksyntätesti
 tools/test-rio            # vaiheen 1c: rio, hiiri ja näppäimistö (DevTools)
 tools/test-rio --mobile   # sama kännykkäemulaatiossa: kosketus ja IME
 tools/serve               # http://127.0.0.1:8080/ ja proxy ws://127.0.0.1:8081
+tools/serve --listen 10.77.0.5   # esim. WireGuard-osoitteessa (kännykkä)
 ```
 
 Selaimessa `http://127.0.0.1:8080/#pass=SALASANA` avaa drawtermin
@@ -77,3 +78,14 @@ Chrome on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
 - Avoinna: leikepöytä (nyt vain drawtermin sisäinen), HiDPI
   (devicePixelRatio), pointer lock, ja nopeus (jokainen socket-kutsu kulkee
   proxyn kautta).
+
+## Etäkäyttö (WireGuard)
+
+`tools/serve --listen ADDR` kuuntelee muualla kuin loopbackissa.
+`tools/proxy.patch` rajaa Emscriptenin proxyn: se yhdistää vain tämän
+koneen 127.0.0.1:n portteihin `MONOLITH_ALLOW` (oletus VM:n 17019 ja 5670),
+ei `bind`iä eikä `listen`iä sivun puolesta, ja kuuntelee vain ADDR:ssa.
+Selain antaa SharedArrayBufferin vain localhostille ja HTTPS:lle, joten
+Chromessa osoite lisätään kohtaan `chrome://flags` → *Insecure origins
+treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
+(`http://localhost:8080`) asetusta ei tarvita.

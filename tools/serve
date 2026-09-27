@@ -1,24 +1,31 @@
 #!/bin/bash
-# Development server for the browser drawterm, loopback only:
-#   http://127.0.0.1:8080/  web/ and build/wasm/drawterm.{js,wasm}, with the
-#                           COOP/COEP headers that pthreads need
-#   ws://127.0.0.1:8081     Emscripten's websocket_to_posix_proxy: the page's
-#                           POSIX sockets, i.e. rcpu and auth to the Plan2001
-#                           VM (tools/vm --net in the Plan2001 repo)
-# The proxy is built from Emscripten's source, patched to listen on
-# 127.0.0.1 instead of every interface (it connects anywhere it is told).
-# Phase 2 replaces it with Plan2001's own WSS listener.
-#   tools/serve [HTTPPORT [PROXYPORT]]
+# Development server for the browser drawterm:
+#   http://ADDR:8080/  web/ and build/wasm/drawterm.{js,wasm}, with the
+#                      COOP/COEP headers that pthreads need
+#   ws://ADDR:8081     Emscripten's websocket_to_posix_proxy: the page's POSIX
+#                      sockets, i.e. rcpu and auth to the Plan2001 VM
+#                      (tools/vm --net in the Plan2001 repo)
+# ADDR is 127.0.0.1 unless --listen says otherwise (e.g. a WireGuard
+# address; browsers give SharedArrayBuffer only to localhost and HTTPS, so
+# there Chrome needs the origin in chrome://flags "Insecure origins treated
+# as secure").  The proxy is built from Emscripten's source with
+# tools/proxy.patch: it listens on ADDR only, connects only to this
+# machine's 127.0.0.1 ports in MONOLITH_ALLOW (default the VM's 17019 and
+# 5670), and never binds or listens for the page.  Phase 2 replaces it with
+# Plan2001's own WSS listener.
+#   tools/serve [--listen ADDR] [HTTPPORT [PROXYPORT]]
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
+addr=127.0.0.1
+[ "$1" = --listen ] && { addr=$2; shift 2; }
 http=${1:-8080} ws=${2:-8081}
 proxy=$root/build/proxy/websocket_to_posix_proxy
 src=${EMSCRIPTEN_ROOT:-/usr/share/emscripten}/tools/websocket_to_posix_proxy/src
-if [ ! -x "$proxy" ]; then
+if [ ! -x "$proxy" ] || [ "$root/tools/proxy.patch" -nt "$proxy" ]; then
+	rm -rf "$root/build/proxy"
 	mkdir -p "$root/build/proxy/src"
 	cp "$src"/* "$root/build/proxy/src/"
-	sed -i 's/htonl(INADDR_ANY)/htonl(INADDR_LOOPBACK)/' "$root/build/proxy/src/main.cpp"
-	grep -q INADDR_LOOPBACK "$root/build/proxy/src/main.cpp" || { echo "serve: could not patch the proxy to loopback" >&2; exit 1; }
+	(cd "$root/build/proxy" && patch -s -p1 <"$root/tools/proxy.patch")
 	(cd "$root/build/proxy/src" && gcc -O2 -c *.c && g++ -O2 -pthread -o "$proxy" *.cpp *.o)
 fi
 site=$root/build/site
@@ -30,9 +37,9 @@ cd "$site"
 pids=
 trap 'kill $pids 2>/dev/null' EXIT
 trap 'exit 1' INT TERM
-stdbuf -oL "$proxy" "$ws" >"$root/build/proxy.log" 2>&1 &
+MONOLITH_LISTEN=$addr stdbuf -oL "$proxy" "$ws" >"$root/build/proxy.log" 2>&1 &
 pids="$pids $!"
-python3 - "$http" <<'PY' &
+python3 - "$addr" "$http" <<'PY' &
 import http.server, sys
 class H(http.server.SimpleHTTPRequestHandler):
 	def end_headers(self):
@@ -43,8 +50,8 @@ class H(http.server.SimpleHTTPRequestHandler):
 	def log_message(self, *a):
 		pass
 H.extensions_map['.wasm'] = 'application/wasm'
-http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
+http.server.ThreadingHTTPServer((sys.argv[1], int(sys.argv[2])), H).serve_forever()
 PY
 pids="$pids $!"
-echo "serve: http://127.0.0.1:$http/  proxy ws://127.0.0.1:$ws"
+echo "serve: http://$addr:$http/  proxy ws://$addr:$ws"
 wait -n

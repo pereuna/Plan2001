@@ -189,7 +189,7 @@ window.Module = {
 	preRun: [m => {
 		if (frag.get('pass')) m.ENV.PASS = frag.get('pass');
 		m.ENV.USER = q.get('user') || 'glenda';
-		m.ENV.MONOLITH_BRIDGE = q.get('bridge') || 'ws://127.0.0.1:8081';
+		m.ENV.MONOLITH_BRIDGE = q.get('bridge') || `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`;
 	}],
 	print: show,
 	printErr: show,
