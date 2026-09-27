@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Phase 1c acceptance: rio in headless Chromium, driven like a user.
 
-  tools/test-rio [URL-QUERY]
+  tools/test-rio [--mobile] [URL-QUERY]
 
 Starts tools/serve and Chromium with the DevTools protocol, opens the page
 (drawterm's console on the Plan2001 CPU VM), types 'rio', opens a window
 from rio's button-3 menu (New, then sweep), types a command into it and
 saves screenshots to build/rio-*.png.  Input goes through the page's own
 event queue (window.monolith.push), the same path as real events.
+--mobile emulates a phone: touch events on the screen and the button bar
+(button 3 for the menu and the sweep), and text typed through the
+on-screen keyboard's path (Input.insertText, as an IME does), with a
+backspace; screenshots build/rio-mobile-*.png.
 Needs the VM running and its password in ~/.cache/plan2001/cpu.pass.
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -89,11 +93,15 @@ def wait(cdp, expr, secs, what):
 		if cdp.js(expr):
 			return
 		time.sleep(0.5)
-	raise SystemExit(f'test-rio: timed out waiting for {what}')
+	st = cdp.js("(document.getElementById('status') || {}).textContent")
+	raise SystemExit(f'test-rio: timed out waiting for {what} (page: {st!r})')
 
 
 def main():
-	query = sys.argv[1] if len(sys.argv) > 1 else ''
+	argv = sys.argv[1:]
+	mobile = '--mobile' in argv
+	argv = [a for a in argv if a != '--mobile']
+	query = argv[0] if argv else ''
 	tmp = tempfile.mkdtemp()
 	serve = subprocess.Popen([os.path.join(root, 'tools/serve'), str(HTTP), str(PROXY)],
 		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -111,8 +119,13 @@ def main():
 				time.sleep(0.2)
 		cdp = Cdp(page['webSocketDebuggerUrl'])
 		cdp.call('Page.enable')
+		if mobile:	# a Pixel 7
+			cdp.call('Emulation.setDeviceMetricsOverride', width=412, height=915,
+				deviceScaleFactor=2.625, mobile=True)
+			cdp.call('Emulation.setTouchEmulationEnabled', enabled=True, maxTouchPoints=5)
 		url = f'http://127.0.0.1:{HTTP}/index.html?bridge=ws://127.0.0.1:{PROXY}&{query}#pass={password}'
 		cdp.call('Page.navigate', url=url)
+		prefix = 'mobile-' if mobile else ''
 
 		def push(*ev):
 			cdp.js(f'window.monolith.push({",".join(map(str, ev))})')
@@ -121,48 +134,100 @@ def main():
 			push(Evmouse, x, y, b)
 			time.sleep(0.05)
 
+		def touch(kind, x=0, y=0):
+			pts = [] if kind == 'touchEnd' else [{'x': x, 'y': y}]
+			cdp.call('Input.dispatchTouchEvent', type=kind, touchPoints=pts)
+			time.sleep(0.05)
+
+		def tapbar(sel):
+			r = cdp.js(f'(() => {{ const r = document.querySelector({json.dumps(sel)}).getBoundingClientRect(); '
+				f'return [r.x + r.width/2, r.y + r.height/2]; }})()')
+			touch('touchStart', *r)
+			touch('touchEnd')
+			time.sleep(0.2)
+
 		# at typing speed: drawterm drops keys when its queue to the remote
 		# rio is full, as with any drawterm
 		def type(s):
-			cdp.call('Runtime.evaluate', awaitPromise=True, expression=
-				f'(async () => {{ for (const c of {json.dumps(s)}) {{ const r = c.codePointAt(0); '
-				f'window.monolith.push({Evkey}, r, 1, 0); window.monolith.push({Evkey}, r, 0, 0); '
-				f'await new Promise(t => setTimeout(t, 40)); }} }})()')
+			if mobile:
+				for c in s:
+					cdp.call('Input.insertText', text=c)
+					time.sleep(0.04)
+			else:
+				cdp.call('Runtime.evaluate', awaitPromise=True, expression=
+					f'(async () => {{ for (const c of {json.dumps(s)}) {{ const r = c.codePointAt(0); '
+					f'window.monolith.push({Evkey}, r, 1, 0); window.monolith.push({Evkey}, r, 0, 0); '
+					f'await new Promise(t => setTimeout(t, 40)); }} }})()')
 			time.sleep(0.5)
+
+		def backspace():
+			for kind in ('keyDown', 'keyUp'):
+				cdp.call('Input.dispatchKeyEvent', type=kind, key='Backspace', code='Backspace',
+					windowsVirtualKeyCode=8, nativeVirtualKeyCode=8)
+			time.sleep(0.3)
 
 		def shot(name):
 			png = cdp.call('Page.captureScreenshot', format='png')['data']
-			path = os.path.join(root, 'build', f'rio-{name}.png')
+			path = os.path.join(root, 'build', f'rio-{prefix}{name}.png')
 			open(path, 'wb').write(base64.b64decode(png))
-			print(f'test-rio: {name}: build/rio-{name}.png')
+			print(f'test-rio: {name}: build/rio-{prefix}{name}.png')
+
+		def settle(t0):
+			for _ in range(60):
+				f = cdp.js('window.monolith.flushes')
+				time.sleep(1)
+				if cdp.js('window.monolith.flushes') == f:
+					break
+			print(f'test-rio: typed line settled in {time.time() - t0 - 1:.1f}s')
 
 		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, "drawterm's console")
 		time.sleep(8)	# until rc's prompt (the profile runs first)
 		shot('console')
+		if mobile:
+			tapbar('#showkbd')
+			if not cdp.js("document.activeElement.id === 'kbd'"):
+				raise SystemExit('test-rio: the keyboard button did not focus the textarea')
 		type('rio\n')
 		time.sleep(5)
 		shot('rio')
-		# button 3 menu: New is under the pointer the first time; then sweep
-		mouse(300, 200, 0)
-		mouse(300, 200, B3)
-		time.sleep(0.5)
-		mouse(300, 200, 0)
-		time.sleep(0.5)
-		mouse(60, 60, 0)
-		mouse(60, 60, B3)
-		for i in range(1, 11):
-			mouse(60 + 60*i, 60 + 35*i, B3)
-		mouse(660, 410, 0)
-		time.sleep(3)
-		mouse(300, 200, 0)
-		t0 = time.time()
-		type('echo MONOLITH-OK; cat /dev/sysname; echo\n')
-		for _ in range(60):
-			f = cdp.js('window.monolith.flushes')
-			time.sleep(1)
-			if cdp.js('window.monolith.flushes') == f:
-				break
-		print(f'test-rio: typed line settled in {time.time() - t0 - 1:.1f}s')
+		if mobile:
+			tapbar('#showkbd')		# keyboard away
+			# button 3 menu: New is under the finger the first time; then sweep
+			tapbar('[data-b="4"]')
+			touch('touchStart', 200, 200)
+			time.sleep(0.5)
+			touch('touchEnd')
+			time.sleep(0.5)
+			tapbar('[data-b="4"]')
+			touch('touchStart', 20, 40)
+			for i in range(1, 11):
+				touch('touchMove', 20 + 37*i, 40 + 36*i)
+			touch('touchEnd')
+			time.sleep(3)
+			if cdp.js("document.querySelector('[data-b=\"1\"]').classList.contains('on')") is not True:
+				raise SystemExit('test-rio: the bar did not go back to button 1 after a touch')
+			tapbar('#showkbd')
+			t0 = time.time()
+			type('echo MONOLITH-OX')
+			backspace()
+			type('K; cat /dev/sysname; echo\n')
+		else:
+			# button 3 menu: New is under the pointer the first time; then sweep
+			mouse(300, 200, 0)
+			mouse(300, 200, B3)
+			time.sleep(0.5)
+			mouse(300, 200, 0)
+			time.sleep(0.5)
+			mouse(60, 60, 0)
+			mouse(60, 60, B3)
+			for i in range(1, 11):
+				mouse(60 + 60*i, 60 + 35*i, B3)
+			mouse(660, 410, 0)
+			time.sleep(3)
+			mouse(300, 200, 0)
+			t0 = time.time()
+			type('echo MONOLITH-OK; cat /dev/sysname; echo\n')
+		settle(t0)
 		shot('window')
 		n = cdp.js('window.monolith.flushes')
 		print(f'test-rio: {n} flushes')

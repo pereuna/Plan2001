@@ -26,6 +26,7 @@ tools/build wasm          # build/wasm/drawterm.{js,wasm}
 tools/build native        # build/native/drawterm (vertailukohta)
 tools/test-headless       # vaiheen 1b hyväksyntätesti
 tools/test-rio            # vaiheen 1c: rio, hiiri ja näppäimistö (DevTools)
+tools/test-rio --mobile   # sama kännykkäemulaatiossa: kosketus ja IME
 tools/serve               # http://127.0.0.1:8080/ ja proxy ws://127.0.0.1:8081
 ```
 
@@ -68,6 +69,11 @@ Chrome on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
   veto, komento ikkunaan, ja kuvakaappaukset `build/rio-*.png`.
 - Näppäimet ruuhkassa: drawterm pudottaa näppäimiä, jos jono etä-rioon on
   täynnä (kuten natiivistikin), joten testi kirjoittaa 25 merkkiä/s.
+- Kosketus: kosketusnäytöllä (tai `?touch=1`) ruudun alla on palkki:
+  1/2/3 valitsee hiiren napin seuraavalle kosketukselle (sitten taas 1),
+  Esc ja ⌨. Kännykän näppäimistö kirjoittaa piilotettuun textareaan, jonka
+  arvo luetaan ja palautetaan yhdeksi välilyönniksi (lyhyempi =
+  askelpalautin), koska Androidin näppäimistö ei lähetä näppäinkoodeja.
 - Avoinna: leikepöytä (nyt vain drawtermin sisäinen), HiDPI
-  (devicePixelRatio), pointer lock, kosketus ja hiiren keskinappi
-  kosketuslevyllä, ja nopeus (jokainen socket-kutsu kulkee proxyn kautta).
+  (devicePixelRatio), pointer lock, ja nopeus (jokainen socket-kutsu kulkee
+  proxyn kautta).
