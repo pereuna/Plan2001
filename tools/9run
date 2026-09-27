@@ -33,7 +33,7 @@ matches no rule is an unexpected question: exit 1.
 """
 import os, re, select, socket, sys, time, uuid
 
-CHUNK, CHUNK_DELAY = 8, 0.01
+CHUNK, CHUNK_DELAY = 4, 0.02
 QUIET = 1.5
 LINE_DELAY = 0.3
 LOOP = 3

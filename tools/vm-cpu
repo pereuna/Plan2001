@@ -1,0 +1,84 @@
+#!/bin/bash
+# The Plan2001 CPU and auth server VM, for drawterm clients (Monolith, the
+# browser drawterm): cpu.qcow2 in the cache, a persistent overlay of
+# base.qcow2 (which stays the build VM), set up once through the serial
+# console the way 9front sets up a standalone cpu+auth server:
+#   auth/wrkey          host owner glenda, authdom plan2001, into nvram
+#   auth/changeuser     glenda in keyfs, with the same password
+#   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
+#                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
+#   plan9.ini           service=cpu
+# The password is generated into cpu.pass in the cache (not the repo).
+# Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
+# and connect:  PASS=$(cat ~/.cache/plan2001/cpu.pass) drawterm \
+#                 -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+vm=$root/build/vm
+cpu=$cache/cpu.qcow2 passf=$cache/cpu.pass
+run9() { "$here/9run" -d "$vm" "$@"; }
+redact() { sed "s/$pass/<password>/g"; }
+halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog - >/dev/null; }
+
+[ -f "$cache/base.qcow2" ] || { echo "vm-cpu: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+if [ -f "$cpu" ]; then
+	echo "vm-cpu: $cpu exists, nothing to do"
+	exit 0
+fi
+[ -s "$passf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$passf"); }
+pass=$(cat "$passf")
+
+new=$cpu.part
+rm -f "$new"; qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$new"
+trap '"$here/vm" stop' EXIT
+"$here/vm" start --disk "$new" --net
+printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
+
+echo "vm-cpu: host owner key into nvram (auth/wrkey)"
+run9 -t 60 -s auth/wrkey --dialog - <<EOF | redact
+authid: *	glenda
+authdom: *	plan2001
+secstore key: *	''
+confirm password: *	$pass
+password: *	$pass
+enable legacy p9sk1\\[no\\]: *	''
+term% 	!done
+EOF
+echo; echo "vm-cpu: glenda in the auth server (auth/keyfs, auth/changeuser)"
+run9 -t 60 'auth/keyfs -wp -m /mnt/keys /adm/keys'
+run9 -t 60 -s 'auth/changeuser glenda' --dialog - <<EOF | redact
+Confirm password: *	$pass
+Password: *	$pass
+assign new Inferno/POP secret\\? \\[y/n\\]: *	n
+Expiration date .*: *	''
+Post id: *	''
+User's full name: *	''
+Department #: *	''
+User's email address: *	''
+Sponsor's email address: *	''
+term% 	!done
+EOF
+echo; echo "vm-cpu: ndb and plan9.ini"
+run9 -t 60 "grep -v '^(ipnet=plan2001|sys=cirno )' /lib/ndb/local >/tmp/ndb"
+run9 -t 60 "echo 'ipnet=plan2001 ip=10.0.2.0 ipmask=255.255.255.0 ipgw=10.0.2.2 dns=10.0.2.3 auth=cirno authdom=plan2001 cpu=cirno' >>/tmp/ndb"
+run9 -t 60 "echo 'sys=cirno ether=525400123456 ip=10.0.2.15' >>/tmp/ndb; cp /tmp/ndb /lib/ndb/local"
+run9 -t 60 "9fs 9fat"
+run9 -t 60 "{ grep -v '^service=' /n/9fat/plan9.ini; echo 'service=cpu' } >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini"
+halt9
+"$here/vm" stop
+
+# Check: boots as a cpu+auth server, rcpu and auth listening
+"$here/vm" start --disk "$new" --net
+printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+for i in 1 2 3 4 5 6; do
+	run9 -t 30 "netstat -n | grep -s 'Listen +567 ' && netstat -n | grep -s 'Listen +17019 '" >/dev/null && break
+	sleep 5
+done
+run9 -t 30 "netstat -n | grep Listen"
+run9 -t 30 "netstat -n | grep -s 'Listen +567 '" >/dev/null || { echo "vm-cpu: no auth listener" >&2; exit 1; }
+halt9
+"$here/vm" stop
+trap - EXIT
+mv "$new" "$cpu"
+echo "vm-cpu: done, $cpu (password in $passf)"

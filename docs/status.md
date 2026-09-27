@@ -612,3 +612,20 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 - Avoimet asiat: ks. `docs/boot-abi-arm64.md`. Näitä ovat laitteiden osoitteet
   FDT:stä, välimuistin siivous raudalle sekä ARM64-asennusmedia.
 
+
+## CPU- ja auth-palvelin-VM drawtermille (27.9.2026, haara `monolith-cpu-vm`)
+
+Monolithia varten (drawterm selaimessa, pereuna/monolith):
+- `tools/vm --net`: QEMU:n user-verkko, porttiohjaukset
+  127.0.0.1:17019 → rcpu 17019 ja 127.0.0.1:5670 → auth 567.
+- `tools/vm-cpu` luo `~/.cache/plan2001/cpu.qcow2`:n (base.qcow2:n overlay)
+  sarjakonsolin kautta noin minuutissa: `auth/wrkey` (glenda, authdom
+  plan2001), `auth/changeuser glenda`, ndb:n ipnet- ja sys-rivit
+  (`ether=` tarvitaan, jotta cpurc konfiguroi IP:n, ja `auth=` ipnetissä,
+  jotta `ndb/query -cia` löytää sen) sekä `service=cpu`. Salasana
+  generoidaan tiedostoon `cpu.pass` välimuistissa, ei repoon.
+- Todennettu: natiivi drawterm (64dcc24) `-G -c 'echo MONOLITH-OK'`
+  tulostaa merkin. drawtermin uusin commit 2840502 kaatuu käynnistyksessä
+  (`up->nerrlab == 0`, bisect).
+- 9run: syötepalat 8 → 4 merkkiä ja 10 → 20 ms, koska UART pudotti
+  satunnaisesti merkin.
