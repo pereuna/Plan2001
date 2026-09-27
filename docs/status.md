@@ -633,3 +633,8 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   (`/567`) portissa 17080, Monolithin vaihe 2a. `tools/vm-cpu` kääntää ja
   asentaa sen (`--update` olemassa olevaan cpu.qcow2:een), ja `tools/vm
   --net` ohjaa 127.0.0.1:17080:n siihen.
+- https/wss (Monolithin vaihe 2b): `tlssrv` + `webterm -w /sys/lib/monolith`
+  portissa 17443 tarjoilee sivun ja WebSocketit samasta originista.
+  `tools/vm-cpu` tekee kehitys-CA:n ja varmenteen (`CPU_CERT_SANS`), vie
+  avaimen factotumiin (`/cfg/cirno/cpustart`) ja CA:n ladattavaksi
+  (`/plan2001-ca.crt`); `--update --web DIR` asentaa sivun tiedostot.

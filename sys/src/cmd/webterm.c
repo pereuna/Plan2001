@@ -6,6 +6,11 @@
  * GET /17019 is rcpu, GET /567 is auth; nothing else.  The WebSocket
  * carries the service's bytes unchanged in binary frames, so drawterm's
  * own auth and TLS run inside it as over TCP.
+ *
+ * With -w DIR it also serves the page: GET / or /NAME for a file in DIR
+ * (no subdirectories), NAME.gz instead when the browser takes gzip, with
+ * the COOP/COEP headers the page's threads need.  tlssrv in front of it
+ * (/rc/bin/service/tcp17443) makes that https and wss on one origin.
  */
 #include <u.h>
 #include <libc.h>
@@ -19,6 +24,7 @@ enum {
 };
 
 static char *services[] = { "17019", "567", nil };
+static char *webdir;
 static char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 static void
@@ -46,9 +52,11 @@ readhdr(void)
 	return nil;
 }
 
+/* the value of header name, or nil; the request is not changed */
 static char*
 header(char *hdr, char *name)
 {
+	static char val[Maxhdr];
 	char *p, *e;
 	int n;
 
@@ -59,13 +67,114 @@ header(char *hdr, char *name)
 			p += n+1;
 			while(*p == ' ' || *p == '\t')
 				p++;
-			if((e = strstr(p, "\r\n")) == nil)
+			if((e = strstr(p, "\r\n")) == nil || e-p >= sizeof val)
 				return nil;
-			*e = 0;
-			return p;
+			memmove(val, p, e-p);
+			val[e-p] = 0;
+			return val;
 		}
 	}
 	return nil;
+}
+
+static char*
+httpdate(long t)
+{
+	static char *days[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+	static char *months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+	static char buf[64];
+	Tm *tm;
+
+	tm = gmtime(t);
+	snprint(buf, sizeof buf, "%s, %02d %s %d %02d:%02d:%02d GMT",
+		days[tm->wday], tm->mday, months[tm->mon], tm->year+1900,
+		tm->hour, tm->min, tm->sec);
+	return buf;
+}
+
+static char*
+mimetype(char *name)
+{
+	char *e;
+
+	e = strrchr(name, '.');
+	if(e == nil)
+		return "application/octet-stream";
+	if(strcmp(e, ".html") == 0)
+		return "text/html; charset=utf-8";
+	if(strcmp(e, ".js") == 0)
+		return "text/javascript";
+	if(strcmp(e, ".wasm") == 0)
+		return "application/wasm";
+	if(strcmp(e, ".png") == 0)
+		return "image/png";
+	if(strcmp(e, ".crt") == 0)
+		return "application/x-x509-ca-cert";
+	return "application/octet-stream";
+}
+
+/* an answer without a body, the connection kept */
+static void
+status(char *s)
+{
+	fprint(1, "HTTP/1.1 %s\r\nContent-Length: 0\r\n\r\n", s);
+}
+
+/* GET of path (the request line's, query cut off) from webdir */
+static void
+servefile(char *hdr, char *path)
+{
+	char name[256], file[512], *ae, *enc, *ims, *lm, buf[Iosize];
+	Dir *d;
+	int fd;
+	long n;
+
+	if(strcmp(path, "/") == 0)
+		path = "/index.html";
+	path++;
+	if(*path == 0 || *path == '.' || strchr(path, '/') != nil || strlen(path) >= sizeof name - 4){
+		status("404 Not Found");
+		return;
+	}
+	strcpy(name, path);
+	enc = nil;
+	fd = -1;
+	ae = header(hdr, "Accept-Encoding");
+	if(ae != nil && strstr(ae, "gzip") != nil){
+		snprint(file, sizeof file, "%s/%s.gz", webdir, name);
+		if((fd = open(file, OREAD)) >= 0)
+			enc = "gzip";
+	}
+	if(fd < 0){
+		snprint(file, sizeof file, "%s/%s", webdir, name);
+		fd = open(file, OREAD);
+	}
+	if(fd < 0 || (d = dirfstat(fd)) == nil || (d->mode & DMDIR) != 0){
+		if(fd >= 0)
+			close(fd);
+		status("404 Not Found");
+		return;
+	}
+	lm = strdup(httpdate(d->mtime));
+	ims = header(hdr, "If-Modified-Since");
+	if(ims != nil && strcmp(ims, lm) == 0){
+		fprint(1, "HTTP/1.1 304 Not Modified\r\nLast-Modified: %s\r\n"
+			"Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n"
+			"Content-Length: 0\r\n\r\n", lm);
+	}else{
+		fprint(1, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n%s%s%s"
+			"Content-Length: %lld\r\nLast-Modified: %s\r\nCache-Control: no-cache\r\nVary: Accept-Encoding\r\n"
+			"Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n\r\n",
+			mimetype(name), enc ? "Content-Encoding: " : "", enc ? enc : "", enc ? "\r\n" : "",
+			d->length, lm);
+		while((n = read(fd, buf, sizeof buf)) > 0)
+			if(write(1, buf, n) != n)
+				exits("write");
+	}
+	free(lm);
+	free(d);
+	close(fd);
 }
 
 /* one frame to the browser: unmasked, binary (or op) */
@@ -175,38 +284,28 @@ upstream(int sfd)
 	}
 }
 
-void
-main(int argc, char **argv)
+static void
+usage(void)
 {
-	char *hdr, *path, *key, *e, **s, buf[128], accept[64];
+	fprint(2, "usage: webterm [-w webdir]\n");
+	exits("usage");
+}
+
+/* the WebSocket to service s; does not return */
+static void
+websocket(char *hdr, char *s)
+{
+	char *key, buf[128], accept[64];
 	uchar digest[SHA1dlen];
 	int sfd, pid;
 
-	ARGBEGIN{
-	}ARGEND
-	USED(argc, argv);
-
-	hdr = readhdr();
-	if(strncmp(hdr, "GET /", 5) != 0)
-		reply("405 Method Not Allowed");
-	path = hdr+5;
-	if((e = strchr(path, ' ')) == nil)
-		reply("400 Bad Request");
-	*e = 0;
-	for(s = services; *s != nil; s++)
-		if(strcmp(path, *s) == 0)
-			break;
-	if(*s == nil)
-		reply("404 Not Found");
-	*e = ' ';
 	if((key = header(hdr, "Sec-WebSocket-Key")) == nil)
 		reply("400 Bad Request");
-
 	snprint(buf, sizeof buf, "%s%s", key, guid);
 	sha1((uchar*)buf, strlen(buf), digest, nil);
 	enc64(accept, sizeof accept, digest, SHA1dlen);
 
-	sfd = dial(netmkaddr(sysname(), "tcp", *s), nil, nil, nil);
+	sfd = dial(netmkaddr(sysname(), "tcp", s), nil, nil, nil);
 	if(sfd < 0)
 		reply("502 Bad Gateway");
 	fprint(1, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
@@ -222,4 +321,49 @@ main(int argc, char **argv)
 	upstream(sfd);
 	postnote(PNPROC, pid, "kill");
 	exits(nil);
+}
+
+void
+main(int argc, char **argv)
+{
+	char *hdr, *path, *e, *up, *conn, **s;
+
+	ARGBEGIN{
+	case 'w':
+		webdir = EARGF(usage());
+		break;
+	default:
+		usage();
+	}ARGEND
+	if(argc != 0)
+		usage();
+
+	/* requests on one connection until it closes or becomes a WebSocket */
+	for(;;){
+		hdr = readhdr();
+		if(strncmp(hdr, "GET /", 5) != 0)
+			reply("405 Method Not Allowed");
+		path = hdr+4;
+		if((e = strchr(path, ' ')) == nil)
+			reply("400 Bad Request");
+		*e = 0;
+		path = strdup(path);
+		*e = ' ';
+		if((e = strchr(path, '?')) != nil)
+			*e = 0;
+		up = header(hdr, "Upgrade");
+		if(up != nil && cistrcmp(up, "websocket") == 0){
+			for(s = services; *s != nil; s++)
+				if(strcmp(path+1, *s) == 0)
+					websocket(hdr, *s);
+			reply("404 Not Found");
+		}
+		if(webdir == nil)
+			reply("404 Not Found");
+		servefile(hdr, path);
+		free(path);
+		conn = header(hdr, "Connection");
+		if(conn != nil && cistrcmp(conn, "close") == 0)
+			exits(nil);
+	}
 }
