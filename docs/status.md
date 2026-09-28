@@ -752,3 +752,15 @@ kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
   harmaaksi (`riostart` puuttui osajoukosta), mutta Plan2001:ssä ei ole
   rioa: ikkunat tulevat Monolithista. glenda-profiili ei enää käynnistä
   rioa vaan antaa `term%`-kehotteen kuten asennusmedia.
+
+## Monolith vaihe 3a: ei rioa (28.9.)
+
+- rio poistettu: `tools/subset/derive.py` sulkee pois rion, `window`in,
+  `wloc`in ja rion lähteet (libframe ja libcomplete jäivät pois, koska vain
+  rio käytti niitä). `tools/subset/test` ja `test-remote gefs` (54 s) PASS.
+- Välilehti on ohjelma: `https://kone:17443/app/APP` ajaa `/rc/bin/app/APP`:n
+  (term, acme, sam, stats, clock). webterm (`/rcpu/APP`) antaa jokaiselle
+  istunnolle käyttäjän oman tilaprosessin (`ps -a`: `webterm [APP STATE]`),
+  ja `/rc/bin/apps` listaa ne. `tools/vm-cpu --update` asentaa nämä ja
+  poistaa rion CPU-VM:stä. Monolithin `tools/test-apps` (myös `--drop`,
+  `--mobile`) PASS; tarkemmin `monolith/docs/roadmap.md`.

@@ -78,7 +78,9 @@ Monolith ei ole työpöytä eikä ikkunamanageri. **Ikkunamanageri on selain:**
 sen ikkunat ja välilehdet sekä käyttöjärjestelmän ikkunanhallinta. Monolith
 on Plan2001:n ajoympäristön rajapinta (execution/runtime ABI) selaimen
 hiekkalaatikolle. Vaiheiden 1–2 drawterm, jossa rio piirtää ikkunansa yhden
-canvasin sisään, on tämän esiaste.
+canvasin sisään, on tämän esiaste. Vaihe 3a (tehty) poisti rion: sama drawterm.wasm ajaa
+yhden ohjelman välilehteä kohden (`/app/APP`), ja Plan2001 tuntee istunnot
+(`apps`; `docs/roadmap.md`). Alla oleva on vaiheen 3b tavoite.
 
 ### Yksi välilehti = yksi Plan2001-prosessi
 

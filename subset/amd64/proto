@@ -153,7 +153,6 @@ amd64	d775 sys sys
 		reform	d775 sys sys
 			audio	775 sys sys
 			pm	775 sys sys
-		rio	775 sys sys
 		rm	775 sys sys
 		sam	775 sys sys
 		sed	775 sys sys

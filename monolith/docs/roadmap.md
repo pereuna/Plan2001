@@ -10,7 +10,8 @@
 | 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää | ei TLS:ää TLS:n sisällä | valmis 27.9. |
 | 2d | JS + WASM -raja: `gui-web/monolith.h`, `library.js`, `web/monolith.js` | ei selainkoodia C:ssä (`EM_ASM`) | valmis 27.9. |
 | 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | `test-rio --vm --drop`: yhteydet poikki, rio jatkuu, välissä kirjoitetut näppäimet perille | valmis 27.9. |
-| 3 | Ajoympäristö selaimen hiekkalaatikossa: välilehti = Plan2001-prosessi (nimiavaruus, capabilityt, pysyvä tila; `docs/architecture.md`) | | |
+| 3a | Ei rioa: välilehti = ohjelma (`/app/APP`), Plan2001 tuntee istunnot (`apps`: attached/detached) | `tools/test-apps`: term ja clock omissa välilehdissään, `apps` näkee molemmat ja suljetun irrotettuna | valmis 28.9. |
+| 3b | Ajoympäristön oma rajapinta (ei drawtermia välilehdessä), oma nimiavaruus ja capabilityt per istunto, prosessi liittyy uuteen välilehteen (`docs/architecture.md`) | | |
 | 4 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö
@@ -30,18 +31,19 @@ tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
 tools/build wasm          # build/wasm/drawterm.{js,wasm}
 tools/build native        # build/native/drawterm (vertailukohta)
 tools/test-headless       # vaiheen 1b hyväksyntätesti
-tools/test-rio            # vaiheen 1c: rio, hiiri ja näppäimistö (DevTools)
-tools/test-rio --mobile   # sama kännykkäemulaatiossa: kosketus ja IME
 tools/deploy              # sivu Plan2001-VM:ään: https://127.0.0.1:17443/
-tools/test-headless --vm  # testit sivulla VM:ltä (https, wss); myös test-rio --vm
+tools/test-apps           # vaiheen 3a: term- ja clock-välilehdet, apps (DevTools)
+tools/test-apps --mobile  # sama kännykkäemulaatiossa (IME); --drop: katkokset
+tools/test-headless --vm  # testit sivulla VM:ltä (https, wss)
 tools/relay 10.77.0.5 17443   # VM:n https WireGuard-osoitteeseen
 tools/serve               # http://127.0.0.1:8080/ ja ws://127.0.0.1:8081 → VM:n webterm
 tools/serve --listen 10.77.0.5   # esim. WireGuard-osoitteessa (kännykkä)
 ```
 
 Selaimessa `http://127.0.0.1:8080/#pass=SALASANA` avaa drawtermin
-konsolin (`-h plan2001 -a tcp!plan2001!567 -u glenda`; osoitteet eivät merkitse, WebSocket menee aina webtermiin), ja `rio`
-käynnistää rion. Muut argumentit kyselynä (`?a=-h&a=...`; `-G` näyttää vain
+konsolin (`-h plan2001 -a tcp!plan2001!567 -u glenda`; osoitteet eivät merkitse, WebSocket menee aina webtermiin).
+VM:n sivulla `https://127.0.0.1:17443/app/APP` ajaa ohjelman APP
+(`/bin/app/APP`: term, acme, sam, stats, clock) koko välilehdessä. Muut argumentit kyselynä (`?a=-h&a=...`; `-G` näyttää vain
 tekstin). Salasana on fragmentissa, joten se ei lähde palvelimelle. Jos
 selain on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
 8081:127.0.0.1:8081 debian-kone`.
@@ -73,9 +75,10 @@ selain on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
   (`Module._webpush`), ja kproc antaa ne drawtermille (`absmousetrack`,
   `kbdkey`, `screenresize`). Napit: DOM 1/2/4 (vasen/oikea/keski) → Plan 9
   1/2/4 (vasen/keski/oikea), rulla 8/16. Kursori on 16×16 RGBA → CSS-kursori.
-- `tools/test-rio` ajaa Chromiumia DevTools-protokollalla (oma pieni
+- `tools/test-rio` ajoi Chromiumia DevTools-protokollalla (oma pieni
   WebSocket-asiakas): konsoliin `rio`, napin 3 valikosta New ja ikkunan
-  veto, komento ikkunaan, ja kuvakaappaukset `build/rio-*.png`.
+  veto, komento ikkunaan. Vaiheessa 3a rio poistui, ja testi on nyt
+  `tools/test-apps`.
 - Näppäimet ruuhkassa: drawterm pudottaa näppäimiä, jos jono etä-rioon on
   täynnä (kuten natiivistikin), joten testi kirjoittaa 25 merkkiä/s.
 - Kosketus: kosketusnäytöllä (tai `?touch=1`) ruudun alla on palkki:
@@ -197,3 +200,31 @@ Katselmoinnin neljä kohtaa ja rasitustesti (Plan2001 ja Monolith, haarat
   `/mnt/term`iin (selaimen muistiin) ja lukee sen takaisin, WebSocketit
   pudotetaan välein (`?dropevery`); md5-summien on täsmättävä.
   Tulos: 156 Mt kumpaankin suuntaan, 208 katkosta ja jatkoa, 419 s, OK.
+
+## Vaihe 3a: ei rioa, välilehti on ohjelma (28.9.)
+
+- rio on poistettu Plan2001:stä: osajoukko ei ota sitä (eikä sen lähteitä,
+  libframea ja libcompletea), glendan profiili antaa `term%`-kehotteen, ja
+  `tools/vm-cpu --update` poistaa sen CPU-VM:stä.
+- `https://kone:17443/app/APP` (tai `?app=APP`): webterm tarjoilee sivun, ja
+  sivu ajaa drawtermin `-c app/APP` (Plan2001:n `/rc/bin/app/APP`: term,
+  acme, sam, stats, clock). Ohjelma piirtää koko välilehteen drawtermin
+  `/dev/draw`in kautta ilman ikkunajärjestelmää. Välilehden otsikko on
+  ohjelman nimi. `term` (oletus) on rc drawtermin konsolissa.
+- drawterm avaa rcpu-yhteyden osoitteeseen `/rcpu/APP` (`MONOLITH_APP`,
+  `gui-web/wsock.c`), joten webterm tietää istunnon ohjelman.
+- Istunnot Plan2001:ssä: webterm ajaa `none`-käyttäjänä, jonka prosesseja
+  käyttäjä ei näe, joten jokaisella istunnolla on käyttäjän oma
+  tilaprosessi (auth_chuidin jälkeen). Istunto kertoo sille putkea pitkin
+  tilansa, ja se kirjoittaa sen argumenteikseen: `ps -a` näyttää
+  `webterm [acme attached]`. `apps` listaa käyttäjän istunnot (SESSION,
+  USER, STATE, APP). Välilehden sulkeminen jättää istunnon tilaan
+  `detached` 10 minuutiksi (vaiheen 2e jatko); muiden käyttäjien istunnot
+  eivät näy.
+- Rajat: ohjelman tila on vielä drawtermissa (välilehdessä), joten
+  suljetun välilehden istuntoon ei voi liittää uutta välilehteä. Ohjelman
+  valitsee sivu, ja kirjautunut käyttäjä voi ajaa mitä tahansa. Nämä
+  kuuluvat vaiheeseen 3b.
+- `tools/test-apps`: term-välilehti (komento, myös `--drop` ja `--mobile`),
+  clock-välilehti piirtää, `apps` VM:n sarjakonsolissa näkee molemmat
+  `attached` ja suljetun clockin `detached`. PASS kaikilla kolmella.

@@ -1,0 +1,3 @@
+#!/bin/rc
+# rc on the tab: drawterm's console
+exec rc -i
