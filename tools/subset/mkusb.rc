@@ -48,6 +48,7 @@ bind $i/$kernel /$objtype/$kernel
 bind $i/$loader /$loaderdir/$loader
 # Plan2001's own runtime files (the repo's usr/..., same paths)
 bind $i/profile /usr/glenda/lib/profile
+bind $i/bootsetup /rc/bin/inst/bootsetup
 disk/mkfs -z 4096 -U -s / -d /n/usbnew $i/proto
 echo sync >>/srv/$s.cmd
 echo halt >>/srv/$s.cmd

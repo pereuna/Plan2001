@@ -79,8 +79,8 @@ start)
 	echo $! > "$vm/relay.pid"
 	;;
 stop)
-	if running; then
-		pid=$(cat "$vm/qemu.pid")
+	# QEMU may exit (and remove its pidfile) between the test and the read
+	if running && pid=$(cat "$vm/qemu.pid" 2>/dev/null); then
 		python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b"quit\n"); s.recv(100)' "$vm/mon.sock" 2>/dev/null || true
 		for i in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
 		kill "$pid" 2>/dev/null || true

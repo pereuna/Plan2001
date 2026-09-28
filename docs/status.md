@@ -655,9 +655,21 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   kaatui heti ja init antoi rc:n; siksi tämä ei näkynyt.
 - Korjaus: asennusmedia antaa `term%`-kehotteen ilman riota. Repon
   `usr/glenda/lib/profile` (9frontin profiili + ehto) sidotaan medialle, ja
-  median plan9.ini:ssä on `plan2001=install`. Asennettu levy saa oman
-  plan9.ini:nsä ilman merkintää, joten siellä rio käynnistyy kuten ennen.
+  median plan9.ini:ssä on `plan2001=install`. 9frontin `inst/bootsetup`
+  kopioi käynnissä olevan järjestelmän plan9.ini-muuttujat uudelle levylle,
+  joten repon `rc/bin/inst/bootsetup` (sidotaan medialle) jättää myös
+  `plan2001=`n pois; asennetulla levyllä rio käynnistyy kuten ennen.
+  `tools/subset/test` tarkistaa tämän.
 - Avoin: `riostart` asennetulle järjestelmälle (osajoukon `extra`).
-- Havainto: `tools/subset/test` kaatui kerran (VM:n uusi käynnistys heti
-  pysäytyksen jälkeen, `qemu.pid` puuttui); uusinta PASS. `tools/vm stop`
-  ei odota QEMUn loppumista varmasti.
+- Havainto: `tools/subset/test` kaatui satunnaisesti `tools/vm stop`issa:
+  QEMU ehti loppua (pidfile pois) tarkistuksen ja `cat qemu.pid`:n välissä.
+  Korjattu.
+- **K0:n rivieditori ei ollut mukana** (kysymys: "missä kursori ja
+  rivieditori ovat?"). build.rc:n `o=`{ls $d/kbdfs/?.out}` antoi VM:ssä
+  useamman tiedoston, joten `cp` epäonnistui, `auxbin` jäi tyhjäksi ja
+  bootfs.paq:iin meni 9frontin kbdfs. Korjattu: uusin `.out`, ja build.rc
+  tarkistaa, että bootfs.paq:n kbdfs on juuri käännetty (md5), muuten
+  build epäonnistuu. Varmistettu QEMUssa framebufferilla (`-vga std`,
+  sendkey + screendump): ohjepalkki, kursori rivin keskellä, lisäys
+  kursorin kohtaan ja historia toimivat medialla.
+- Toinen boot tikulta raudalla: `term%` ilman riota (käyttäjän vahvistus).
