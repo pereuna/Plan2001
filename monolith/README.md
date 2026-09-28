@@ -6,8 +6,8 @@ kuten drawterm tekee X11:n, Waylandin tai Win32:n päällä. CPU-palvelin
 mounttaa ne `/mnt/term`iin, ja rio, sam ja acme toimivat tavalliseen tapaan.
 
 Nimi tulee Avaruusseikkailu 2001:stä: musta laatta, jonka kautta toinen
-maailma tulee näkyviin. Tämä on sen rinnakkaisprojekti,
-[Plan2001](https://github.com/pereuna/Plan2001).
+maailma tulee näkyviin. Monolith on osa [Plan2001](https://github.com/pereuna/Plan2001):tä
+(hakemisto `monolith/`); se oli ennen erillinen repo pereuna/monolith.
 
 ## Miksi näin
 
