@@ -72,7 +72,151 @@ Verkko: jokainen drawtermin TCP-yhteys on WebSocket Plan2001:n webtermiin
 Webterm tarjoilee myös sivun (tlssrv, portti 17443), ja klassinen rcpu ja
 natiivi drawterm toimivat edelleen.
 
-## Vaihe 3: WebGPU
+## Vaihe 3: ajoympäristö selaimen hiekkalaatikossa
+
+Monolith ei ole työpöytä eikä ikkunamanageri. **Ikkunamanageri on selain:**
+sen ikkunat ja välilehdet sekä käyttöjärjestelmän ikkunanhallinta. Monolith
+on Plan2001:n ajoympäristön rajapinta (execution/runtime ABI) selaimen
+hiekkalaatikolle. Vaiheiden 1–2 drawterm, jossa rio piirtää ikkunansa yhden
+canvasin sisään, on tämän esiaste.
+
+### Yksi välilehti = yksi Plan2001-prosessi
+
+```
+Selain / käyttöjärjestelmä              Plan2001 (CPU-palvelin)
+├── välilehti: editor.wasm  ──────────▶ prosessi 101: nimiavaruus A, oikeudet A, tila A
+├── välilehti: calc.wasm    ──────────▶ prosessi 102: nimiavaruus B, oikeudet B, tila B
+├── välilehti: term.wasm    ──────────▶ prosessi 103: nimiavaruus C
+└── välilehti: cad.wasm     ──────────▶ prosessi 104: nimiavaruus D
+```
+
+Kun käyttäjä avaa `https://plan2001/app/editor`, Plan2001 luo istunnon: uuden
+nimiavaruuden, oikeusjoukon (capabilities), stdout/stderrin ja pysyvän
+tilan. Se palauttaa `editor.wasm`in ja istunnon capabilityn. Välilehti ajaa
+WASMin, joka puhuu vain omalle istunnolleen todennetun kanavan yli eikä
+tiedä muista välilehdistä. Selaimessa ei ole yhteistä Monolith-valvojaa,
+joka omistaisi useita ohjelmia, eikä selaimessa tehdä useita "prosesseja".
+
+Kaksi editoria ovat kaksi välilehteä ja kaksi prosessia (101 ja 117), kuten
+Unixissa `editor & editor &`. Ohjelman ikkuna on välilehti tai
+selainikkuna, ja sen piirtoalue on välilehden viewport ja canvas. Siksi
+Plan2001 ja Monolith eivät tarvitse ikkunoiden luontia, siirtoa ja
+koon muutosta, pinojärjestystä, kehyksiä, compositoria, alt-tabia eikä
+monen näytön hallintaa: ne ovat jo selaimessa ja käyttöjärjestelmässä.
+
+### Nimiavaruus
+
+Plan2001:n tärkein tehtävä on antaa jokaiselle selainprosessille oma
+maailma. Prosessin maailman määrää sen nimiavaruus ja oikeusjoukko, ei
+globaali tiedostojärjestelmä:
+
+```
+editor (101)            cad (104)               calc (102)
+/                       /                       /
+├── home/               ├── project/            ├── tmp/
+├── project/            ├── models/             └── service/
+├── tmp/                ├── tmp/
+├── clipboard           └── service/
+├── net/                      └── renderer
+└── service/
+```
+
+Calc ei näe `project/`ia lainkaan. Tämä on Plan 9:n prosessikohtaisen
+nimiavaruuden ajatus, lähempänä sitä kuin selaimen compositor-malli.
+
+### Turvallisuusraja on Plan2001:ssä
+
+Saman originin välilehdet eivät ole toisistaan vahvasti eristettyjä: ne
+voivat kommunikoida mm. BroadcastChannelin, SharedWorkerin,
+localStoragen (storage-tapahtumat), IndexedDB:n ja ServiceWorkerin kautta.
+Siksi turvallisuusperiaate ei ole "eri välilehti = eri käyttäjä" vaan
+**eri istunnon capability = eri turvallisuusprinsipaali**. Jokainen
+RPC-kutsu kantaa vain oman prosessinsa capabilityn, ja Plan2001 tarkistaa
+sen (istunto 101 → nimiavaruus 101). Vaikka välilehti 101 saisi tietää
+välilehdestä 102, se ei voi avata istunnon 102 tiedostoja, koska sillä ei ole
+sen capabilitya.
+
+Vahvempi selainpuolen eristys (eri originit, esim. `p101.apps.plan2001`,
+tai opaque-origin-hiekkalaatikko) on mahdollinen myöhemmin, mutta
+ensimmäinen versio ei nojaa siihen.
+
+### %term
+
+Pääte on tavallinen selainprosessi (`term.wasm` → Plan2001:n
+pääteistunto). Se ei katso muiden WASM-prosessien muistia selaimessa vaan
+kysyy Plan2001:ltä, joka loi istunnot. `ps` näyttää vain prosessit, joihin
+päätteen nimiavaruus ja oikeudet ulottuvat; toisen käyttäjän prosessit
+eivät näy.
+
+### stdout Plan2001:een
+
+WASM-ajoympäristö vie `write(1, ...)`:n prosessin kanavaa pitkin
+Plan2001:een, joka pitää siitä rengaspuskuria (esim. `/proc/101/stdout`,
+`/proc/101/stderr`, tai mieluummin Plan2001:n oma rajapinta). `term 101`
+näyttää editorin tulosteen ottamatta yhteyttä editorin välilehden
+JavaScriptiin. Se toimii, vaikka välilehti olisi jäätynyt, ladattu
+uudelleen, suljettu tai toisella koneella.
+
+### Prosessi elää välilehden yli
+
+Suoritus selaimessa on ohimenevää, Plan2001:n prosessi ja sen tila
+pysyviä. Kun välilehti suljetaan, prosessi jää tilaan `detached`; kun
+editori avataan uudelleen, uusi `editor.wasm`-instanssi liittyy samaan
+prosessiin ja palauttaa tilan. Tämä vastaa Plan 9:n CPU-palvelimen ja
+päätteen suhdetta: suoritusympäristö vaihtuu, prosessin looginen tila
+säilyy.
+
+```
+% ps
+PID   STATE       APP
+101   detached    editor
+102   attached    calc
+104   attached    cad
+% attach 101          # antaa URL:n / uuden välilehden editorille
+```
+
+Prosessin voi siirtää laitteelta toiselle (kannettavan selain → puhelin,
+työpöytä → tabletti) ilman että sen identiteetti muuttuu. Vaiheen 2
+jatkettava `/rcpu`-istunto (webterm) on tämän pienempi esiaste.
+
+### Prosessin määritelmä
+
+Prosessi ei ole WASM-instanssi eikä selaimen Worker:
+
+```
+Plan2001-prosessi = identiteetti
+                  + nimiavaruus
+                  + capabilityt
+                  + pysyvä tila
+                  + stdin/stdout/stderr
+                  + ohjelman image ja versio
+                  + mahdollinen liitetty suoritusympäristö (välilehti)
+```
+
+### Kokonaisuus
+
+```
+                   Plan2001 CPU-palvelin
+                 ┌─────────────────────┐
+                 │ PID 101 nimiav. A   │
+                 │ PID 102 nimiav. B   │
+                 │ PID 103 nimiav. C   │
+                 │ pysyvä tila         │
+                 │ capabilityt         │
+                 │ stdin/out/err       │
+                 └──────────┬──────────┘
+                            │ todennetut istunnot
+         ┌──────────────────┼──────────────────┐
+         ▼                  ▼                  ▼
+   välilehti           välilehti          välilehti
+   editor.wasm         calc.wasm          term.wasm
+   canvas/WebGPU       canvas/WebGPU      tekstikäyttöliittymä
+         └──────── selaimen / käyttöjärjestelmän ikkunanhallinta ───┘
+```
+
+## Vaihe 4: WebGPU
+
+Välilehden piirto (vaiheen 3 canvas/WebGPU):
 
 1. **Esitys:** libmemdraw rasteroi WASMissa, ja framebuffer ladataan
    WebGPU-tekstuuriksi.

@@ -10,7 +10,8 @@
 | 2c | Auth WSS:n sisällä ilman drawtermin omaa TLS:ää | ei TLS:ää TLS:n sisällä | valmis 27.9. |
 | 2d | JS + WASM -raja: `gui-web/monolith.h`, `library.js`, `web/monolith.js` | ei selainkoodia C:ssä (`EM_ASM`) | valmis 27.9. |
 | 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | `test-rio --vm --drop`: yhteydet poikki, rio jatkuu, välissä kirjoitetut näppäimet perille | valmis 27.9. |
-| 3 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
+| 3 | Ajoympäristö selaimen hiekkalaatikossa: välilehti = Plan2001-prosessi (nimiavaruus, capabilityt, pysyvä tila; `docs/architecture.md`) | | |
+| 4 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö
 
