@@ -8,9 +8,11 @@ set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 plan2001=${PLAN2001:-$(dirname "$root")}
 "$root/tools/build" wasm
+"$root/tools/build-cc" wasm	# 6c.wasm for the compute resource page (cr.html)
 site=$root/build/deploy
 rm -rf "$site"; mkdir -p "$site"
-cp "$root"/web/* "$root/build/wasm/drawterm.js" "$root/build/wasm/drawterm.wasm" "$site/"
+cp "$root"/web/* "$root/build/wasm/drawterm.js" "$root/build/wasm/drawterm.wasm" \
+	"$root/build/cc-wasm/6c.js" "$root/build/cc-wasm/6c.wasm" "$site/"
 build=$(date -u +%Y%m%d-%H%M%S)-$(git -C "$root" rev-parse --short HEAD)
 sed -i "s/const BUILD = 'dev';/const BUILD = '$build';/" "$site/index.html"
 echo "deploy: build $build"

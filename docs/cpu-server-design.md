@@ -142,3 +142,37 @@ CPU-palvelin riittävät koordinointiin.
   kaikki lähteet (ajuri, natiivi solmu, selain, tuleva CR) toteuttavat.
 - Ajoittaja: miten työt jaetaan, kun CR:t tulevat ja menevät.
 - Politiikka: mitä käyttäjän `/compute` näyttää.
+
+## Ensimmäinen koe: käännös selainten CR:illä (28.9.)
+
+Haara `compute-pool`. Tavoite: käännöstyö jaetaan muutamalle asiakaskoneelle
+selaimen kautta.
+
+- **CR selaimessa:** `https://kone:17443/cr.html` (Monolith, `monolith/web/cr.*`).
+  Välilehti liittyy pooliin, ja sen web workerit ajavat 9frontin C-kääntäjää
+  `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
+  libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,
+  `6c.wasm` 218 kt). Välilehti on ohimenevä: kun se sulkeutuu, CR katoaa.
+- **CPU-palvelin:** `crsrv` (`sys/src/cmd/crsrv.c`) kuuntelee CR:iä
+  (tcp 17030; selaimen yhteys tulee webtermin WebSocketin `/17030` kautta) ja
+  tarjoaa poolin nimiavaruuteen: `/srv/compute` → `/mnt/compute`:
+  `status`, `cc` (työt) ja jokaiselle CR:lle `N/{type,api,workers,owner,state,jobs}`.
+  CR saa liittyessään palvelimen otsikot (`/sys/include`, `/amd64/include`).
+- **Käyttäjä:** `rcc` (`sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk
+  'CC=rcc'`. Työ sisältää lähteen ja sen hakemistojen `.h`-tiedostot, eli
+  data tulee käyttäjän nimiavaruudesta. CR kääntää samannimisessä
+  hakemistossa kuin käyttäjä, joten objekti on sama kuin palvelimen `6c`:n.
+  Tulos kirjoitetaan atomisesti (`NAME.tmp` → `NAME`). Jos poolissa ei ole
+  CR:iä, `rcc` ajaa `6c`:n itse. Katoavan CR:n työ annetaan toiselle.
+- **Testi:** `monolith/tools/test-compute`: kolme headless-Chromium-välilehteä
+  (2 workeria kukin), acme käännetään VM:llä ensin `6c`:llä ja sitten
+  poolissa samassa hakemistossa. Tulos: työt jakautuivat kaikille kolmelle
+  CR:lle (6, 6, 9), ja kaikki 21 objektia ja linkitetty `6.out` ovat tavu
+  tavulta samat. PASS.
+- **Rajat:** vain `6c`. Otsikoista mukana ovat vain lähteen, nykyisen ja
+  `-I`-hakemistojen `.h`:t. Ei tunnistautumista (`crsrv -k` ja `#key=` ovat
+  vain vahinkoyhteyksiä vastaan), ei luottamusta tuloksiin, eikä
+  keskeytettyjen töiden uudelleenyrityksiä ole vielä testattu. Plan 9:n
+  kääntäjä on nopea, joten acmen kokoisessa työssä pooli ei vielä nopeuta
+  (paikallisesti noin 1 s, poolissa noin 1 s). Hyöty tulee raskaista töistä ja
+  suurista käännöksistä.
