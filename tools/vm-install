@@ -38,7 +38,11 @@ EOF
 # medium the installer offers partdisk and prepdisk itself (Plan2001's
 # rc/bin/inst: the medium's own Plan 9 partition does not count), so the
 # defaults are the right answers; they must not go straight to mountfs.
-sed 's/DEV/sdE0/g' "$here/inst.dialog" | run9 -t 1200 -s inst/start --dialog -
+# VM_INSTALL_RULES: a file of dialog rules taking precedence (e.g. gefs).
+{
+	[ -n "$VM_INSTALL_RULES" ] && sed 's/DEV/sdE0/g' "$VM_INSTALL_RULES"
+	sed 's/DEV/sdE0/g' "$here/inst.dialog"
+} | run9 -t "${VM_INSTALL_TIMEOUT:-1200}" -s inst/start --dialog -
 "$here/vm" stop
 
 # Boot the installed disk once: the installer wrote console=0 into

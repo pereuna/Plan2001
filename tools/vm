@@ -3,6 +3,8 @@
 #
 #   tools/vm start                  boot a throwaway overlay on base.qcow2
 #   tools/vm start --disk FILE      boot FILE itself instead
+#   VM_DISK_BPS=N tools/vm start ... the system disk at N bytes/s (a slow
+#                                   USB stick, for installer timings)
 #   tools/vm start ... --iso ISO    also attach ISO and boot from it
 #   tools/vm start ... --scratch F  also attach disk F (qcow2) as sdE3
 #   tools/vm start ... --usb IMG    also attach IMG as a USB stick, boot it
@@ -59,7 +61,7 @@ start)
 	log=serial-$(date +%Y%m%d-%H%M%S).log
 	ln -sfn "$log" "$vm/serial.log"; : > "$vm/$log"
 	nic=(-nic none)
-	[ -n "$net" ] && nic=(-nic user,hostfwd=tcp:127.0.0.1:17019-:17019,hostfwd=tcp:127.0.0.1:5670-:567,hostfwd=tcp:127.0.0.1:17080-:17080,hostfwd=tcp:127.0.0.1:17443-:17443)
+	[ -n "$net" ] && nic=(-nic user,hostfwd=tcp:127.0.0.1:17019-:17019,hostfwd=tcp:127.0.0.1:5670-:567,hostfwd=tcp:127.0.0.1:17080-:17080,hostfwd=tcp:127.0.0.1:17443-:17443,hostfwd=tcp:127.0.0.1:17010-:17010)
 	cd=()
 	[ -n "$iso" ] && cd=(-drive file="$iso",if=none,id=cd,media=cdrom,readonly=on -device ide-cd,drive=cd,bus=ide.3,bootindex=0)
 	[ -n "$scratch" ] && cd=(-drive file="$scratch",if=none,id=sc,format=qcow2 -device ide-hd,drive=sc,bus=ide.3)
@@ -70,7 +72,7 @@ start)
 		-display none -vga none "${nic[@]}" -rtc base=utc \
 		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 		-monitor unix:"$vm/mon.sock",server=on,wait=off \
-		-drive file="$disk",if=none,id=hd,format=qcow2 -device ide-hd,drive=hd,bus=ide.0,bootindex=1 \
+		-drive file="$disk",if=none,id=hd,format=qcow2${VM_DISK_BPS:+,throttling.bps-total=$VM_DISK_BPS} -device ide-hd,drive=hd,bus=ide.0,bootindex=1 \
 		-drive file="$root/build/in.img",if=none,id=in,format=raw -device ide-hd,drive=in,bus=ide.1 \
 		-drive file="$root/build/out.img",if=none,id=out,format=raw -device ide-hd,drive=out,bus=ide.2 \
 		"${cd[@]}" -daemonize -pidfile "$vm/qemu.pid"

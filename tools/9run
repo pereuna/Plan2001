@@ -8,7 +8,8 @@
                                        answer prompts from FILE ('-' = stdin),
                                        after typing LINE if given
 
-  9run --relay DIR                     (tools/vm starts this, one per VM)
+  9run --relay DIR                     (tools/vm starts this, one per VM;
+                                       tools/hw for a machine on the network)
 
 DIR (default build/vm) is where tools/vm keeps the VM.  The relay is the
 only client of QEMU's serial socket, for the VM's whole life: it appends
@@ -19,6 +20,10 @@ the log and writes the FIFO.  Found by trial (see docs/status.md):
   - clients that come and go on QEMU's socket lose input right after
     connecting, stall the guest's output while connected and not reading,
     and see characters doubled in QEMU's own logfile - hence one relay
+If DIR/target says 'tcp HOST PORT KEY', the relay talks to a real machine
+instead: the Plan2001 medium's remote (usr/glenda/lib/profile), a shell on
+a TCP connection that wants KEY first.  No line discipline there, so the
+relay turns typed returns into newlines, and no UART to pace for.
 
 A dialog file has one rule per line: REGEX<TAB>ANSWER, blank lines and
 #-comments ignored.  Rules are tried in order against the output since the
@@ -42,13 +47,24 @@ ANSI = re.compile(r'\x1b\[[0-9;?=]*[A-Za-z]')
 
 
 def relay(d):
-	s = socket.socket(socket.AF_UNIX)
-	for _ in range(100):
-		try:
-			s.connect(os.path.join(d, 'serial.sock'))
-			break
-		except OSError:
-			time.sleep(0.1)
+	tcp = None
+	t = os.path.join(d, 'target')
+	if os.path.exists(t):
+		f = open(t).read().split()
+		if len(f) == 4 and f[0] == 'tcp':
+			tcp = f[1:]
+	if tcp:
+		s = socket.create_connection((tcp[0], int(tcp[1])), timeout=10)
+		s.settimeout(None)
+		s.sendall(tcp[2].encode() + b'\n')
+	else:
+		s = socket.socket(socket.AF_UNIX)
+		for _ in range(100):
+			try:
+				s.connect(os.path.join(d, 'serial.sock'))
+				break
+			except OSError:
+				time.sleep(0.1)
 	fifo = os.path.join(d, 'serial.in')
 	fin = os.open(fifo, os.O_RDWR)		# RDWR: never sees EOF
 	log = open(os.path.join(d, 'serial.log'), 'ab', buffering=0)
@@ -61,6 +77,9 @@ def relay(d):
 			log.write(x)
 		if fin in r:
 			b = os.read(fin, 4096)
+			if tcp:
+				s.sendall(b.replace(b'\r', b'\n'))
+				continue
 			for i in range(0, len(b), CHUNK):
 				s.sendall(b[i:i+CHUNK])
 				time.sleep(CHUNK_DELAY)

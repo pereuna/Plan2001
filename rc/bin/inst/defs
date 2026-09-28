@@ -34,6 +34,20 @@ fn mediumdisk {
 		basename -d $r | sed 's!^/dev/!!'
 }
 
+# Plan2001: run a long command (one that ends by itself, not a file server
+# that stays) with a dot every 2 seconds, so a slow disk does not look
+# like a hung installer; its status is the command's
+fn busy {
+	$* &
+	busypid=$apid
+	while(test -e /proc/$busypid){
+		echo -n .
+		sleep 2
+	}
+	echo
+	wait $busypid
+}
+
 fn prompt {
 	def=()
 	hide=()

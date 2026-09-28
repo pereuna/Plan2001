@@ -715,3 +715,40 @@ high/low water), Origin-tarkistus (`-w` oma https-origin, `-o` lisää;
 ei jätä TLS-avainta `build/in.img`:iin (600, nollaus heti ja trapissa).
 Monolithin puolella vastaavat rajat ja `tools/test-stress`: 156 Mt
 kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
+
+## Asennin: mountdist ja näkyvyys (28.9.2026, haara `installer-progress`)
+
+- Raudalla (gefs, kohteena 32 Gt:n USB-tikku) `mountdist` oli hyvin hidas:
+  se ei ole pelkkä liitos, vaan ajaa `fstype`n jokaiselle osiolle kaikilla
+  levyillä etsiessään FAT/ISO-jakelua. Plan2001:n medialla jakelu on media
+  itse (`/`), kuten 9frontin ISO kertoo `cdboot`illa. Repon
+  `rc/bin/inst/mountdist`: medialta asennettaessa oletus `/` ilman levyjen
+  läpikäyntiä (`cdboot`ia ei voi laittaa plan9.ini:hin, koska
+  `boot/local.rc` käyttää sitä bootlaitteen valintaan).
+- Pitkät vaiheet näyttävät elävänsä: `defs`in `busy` tulostaa pisteen 2 s
+  välein (`copydist`in `disk/mkfs`, gefs:n reamaus). Palvelimia, jotka jäävät
+  käyntiin, ei kääritä.
+- QEMUssa (kohde hidastettu 5 Mt/s, `VM_DISK_BPS`; gefs `VM_INSTALL_RULES`):
+  ennen `Scanning storage devices` ja `[no default]`, nyt suoraan
+  `Distribution disk (/dev/sdE0/fs, /)[/]`; pisteet näkyvät. Raudan
+  hitautta ei saatu QEMUssa toistettua (läpikäynti 1 s); todennäköinen syy on
+  USB-ajurin viive oikealla tikulla gefs:n kirjoittaessa samaan aikaan, ja
+  korjaus ohittaa ne luvut kokonaan. `tools/subset/test` PASS.
+- Etäasennus (28.9.): asennusmedian `term%`-kehotteessa `remote` (repon
+  glenda-profiili) hakee osoitteen DHCP:llä, näyttää `tcp!IP!17010` ja
+  neljän merkin avaimen ja käynnistää `aux/listen1`n; avaimen ensin
+  lähettävä yhteys saa `rc -i`:n (stderr samaan yhteyteen, jotta asentajan
+  kehotteet näkyvät). Toisella koneella `tools/hw connect IP KEY`, ja
+  `tools/9run -d build/hw` toimii kuten VM:n kanssa (9run:n relay TCP:llä).
+  Avain vain estää vahingossa syntyvät yhteydet; lähiverkko on luotettu.
+- Raudan gefs-asennuksessa `chgrp` puuttui medialta: osajoukon analyysi
+  näki `logprog chgrp` -rivistä vain `logprog`in. Nyt kääreet ja repon omat
+  tiedostot analysoidaan (`chgrp`, `aux/listen1` tulivat mukaan), ja
+  `tools/subset/test-remote [cwfs64x|hjfs|gefs]` asentaa QEMUssa TCP:n yli
+  kuten raudalla: gefs 53 s ja hjfs 57 s PASS, `tools/subset/test` PASS.
+- Raudalla (28.9.) etäasennus toisella Dellillä: `remote` → `tools/hw
+  connect`, gefs 32 Gt:n USB-tikulle 75 s, ei puuttuvia tiedostoja.
+  Asennettu järjestelmä käynnistyy tikulta, rivieditori toimii. rio jäi
+  harmaaksi (`riostart` puuttui osajoukosta), mutta Plan2001:ssä ei ole
+  rioa: ikkunat tulevat Monolithista. glenda-profiili ei enää käynnistä
+  rioa vaan antaa `term%`-kehotteen kuten asennusmedia.

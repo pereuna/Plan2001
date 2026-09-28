@@ -90,6 +90,7 @@ amd64	d775 sys sys
 			apm	775 sys sys
 			getflags	775 sys sys
 			kbdfs	775 sys sys
+			listen1	775 sys sys
 			mouse	775 sys sys
 			realemu	775 sys sys
 			timesync	775 sys sys
@@ -100,6 +101,7 @@ amd64	d775 sys sys
 		bind	775 sys sys
 		cat	775 sys sys
 		cfs	775 sys sys
+		chgrp	775 sys sys
 		chmod	775 sys sys
 		cleanname	775 sys sys
 		cp	775 sys sys

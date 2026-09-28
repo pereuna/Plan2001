@@ -73,7 +73,7 @@
 /adm/timezone/Uruguay	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	bcd913d653b94b363e5a7f59da799b45
 /adm/timezone/W-SU	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	4fd9cc2fce17a4dadc0c62cff30022b9
 /adm/timezone/WET	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	f8d8b7ce0cca9112399094ad4ddbe285
-/adm/timezone/local	runtime	static	named in /rc/bin/inst/tzsetup	4db3482545624ddf43e74c7cac996979
+/adm/timezone/local	runtime	static	in /adm/timezone, named in /rc/bin/inst/tzsetup	4db3482545624ddf43e74c7cac996979
 /adm/users	runtime	static	named in /rc/bin/inst/mountcwfs	b73b40629b811877ca96c6c2605d962f
 /amd64/9pc64	runtime	boot	kernel bootdir	-
 /amd64/bin/auth/factotum	runtime	boot	kernel bootdir	-
@@ -82,6 +82,7 @@
 /amd64/bin/aux/apm	runtime	static	run by /rc/bin/termrc	-
 /amd64/bin/aux/getflags	runtime	static	run by /rc/bin/ssam	-
 /amd64/bin/aux/kbdfs	runtime	boot	bootfs.proto	-
+/amd64/bin/aux/listen1	runtime	static	run by /usr/glenda/lib/profile	-
 /amd64/bin/aux/mouse	runtime	static	run by /rc/bin/screenrc	-
 /amd64/bin/aux/realemu	runtime	static	run by /rc/bin/screenrc	-
 /amd64/bin/aux/timesync	runtime	static	run by /rc/bin/termrc	-
@@ -92,6 +93,7 @@
 /amd64/bin/bind	runtime	boot	bootfs.proto	-
 /amd64/bin/cat	runtime	boot	bootfs.proto	-
 /amd64/bin/cfs	runtime	boot	bootfs.proto	-
+/amd64/bin/chgrp	runtime	static	run by /rc/bin/inst/mountgefs	-
 /amd64/bin/chmod	runtime	boot	bootfs.proto	-
 /amd64/bin/cleanname	runtime	static	run by /rc/bin/inst/mountdist	-
 /amd64/bin/cp	runtime	dynamic	boot + installer up to copydist	-
@@ -668,9 +670,11 @@
 /sys/src/cmd/aux/apm.c	source	source	builds /amd64/bin/aux/apm	a8afc5ee97e128bac6ed7d764ff17cdf
 /sys/src/cmd/aux/getflags.c	source	source	builds /amd64/bin/aux/getflags	740cf0d0735bb0c5829b7eeaec30d379
 /sys/src/cmd/aux/kbdfs/kbdfs.c	source	source	builds /amd64/bin/aux/kbdfs	d87615126c090bf0984f55f73b2d0599
+/sys/src/cmd/aux/kbdfs/latin1.h	source	source	builds /amd64/bin/aux/kbdfs	b61ec5d0aa723af718f29ae42ee5323b
 /sys/src/cmd/aux/kbdfs/mkfile	source	source	builds /amd64/bin/aux/kbdfs	e6df48ec405e69f3e7627c1ab9e10a9f
 /sys/src/cmd/aux/kbdfs/mkfile.mklatin	source	source	builds /amd64/bin/aux/kbdfs	9a13632a228c415a16307e69ddeba77c
 /sys/src/cmd/aux/kbdfs/mklatin.c	source	source	builds /amd64/bin/aux/kbdfs	31d87d775ca9632877e5783e5670569f
+/sys/src/cmd/aux/listen1.c	source	source	builds /amd64/bin/aux/listen1	c57f0ea5549675bf4c4face56f469fd3
 /sys/src/cmd/aux/mkfile	source	source	builds /sys/src/cmd/aux/acpi.c	a5101e8e8c4486d631b1f8fffcc72603
 /sys/src/cmd/aux/mouse.c	source	source	builds /amd64/bin/aux/mouse	272ca89fc36b3265944c651a6930a7f6
 /sys/src/cmd/aux/realemu/arg.c	source	source	builds /amd64/bin/aux/realemu	3c26269ea4591d770eb60ccea65e3954
@@ -1370,6 +1374,7 @@
 /sys/src/cmd/awk/test/test.countries	source	source	builds /amd64/bin/awk	2142240d4ff7ea303c2a6e493276ddff
 /sys/src/cmd/awk/test/test.data	source	source	builds /amd64/bin/awk	e3b7d899729c22dc8474a15234062f4f
 /sys/src/cmd/awk/tran.c	source	source	builds /amd64/bin/awk	83d59fc3a2c06a6ca5bff9029b1b158d
+/sys/src/cmd/awk/y.tab.h	source	source	builds /amd64/bin/awk	8b5cdb2ce6b1e4e04365e08e4c6d7a77
 /sys/src/cmd/basename.c	source	source	builds /amd64/bin/basename	050408e4e9678be72a7bd1aa22209a79
 /sys/src/cmd/bind.c	source	source	builds /amd64/bin/bind	67eb51f5ac9a0e9d0d1a96458f803b72
 /sys/src/cmd/cat.c	source	source	builds /amd64/bin/cat	b441c7e8656c459f345688167505ad7a
@@ -1388,6 +1393,7 @@
 /sys/src/cmd/cfs/mkfile	source	source	builds /amd64/bin/cfs	2ab61a557296e41f64cba49d0ad56957
 /sys/src/cmd/cfs/notes	source	source	builds /amd64/bin/cfs	a491e7aaa41513773488b1fb082f0d7f
 /sys/src/cmd/cfs/stats.h	source	source	builds /amd64/bin/cfs	0c902f7951d172bb8a245ecf41c65d80
+/sys/src/cmd/chgrp.c	source	source	builds /amd64/bin/chgrp	cdaf413d0a58e03a14a91dc07ac16584
 /sys/src/cmd/chmod.c	source	source	builds /amd64/bin/chmod	20c1eaa2e471a9aad10c0cb33afc9c83
 /sys/src/cmd/cleanname.c	source	source	builds /amd64/bin/cleanname	76843b4fc2c7a76779632aabffe12ac8
 /sys/src/cmd/cp.c	source	source	builds /amd64/bin/cp	f09b6a92a103bd55a98acf17bb244a89
@@ -1472,6 +1478,8 @@
 /sys/src/cmd/disk/prep/fdisk.c	source	source	builds /amd64/bin/disk/edisk	07e0653b90e7ff8b5920d288a945e35c
 /sys/src/cmd/disk/prep/mkfile	source	source	builds /amd64/bin/disk/edisk	289542d1a18f160ec928f163467955cd
 /sys/src/cmd/disk/prep/prep.c	source	source	builds /amd64/bin/disk/edisk	48b98a43538d54a54799e5dbe875a675
+/sys/src/cmd/disk/prep/y.tab.c	source	source	builds /amd64/bin/disk/edisk	2ae976db70d8653c57c1687cf0268bfd
+/sys/src/cmd/disk/prep/y.tab.h	source	source	builds /amd64/bin/disk/edisk	6578ecfcccebe09074fb4d1644a494cb
 /sys/src/cmd/dossrv/chat.c	source	source	builds /amd64/bin/dossrv	081cde0f84e39ba646d1c7de18e18bb8
 /sys/src/cmd/dossrv/dat.h	source	source	builds /amd64/bin/dossrv	6ac48e455b0c196e611b7dfe622f4b20
 /sys/src/cmd/dossrv/devio.c	source	source	builds /amd64/bin/dossrv	229cc69828092954e409ef8234397732
@@ -1513,6 +1521,8 @@
 /sys/src/cmd/grep/main.c	source	source	builds /amd64/bin/grep	86110c319427e31e5257d12d19ae5a98
 /sys/src/cmd/grep/mkfile	source	source	builds /amd64/bin/grep	2b2753d8eb0e2c571e30c2fd425bdd9f
 /sys/src/cmd/grep/sub.c	source	source	builds /amd64/bin/grep	f07def8c85b28248414bbc04d8e73da6
+/sys/src/cmd/grep/y.tab.c	source	source	builds /amd64/bin/grep	14a7453637a988316646afb8f80f07ec
+/sys/src/cmd/grep/y.tab.h	source	source	builds /amd64/bin/grep	6f66a39724eb32e795d459770f19a3c2
 /sys/src/cmd/hjfs/9p.c	source	source	builds /amd64/bin/hjfs	f5ba561e7ac0f83c10def6279da59a25
 /sys/src/cmd/hjfs/auth.c	source	source	builds /amd64/bin/hjfs	5cdfff55e0358e597b09e9cc45fa40d9
 /sys/src/cmd/hjfs/buf.c	source	source	builds /amd64/bin/hjfs	4a7536aac4d43470a57aa527605328d9
@@ -1533,6 +1543,8 @@
 /sys/src/cmd/hoc/math.c	source	source	builds /amd64/bin/hoc	1d901f39c7bdb3d71a0a58cdb55572fd
 /sys/src/cmd/hoc/mkfile	source	source	builds /amd64/bin/hoc	1d416e207f844afceda67c3c6df27b61
 /sys/src/cmd/hoc/symbol.c	source	source	builds /amd64/bin/hoc	9c2b76f5f843f1ff0b1d5c4ffc1d88aa
+/sys/src/cmd/hoc/y.tab.c	source	source	builds /amd64/bin/hoc	205199047170591a21969f46b0bfe35a
+/sys/src/cmd/hoc/y.tab.h	source	source	builds /amd64/bin/hoc	6d3e2a308837bcfa7e66bf2b1ac23a7a
 /sys/src/cmd/ip/dhcp.h	source	source	included by /sys/src/cmd/ip/ipconfig/dhcp.c	deb0c62ab5515147812fc48121df5f6d
 /sys/src/cmd/ip/icmp.h	source	source	included by /sys/src/cmd/ip/ipconfig/ipv6.c	84f033452c015826de0addc76df50deb
 /sys/src/cmd/ip/ipconfig/dhcp.c	source	source	builds /amd64/bin/ip/ipconfig	3a909b67a248e2204d540d0e7eaefdb1
@@ -1667,6 +1679,8 @@
 /sys/src/cmd/rc/tree.c	source	source	builds /amd64/bin/rc	2e87c63d9276b9fc7eef144c820b2c7e
 /sys/src/cmd/rc/unix.c	source	source	builds /amd64/bin/rc	30e35821e28166ffb53189c30158fab8
 /sys/src/cmd/rc/var.c	source	source	builds /amd64/bin/rc	c7a2a0364ae29ab9ad4ffd6dc0a0eee1
+/sys/src/cmd/rc/y.tab.c	source	source	builds /amd64/bin/rc	fda0929c8e7e9c094341a54103f388d5
+/sys/src/cmd/rc/y.tab.h	source	source	builds /amd64/bin/rc	d891d84369a3d5df28fb9f914963a6e5
 /sys/src/cmd/read.c	source	source	builds /amd64/bin/read	d5dea5ac9044bff05fff78f464a1dfd1
 /sys/src/cmd/reform/audio.c	source	source	builds /amd64/bin/reform/audio	7e04c3d9853e4e6816d8378a92b75883
 /sys/src/cmd/reform/mkfile	source	source	builds /sys/src/cmd/reform/audio.c	c7a53539eb6144faa67364f80af05f6f
@@ -1719,6 +1733,7 @@
 /sys/src/cmd/syscall/mkfile	source	source	builds /amd64/bin/syscall	d3d58c6e773a6f070f20c82bbf21dfd2
 /sys/src/cmd/syscall/mktab.awk	source	source	builds /amd64/bin/syscall	cde5c11f54dd62ca0565c6026a464fc7
 /sys/src/cmd/syscall/syscall.c	source	source	builds /amd64/bin/syscall	2acf60e2fc9a7d00330749d5cddfead3
+/sys/src/cmd/syscall/tab.h	source	source	builds /amd64/bin/syscall	616071a287b98b5a64cd636775fd44be
 /sys/src/cmd/tar.c	source	source	builds /amd64/bin/tar	34a7fc94a5ef7c6d1c11b5c05c46447b
 /sys/src/cmd/test/date.rc	source	source	builds /amd64/bin/test	3555716f1821c6a9c44283e537d07f25
 /sys/src/cmd/test/mkfile	source	source	builds /amd64/bin/test	36516a1136e63489747f6dde4016c4ae
@@ -1851,17 +1866,23 @@
 /sys/src/libauthsrv/convT2M.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	17bf1981c697ea9146f1c7ff533ebf99
 /sys/src/libauthsrv/convTR2M.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	47940412c9b2c293a3360e0dbf2e86c6
 /sys/src/libauthsrv/decaf.mp	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	e782af9ba3c5b66ba29f549a5db9246b
+/sys/src/libauthsrv/decaf.mpc	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	37e0ffa20fd3a919414030ddb85aff1b
 /sys/src/libauthsrv/ed448.mp	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	7b3328559200ad5fa654f443a7e4d79d
+/sys/src/libauthsrv/ed448.mpc	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	7bd46ef8acb611936a161a2013d89054
 /sys/src/libauthsrv/edwards.mp	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	6a7447b09906c899c985a9ec7b0a7dee
+/sys/src/libauthsrv/edwards.mpc	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	5df3b4ca3688f713fda1ff83b40c1daf
 /sys/src/libauthsrv/elligator2.mp	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	967f87862a85d4327495719a3211efe0
+/sys/src/libauthsrv/elligator2.mpc	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	2be90f9a9675deae67a5b04437164427
 /sys/src/libauthsrv/form1.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	10ad6e20d126913e697f76884239492e
 /sys/src/libauthsrv/mkfile	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	1f77e907d018dc6391b54538a347cae2
 /sys/src/libauthsrv/msqrt.mp	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	5df2a88809a36758d1849e492c40ad00
+/sys/src/libauthsrv/msqrt.mpc	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	2290466b598e9759d67d043945a4b065
 /sys/src/libauthsrv/nvcsum.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	0d43d0f7e4b34b44e0128a227ce2acbc
 /sys/src/libauthsrv/passtokey.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	ac6978da23cfd2dbc4c291d87c4319bc
 /sys/src/libauthsrv/readcons.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	f8e855183cdd97cb4b09baa5a0f5d2cf
 /sys/src/libauthsrv/readnvram.c	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	7ef9904ffcbeee6fdf6039225354b9fa
 /sys/src/libauthsrv/spake2ee.mp	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	9aeed545a30b65e27162dd89b28f354b
+/sys/src/libauthsrv/spake2ee.mpc	source	source	LIB of /sys/src/cmd/auth/factotum/mkfile	5c3e9257d951142e31b40ba8c6d0f676
 /sys/src/libavl/avl.c	source	source	linked by /sys/include/avl.h	2a6701d3fcff304b287a84fea4788696
 /sys/src/libavl/mkfile	source	source	linked by /sys/include/avl.h	3f1cc97f27ee7114a12f02ea13b8d9c4
 /sys/src/libbio/bbuffered.c	source	source	linked by /sys/include/bio.h	a3b470fd745acc706675c1f42530ab02
@@ -2754,6 +2775,7 @@
 /sys/src/libsec/port/genstrongprime.c	source	source	LIB of /sys/src/9/pc/mkfile	6848efc0d57faa72dfc0693ebf92b3aa
 /sys/src/libsec/port/hkdf.c	source	source	LIB of /sys/src/9/pc/mkfile	c5274a6fa1904e1f45d30e6bec3dcc2f
 /sys/src/libsec/port/hmac.c	source	source	LIB of /sys/src/9/pc/mkfile	8bb95490a0be9f29baaebd234292647c
+/sys/src/libsec/port/jacobian.c	source	source	LIB of /sys/src/9/pc/mkfile	2c664d409ece513025b6e7714260fefd
 /sys/src/libsec/port/jacobian.mp	source	source	LIB of /sys/src/9/pc/mkfile	210c61f5e655ba09f517820ffbd2428c
 /sys/src/libsec/port/keccakblock.c	source	source	LIB of /sys/src/9/pc/mkfile	8e26e22178861b53d400c1b7e4cb4f14
 /sys/src/libsec/port/md4.c	source	source	LIB of /sys/src/9/pc/mkfile	12f2d81279b898cf5abcd168ddf95cc5
@@ -2777,8 +2799,11 @@
 /sys/src/libsec/port/rsaprivtopub.c	source	source	LIB of /sys/src/9/pc/mkfile	098c05a86342cfd6b80d61e65f5da57f
 /sys/src/libsec/port/salsa.c	source	source	LIB of /sys/src/9/pc/mkfile	aa2aa25658d91b032488cc22fc90f198
 /sys/src/libsec/port/scrypt.c	source	source	LIB of /sys/src/9/pc/mkfile	9e7f962d951cbefa426ec54a4a29c409
+/sys/src/libsec/port/secp256k1.c	source	source	LIB of /sys/src/9/pc/mkfile	71abb60428f3b76c0e4e3214c4d08b0c
 /sys/src/libsec/port/secp256k1.mp	source	source	LIB of /sys/src/9/pc/mkfile	18a5bc5703b97ab7f801451905892bf5
+/sys/src/libsec/port/secp256r1.c	source	source	LIB of /sys/src/9/pc/mkfile	89fff4f9a061f96f7e581af15af79693
 /sys/src/libsec/port/secp256r1.mp	source	source	LIB of /sys/src/9/pc/mkfile	5ee9e86e080f11f7af3ddd998ab0897a
+/sys/src/libsec/port/secp384r1.c	source	source	LIB of /sys/src/9/pc/mkfile	dfc434fa2132e71b2c031697641ba08a
 /sys/src/libsec/port/secp384r1.mp	source	source	LIB of /sys/src/9/pc/mkfile	e638e8661d39963750559056313a9079
 /sys/src/libsec/port/sha1.c	source	source	LIB of /sys/src/9/pc/mkfile	35b1a1493b6c3a02f5d6ff41c2cf0f55
 /sys/src/libsec/port/sha1block.c	source	source	LIB of /sys/src/9/pc/mkfile	be6dbd868923b11bd320472aca593f0d

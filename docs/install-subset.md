@@ -116,6 +116,7 @@ Suurimmat ryhmät: ohjelmat `/amd64/bin` (levytyökalut, tiedostopalvelimet,
 | `/lib/namespace` | jäljityksen tarkistus: atime ei päivittynyt, vaikka init ja `newns(2)` lukevat tiedoston joka bootissa | `extra` (ainoa iteratiivinen) |
 | `/adm/timezone/*` puuttui | testi: `tzsetup` kiersi silmukkaa | `/n/newfs/X` → `/X`, ja hakemisto tiedostoineen |
 | joukko paisui 279 Mt:uun | testi meni läpi, mutta joukko oli liian suuri | hakemistoja laajennetaan vain uuden levyn luennoista. `test -d` ja `/dist/9front` (git-repo, 130 Mt) vaativat vain hakemiston. |
+| `chgrp` puuttui (gefs: `mountgefs`), ja se näkyi vasta raudalla | `logprog chgrp …`: analyysi näki vain `logprog`in, ja testit kattoivat vain cwfs:n | kääreet (`logprog`, `busy`, `exec`) ja repon omat rc-/usr-tiedostot luetaan analyysiin; `tools/subset/test-remote gefs`/`hjfs` |
 | tikku muisti edellisen asennuksen (`/tmp/copydone`), ja toinen asennus jätti kopioinnin väliin | testi: asennettu levy oli tyhjä | ylimmän tason hakemistot `distproto`n mukaan: `tmp d555`, joten profiili käynnistää `ramfs`in kuten ISOlla |
 
 ### Tunnetut rajat
