@@ -22,25 +22,37 @@ the mkfiles and mk templates, and the #include/#pragma lib closure over
 """
 import os, re, sys
 
-ARCH = 'amd64'
+def loadtarget(name):
+	"""tools/targets/<name>: name=value and name=(list) lines."""
+	t = {}
+	for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'targets', name)):
+		line = line.split('#')[0].strip()
+		if '=' not in line:
+			continue
+		k, v = line.split('=', 1)
+		t[k] = v[1:-1].split() if v.startswith('(') else v
+	return t
+
+TARGET = os.environ.get('TARGET', 'amd64')
+T = loadtarget(TARGET)
+ARCH = T['objtype']
 BIN = ['/%s/bin' % ARCH, '/rc/bin']
 # ours, not 9front's: the trace helpers
 IGNORE = re.compile(r'^/usr/glenda/(trace/|tmp/|snap\.rc$|export\.rc$)'
 	# 9front's git repository (130 MB): the installer only checks that the
 	# directory /dist/9front exists (copydist, mountdist's havedist), and
-	# subset/proto makes it
+	# subset/<target>/proto makes it
 	r'|^/dist/')
 # rc words that are not commands
 RCWORDS = set('if not for in while switch case fn eval exec exit shift cd builtin . ~ ! @ wait whatis rfork flag status'.split())
-KERNELDIRS = ['/sys/src/9/port', '/sys/src/9/pc', '/sys/src/9/pc64', '/sys/src/9/ip',
-	'/sys/src/9/boot', '/sys/src/boot/efi']
+KERNELDIRS = ['/sys/src/9/' + d for d in T['ksrc']] + ['/sys/src/boot/efi']
 # Legacy that Plan2001 leaves out even where a script names it (mountdist's
 # iso9660 branch, bootsetup's BIOS boot blocks): the install medium is a
-# USB disk booted by UEFI.  Listed in subset/files as excluded, with why.
+# USB disk booted by UEFI.  Listed in subset/<target>/files as excluded, with why.
 LEGACY = [
 	(r'^/386/(9bootiso|9boothyb|9bootpxe|9bootfat|pbs|mbr|bootia32\.efi|efiboot\.fat)$',
 		'BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi)'),
-	(r'^/amd64/bin/(9660srv|disk/mk9660|disk/dump9660)$', 'ISO9660: the medium is a USB disk'),
+	(r'^/%s/bin/(9660srv|disk/mk9660|disk/dump9660)$' % ARCH, 'ISO9660: the medium is a USB disk'),
 	(r'^/sys/src/boot/(pc|iso)(/|$)', 'BIOS loaders: Plan2001 boots by UEFI only'),
 ]
 SRCMAP = {	# binary -> source, where the name alone does not say it
@@ -131,9 +143,9 @@ def runtime(b):
 
 	# boot: the kernel and its bootdir, the UEFI loader (tools/subset/mkusb
 	# puts Plan2001's own builds of these two on the medium)
-	for p in ['/%s/9pc64' % ARCH, '/%s/bin/paqfs' % ARCH, '/%s/bin/auth/factotum' % ARCH]:
+	for p in ['/%s/%s' % (ARCH, T['kernel']), '/%s/bin/paqfs' % ARCH, '/%s/bin/auth/factotum' % ARCH]:
 		add(p, 'boot', 'kernel bootdir')
-	add('/386/bootx64.efi', 'boot', 'UEFI loader')
+	add('/%s/%s' % (T['loaderdir'], T['loader']), 'boot', 'UEFI loader')
 	stack, out = [], []
 	for line in open(tree.text + '/sys/src/9/boot/bootfs.proto', encoding='latin1'):
 		if not line.strip():
@@ -240,7 +252,7 @@ def sources(b):
 				add(s, 'source', 'builds ' + p)
 			else:
 				add(p, 'unresolved', 'no source found for ' + p)
-		elif tree.script(p) is not None or not p.startswith('/%s/' % ARCH) and not p.startswith('/386/'):
+		elif tree.script(p) is not None or not p.startswith('/%s/' % ARCH) and not p.startswith('/%s/' % T['loaderdir']):
 			add(p, 'runtime', how + ': ' + why)
 	for d in KERNELDIRS:
 		if d in tree.dirs:

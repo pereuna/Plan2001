@@ -30,7 +30,7 @@ MODE $64
  *
  * Plan2001 Boot ABI v1 (sys/include/bootinfo.h): RDI holds the physical
  * address of the BootInfo blob.  Keep it, before anything else uses DI;
- * bootinfoinit() (pc/bootinfo.c) maps and reads the blob.
+ * bootinfoinit() (port/bootinfo.c) maps and reads the blob.
  */
 TEXT _efi64<>(SB), 1, $-4
 	CLI

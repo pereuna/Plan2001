@@ -1,17 +1,19 @@
 #!/bin/bash
-# Build the Plan2001 USB install medium from subset/proto and this repo's
-# own loader and kernel (build/bootx64.efi, build/9pc64 from
-# tools/build.sh): build/subset/plan2001-inst.img, a raw disk image to dd
-# onto a USB stick.  Booted by UEFI only (see mkusb.rc).
+# Build a target's Plan2001 USB install medium from subset/$TARGET/proto and
+# this repo's own loader and kernel for it (build/$TARGET, from
+# tools/build.sh): build/subset/$TARGET/plan2001-inst.img, a raw disk image
+# to dd onto a USB stick.  Booted by UEFI only (see mkusb.rc).
 set -e
 here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
-b=$root/build; s=$b/subset
+. "$tools/target.sh"
+b=$root/build; s=$b/subset/$TARGET
 run9() { "$tools/9run" -d "$b/vm" "$@"; }
-for f in 9pc64 bootx64.efi; do
-	[ -s "$b/$f" ] || { echo "mkusb: no $b/$f (run tools/build.sh)" >&2; exit 1; }
+for f in "$kernel" "$loader"; do
+	[ -s "$tbuild/$f" ] || { echo "mkusb: no $tbuild/$f (run tools/build.sh)" >&2; exit 1; }
 done
 mkdir -p "$s"; rm -f "$b/in.img" "$b/out.img" "$s/plan2001-inst.img"
-tar cf "$b/in.img" --format=ustar -C "$here" mkusb.rc -C "$root/subset" proto -C "$b" 9pc64 bootx64.efi
+cp "$tools/targets/$TARGET" "$s/target"
+tar cf "$b/in.img" --format=ustar -C "$here" mkusb.rc -C "$root/subset/$TARGET" proto -C "$tbuild" "$kernel" "$loader" -C "$s" target
 truncate -s 64M "$b/in.img"
 export OUT_MB=${USB_MB:-1024}
 trap '"$tools/vm" stop' EXIT

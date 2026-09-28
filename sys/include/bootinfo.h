@@ -1,43 +1,46 @@
 /*
- * Plan2001 Boot ABI v1 (x86-64): how a loader hands the machine to the
- * kernel, and the BootInfo blob that carries everything it learned.
- * docs/boot-abi.md is the prose version of this contract; both sides
- * include this file.
- *
- * Entry: the loader jumps to the kernel's entry point (_efi64 in
- * sys/src/9/pc64/l.s) with the CPU in long mode, 4-level paging on,
- * interrupts off, DF clear and a usable stack, and
- *	RDI	physical address of the BootInfo blob
- *	RSI	0
- * Every other register is undefined.  The page tables need only
- * identity-map what the kernel touches before it switches to its own: its
- * image, where it is loaded, and its boot page tables and Mach at physical
- * 0x13000-0x1C000 (CPU0PML4..CPU0END in sys/src/9/pc64/mem.h), which it
- * clears first - so neither the loader's page tables, nor its stack, nor
- * the blob may lie there or in the image.  The kernel does not read the
- * blob through them; it maps it itself.  RDI is the kernel's only input:
- * there is no fixed address to look anything up at.
+ * Plan2001 Boot ABI v1: the BootInfo blob a loader hands the kernel,
+ * everything it learned from the firmware.  This is the data half of the
+ * contract and the same on every ISA; docs/boot-abi.md is its prose.  How
+ * the blob's address is passed and what the CPU looks like at the jump is
+ * each ISA's entry ABI: docs/boot-abi-amd64.md (RDI = the blob's physical
+ * address); ARM64 (X0) and RISC-V (a0) will follow.  Both sides include
+ * this file.  There is no fixed physical address anywhere in the contract:
+ * the kernel reads its input where the loader says.
  *
  * The blob is one contiguous, page-aligned range of physical memory:
  *
  *	BootInfo header		(headersize bytes)
  *	config			plan9.ini text, configlen bytes, NUL-terminated
  *	loader log		the loader's printed text, loglen bytes
+ *	device tree		the firmware's flattened device tree, fdtlen bytes
  *	memory map		mmapcount BootMem entries, mmapentsize bytes apart
+ *
+ * Sections do not overlap each other or the header; their order is the
+ * loader's choice, a kernel goes by the offsets.
  *
  * Offsets (…off) are from the start of the blob; addresses of things
  * outside it (acpi, fbbase) are physical.  The blob belongs to the kernel
  * from entry on and stays valid until the kernel itself releases it; it
- * must reserve [RDI, RDI+totalsize) before handing out any memory the map
- * calls free, as the blob itself sits in EfiLoaderData.
+ * must reserve [blob, blob+totalsize) before handing out any memory the
+ * map calls free, as the blob itself sits in EfiLoaderData.
  *
  * Compatibility: a kernel takes a blob with its magic and version and a
  * headersize at least its own sizeof(BootInfo); fields past what it knows
- * are ignored.  A change that breaks that needs a new BootInfoVersion.
+ * are ignored, so new fields are added at the end of the header without a
+ * new version (arch, fdtoff and fdtlen were).  A change that breaks that
+ * needs a new BootInfoVersion.
  */
 enum {
 	BootInfoMagic	= 0x49423250,	/* "P2BI" */
 	BootInfoVersion	= 1,
+};
+
+/* BootInfo.arch: the ISA the loader made the blob for */
+enum {
+	BootArchAmd64	= 1,
+	BootArchArm64	= 2,
+	BootArchRiscv64	= 3,
 };
 
 /* BootMem.type: UEFI EFI_MEMORY_TYPE */
@@ -87,7 +90,9 @@ struct BootInfo {
 
 	u64int	acpi;		/* physical address of the ACPI RSDP, 0 if none */
 
-	u64int	tscfreq;	/* TSC frequency in Hz, measured by the loader; 0 if unknown */
+	u64int	tscfreq;	/* AMD64 only: TSC frequency in Hz, measured by the loader;
+				 * 0 if unknown and on every other ISA, whose CPU timers
+				 * are the kernel's own business */
 	u64int	epoch;		/* UTC seconds since 1970, from UEFI GetTime; 0 if unknown */
 
 	/*
@@ -106,4 +111,9 @@ struct BootInfo {
 	u32int	fbstride;	/* pixels per scan line, ie the pitch */
 	u32int	fbdepth;	/* bits per pixel */
 	char	fbchan[16];	/* Plan 9 channel descriptor, eg x8r8g8b8 */
+
+	/* added at the end, still v1 */
+	u32int	arch;		/* BootArch*: a kernel for another ISA must stop */
+	u32int	fdtoff;		/* the firmware's flattened device tree, copied whole */
+	u32int	fdtlen;		/* bytes, 0 if the firmware gave none (eg ACPI only) */
 };

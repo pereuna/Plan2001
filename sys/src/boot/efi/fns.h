@@ -7,10 +7,13 @@ enum {
 extern char hex[];
 
 void usleep(int t);
-void jump64(void *pc, void *bootinfo);
-uvlong getcr3(void);
-uvlong getcr4(void);
-uvlong rdtsc(void);
+/* the ISA side of the loader: archx64.c for bootx64.efi, archaa64.c for bootaa64.efi */
+void archconf(BootInfo *bi);
+uvlong archentry(uvlong entry);
+ulong archdataround(void);
+int archblobok(uvlong pa, uvlong len);
+char *archcheck(void);
+void archjump(void *entry, void *bootinfo);
 
 int fsinit(void **pf);
 

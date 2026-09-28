@@ -6,8 +6,12 @@
 
 /*
  * The loader passes what it learned in a BootInfo blob (Plan2001 Boot ABI
- * v1, sys/include/bootinfo.h) and tells us where: _efi64 (pc64/l.s) saves
- * its RDI in bootinfopa.  There is no fixed address to look at.  The blob
+ * v1, sys/include/bootinfo.h, docs/boot-abi.md) and tells us where: each
+ * ISA's entry code saves the address it was handed (AMD64: RDI, see
+ * pc64/l.s) in bootinfopa.  There is no fixed address to look at.  This
+ * file is the same for every ISA; what differs - mapping the blob before
+ * the kernel's memory allocator exists, and the framebuffer's caching - is
+ * bootearlymap() and fbmap() of the ISA port (pc64/bootarch.c).  The blob
  * is the only source of the memory map on this UEFI-only kernel, so
  * anything short of a complete, self-consistent blob is fatal:
  * bootinfoinit() below rejects an empty memory map or a section that does
@@ -19,61 +23,11 @@
 
 BootInfo *bootinfo;
 
-/*
- * The blob can be anywhere in physical memory, and the page tables _efi64
- * built map only the kernel itself.  Map it at BOOTMAPVA (pc64/mem.h), a
- * virtual window of our own, so that no physical address is out of reach,
- * from two page-table pages of our own (a PD and a PT under KZERO's PDP):
- * rampage() cannot be used yet, it needs the memory map, which is in the
- * blob.  BOOTMAPSIZE, what one PT maps, is this kernel's own limit on the
- * blob, not part of the ABI.
- */
-enum {
-	BootMapPages	= 2,
-};
-static uchar bootmapmem[(BootMapPages+1)*BY2PG];
-static int bootmapused;
-
 static void
 bootinfohalt(void)
 {
 	for(;;)
 		halt();
-}
-
-static uintptr*
-bootmapnext(uintptr *pte)
-{
-	uintptr *t;
-
-	if((*pte & PTEVALID) == 0){
-		if(bootmapused >= BootMapPages)
-			bootinfohalt();
-		t = (uintptr*)(((uintptr)bootmapmem + BY2PG-1) & ~(BY2PG-1)) + bootmapused++*(BY2PG/sizeof(uintptr));
-		memset(t, 0, BY2PG);
-		*pte = PADDR(t) | PTEWRITE | PTEVALID;
-	}
-	return KADDR(*pte & 0x000FFFFFFFFFF000ull);
-}
-
-/* map [pa, pa+size) at BOOTMAPVA; pa is page aligned */
-static void
-bootmap(uvlong pa, uvlong size)
-{
-	uvlong o;
-	uintptr va, *t;
-	int l;
-
-	if(size > BOOTMAPSIZE)
-		bootinfohalt();
-	for(o = 0; o < size; o += BY2PG){
-		va = BOOTMAPVA + o;
-		t = (uintptr*)CPU0PML4;
-		for(l = 3; l > 0; l--)
-			t = bootmapnext(&t[PTLX(va, l)]);
-		t[PTLX(va, 0)] = (pa + o) | PTEWRITE | PTEVALID;
-	}
-	putcr3(getcr3());
 }
 
 /*
@@ -125,31 +79,54 @@ bootinfooverlap(uvlong a, uvlong al, uvlong b, uvlong bl)
 	return al != 0 && bl != 0 && a < b + bl && b < a + al;
 }
 
+static ulong
+bootbe32(uchar *p)
+{
+	return (ulong)p[0]<<24 | p[1]<<16 | p[2]<<8 | p[3];
+}
+
 void
 bootinfoinit(void)
 {
 	BootInfo *b;
-	uvlong mmaplen;
+	uvlong off[4], len[4];
+	uchar *fdt;
+	int i, j;
 
 	if(bootinfopa == 0 || (bootinfopa & (BY2PG-1)) != 0)
 		bootinfohalt();
-	bootmap(bootinfopa, BY2PG);
-	b = (BootInfo*)BOOTMAPVA;
+	if((b = bootearlymap(bootinfopa, BY2PG)) == nil)
+		bootinfohalt();
 	if(b->magic != BootInfoMagic || b->version != BootInfoVersion
 	|| b->headersize < sizeof(BootInfo) || b->headersize > BY2PG
-	|| b->totalsize < b->headersize || b->totalsize > BOOTMAPSIZE)
+	|| b->totalsize < b->headersize
+	|| b->arch != BootInfoArch)		/* a blob made for another ISA */
 		bootinfohalt();
-	bootmap(bootinfopa, b->totalsize);
-	mmaplen = (uvlong)b->mmapcount * b->mmapentsize;
-	if(b->configlen == 0 || !bootinfoin(b, b->configoff, b->configlen)
-	|| ((char*)b)[b->configoff + b->configlen - 1] != '\0'
-	|| !bootinfoin(b, b->logoff, b->loglen)
-	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem)
-	|| !bootinfoin(b, b->mmapoff, mmaplen)
-	|| bootinfooverlap(b->configoff, b->configlen, b->logoff, b->loglen)
-	|| bootinfooverlap(b->configoff, b->configlen, b->mmapoff, mmaplen)
-	|| bootinfooverlap(b->logoff, b->loglen, b->mmapoff, mmaplen))
+	if(bootearlymap(bootinfopa, b->totalsize) != b)
 		bootinfohalt();
+
+	/* every section after the header, within the blob, none overlapping */
+	off[0] = b->configoff, len[0] = b->configlen;
+	off[1] = b->logoff, len[1] = b->loglen;
+	off[2] = b->fdtoff, len[2] = b->fdtlen;
+	off[3] = b->mmapoff, len[3] = (uvlong)b->mmapcount * b->mmapentsize;
+	for(i = 0; i < nelem(off); i++){
+		if(!bootinfoin(b, off[i], len[i]))
+			bootinfohalt();
+		for(j = 0; j < i; j++)
+			if(bootinfooverlap(off[i], len[i], off[j], len[j]))
+				bootinfohalt();
+	}
+	if(b->configlen == 0 || ((char*)b)[b->configoff + b->configlen - 1] != '\0'
+	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem))
+		bootinfohalt();
+
+	/* a device tree, if there is one, is a whole one */
+	if(b->fdtlen != 0){
+		fdt = (uchar*)b + b->fdtoff;
+		if(b->fdtlen < 40 || bootbe32(fdt) != 0xd00dfeed || bootbe32(fdt+4) > b->fdtlen)
+			bootinfohalt();
+	}
 	bootinfo = b;
 }
 
@@ -158,6 +135,53 @@ BootMem*
 bootmem(int i)
 {
 	return (BootMem*)((uchar*)bootinfo + bootinfo->mmapoff + (uvlong)i*bootinfo->mmapentsize);
+}
+
+/*
+ * What a memory map entry is to the kernel, from its UEFI type (BootMem*,
+ * sys/include/bootinfo.h): the ISA port turns these into its own memory
+ * kinds (pc/memory.c: MemRAM, MemACPI, MemReserved); -1 for a type this
+ * kernel does not know, which it should leave alone.
+ */
+int
+bootmemclass(u32int type)
+{
+	switch(type){
+	case BootMemLoaderCode:
+	case BootMemLoaderData:
+	case BootMemBootCode:
+	case BootMemBootData:
+	case BootMemConventional:
+		return BootClassRAM;
+	case BootMemACPIReclaim:
+		return BootClassACPI;
+	case BootMemReserved:
+	case BootMemRuntimeCode:
+	case BootMemRuntimeData:
+	case BootMemUnusable:
+	case BootMemACPINVS:
+	case BootMemMMIO:
+	case BootMemMMIOPort:
+	case BootMemPalCode:
+		return BootClassReserved;
+	}
+	return -1;
+}
+
+/*
+ * The firmware's flattened device tree, copied whole into the blob by the
+ * loader (checked by bootinfoinit()), and its size; nil if there is none,
+ * as on PCs, which describe themselves by ACPI.
+ */
+uchar*
+bootfdt(ulong *len)
+{
+	if(bootinfo == nil || bootinfo->fdtlen == 0){
+		*len = 0;
+		return nil;
+	}
+	*len = bootinfo->fdtlen;
+	return (uchar*)bootinfo + bootinfo->fdtoff;
 }
 
 /* the plan9.ini text, NUL-terminated (checked by bootinfoinit()) */
@@ -211,4 +235,6 @@ bootinfoclock(void)
 		todset(bootinfo->epoch * 1000000000LL, 0, 0);
 	if(bootinfo->epoch != 0 || bootinfo->tscfreq != 0)
 		print("bootinfo: epoch %llud tscfreq %llud\n", bootinfo->epoch, bootinfo->tscfreq);
+	if(bootinfo->fdtlen != 0)
+		print("bootinfo: device tree %ud bytes\n", bootinfo->fdtlen);
 }

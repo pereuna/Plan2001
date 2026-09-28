@@ -1,0 +1,32 @@
+#!/bin/bash
+# Give the build VM's base image (base.qcow2) a target's user space: its
+# libraries and commands, cross-compiled from the VM's own /sys/src
+# (objtype=$objtype mk install), which the kernel (its libraries) and
+# bootfs.paq (rc, paqfs, factotum, ...) need.  The amd64 install has only
+# amd64's.  Once per target; nothing to do when /$objtype/lib/libc.a and
+# /$objtype/bin/rc are there.  Writes base.qcow2 itself, not an overlay.
+#   TARGET  arm64 (amd64 needs nothing); ALLOW_PLANNED=1 for a planned one
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+vm=$root/build/vm
+run9() { "$here/9run" -d "$vm" "$@"; }
+halt9() { printf '!now done halting\t!done\n' | run9 -t 120 -s fshalt --dialog -; }
+[ -f "$cache/base.qcow2" ] || { echo "vm-target: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+
+trap '"$here/vm" stop' EXIT
+"$here/vm" start --disk "$cache/base.qcow2"
+printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
+if run9 -t 60 "test -f /$objtype/lib/libc.a && test -f /$objtype/bin/rc"; then
+	echo "vm-target: $TARGET user space is there already"
+	halt9 >/dev/null
+	exit 0
+fi
+echo "vm-target: cross-compiling 9front for $objtype in the VM (log in the VM: /tmp/vm-target.log)"
+st=0
+run9 -t "${TARGET_TIMEOUT:-5400}" "cd /sys/src && objtype=$objtype mk install >/tmp/vm-target.log >[2=1]; tail -5 /tmp/vm-target.log" || st=$?
+run9 -t 60 "test -f /$objtype/lib/libc.a && test -f /$objtype/bin/rc && ls /$objtype/lib | wc -l && ls /$objtype/bin | wc -l" || st=1
+halt9 >/dev/null
+[ $st = 0 ] || { echo "vm-target: $TARGET user space failed" >&2; exit 1; }
+echo "vm-target: $TARGET user space built into $cache/base.qcow2"

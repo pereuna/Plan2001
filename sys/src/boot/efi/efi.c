@@ -14,11 +14,16 @@ void (*stop)(void);
 
 /*
  * on ia32 and amd64, we use IMAGE_FILE_RELOCS_STRIPPED which
- * disables relocations, so this is a no-op.
+ * disables relocations, so rebase() is a no-op.
  *
- * on arm64, the EFI loader can move our code, so we need to
- * update some of our stored addresses (such as callbacks)
- * which assume we are loaded at our requested base address.
+ * on arm64, the EFI loader can move our code, so we need to update
+ * some of our stored addresses which assume we are loaded at our
+ * requested base address: a function's (the callbacks, see efimain())
+ * and an uninitialised (bss) global's taken as a value.  Found on QEMU
+ * virt with AAVMF: &mapbuf came out as its link-time address while the
+ * address of initialised data (a GUID, a string) was already right.
+ * So nothing here hands the firmware the address of a bss global:
+ * bootmapinit() passes a local instead.
  */
 extern void *rebase(void *addr);
 
@@ -93,7 +98,7 @@ efifree(uvlong pa, uvlong len)
  * allocator puts it (efimain()), holding the header (bi), the plan9.ini
  * text (confaddr, see sub.c), print()'s captured text (logbuf, sub.c) and
  * the final memory map (bootexit()).  Nothing is copied anywhere: the
- * kernel is handed its address in RDI (jump64).
+ * kernel is handed its address as its ISA's entry ABI says (archjump()).
  */
 enum {
 	ConfCap = 8*1024,	/* plan9.ini text, including the NUL */
@@ -103,6 +108,8 @@ static BootInfo *bi;
 static void bootinfohdr(void);
 static uchar *blob;
 static ulong blobsize, mmapcap;
+static uchar *fdtsrc;		/* the firmware's device tree, if any (fdtfind()) */
+static ulong fdtsize;
 char *confaddr;
 
 /*
@@ -131,7 +138,7 @@ efiallocany(uvlong len, int memtype)
 enum {
 	MapBufSize = 96*1024,
 	/*
-	 * Same grid as sys/src/9/pc/bootfb.c's (Size/Gap/Margin), continued
+	 * Same grid as sys/src/9/port/bootfb.c's (Size/Gap/Margin), continued
 	 * by it at slot LoaderMarks (its own constant, kept in sync by
 	 * comment, same as this one): one shared top-left marker row
 	 * spanning the whole boot, not two separate marker areas.
@@ -144,7 +151,7 @@ static uchar *mapbuf;
 
 /*
  * One colour per stage: 1=EBS start, 2=EBS done, 3=jump.  The kernel's
- * own squares follow in the same row (sys/src/9/pc/bootfb.c).
+ * own squares follow in the same row (sys/src/9/port/bootfb.c).
  */
 static ulong markcolor[3] = {
 	0x0000FF,	/* EBS start: blue */
@@ -155,15 +162,20 @@ static ulong markcolor[3] = {
 int
 bootmapinit(void)
 {
-	mapbuf = nil;
-	return eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData,
-		(UINTN)MapBufSize, &mapbuf) != 0 || mapbuf == nil;
+	void *p;	/* a local: see rebase() above */
+
+	p = nil;
+	if(eficall(ST->BootServices->AllocatePool, (UINTN)EfiLoaderData,
+		(UINTN)MapBufSize, &p) != 0 || p == nil)
+		return -1;
+	mapbuf = p;
+	return 0;
 }
 
 /*
  * UEFI text output is gone after ExitBootServices. Leave visible progress
  * markers at the top-left of a 32-bit GOP framebuffer instead: one before
- * ExitBootServices, two after it returns, three before jump64 - slots 0..2
+ * ExitBootServices, two after it returns, three before archjump - slots 0..2
  * of the shared marker row bootfb.c continues from slot 3 (its
  * LoaderMarks; see MarkSize's comment above).
  */
@@ -272,25 +284,6 @@ Left:
 	}
 	bi->mmapcount = n;
 	return 0;
-}
-
-/*
- * TSC frequency, measured against the firmware's own timer (Stall).  Not as
- * accurate as the kernel's own HPET-based measurement, but available before
- * any kernel code runs, and a sanity check for it.  0 if RDTSC is not usable
- * this early for some reason; the kernel falls back to its own calibration.
- */
-static void
-tscconf(void)
-{
-	uvlong t0, t1;
-	enum { Ms = 50 };
-
-	t0 = rdtsc();
-	eficall(ST->BootServices->Stall, (UINTN)(Ms*1000));
-	t1 = rdtsc();
-	if(t1 > t0)
-		bi->tscfreq = (t1 - t0) * 1000 / Ms;
 }
 
 /*
@@ -574,9 +567,7 @@ eficonfig(void)
 	print("[P2 L05] ACPI: probe\n");
 	acpiconf();
 	screenconf();
-	print("[P2 L07] TSC: measure\n");
-	tscconf();
-	print(bi->tscfreq != 0? "[P2 L07] TSC: ok\n": "[P2 L07] TSC: unavailable\n");
+	archconf(bi);
 	print("[P2 L08] RTC: read\n");
 	timeconf();
 	print(bi->epoch != 0? "[P2 L08] RTC: ok\n": "[P2 L08] RTC: unavailable\n");
@@ -587,16 +578,13 @@ eficonfig(void)
 }
 
 /*
- * Allocate the blob anywhere but where the kernel itself goes (Boot ABI
- * v1): its image, at the fixed physical address it is linked for and
- * claimed only later (bootkern()), and its boot page tables and Mach at
- * KBOOTLO..KBOOTHI, which _efi64 clears on entry - both below KernelLow.
- * Firmware usually allocates top-down, so the first try is taken; pages
- * rejected are held until a good range is found, so that the firmware
- * does not offer them again, and then given back.
+ * Allocate the blob anywhere the ISA's kernel lets it be (archblobok(),
+ * eg archx64.c: not where the kernel itself goes).  Firmware usually
+ * allocates top-down, so the first try is taken; pages rejected are held
+ * until a good range is found, so that the firmware does not offer them
+ * again, and then given back.
  */
 enum {
-	KernelLow = 16*1024*1024,
 	BlobTries = 8,
 };
 
@@ -608,7 +596,7 @@ bloballoc(uvlong len)
 
 	a = 0;
 	for(n = 0; n < BlobTries; n++){
-		if((a = efiallocany(len, EfiLoaderData)) == 0 || a >= KernelLow)
+		if((a = efiallocany(len, EfiLoaderData)) == 0 || archblobok(a, len))
 			break;
 		bad[n] = a;
 		a = 0;
@@ -616,6 +604,53 @@ bloballoc(uvlong len)
 	for(i = 0; i < n; i++)
 		efifree(bad[i], len);
 	return a;
+}
+
+/*
+ * The firmware's flattened device tree, if it gives one (ARM64 and RISC-V
+ * firmware usually does, PC firmware only ACPI): found in the configuration
+ * table, checked for its magic and size, and later copied whole into the
+ * blob's own section (efimain()), so that it is owned, relocated and kept
+ * the same way as the rest of the blob.  A bad or oversized one is left
+ * out, with a message: the hardware may still be described by ACPI.
+ */
+enum {
+	FdtMagic = 0xd00dfeed,
+	FdtMax = 2*1024*1024,	/* EDK2 pads QEMU virt's tree to 1 MB + 4 KB */
+};
+
+static ulong
+be32(uchar *p)
+{
+	return (ulong)p[0]<<24 | p[1]<<16 | p[2]<<8 | p[3];
+}
+
+static void
+fdtfind(void)
+{
+	static EFI_GUID DEVICE_TREE_GUID = {
+		0xb1b621d5, 0xf19c, 0x41a5,
+		0x83, 0x0b, 0xd9, 0x15,
+		0x2c, 0x69, 0xaa, 0xe0,
+	};
+	EFI_CONFIGURATION_TABLE *t;
+	uchar *p;
+	int n;
+
+	t = ST->ConfigurationTable;
+	n = ST->NumberOfTableEntries;
+	for(; --n >= 0; t++){
+		if(memcmp(&t->VendorGuid, &DEVICE_TREE_GUID, sizeof(EFI_GUID)) != 0)
+			continue;
+		p = t->VendorTable;
+		if(p == nil || be32(p) != FdtMagic || be32(p+4) < 40 || be32(p+4) > FdtMax){
+			print("[P2 L02] FDT: ignored, bad header or too large\n");
+			return;
+		}
+		fdtsrc = p;
+		fdtsize = be32(p+4);
+		return;
+	}
 }
 
 /*
@@ -633,14 +668,16 @@ bootinfohdr(void)
 	bi->totalsize = blobsize;
 	bi->configoff = (sizeof(*bi) + 7) & ~7;
 	bi->logoff = bi->configoff + ConfCap;
-	bi->mmapoff = bi->logoff + LogCap;
+	bi->fdtoff = bi->logoff + LogCap;
+	bi->fdtlen = fdtsize;
+	bi->mmapoff = bi->fdtoff + ((fdtsize + 7) & ~7);
 	bi->mmapentsize = sizeof(BootMem);
 }
 
 /*
  * The blob's last fields, set once nothing is printed or configured any
  * more: called from bootkern() (sub.c) after bootexit() succeeded, right
- * before jump64() hands the kernel the blob.
+ * before archjump() hands the kernel the blob.
  */
 void*
 bootinfofinish(void)
@@ -671,8 +708,9 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	 * running, which is why nothing about the handoff is at a fixed
 	 * address any more (Plan2001 Boot ABI v1, sys/include/bootinfo.h).
 	 */
+	fdtfind();
 	mmapcap = MapBufSize / sizeof(EFI_MEMORY_DESCRIPTOR);
-	blobsize = PGROUND(((sizeof(BootInfo) + 7) & ~7) + ConfCap + LogCap + mmapcap*sizeof(BootMem));
+	blobsize = PGROUND(((sizeof(BootInfo) + 7) & ~7) + ConfCap + LogCap + ((fdtsize + 7) & ~7) + mmapcap*sizeof(BootMem));
 	if((la = bloballoc(blobsize)) == 0){
 		print("[P2 L02] FATAL: cannot allocate the BootInfo blob\n");
 		for(;;)
@@ -685,10 +723,14 @@ efimain(EFI_HANDLE ih, EFI_SYSTEM_TABLE *st)
 	confaddr = (char*)blob + bi->configoff;
 	logbuf = (char*)blob + bi->logoff;
 	logcap = LogCap;
+	if(fdtsize != 0)
+		memmove(blob + bi->fdtoff, fdtsrc, fdtsize);
 
 	print("[P2 L01] Plan2001 loader 2026-09-25 boot-abi-1\n");
 	tracehex("[P2 L02] BootInfo blob at 0x", la);
 	tracehex("[P2 L02] BootInfo blob bytes=0x", blobsize);
+	if(fdtsize != 0)
+		tracehex("[P2 L02] FDT copied into the blob, bytes=0x", fdtsize);
 
 	print("[P2 L03] memory-map buffer: AllocatePool 96 KiB\n");
 	if(bootmapinit() != 0){

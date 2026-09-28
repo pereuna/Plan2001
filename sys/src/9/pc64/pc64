@@ -101,6 +101,7 @@ misc
 	archacpi	mp apic squidboy ec hpet
 	mtrr
 	bootinfo
+	bootarch
 	bootfb
 
 	sdaoe

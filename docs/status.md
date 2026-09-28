@@ -532,3 +532,83 @@ fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitett
   - Seuraavaksi: testit T5600:lla ja kahdella kannettavalla. Sen jälkeen
     ABI v1 voidaan merkitä vakaaksi.
 
+## Monialustaisuus, vaihe 1: arkkitehtuuriraja (26.9.2026, haara `phase1-arch-boundary`)
+
+Suunnitelma: design-kanvaasi "Plan2001 moniarkkitehtuuri" (vaiheet 1–5).
+ARM64 otetaan huomioon heti ja RISC-V tulevaisuuden mahdollisuutena.
+Rajaperiaate: **BootInfo on koneesta riippumaton protokolla. Entry, MMU,
+trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
+
+- **Boot ABI kahtia:** data-ABI `docs/boot-abi.md` ja `sys/include/bootinfo.h`
+  (yhteinen), entry-ABI `docs/boot-abi-amd64.md` (RDI). ARM64 (X0) ja RV64
+  (a0, a1 = hart) on kirjattu tuleviksi. `tscfreq` on AMD64:n kenttä, muilla 0.
+- **Kernel:** `bootinfo.c`, `bootargs.c` ja `bootfb.c` siirretty `pc/` → `port/`.
+  ISA-hookit ovat `pc64/bootarch.c`:ssä: `bootearlymap()` ja `fbmap()`.
+  `bootmemclass()` muuntaa UEFI-tyypin RAM-, ACPI- tai varattu-luokaksi,
+  ja PC:n muistityypit jäävät `pc/memory.c`:hen.
+- **Loader:** yhteinen `efi.c`/`sub.c` ja AMD64:n `archx64.c`, jossa ovat
+  `archconf()` (TSC), `archentry()`, `archblobok()`, `archcheck()` ja
+  `archjump()`.
+- **Build:** `tools/build.rc` kopioi repon koko `port/`- ja `efi/`-hakemiston ja poistaa
+  VM:n `pc/`-kopion tiedostoista, jotka repo pitää `port/`:issa.
+- Hyväksymisehto: AMD64 toimii ennallaan (test-qemu, 8 GB:n blob, USB-asennus).
+- Seuraavaksi vaihe 2: `fdtoff`/`fdtlen` ja `arch` headerin loppuun.
+
+## Monialustaisuus, vaihe 2: FDT ja arch (26.9.2026, haara `phase2-fdt-arch`)
+
+- BootInfo-headerin loppuun lisättiin `arch`, `fdtoff` ja `fdtlen`. Versio on
+  yhä 1, koska vanha kernel hyväksyy suuremman `headersize`n.
+- Loader hakee DTB:n EFI-konfiguraatiotaulusta, tarkistaa sen magicin ja
+  koon (enintään 1 MB) ja kopioi sen kokonaan blobin omaan osioon.
+  `archconf()` kirjoittaa `arch`in.
+- Kernel pysähtyy väärään `arch`iin, validoi neljä osiota pareittain
+  päällekkäisyyden ja rajojen suhteen, tarkistaa FDT:n headerin ja tarjoaa
+  sen `bootfdt()`:llä. Laitteistokuvaus on nyt "ACPI tai FDT".
+- Testattu: OVMF (x86) ei anna DTB:tä, joten `fdtlen` on 0 ja PASS.
+  Kokeellinen build, jossa loaderilla oli 64 tavun FDT: kopioitu ja
+  hyväksytty (`bootinfo: device tree 64 bytes`). Kokeellinen build, jossa
+  `arch` oli arm64: kernel pysähtyy ennen ensimmäistä riviä. USB-asennus PASS.
+- Seuraavaksi vaihe 3: build ja subset parametrisoidaan (`amd64`, `arm64`, `riscv64`).
+
+## Monialustaisuus, vaihe 3: kohteet (26.9.2026, haara `phase3-targets`)
+
+- `tools/targets/{amd64,arm64,riscv64}` ja `tools/target.sh`: yksi kuvaus per
+  ISA (kernel: `kdir`, `kconf`, `kernel`, `ksrc`; loader: `loader`,
+  `loaderdir`, `espname`; `bootarch`; QEMU ja firmware). Syntaksi on sama
+  bashille, rc:lle ja Pythonille. `arm64` on arvoiltaan upstreamin portti
+  sellaisenaan (`kdir=arm64`, `kconf=qemu`, `9qemu`, `bootaa64.efi` → `/arm64`)
+  ja tilaltaan `planned`. `riscv64` on `future`.
+- `build.sh`/`build.rc`, `test-qemu.sh` ja kaikki `tools/subset/*` ottavat
+  `TARGET`in (oletus `amd64`). Tulokset menevät hakemistoon `build/$TARGET/`
+  ja osajoukko hakemistoon `subset/$TARGET/{proto,files}`. `subset/9front/` on
+  kaikkien kohteiden yhteinen kopio, josta `make.py` poistaa vain tiedostot,
+  joita mikään kohde ei enää nimeä. `check` tarkistaa kaikkien kohteiden
+  listat. Muut kuin `supported`-kohteet torjutaan selvällä viestillä.
+- Hyväksymisehto: amd64:n tulokset ovat samat. Loader on bitilleen sama (md5).
+  Kernelin text ja bss ovat samat, ja data vaihtelee `bootfs.paq`in päiväyksen
+  mukaan (3335040 tai 3335064 tavua) myös saman koodin kahdessa buildissa.
+  Uudelleen johdettu osajoukko on sisällöltään sama (git näyttää vain
+  siirrot). test-qemu, USB-asennus ja check (2815, 0 eroa) PASS.
+- Seuraavaksi vaihe 4: ARM64 (QEMU virt + AAVMF + serial + virtio).
+
+## Monialustaisuus, vaihe 4: ARM64 (26.–27.9.2026, haara `phase4-arm64`)
+
+- **Tulos:** QEMU virt + AAVMF → `bootaa64.efi` (Plan2001:n yhteinen loader +
+  `archaa64.c`) → `9qemu` (upstreamin arm64-kernel Plan2001:n BootInfolla) →
+  `bootargs`-kehote. Kaksi prosessoria (`*ncpu` FDT:stä), muisti UEFI-kartasta
+  (2041 MB), ESP näkyy `sdF0`:na. amd64 ennallaan: test-qemu ja USB-asennus PASS.
+- **Loader:** `aa64.s` upstreamista (X0 = BootInfo). Uusi arch-hook
+  `archdataround()`, koska `7l` pyöristää datan 64 KB:iin. Firmwarelle ei
+  anneta bss-osoitteita (ARM64:llä loader siirtyy muistissa). `FdtMax` on 2 MB.
+- **Kernel** (`sys/src/9/arm64/`, upstreamin tiedostot ensin muuttamattomina,
+  commit `36245f4`): X0 → `bootinfopa`, `bootearlymap()` samaan osoitteeseen
+  kuin `kmapram()`, `meminit()` UEFI-kartasta (8 pankkia, blob leikattuna pois),
+  `DTBADDR`/`CONFADDR`/`writeconf` pois ja `reboot()` → `panic`.
+  `port/bootargs.c` lukee FDT:stä `*ncpu`:n ja `/chosen`-bootargsit.
+- **Työkalut:** `tools/vm-target` kääntää ARM64-käyttäjätilan base-imageen
+  (noin 2 min). `build.sh` tukee valintaa `WHAT=loader`, ja `ALLOW_PLANNED=1`
+  sallii suunnitellun kohteen. Kohdekuvauksissa on `espdev`, ja
+  `test-qemu.sh` käyttää sitä.
+- Avoimet asiat: ks. `docs/boot-abi-arm64.md`. Näitä ovat laitteiden osoitteet
+  FDT:stä, välimuistin siivous raudalle sekä ARM64-asennusmedia.
+

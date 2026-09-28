@@ -521,7 +521,7 @@ vgascreenputs(char* s, int n)
 /*
  * Plain console, full screen: no border, no title bar. The top
  * bootmarkheight() rows are left untouched - by now they hold the boot
- * marker row (loader's squares and bootfb.c's, see sys/src/9/pc/bootfb.c),
+ * marker row (loader's squares and bootfb.c's, see sys/src/9/port/bootfb.c),
  * which this must not erase, only avoid drawing text over.
  */
 void

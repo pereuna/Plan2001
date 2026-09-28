@@ -1,13 +1,15 @@
 #!/bin/bash
 # Acceptance test of the install subset: install from the Plan2001 USB
-# medium (build/subset/plan2001-inst.img, tools/subset/mkusb) onto a fresh
+# medium (build/subset/$TARGET/plan2001-inst.img, tools/subset/mkusb) onto a fresh
 # disk with the usual answers, then boot the installed disk to an rc
 # prompt (tools/vm-install does both) - and check that it booted through
 # Plan2001's own UEFI loader ([P2 L..] lines), not 9front's.
 # PASS or FAIL; log in build/vm/serial.log.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
-s=$root/build/subset
+. "$tools/target.sh"
+[ "$TARGET" = amd64 ] || { echo "test: the test VM is amd64; no install test for $TARGET yet" >&2; exit 2; }
+s=$root/build/subset/$TARGET
 img=$s/plan2001-inst.img
 [ -f "$img" ] || { echo "test: no $img (run tools/subset/mkusb)" >&2; exit 1; }
 rm -f "$s/test.qcow2"; qemu-img create -q -f qcow2 "$s/test.qcow2" 20G

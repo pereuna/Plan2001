@@ -11,7 +11,7 @@ loaderilla ja kernelillä. Versio on lukittu: **9front-11952**
 | | 9frontin ISO | Plan2001-asennustikku |
 |---|---|---|
 | Media | ISO9660, BIOS + UEFI | GPT-levykuva: ESP + Plan 9 -osio (hjfs), **vain UEFI** |
-| Loader ja kernel | 9frontin | **Plan2001:n** (`build/bootx64.efi`, `build/9pc64`) |
+| Loader ja kernel | 9frontin | **Plan2001:n** (`build/amd64/bootx64.efi`, `build/amd64/9pc64`) |
 | Koko | 505 Mt | 1 GiB:n kuva, josta käytössä **26 Mt** |
 | Ajonaikaiset tiedostot | koko jakelu | **250** (20 Mt) |
 
@@ -31,8 +31,8 @@ Se ohittaa BIOS-askeleet itse, koska `/386/pbs` ja `/386/9bootfat` puuttuvat.
 
 | Polku | Sisältö |
 |---|---|
-| `subset/proto` | 9front-proto (`mkfs`): tikun juuren koko sisältö moodeineen ja omistajineen. Ylimmän tason hakemistot tulevat 9frontin `distproto`sta (`tmp d555`, ks. alla). |
-| `subset/files` | Jokainen tiedosto: polku, laji (`runtime`/`source`/`excluded`), löytötapa, peruste ja md5 (`-`, kun tiedostoa ei kopioida: käännetyt binäärit ja pois jätetty legacy) |
+| `subset/<target>/proto` | 9front-proto (`mkfs`): tikun juuren koko sisältö moodeineen ja omistajineen. Ylimmän tason hakemistot tulevat 9frontin `distproto`sta (`tmp d555`, ks. alla). |
+| `subset/<target>/files` | Jokainen tiedosto: polku, laji (`runtime`/`source`/`excluded`), löytötapa, peruste ja md5 (`-`, kun tiedostoa ei kopioida: käännetyt binäärit ja pois jätetty legacy) |
 | `subset/9front/` | **Koskematon kopio** 9front-11952:n tiedostoista 9frontin omissa poluissa: 2815 tiedostoa, 26 Mt. Mukana ovat ajonaikaiset rc-skriptit ja datatiedostot sekä kaikkien osajoukon binäärien lähteet. |
 
 `sys/` on edelleen oma muutoskerroksemme. `subset/9front/` on upstream-kopio, jota
@@ -47,16 +47,16 @@ Tikku rakennetaan VM:ssä 9frontin `%.disk`-säännön mallin mukaan
 - ESP (`disk/format -d`): `efi/boot/bootx64.efi` ja `9pc64` (Plan2001) sekä
   `plan9.ini` (`bootfile=9pc64`, ei `nobootprompt`ia).
 - `fs`: hjfs, käyttäjät kuten `%.disk`issä, ja
-  `disk/mkfs -U -s / subset/proto`. Plan2001:n kernel ja loader on sidottu
+  `disk/mkfs -U -s / subset/amd64/proto`. Plan2001:n kernel ja loader on sidottu
   polkuihin `/amd64/9pc64` ja `/386/bootx64.efi`.
 
 Juurilevy valitaan `bootargs`-kehotteessa kuten 9frontin alkuperäisessä
 asennustavassa. bootrc tarjoaa oletukseksi tikun `fs`-osion (QEMUssa
 `local!/dev/sdU0fc4d/fs`; USB-levyn nimi vaihtelee koneittain).
 Oikealle tikulle kuva kirjoitetaan komennolla
-`dd if=build/subset/plan2001-inst.img of=/dev/sdX bs=4M`.
+`dd if=build/subset/amd64/plan2001-inst.img of=/dev/sdX bs=4M`.
 
-### Pois jätetty legacy (5 tiedostoa, `subset/files`: `excluded`)
+### Pois jätetty legacy (5 tiedostoa, `subset/amd64/files`: `excluded`)
 
 | Tiedosto | Kuka sitä pyytäisi | Miksi pois |
 |---|---|---|
@@ -133,12 +133,15 @@ Suurimmat ryhmät: ohjelmat `/amd64/bin` (levytyökalut, tiedostopalvelimet,
 
 ## Uudelleentuottaminen
 
+Kaikki työkalut ottavat kohteen ympäristömuuttujasta `TARGET` (oletus `amd64`,
+ks. `tools/targets/`). Alla on amd64:n polut.
+
 ```
 tools/build.sh         # Plan2001:n 9pc64 ja bootx64.efi -> build/        (~25 s)
-tools/subset/trace     # dynaaminen jäljitys -> build/subset/trace/       (~2 min)
+tools/subset/trace     # dynaaminen jäljitys -> build/subset/amd64/trace/ (~2 min)
 tools/subset/derive    # staattinen + lähdesulkeuma -> build/subset/    (~25 s)
-python3 tools/subset/make.py build/subset .   # subset/{proto,files,9front}
-tools/subset/mkusb     # build/subset/plan2001-inst.img                   (~20 s)
+python3 tools/subset/make.py build/subset/amd64 .   # subset/amd64/{proto,files}, subset/9front
+tools/subset/mkusb     # build/subset/amd64/plan2001-inst.img             (~20 s)
 tools/subset/test      # PASS/FAIL                                        (~1,5 min)
 tools/subset/check     # subset/9front vs. VM:n puu (md5)                 (~15 s)
 ```

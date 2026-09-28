@@ -1,13 +1,14 @@
 #!/bin/bash
 # Does the copy in subset/9front still match the pinned 9front release?
-# Compares the md5 of every copied file (subset/files) with the file in the
-# VM's tree (a fresh overlay of base.qcow2) and with the file in the repo.
+# Compares the md5 of every copied file (every target's subset/*/files)
+# with the file in the VM's tree (a fresh overlay of base.qcow2) and with
+# the file in the repo.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$tools")
 b=$root/build; s=$b/subset/check
 run9() { "$tools/9run" -d "$b/vm" "$@"; }
 rm -rf "$s" "$b/in.img" "$b/out.img"; mkdir -p "$s"
-awk -F'\t' '!/^#/ && $5 != "-" { sub(/^\//, "", $1); print $1 }' "$root/subset/files" > "$s/want"
+cat "$root"/subset/*/files | awk -F'\t' '!/^#/ && $5 != "-" { sub(/^\//, "", $1); print $1 }' | sort -u > "$s/want"
 tar cf "$b/in.img" --format=ustar -C "$here" check.rc -C "$s" want; truncate -s 64M "$b/in.img"
 trap '"$tools/vm" stop' EXIT
 "$tools/vm" start
@@ -22,18 +23,22 @@ vm = {}
 for l in open(s + '/md5'):
 	m, p = l.split(None, 1)
 	vm['/' + p.strip()] = m
+import glob
+want = {}
+for f in glob.glob(root + '/subset/*/files'):
+	for l in open(f):
+		if l.startswith('#'):
+			continue
+		p, kind, how, why, m = l.rstrip('\n').split('\t')
+		if m != '-':
+			want[p] = m
 bad = 0
-for l in open(root + '/subset/files'):
-	if l.startswith('#'):
-		continue
-	p, kind, how, why, m = l.rstrip('\n').split('\t')
-	if m == '-':
-		continue
+for p, m in sorted(want.items()):
 	repo = hashlib.md5(open(root + '/subset/9front' + p, 'rb').read()).hexdigest()
 	if vm.get(p) != m or repo != m:
 		bad += 1
 		print('differs: %s (list %s, vm %s, repo %s)' % (p, m, vm.get(p), repo))
-n = sum(1 for l in open(root + '/subset/files') if not l.startswith('#') and not l.rstrip('\n').endswith('\t-'))
+n = len(want)
 print('check: %d files, %d differ' % (n, bad))
 sys.exit(1 if bad else 0)
 PY

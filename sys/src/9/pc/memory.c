@@ -351,26 +351,16 @@ mtrrexclude(int type, char *expect)
  * reclaimable memory is kept apart; everything else that matters is
  * reserved.  -1: not mapped.
  */
+/* the kind of memory a BootInfo memory map entry is, see bootmemclass() */
 static int
 bootmemkind(u32int type)
 {
-	switch(type){
-	case BootMemLoaderCode:
-	case BootMemLoaderData:
-	case BootMemBootCode:
-	case BootMemBootData:
-	case BootMemConventional:
+	switch(bootmemclass(type)){
+	case BootClassRAM:
 		return MemRAM;
-	case BootMemACPIReclaim:
+	case BootClassACPI:
 		return MemACPI;
-	case BootMemReserved:
-	case BootMemRuntimeCode:
-	case BootMemRuntimeData:
-	case BootMemUnusable:
-	case BootMemACPINVS:
-	case BootMemMMIO:
-	case BootMemMMIOPort:
-	case BootMemPalCode:
+	case BootClassReserved:
 		return MemReserved;
 	}
 	return -1;
@@ -501,10 +491,10 @@ meminit0(void)
 	memreserve(0, PADDR(CPU0END));
 
 	/*
-	 * The BootInfo blob (pc/bootinfo.c) sits in EfiLoaderData, which
+	 * The BootInfo blob (port/bootinfo.c) sits in EfiLoaderData, which
 	 * the map above calls MemRAM, freely reusable by this kernel's own
 	 * allocator.  It is ours for good (Plan2001 Boot ABI v1): confval[]
-	 * points into its config section and bootlogtext() (pc/bootfb.c)
+	 * points into its config section and bootlogtext() (port/bootfb.c)
 	 * reads its log section after xinit().  Reserve it before xinit()
 	 * can hand its pages to something else.
 	 */
