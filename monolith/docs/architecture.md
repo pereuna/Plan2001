@@ -216,6 +216,40 @@ Plan2001-prosessi = identiteetti
          └──────── selaimen / käyttöjärjestelmän ikkunanhallinta ───┘
 ```
 
+### Avoin kysymys: missä ohjelman näyttö ja tila elävät (vaihe 3b)
+
+Vaihe 3a ajaa drawterm.wasmia välilehdessä: ohjelma pyörii Plan2001:ssä,
+mutta sen näyttö (`/dev/draw`in kuvat) on välilehden drawtermissa. Siksi
+suljetun välilehden istuntoon ei voi liittää uutta välilehteä, vaikka
+istunto elää vielä. Vaihe 3b ratkaisee tämän; toteutustapa on
+päättämättä (28.9.). Vaihtoehdot:
+
+| | A: näyttö palvelimella | B: ohjelma wasmina välilehdessä | C: drawterm jää, lisätään turva |
+|---|---|---|---|
+| Ohjelma ja tila | Plan2001:ssä | selaimessa | selaimessa (drawterm) |
+| Liittyminen suljetun välilehden istuntoon, laitteen vaihto | toimii | ei ilman ohjelmien uudelleenkirjoitusta | ei |
+| Välilehti | ohut JS-asiakas (kuva ja syöte wss:n yli), ei wasmia | wasm-ohjelma, järjestelmäkutsut RPC:nä Plan2001:lle | drawterm.wasm kuten nyt |
+| Piirto | palvelimen CPU (libmemdraw) | selain (WebGPU hyödyllinen) | selain |
+| Vaihe 4 (WebGPU) | vain esitys | keskeinen | ennallaan |
+| Pohja | 9frontin `vncs` (oma devdraw, ajaa komennon virtuaalinäytölle) | ei valmista Plan 9 C → wasm -ketjua eikä libc-sovitusta | nykyinen 3a |
+| Työmäärä | muutama päivä | viikkoja–kuukausia | päivä |
+
+- **A** toteuttaa ylläolevan ytimen suorimmin: prosessi, sen näyttö ja
+  nimiavaruus ovat Plan2001:ssä, ja välilehti on vain liitetty
+  suoritusympäristö, jonka voi vaihtaa (capability-tunniste, `apps`,
+  `attach`). Hinta: piirto palvelimella ja enemmän kaistaa.
+- **B** on ylläolevan kuvan `editor.wasm` kirjaimellisesti: laskenta ja
+  piirto selaimessa. Ohjelman tila on kuitenkin selaimessa, joten jatko
+  toiselta laitteelta vaatii, että ohjelmat pitävät tilansa Plan2001:ssä
+  (tiedostoina), eli ohjelmat on tehtävä sitä varten.
+- **C** lisää vain istuntokohtaisen nimiavaruuden
+  (`/lib/app/APP/namespace`), palvelimen valitseman ohjelman ja
+  capability-tunnisteet; uudelleenliittyminen ei onnistu.
+- A ja B eivät sulje toisiaan pois: A ensin kaikille ohjelmille, B
+  myöhemmin niille, joille selaimessa laskeminen sopii.
+
+Suositus (Claude): A. Päätös: avoin.
+
 ## Vaihe 4: WebGPU
 
 Välilehden piirto (vaiheen 3 canvas/WebGPU):
