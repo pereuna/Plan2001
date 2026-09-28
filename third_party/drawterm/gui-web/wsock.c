@@ -36,6 +36,13 @@
 
 enum {
 	Nconn	= 64,
+	/* received, not yet read by drawterm: a WebSocket cannot be paused,
+	   so past this the connection fails rather than grow or lose data */
+	Maxbuf	= 64*1024*1024,
+	/* sent, not yet acknowledged by the far end (resumable links only,
+	   mo_netacked): send() waits past this, so drawterm is held back
+	   instead of the page's resend buffer growing */
+	Maxunacked	= 8*1024*1024,
 	Fdbase	= 0x4000,	/* far from Emscripten's own descriptors */
 
 	Free	= 0,
@@ -54,6 +61,10 @@ struct Conn {
 	size_t	rp;
 	size_t	wp;
 	size_t	cap;
+	int	err;		/* the connection failed here (errno), not closed */
+	unsigned int	sent;	/* bytes sent (mod 2^32) */
+	unsigned int	acked;	/* of them acknowledged, once acking */
+	int	acking;
 };
 
 static Conn conns[Nconn];
@@ -100,16 +111,38 @@ mo_netdata(int i, int gen, unsigned char *p, int n)
 		c->rp = 0;
 	}
 	if(need > c->cap){
-		nb = realloc(c->buf, need*2);
-		if(nb == NULL)
-			goto out;
+		nb = NULL;
+		if(need <= Maxbuf)
+			nb = realloc(c->buf, need*2 < Maxbuf ? need*2 : Maxbuf);
+		if(nb == NULL){
+			/* dropping these bytes would corrupt the stream: fail it */
+			c->err = need > Maxbuf ? ENOBUFS : ENOMEM;
+			c->state = Closed;
+			pthread_cond_broadcast(&cv);
+			pthread_mutex_unlock(&lk);
+			js_netclose(i);
+			return;
+		}
 		c->buf = nb;
-		c->cap = need*2;
+		c->cap = need*2 < Maxbuf ? need*2 : Maxbuf;
 	}
 	memcpy(c->buf + c->wp, p, n);
 	c->wp += n;
 	pthread_cond_broadcast(&cv);
 out:
+	pthread_mutex_unlock(&lk);
+}
+
+/* from the page, main thread: the far end has n bytes of what we sent */
+EMSCRIPTEN_KEEPALIVE void
+mo_netacked(int i, int gen, unsigned int n)
+{
+	pthread_mutex_lock(&lk);
+	if(conns[i].gen == gen && conns[i].state != Free){
+		conns[i].acked = n;
+		conns[i].acking = 1;
+		pthread_cond_broadcast(&cv);
+	}
 	pthread_mutex_unlock(&lk);
 }
 
@@ -128,6 +161,9 @@ wssocket(int domain, int type, int protocol)
 			conns[i].state = New;
 			conns[i].gen++;
 			conns[i].rp = conns[i].wp = 0;
+			conns[i].err = 0;
+			conns[i].sent = conns[i].acked = 0;
+			conns[i].acking = 0;
 			pthread_mutex_unlock(&lk);
 			return Fdbase + i;
 		}
@@ -190,6 +226,11 @@ wsrecv(int fd, void *p, size_t n, int flags)
 	while(c->gen == gen && c->rp == c->wp && c->state == Open)
 		pthread_cond_wait(&cv, &lk);
 	m = 0;
+	if(c->gen == gen && c->err){
+		errno = c->err;
+		pthread_mutex_unlock(&lk);
+		return -1;
+	}
 	if(c->gen == gen){
 		m = c->wp - c->rp;
 		if(m > n)
@@ -207,12 +248,10 @@ wssend(int fd, const void *p, size_t n, int flags)
 	Conn *c;
 	void *q;
 
+	int gen;
+
 	if((c = conn(fd)) == NULL)
 		return send(fd, p, n, flags);
-	if(c->state != Open){
-		errno = EPIPE;
-		return -1;
-	}
 	if(n == 0)
 		return 0;
 	if((q = malloc(n)) == NULL){
@@ -220,8 +259,21 @@ wssend(int fd, const void *p, size_t n, int flags)
 		return -1;
 	}
 	memcpy(q, p, n);
-	/* in order with the other calls to the main thread */
+	pthread_mutex_lock(&lk);
+	gen = c->gen;
+	/* backpressure: wait for acknowledgements past Maxunacked */
+	while(c->gen == gen && c->state == Open && c->acking && c->sent - c->acked > Maxunacked)
+		pthread_cond_wait(&cv, &lk);
+	if(c->gen != gen || c->state != Open){
+		pthread_mutex_unlock(&lk);
+		free(q);
+		errno = c->err ? c->err : EPIPE;
+		return -1;
+	}
+	c->sent += n;
+	/* in order with the other calls to the main thread, and with sent */
 	js_netsend(c - conns, q, n);
+	pthread_mutex_unlock(&lk);
 	return n;
 }
 

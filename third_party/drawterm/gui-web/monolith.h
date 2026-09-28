@@ -31,6 +31,7 @@ void	js_netclose(int conn);
 void	mo_input(int type, int a, int b, int c);
 void	mo_netstate(int conn, int gen, int state);
 void	mo_netdata(int conn, int gen, unsigned char *p, int n);
+void	mo_netacked(int conn, int gen, unsigned int n);	/* the far end has n bytes (mod 2^32) */
 
 /* events.c, for web.c */
 void	mo_nextinput(int *type, int *a, int *b, int *c);

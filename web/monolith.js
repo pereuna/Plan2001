@@ -23,7 +23,8 @@ function Monolith(opts) {
 	 * one to /resume/TOKEN/N (N: bytes we have) gets 'r M' (bytes the
 	 * session has), and we send again what it lacks.  drawterm sees one
 	 * connection throughout; it is closed only when resuming fails for
-	 * Giveup ms.
+	 * Giveup ms.  What is kept here is bounded: acknowledgements go to
+	 * drawterm (netacked), which stops sending past its limit.
 	 */
 	const Ackevery = 16384, Giveup = 10 * 60 * 1000;
 	class Link {
@@ -81,6 +82,8 @@ function Monolith(opts) {
 				this.sent[0] = this.sent[0].slice(n - this.sentbase);
 				this.sentbase = n;
 			}
+			/* drawterm waits once too much is unacknowledged (wsock.c) */
+			if (wasm && wasm.netacked) wasm.netacked(this.conn, this.gen, this.sentbase % 2 ** 32);
 		}
 		send(bytes) {
 			this.sent.push(bytes);

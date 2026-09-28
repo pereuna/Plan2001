@@ -219,7 +219,7 @@ new ResizeObserver(resized).observe(box);
 const mo = Monolith({
 	canvas,
 	size,
-	log: rlog,
+	log: t => { console.log('monolith: ' + t); rlog(t); },
 	onready: () => setstatus(textonly ? 'drawterm ' + args.join(' ') : 'connecting…'),
 	onflush: n => {
 		if (n !== 1) return;
@@ -244,6 +244,9 @@ window.Module = {
 };
 // for tests driving the page (tools/test-rio)
 window.monolith = { push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, dropnet: () => mo.dropnet() };
+// ?dropevery=MS (tests): drop the connections every MS ms, as a phone does
+if (+q.get('dropevery') > 0)
+	setInterval(() => { if (mo.ready) mo.dropnet(); }, +q.get('dropevery'));
 
 // back from the background or offline: resume dropped connections now
 document.addEventListener('visibilitychange', () => { if (!document.hidden) mo.wake(); });

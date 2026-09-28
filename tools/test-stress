@@ -1,0 +1,44 @@
+#!/bin/bash
+# Reconnect under load: drawterm.wasm -G in headless Chromium on the page
+# from Plan2001's webterm (https/wss, tools/deploy), with the WebSockets
+# dropped every DROPMS ms (?dropevery) while about MB megabytes go through
+# rcpu both ways: the CPU server writes a file to /mnt/term (the browser's
+# memory) and reads it back, and the two md5 sums must agree.  Passes on
+# STRESS-OK with at least one resume.
+#   tools/test-stress [MB [DROPMS [SECONDS]]]      default 100 2000 1200
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+mb=${1:-100} dropms=${2:-2000} secs=${3:-1200}
+pass=$(cat "${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cpu.pass")
+log=$root/build/stress.log
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+# Plan 9's seq 1 N writes about 11.5 bytes a number around 10^7
+n=$((mb * 1024 * 1024 * 2 / 23))
+cmd="seq 1 $n >/tmp/stress; x=\`{md5sum </tmp/stress}; ls -l /tmp/stress; cp /tmp/stress /mnt/term/tmp/stress; y=\`{md5sum </mnt/term/tmp/stress}; rm -f /tmp/stress; if(~ \$x \$y) echo STRESS-OK \$x; if not echo STRESS-FAIL \$x \$y"
+url="https://127.0.0.1:17443/index.html?dropevery=$dropms"
+for a in -G -h 127.0.0.1 -a 'tcp!127.0.0.1!567' -u glenda -c "$cmd"; do
+	url="$url&a=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$a")"
+done
+start=$(date +%s)
+chromium --headless=new --no-sandbox --disable-gpu --user-data-dir="$tmp" \
+	--ignore-certificate-errors-spki-list="$("$root/tools/spki")" \
+	--enable-logging=stderr --v=0 "$url#pass=$pass" >"$tmp/log" 2>&1 &
+chrome=$!
+# until drawterm exits (or SECONDS), then the browser goes too
+while kill -0 $chrome 2>/dev/null && ! grep -qs 'MONOLITH-EXIT' "$tmp/log" \
+	&& [ $(( $(date +%s) - start )) -lt "$secs" ]; do
+	sleep 2
+done
+t=$(( $(date +%s) - start ))
+kill $chrome 2>/dev/null; wait $chrome 2>/dev/null || true
+sed "s/$pass/<password>/g" "$tmp/log" >"$log"
+resumes=$(grep -c '"monolith: resumed"' "$log" || true)
+bytes=$(grep -o 'glenda glenda [0-9]* ' "$log" | head -1 | awk '{print $3}')
+if grep -q 'STRESS-OK' "$log" && [ "$resumes" -gt 0 ]; then
+	echo "test-stress: STRESS-OK, $bytes bytes each way, $resumes resumes, ${t}s"
+else
+	echo "test-stress: failed ($resumes resumes, ${t}s), see $log" >&2
+	grep 'CONSOLE' "$log" | grep -v 'monolith: resumed\|connection lost' | tail -15 >&2
+	exit 1
+fi

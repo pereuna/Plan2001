@@ -176,3 +176,23 @@ omistaa yhteydet:
   drawterm (wasm) ei näe katkosta; yhteys suljetaan sille vasta, kun
   jatko ei onnistu 10 minuutissa.
 - Vain `wss://`:n rcpu-yhteys on jatkuva; auth (`/567`) on lyhyt.
+
+## Kovennus (28.9.)
+
+Katselmoinnin neljä kohtaa ja rasitustesti (Plan2001 ja Monolith, haarat
+`webterm-hardening`):
+
+- webterm: istunnon puskuri on rajattu (8 MiB high / 4 MiB low water);
+  täynnä istunto lakkaa lukemasta rcpu:ta, joten putki hidastaa rcpu:n.
+- `wsock.c`: vastaanottopuskuri enintään 64 MiB; ylitys tai muistin
+  loppuminen on yhteysvirhe (`recv` -1, errno), ei hiljaa kadonnutta dataa.
+  Lähetys: sivun `Link` kertoo kuittaukset wasmille (`mo_netacked`), ja
+  `send` odottaa, kun kuittaamatonta on yli 8 MiB.
+- `tools/vm-cpu`: TLS-avain ei jää `build/in.img`:iin (600, nollataan heti
+  ja aina lopussa).
+- webterm: Origin-tarkistus (`-w`: vain oma https-origin; `-o` lisää) ja
+  `Sec-WebSocket-Version: 13`.
+- `tools/test-stress [MB [DROPMS]]`: CPU-palvelin kirjoittaa tiedoston
+  `/mnt/term`iin (selaimen muistiin) ja lukee sen takaisin, WebSocketit
+  pudotetaan välein (`?dropevery`); md5-summien on täsmättävä.
+  Tulos: 156 Mt kumpaankin suuntaan, 208 katkosta ja jatkoa, 419 s, OK.

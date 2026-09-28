@@ -11,6 +11,7 @@ addToLibrary({
 		Module.monolith.attach({
 			input: (type, a, b, c) => { if(!runtimeExited) Module['_mo_input'](type, a, b, c); },
 			netstate: (conn, gen, state) => { if(!runtimeExited) Module['_mo_netstate'](conn, gen, state); },
+			netacked: (conn, gen, n) => { if(!runtimeExited) Module['_mo_netacked'](conn, gen, n >>> 0); },
 			netdata: (conn, gen, bytes) => {
 				if(runtimeExited)
 					return;
