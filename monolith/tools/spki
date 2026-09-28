@@ -1,0 +1,5 @@
+#!/bin/bash
+# The SHA-256 of the Plan2001 VM certificate's public key (base64), for
+# Chromium's --ignore-certificate-errors-spki-list in the tests.
+cert=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/ca/cpu.pem
+openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64

@@ -126,16 +126,20 @@ UEFI firmware
 
 ## Monolith: selaimen drawterm
 
-Monolith (https://github.com/pereuna/monolith) on Plan2001:n drawterm
-selaimessa. Raja on tämä:
+Monolith (`monolith/`) on Plan2001:n drawterm selaimessa ja Plan2001:n
+käyttöliittymä: Plan2001:ssä ei ole rioa. Se oli erillinen repo
+(pereuna/monolith, nyt arkistoitu); `git subtree add` toi sen tänne
+historioineen. Jako:
 
-- **Plan2001:ssä on palvelinpää:** `sys/src/cmd/webterm.c` (WebSocket rcpu:hun
+- **Palvelinpää:** `sys/src/cmd/webterm.c` (WebSocket rcpu:hun
   ja authiin, `/rcpu` ilman sisempää TLS:ää, istuntojen jatko, sivun
   tiedostot tlssrv:n takana) sekä CPU-VM:n työkalut `tools/vm --net` ja
   `tools/vm-cpu`.
-- **Monolith-repossa on asiakas:** `drawterm.wasm`, `gui-web` ja selaimen
-  käyttöliittymä. Plan2001 ei riipu sen lähdekoodista; `tools/vm-cpu --update
-  --web DIR` vain kopioi valmiit sivun tiedostot VM:ään.
+- **Asiakas, `monolith/`:** `drawterm.wasm`, `gui-web` ja selaimen
+  käyttöliittymä, rakennetaan Linuxissa Emscriptenillä
+  (`monolith/tools/build`, `monolith/tools/deploy`). Plan2001:n oma build
+  ei riipu siitä; `tools/vm-cpu --update --web DIR` kopioi valmiit sivun
+  tiedostot VM:ään. Ohjeet: `monolith/README.md`, `monolith/docs/`.
 - Historia: moniarkkitehtuurityö (vaiheet 1–4) on `main`in perusta, ja
   palvelinpää on rakennettu sen päälle omana kokonaisuutenaan.
 
