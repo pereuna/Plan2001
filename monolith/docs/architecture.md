@@ -251,7 +251,7 @@ CPU-palvelin voi olla pieni. Vaihtoehdot:
 - A ja B eivät sulje toisiaan pois: A ensin kaikille ohjelmille, B
   myöhemmin niille, joille selaimessa laskeminen sopii.
 
-Perusarkkitehtuuri muuttaa arviota (29.9.):
+Perusarkkitehtuuri muuttaa arviota (28.9.):
 
 - **A sotii perusarkkitehtuuria vastaan:** jokaisen välilehden piirto ja
   ohjelman laskenta olisivat CPU-palvelimella, jonka ei tarvitse olla
