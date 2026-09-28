@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=overlays-content">
+<title>Monolith</title>
+<style>
+:root { --bg: #000; --fg: #d8d8d8; --dim: #888; --bar: #1c1c1c; --key: #333; --on: #4a9a9a; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font: 14px/1.4 monospace; }
+body { display: flex; flex-direction: column; }
+#box { flex: 1; min-height: 0; overflow: hidden; }
+#screen { display: block; outline: none; touch-action: none; }
+#out { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; height: 100%; overflow: auto; box-sizing: border-box; }
+#status { position: fixed; left: 0; top: 0; padding: 4px 12px; color: var(--dim); background: rgba(0,0,0,.6); pointer-events: none; }
+#status:empty { display: none; }
+#bar { display: flex; gap: 6px; padding: 6px; background: var(--bar); touch-action: none; user-select: none; -webkit-user-select: none; }
+#bar button { flex: 1; min-width: 0; height: 40px; border: 0; border-radius: 6px; background: var(--key); color: var(--fg); font: 16px monospace; }
+#bar button.on { background: var(--on); color: #000; }
+#kbd { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; resize: none; }
+.hidden { display: none !important; }
+#login { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 16px; }
+#login form { display: flex; flex-direction: column; gap: 10px; width: min(320px, 100%); }
+#login input, #login button { font: 16px monospace; padding: 10px; border-radius: 6px; border: 1px solid var(--key); background: var(--bar); color: var(--fg); }
+#login button { background: var(--on); color: #000; border: 0; }
+#login h1 { font: 20px monospace; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<div id="box"><canvas id="screen" tabindex="0" class="hidden"></canvas><pre id="out" class="hidden"></pre></div>
+<div id="bar" class="hidden">
+	<button data-b="1" class="on">1</button><button data-b="2">2</button><button data-b="4">3</button>
+	<button id="esc">Esc</button><button id="showkbd">⌨</button>
+</div>
+<textarea id="kbd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+<div id="login" class="hidden"><form>
+	<h1>Monolith</h1>
+	<input id="user" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="user">
+	<input id="pass" type="password" autocomplete="current-password" placeholder="password">
+	<button>Connect</button>
+</form></div>
+<div id="status">loading drawterm…</div>
+<script src="monolith.js"></script>
+<script>
+// drawterm in the page.  Arguments come from the query
+// (?a=-h&a=127.0.0.1...), the password from the fragment (#pass=...), which
+// is never sent to the server.  Default: drawterm's console on the Plan2001
+// VM: its webterm, through tools/serve.  With -G the page shows drawterm's text
+// output only.  On a touch screen (or ?touch=1) a bar below the screen picks
+// the mouse button for the next touch and opens the on-screen keyboard.
+(() => {
+const q = new URLSearchParams(location.search);
+const frag = new URLSearchParams(location.hash.slice(1));
+// the password: #pass=... (taken out of the address bar at once) or the
+// login form; the user: ?user=... or the form, default glenda
+let pass = frag.get('pass');
+let user = q.get('user') || 'glenda';
+if (location.hash)
+	history.replaceState(null, '', location.pathname + location.search);
+const args = q.getAll('a').length ? q.getAll('a')
+	: ['-h', 'plan2001', '-a', 'tcp!plan2001!567', '-u', user];
+const textonly = args.includes('-G');
+const touchui = q.has('touch') ? q.get('touch') !== '0' : matchMedia('(pointer: coarse)').matches;
+const box = document.getElementById('box');
+const canvas = document.getElementById('screen');
+const out = document.getElementById('out');
+const bar = document.getElementById('bar');
+const kbd = document.getElementById('kbd');
+const status = document.getElementById('status');
+(textonly ? out : canvas).classList.remove('hidden');
+if (touchui && !textonly)
+	bar.classList.remove('hidden');
+
+// ?log=1: the page's log, errors and a heartbeat also go to tools/serve
+// (build/page.log), for browsers without a console at hand (phones)
+const remote = q.get('log') === '1';
+const BUILD = 'dev';	// tools/deploy stamps it
+const t0 = Date.now();
+function rlog(t) {
+	if (remote)
+		fetch('/log', { method: 'POST', body: ((Date.now() - t0) / 1000).toFixed(1) + ' ' + t, keepalive: true }).catch(() => {});
+}
+if (remote) {
+	addEventListener('error', e => rlog('error: ' + e.message + ' ' + (e.filename || '') + ':' + (e.lineno || '')));
+	addEventListener('unhandledrejection', e => rlog('rejection: ' + e.reason));
+	rlog('start build=' + BUILD + ' blob=' + (typeof Blob) + ' ' + navigator.userAgent + ' isolated=' + crossOriginIsolated + ' cores=' + navigator.hardwareConcurrency);
+	setInterval(() => {
+		const res = performance.getEntriesByType('resource').filter(r => /drawterm\.(js|wasm)/.test(r.name))
+			.map(r => r.name.split('/').pop() + ':' + (r.responseEnd / 1000).toFixed(1) + 's/' + r.transferSize);
+		rlog('alive ready=' + mo.ready + ' flushes=' + mo.flushes + ' loaded=' + res.length + ' ' + res.slice(0, 3).join(' '));
+	}, 5000);
+}
+function setstatus(t) { status.textContent = t; if (t) { console.log('monolith: ' + t); rlog('status: ' + t); } }
+function show(t) { out.textContent += t + '\n'; console.log(t); rlog('out: ' + t); }
+function push(type, a, b, c) { mo.input(type, a, b, c); }
+const Evmouse = 1, Evkey = 2, Evresize = 3;
+
+// screen: the box above the bar, one Plan 9 pixel per CSS pixel
+function size() { return [Math.max(64, box.clientWidth | 0), Math.max(64, box.clientHeight | 0)]; }
+
+// mouse: DOM buttons 1 left, 2 right, 4 middle; Plan 9 1 left, 2 middle,
+// 4 right, 8 and 16 the wheel.  A touch is the button chosen in the bar,
+// for one touch; then button 1 again.
+let buttons = 0, mx = 0, my = 0, touchb = 1;
+function p9buttons(b) { return (b & 1) | (b & 4 ? 2 : 0) | (b & 2 ? 4 : 0); }
+function mouse(e) {
+	const r = canvas.getBoundingClientRect();
+	mx = Math.round(e.clientX - r.left); my = Math.round(e.clientY - r.top);
+	buttons = e.pointerType === 'touch' ? (e.buttons ? touchb : 0) : p9buttons(e.buttons);
+	push(Evmouse, mx, my, buttons);
+}
+function choose(b) {
+	touchb = b;
+	for (const x of bar.querySelectorAll('[data-b]'))
+		x.classList.toggle('on', +x.dataset.b === b);
+}
+canvas.addEventListener('pointermove', mouse);
+canvas.addEventListener('pointerdown', e => {
+	if (e.pointerType !== 'touch')
+		canvas.focus();
+	canvas.setPointerCapture(e.pointerId);
+	mouse(e);
+	e.preventDefault();
+});
+canvas.addEventListener('pointerup', e => {
+	mouse(e);
+	if (e.pointerType === 'touch')
+		choose(1);
+	e.preventDefault();
+});
+canvas.addEventListener('pointercancel', e => { push(Evmouse, mx, my, buttons = 0); choose(1); });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+	const w = e.deltaY < 0 ? 8 : 16;
+	push(Evmouse, mx, my, buttons | w);
+	push(Evmouse, mx, my, buttons);
+	e.preventDefault();
+}, { passive: false });
+
+// keyboard: KeyboardEvent.key to Plan 9 runes (keyboard.h)
+const KF = 0xF000, Spec = 0xF800;
+const special = {
+	Enter: 10, Backspace: 8, Tab: 9, Escape: 0x1b, Delete: 0x7f,
+	ArrowUp: KF|0x0E, ArrowDown: Spec|0x00, ArrowLeft: KF|0x11, ArrowRight: KF|0x12,
+	Home: KF|0x0D, End: KF|0x18, PageUp: KF|0x0F, PageDown: KF|0x13, Insert: KF|0x14,
+	PrintScreen: KF|0x10, ScrollLock: KF|0x19, Pause: Spec|0x61,
+	Shift: KF|0x16, Control: KF|0x17, Alt: KF|0x15, AltGraph: Spec|0x67,
+	CapsLock: Spec|0x64, NumLock: Spec|0x65, Meta: Spec|0x68,
+};
+for (let i = 1; i <= 12; i++) special['F' + i] = KF | i;
+function rune(e) {
+	if (e.key in special) return special[e.key];
+	if ([...e.key].length !== 1) return 0;
+	let r = e.key.codePointAt(0);
+	if (e.ctrlKey && !e.altKey && r >= 0x40 && r < 0x80) r &= 0x1f;
+	return r;
+}
+function tap(r) { push(Evkey, r, 1, 0); push(Evkey, r, 0, 0); }
+function key(e, down) {
+	const r = rune(e);
+	if (!r) return;
+	push(Evkey, r, down ? 1 : 0, 0);
+	e.preventDefault();
+}
+canvas.addEventListener('keydown', e => key(e, true));
+canvas.addEventListener('keyup', e => key(e, false));
+
+// on-screen keyboard: a hidden textarea.  Phone keyboards send no usable
+// key events (key 'Unidentified'), so what they type is read from the
+// textarea's value, which is reset to one space after each change: fewer
+// characters is backspace, more is text.  Keys with a name (arrows, Esc,
+// Tab, Ctrl-x from a hardware keyboard) still come as key events.
+const SENT = ' ';
+let composing = false;
+function kbdreset() { kbd.value = SENT; kbd.setSelectionRange(SENT.length, SENT.length); }
+function kbdread() {
+	const v = kbd.value;
+	if (v.length < SENT.length)
+		for (let i = v.length; i < SENT.length; i++) tap(8);
+	else
+		for (const c of v.startsWith(SENT) ? v.slice(SENT.length) : v) tap(c.codePointAt(0));
+	kbdreset();
+}
+kbd.addEventListener('input', () => { if (!composing) kbdread(); });
+kbd.addEventListener('compositionstart', () => { composing = true; });
+kbd.addEventListener('compositionend', () => { composing = false; kbdread(); });
+kbd.addEventListener('keydown', e => {
+	if (e.key === 'Unidentified' || e.key === 'Backspace' || e.key === 'Enter' || e.isComposing)
+		return;	// through the textarea's value
+	if (e.key in special || e.ctrlKey) {
+		const r = rune(e);
+		if (r) { tap(r); e.preventDefault(); }
+	}
+});
+kbdreset();
+
+// the bar: buttons act on touch down, and keep the focus where it was
+for (const b of bar.querySelectorAll('button'))
+	b.addEventListener('pointerdown', e => e.preventDefault());
+bar.addEventListener('click', e => {
+	const b = e.target.closest('button');
+	if (!b) return;
+	if (b.dataset.b) choose(+b.dataset.b === touchb ? 1 : +b.dataset.b);
+	else if (b.id === 'esc') tap(0x1b);
+	else if (b.id === 'showkbd') {
+		if (document.activeElement === kbd) kbd.blur();
+		else { kbdreset(); kbd.focus(); }
+	}
+});
+
+let resizing;
+function resized() {
+	clearTimeout(resizing);
+	resizing = setTimeout(() => { const [w, h] = size(); push(Evresize, w, h, 0); }, 150);
+}
+window.addEventListener('resize', resized);
+new ResizeObserver(resized).observe(box);
+
+// drawterm's side of the page: screen, cursor, connections (monolith.js)
+const mo = Monolith({
+	canvas,
+	size,
+	log: t => { console.log('monolith: ' + t); rlog(t); },
+	onready: () => setstatus(textonly ? 'drawterm ' + args.join(' ') : 'connecting…'),
+	onflush: n => {
+		if (n !== 1) return;
+		setstatus(''); console.log('MONOLITH-FLUSH first'); rlog('first flush');
+		if (!touchui) canvas.focus();
+	},
+});
+window.Module = {
+	monolith: mo,
+	arguments: args,
+	preRun: [m => {
+		if (pass) m.ENV.PASS = pass;
+		m.ENV.USER = user;
+		// from Plan2001's webterm over https: its wss on the same origin;
+		// from tools/serve: its relay on the next port
+		m.ENV.MONOLITH_WS = q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
+			: `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`);
+	}],
+	print: show,
+	printErr: show,
+	onExit: code => { setstatus('drawterm exited (' + code + ')'); console.log('MONOLITH-EXIT ' + code); },
+};
+// for tests driving the page (tools/test-rio)
+window.monolith = { push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, dropnet: () => mo.dropnet() };
+// ?dropevery=MS (tests): drop the connections every MS ms, as a phone does
+if (+q.get('dropevery') > 0)
+	setInterval(() => { if (mo.ready) mo.dropnet(); }, +q.get('dropevery'));
+
+// back from the background or offline: resume dropped connections now
+document.addEventListener('visibilitychange', () => { if (!document.hidden) mo.wake(); });
+addEventListener('online', () => mo.wake());
+addEventListener('pageshow', () => mo.wake());
+
+if (!crossOriginIsolated)
+	setstatus('not cross-origin isolated: serve with tools/serve (COOP/COEP) on localhost or HTTPS');
+
+// drawterm starts once there is a password.  drawterm.js is fetched once
+// (retried) and given to the page and to every thread as a Blob: each of
+// Emscripten's workers would otherwise fetch it again, and on a slow link
+// some of those fail.
+async function start() {
+	let text;
+	for (let i = 0; ; i++) {
+		try {
+			const r = await fetch('drawterm.js');
+			if (!r.ok) throw new Error('HTTP ' + r.status);
+			text = await r.text();
+			break;
+		} catch (e) {
+			rlog('drawterm.js: ' + e);
+			if (i == 4) { setstatus('could not load drawterm.js: ' + e); return; }
+			await new Promise(t => setTimeout(t, 1000 * (i + 1)));
+		}
+	}
+	const blob = new Blob([text], { type: 'text/javascript' });
+	Module.mainScriptUrlOrBlob = blob;
+	Module.locateFile = f => new URL(f, location.href).href;
+	const sc = document.createElement('script');
+	sc.src = URL.createObjectURL(blob);
+	document.body.appendChild(sc);
+}
+if (pass || textonly && !q.getAll('a').includes('-u')) {
+	start();
+} else {
+	const login = document.getElementById('login');
+	const uin = document.getElementById('user'), pin = document.getElementById('pass');
+	uin.value = user;
+	login.classList.remove('hidden');
+	setstatus('');
+	(user ? pin : uin).focus();
+	login.querySelector('form').addEventListener('submit', e => {
+		e.preventDefault();
+		if (!pin.value) return;
+		user = uin.value || 'glenda';
+		pass = pin.value;
+		if (!q.getAll('a').length) args[args.length - 1] = user;
+		login.classList.add('hidden');
+		setstatus('loading drawterm…');
+		start();
+	});
+}
+})();
+</script>
+</body>
+</html>

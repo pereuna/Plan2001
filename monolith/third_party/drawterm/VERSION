@@ -1,0 +1,9 @@
+# 9front drawterm, vendored by tools/import-drawterm
+source git://git.9front.org/plan9front/drawterm
+commit 64dcc2432d85a0bdf64bb706be8787042beb8db6
+date 2026-09-12 21:52:56 +0000
+note 64dcc24, not the newer 2840502 ("kern/devdraw.c: implement a
+note drawunpack() routine", 2026-09-26): with 2840502 drawterm aborts at
+note startup, sysfile.c:1170 starterror: Assertion up->nerrlab == 0 (found
+note by git bisect 7fee327..2840502; only kern/devdraw.c changed, the
+note waserror levels leak already in procinit0's namec()).  To report upstream.

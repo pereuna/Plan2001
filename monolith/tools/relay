@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""TCP relay: tools/relay ADDR PORT [TARGETPORT]
+
+Listens on ADDR:PORT and passes each connection to 127.0.0.1:TARGETPORT
+(default PORT), bytes unchanged.  For reaching the Plan2001 VM's
+forwarded ports from elsewhere, e.g. its https/wss port 17443 on a
+WireGuard address: tools/relay 10.77.0.5 17443
+"""
+import asyncio, sys
+
+async def pipe(r, w):
+	try:
+		while (b := await r.read(65536)):
+			w.write(b)
+			await w.drain()
+	finally:
+		w.close()
+
+async def relay(cr, cw):
+	try:
+		vr, vw = await asyncio.open_connection('127.0.0.1', target)
+	except OSError:
+		cw.close()
+		return
+	await asyncio.gather(pipe(cr, vw), pipe(vr, cw), return_exceptions=True)
+
+async def main():
+	srv = await asyncio.start_server(relay, addr, port)
+	print(f'relay: {addr}:{port} -> 127.0.0.1:{target}', flush=True)
+	await srv.serve_forever()
+
+if len(sys.argv) not in (3, 4):
+	sys.exit('usage: tools/relay ADDR PORT [TARGETPORT]')
+addr, port = sys.argv[1], int(sys.argv[2])
+target = int(sys.argv[3]) if len(sys.argv) == 4 else port
+asyncio.run(main())
