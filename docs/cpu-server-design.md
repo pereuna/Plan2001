@@ -1,227 +1,144 @@
-Keskustelun päätös:
-
-Juuri näin. Tässä mallissa kannattaa säilyttää CPU-palvelin vanhassa Plan 9 -merkityksessä ja erottaa siitä kokonaan uusi käsite: palvelimeen liitetty laskentaresurssipooli.
-
-CPU-palvelin olisi edelleen natiivi Plan2001-kone:
-
-Plan2001 CPU server
-├── kernel
-├── processes
-├── namespaces
-├── filesystem
-├── auth
-├── scheduler
-└── terminal/session services
-
-Se voi olla pieni Raspberry Pi tai suuri palvelin. Sen tehtävä ei ole välttämättä olla varsinainen laskentateho, vaan omistaa järjestelmän tila, käyttäjät, namespace ja resurssien koordinointi.
-
-Siihen liittyvät asiakkaat exporttaavat omat laskentaresurssinsa:
-
-user A browser
-├── CPU: 16 threads
-├── GPU
-└── NPU
-
-user B browser
-├── CPU: 24 threads
-├── GPU
-└── NPU
-
-user C terminal
-└── native remote CPU
-
-              ↓
-
-        Plan2001 CPU server
-
-              ↓
-
-        shared compute pool
-
-Oleellinen käännös vanhaan malliin on juuri tämä:
-
-Plan 9 noin 1990:
-
-many terminals
-      ↓
-large CPU server
-      ↓
-shared expensive compute
-
-uusi Plan2001:
-
-many powerful terminals
-      ↓
-small/ordinary CPU server
-      ↓
-aggregated terminal compute
-
-Eli:
-
-OLD:
-users → compute
-
-NEW:
-users ←→ compute
-
-Käyttäjä ei ole enää vain resurssin kuluttaja. Jokainen kirjautunut käyttäjä voi samalla tuoda järjestelmään CPU-, GPU- ja NPU-kapasiteettia.
-
-Namespace voisi näkyä näin
-
-CPU-palvelimen globaalissa resurssinimiavaruudessa:
-
-/compute
-├── browser
-│   ├── session-123
-│   │   ├── cpu
-│   │   ├── gpu
-│   │   └── npu
-│   ├── session-124
-│   │   ├── cpu
-│   │   └── gpu
-│   └── ...
-│
-├── native
-│   ├── server2
-│   └── server3
-│
-└── local
-    ├── cpu
-    └── gpu
-
-Tai vielä abstraktimmin:
-
-/compute/001
-/compute/002
-/compute/003
-...
-
-ja jokainen resurssi kertoo ominaisuutensa:
-
-/compute/217/type       browser-gpu
-/compute/217/api        webgpu
-/compute/217/memory     8192M
-/compute/217/owner      session-123
-/compute/217/state      idle
-
-Schedulerin ei tarvitse tietää, että resurssi on fyysisesti Helsingissä Chrome-selaimessa tai PCIe-väylässä paikallisessa koneessa.
-
-Tärkeä ero käyttäjä- ja globaalin namespacen välillä
-
-Itse tekisin kaksi näkymää:
-
-/global/compute
-
-sisältää kaikki CPU-palvelimeen liitetyt resurssit.
-
-Yksittäisen käyttäjän namespaceen bindataan politiikan sallima osa:
-
-/compute
-
-Esimerkiksi tavallinen käyttäjä voisi nähdä:
-
-/compute/shared/*
-/compute/self/*
-
-mutta ei välttämättä toisen käyttäjän resurssin hallintaliittymää suoraan.
-
-Scheduler sen sijaan näkee koko poolin.
-
-Tämä säilyttää Plan 9:n perusidean:
-
-> resurssi tulee prosessin näkyviin namespace-polun kautta.
-
-
-
-Mutta resurssi ei enää tarkoita vain tiedostoa, laitetta tai verkkoa vaan myös suorituskykyä.
-
-Selain on tässä erityisen hyvä resurssin exportteri
-
-Selain tekee vaikean osan valmiiksi:
-
-browser sandbox
-├── CPU threads → WASM/WebWorkers
-├── GPU         → WebGPU
-├── NPU         → browser/platform API
-├── memory
-└── encrypted network connection
-
-Plan2001:n ei tarvitse asentaa asiakkaalle ajuria tai daemonia.
-
-Selain muodostaa yhteyden:
-
-browser → Plan2001
-
-ja ilmoittaa esimerkiksi:
-
-I provide:
-    wasm workers = 24
-    webgpu adapter = RTX 5070
-    gpu memory = ...
-    npu = available
-
-Palvelin rekisteröi nämä:
-
-browser session
-        ↓
-resource registration
-        ↓
-/compute/browser/xyz
-
-Kun välilehti sulkeutuu:
-
-/compute/browser/xyz
-
-häviää.
-
-Tämä sopii erittäin hyvin Plan 9:n ephemeral-resurssiajatteluun.
-
-100 käyttäjän järjestelmä
-
-Jos vaikka jokaisella on keskimäärin:
-
-CPU   16 thread
-GPU   10 TFLOPS
-
-niin palvelin voisi hallita:
-
-1600 CPU threads
-~1000 TFLOPS GPU
-
-vaikka itse Plan2001-palvelin olisi:
-
-Raspberry Pi
-4–8 cores
-8 GB RAM
-
-Raspberry Pi:n tehtävä olisi tällöin enemmän:
-
-namespace server
-auth server
-filesystem server
-scheduler
-job coordinator
-
-ei varsinainen laskentakone.
-
-Tämä muistuttaa tavallaan cluster head nodea, mutta Plan2001-mallissa olennainen ero olisi, että resurssit integroidaan namespaceen, eivät erilliseen cluster-management-järjestelmään.
-
-Tässä on mielestäni arkkitehtuurin keskeinen lause
-
-Plan2001 CPU server ei ole se kone, jossa suurin laskentateho sijaitsee. Se on kone, joka omistaa laskentaympäristön.
-
-Ja:
-
-käyttäjien päätelaitteet eivät ole vain terminaaleja, vaan CPU-palvelimen dynaamisesti liittyviä laskentasolmuja.
-
-Se on varsin elegantti käännös alkuperäisestä Plan 9:n maailmasta:
-
-1990:
-powerful server + dumb terminals
-
-Plan2001:
-small server + powerful terminals
-             ↓
-        one shared computer
-
-Tässä alkaa jo olla mielestäni selkeä Plan2001:n oma arkkitehtoninen idea, eikä vain modernisoitu Plan 9.
+# CPU-palvelin ja laskentapooli
+
+> Plan2001:n CPU-palvelin ei ole kone, jossa suurin laskentateho on. Se on
+> kone, joka omistaa laskentaympäristön. Käyttäjien päätteet eivät ole
+> vain terminaaleja, vaan CPU-palvelimeen dynaamisesti liittyviä
+> laskentasolmuja.
+
+Tämä on Plan2001:n oma arkkitehtoninen ajatus, ei vain modernisoitu Plan 9.
+Se on ratkaistava ennen Monolithin vaihetta 3b (`monolith/docs/architecture.md`).
+
+## Käänne Plan 9:stä
+
+```
+Plan 9 (1990)                         Plan2001
+monta päätettä                        monta tehokasta päätettä
+      ↓                                     ↕
+iso CPU-palvelin                      tavallinen CPU-palvelin
+      ↓                                     ↕
+jaettu kallis laskenta                päätteiden yhteinen laskenta
+
+käyttäjät → laskenta                  käyttäjät ↔ laskenta
+```
+
+Käyttäjä ei ole enää vain resurssin kuluttaja: jokainen liittyvä pääte voi
+tuoda järjestelmään laskentakapasiteettia.
+
+## Käsitteet
+
+- **CPU-palvelin** säilyy Plan 9:n merkityksessä: natiivi Plan2001-kone,
+  jossa ovat kernel, prosessit, nimiavaruudet, tiedostojärjestelmä,
+  tunnistautuminen, ajoitus ja pääte- ja istuntopalvelut. Se omistaa
+  järjestelmän tilan, käyttäjät ja resurssien koordinoinnin. Se voi olla
+  pieni (Raspberry Pi) tai iso; sen ei tarvitse olla laskentateho.
+- **Pääte** on käyttäjän laite: selain (Monolith), natiivi pääte
+  (drawterm) tai toinen Plan2001-kone. Käyttäjän data on päätteen
+  nimiavaruudessa ja käyttäjän hallinnassa.
+- **Laskentaresurssi (PU)** on mikä tahansa, mikä laskee ja suorittaa:
+  CPU-säikeet, GPU, NPU tai jokin, jota ei vielä ole. Plan2001 ei oleta
+  PU:n toteutuksesta muuta kuin että sille voi antaa työn ja siltä saa
+  tuloksen.
+- **Laskentapooli** on CPU-palvelimeen liitettyjen PU:iden joukko. CPU-palvelin
+  jakaa sen kaikille omille asiakkailleen.
+
+## PU:iden lähteet
+
+PU on abstraktio, jonka takana voi olla:
+
+| Lähde | Esimerkki | Liittyminen |
+|---|---|---|
+| paikallinen kortti | GPU- tai kiihdytinkortti CPU-palvelimessa | Plan2001:n ajuri |
+| natiivi solmu | Linux-kone, joka jakaa CPU:nsa tai GPU:nsa | solmun palvelu, joka liittyy CPU-palvelimeen |
+| selain | WASM-workerit, WebGPU, WebNN | Monolithin välilehti, ilman asennusta |
+| tuleva laite | esim. kielimallitranspuuteri (LLMT) | ajuri tai palvelu; sama PU-rajapinta |
+
+Uusi PU-tyyppi ei saa vaatia muutosta nimiavaruuteen tai ajoittajaan: se on
+uusi `type`- ja `api`-arvo.
+
+Selain on helpoin lähde: se hoitaa hiekkalaatikon, säikeet, GPU:n, muistin
+ja salatun yhteyden, eikä päätteelle asenneta ajuria tai palvelua.
+Välilehti ilmoittaa liittyessään, mitä se tarjoaa (esim. 24 WASM-workeria,
+WebGPU-sovitin ja sen muisti, NPU), ja CPU-palvelin rekisteröi ne.
+Resurssit ovat ohimeneviä: kun välilehti sulkeutuu, sen PU:t katoavat
+poolista, mikä sopii Plan 9:n tapaan ajatella resursseja.
+
+## Nimiavaruus
+
+Resurssi tulee prosessin näkyviin nimiavaruuden polun kautta, kuten Plan
+9:ssä, mutta resurssi on nyt myös laskentakykyä. Näkymiä on kaksi:
+
+- **`/global/compute`** sisältää kaikki CPU-palvelimeen liitetyt PU:t.
+  Ajoittaja näkee sen kokonaan.
+- **`/compute`** käyttäjän nimiavaruudessa: politiikan sallima osa, esim.
+  `/compute/shared/*` ja omat `/compute/self/*`, mutta ei toisen käyttäjän
+  PU:iden hallintaliittymää.
+
+Jokainen PU on hakemisto, joka kertoo ominaisuutensa tiedostoina:
+
+```
+/global/compute/217/type      browser-gpu
+/global/compute/217/api       webgpu
+/global/compute/217/memory    8192M
+/global/compute/217/owner     session-123
+/global/compute/217/state     idle
+```
+
+Ajoittajan ei tarvitse tietää, onko PU Chrome-selaimessa Helsingissä vai
+PCIe-väylällä CPU-palvelimessa. Resursseja ei hallita erillisellä
+klusterinhallinnalla, vaan ne ovat nimiavaruudessa.
+
+## Työt
+
+Käyttötapaukset, joiden pitää sopia malliin:
+
+- ohjelmien kääntäminen rinnakkain (`mk` jakaa käännökset PU:ille)
+- matriisilaskenta, CAD
+- FEM, 3D
+- LLM-päättely
+
+**Data pysyy käyttäjällä.** Vain laskentaresurssi jaetaan: työn syötteet
+ja tulokset ovat käyttäjän nimiavaruudessa ja käyttäjän hallinnassa, eikä
+CPU-palvelin tai PU omista niitä.
+
+**Tulos on atominen.** Työn tulos on joko valmis tai sitä ei ole: `-o
+foo.o` syntyy kokonaisena tai ei lainkaan, eikä puolikas tulos näy koskaan
+käyttäjän nimiavaruudessa. Tämä on edellytys sille, että katoavan PU:n
+(suljettu välilehti) työ voidaan antaa toiselle PU:lle.
+
+**Kaista ei ole CPU-palvelimen ongelma.** CPU-palvelin koordinoi; raskas
+data kulkee käyttäjän ja PU:n välillä, ja tulokset ovat usein pieniä
+("osta osaketta RTH098", "FEM: 123.56 Nm"). Ethernet ja pieni
+CPU-palvelin riittävät koordinointiin.
+
+## Luottamus ja suostumus
+
+- Aluksi PU:ita tarjoavat vain vapaaehtoiset, jotka tuntevat riskit.
+- Luottamuskysymykset (kenen työtä PU ajaa, voiko tulokseen luottaa, näkeekö
+  PU:n omistaja käsittelemänsä datan) jätetään ensimmäisestä toteutuksesta
+  pois, mutta rakenne pitää ne mahdollisina: PU:lla on omistaja (`owner`),
+  käyttäjän näkymä on politiikan rajaama (`/compute`), ja työ ja data
+  pidetään erillään, jotta eristystä, varmistusta (esim. sama työ kahdelle
+  PU:lle) ja rajoja voidaan lisätä myöhemmin.
+- PU:n tarjoaja päättää, paljonko ja milloin se antaa kapasiteettiaan.
+
+## Suhde Monolithiin
+
+- Monolithin välilehti on sekä ohjelman suoritusympäristö että laskentasolmu.
+  Vaiheen 3 ajatus (suoritus selaimessa on ohimenevää, Plan2001:n prosessi
+  ja tila pysyvät) on tämän mallin erikoistapaus.
+- drawterm tuo jo nyt päätteen laitteet CPU-palvelimelle (`/mnt/term`);
+  PU:t ovat sama ajatus laajennettuna laskentaan. webtermin istunnot ja
+  `apps` ovat valmiiksi rekisteri, josta `/global/compute/<istunto>` voi
+  syntyä.
+- Vaiheen 3b vaihtoehto A (näyttö ja piirto CPU-palvelimella) sotii tätä
+  mallia vastaan: se siirtäisi laskennan juuri sille koneelle, jonka ei
+  tarvitse olla laskentateho.
+
+## Avoimet kysymykset
+
+- Työn muoto: mitä PU:lle annetaan (esim. WASM-moduuli tai WebGPU-shader ja
+  syötteet 9P-tiedostoina) ja miten tulos palaa atomisesti.
+- PU:n rajapinta nimiavaruudessa: `ctl`-, `job`- ja tulostiedostot, joita
+  kaikki lähteet (ajuri, natiivi solmu, selain, tuleva PU) toteuttavat.
+- Ajoittaja: miten työt jaetaan, kun PU:t tulevat ja menevät.
+- Politiikka: mitä käyttäjän `/compute` näyttää.
