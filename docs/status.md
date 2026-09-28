@@ -645,3 +645,19 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   katketessa; `/resume/TOKEN/N` liittyy istuntoon `/srv/webterm.HASH`:n
   kautta, kuittaamaton data lähetetään uudelleen, ja istunto ilman
   liitosta päättyy 10 minuutissa.
+
+## Oikea rauta: Dell-kannettava (silli), 28.9.2026
+
+- Ensimmäinen boot tikulta: loader, kernel, framebuffer ja ajurit toimivat
+  (rio käynnistyi näytölle). rio jäi kuitenkin harmaaksi: profiilin
+  `rio -i riostart` ja `riostart` puuttuu osajoukosta
+  (`$home/bin/rc`). QEMU-testeissä ei ole framebufferia, joten rio
+  kaatui heti ja init antoi rc:n; siksi tämä ei näkynyt.
+- Korjaus: asennusmedia antaa `term%`-kehotteen ilman riota. Repon
+  `usr/glenda/lib/profile` (9frontin profiili + ehto) sidotaan medialle, ja
+  median plan9.ini:ssä on `plan2001=install`. Asennettu levy saa oman
+  plan9.ini:nsä ilman merkintää, joten siellä rio käynnistyy kuten ennen.
+- Avoin: `riostart` asennetulle järjestelmälle (osajoukon `extra`).
+- Havainto: `tools/subset/test` kaatui kerran (VM:n uusi käynnistys heti
+  pysäytyksen jälkeen, `qemu.pid` puuttui); uusinta PASS. `tools/vm stop`
+  ei odota QEMUn loppumista varmasti.

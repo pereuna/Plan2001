@@ -13,7 +13,7 @@ for f in "$kernel" "$loader"; do
 done
 mkdir -p "$s"; rm -f "$b/in.img" "$b/out.img" "$s/plan2001-inst.img"
 cp "$tools/targets/$TARGET" "$s/target"
-tar cf "$b/in.img" --format=ustar -C "$here" mkusb.rc -C "$root/subset/$TARGET" proto -C "$tbuild" "$kernel" "$loader" -C "$s" target
+tar cf "$b/in.img" --format=ustar -C "$here" mkusb.rc -C "$root/subset/$TARGET" proto -C "$tbuild" "$kernel" "$loader" -C "$s" target -C "$root/usr/glenda/lib" profile
 truncate -s 64M "$b/in.img"
 export OUT_MB=${USB_MB:-1024}
 trap '"$tools/vm" stop' EXIT

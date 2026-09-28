@@ -23,7 +23,7 @@ mount -c /srv/usbesp /n/usbesp
 mkdir -p /n/usbesp/efi/boot
 cp $i/$loader /n/usbesp/efi/boot/$loader
 cp $i/$kernel /n/usbesp/$kernel
-echo 'bootfile='^$kernel >/n/usbesp/plan9.ini
+{ echo 'bootfile='^$kernel; echo 'plan2001=install' } >/n/usbesp/plan9.ini
 ls -lR /n/usbesp
 unmount /n/usbesp
 rm -f /srv/usbesp
@@ -46,6 +46,8 @@ hjfs -f $d/fs -n $s -S -r
 mount -N -c /srv/$s /n/usbnew
 bind $i/$kernel /$objtype/$kernel
 bind $i/$loader /$loaderdir/$loader
+# Plan2001's own runtime files (the repo's usr/..., same paths)
+bind $i/profile /usr/glenda/lib/profile
 disk/mkfs -z 4096 -U -s / -d /n/usbnew $i/proto
 echo sync >>/srv/$s.cmd
 echo halt >>/srv/$s.cmd
