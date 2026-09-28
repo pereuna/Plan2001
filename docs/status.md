@@ -693,3 +693,16 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   tehtävästä valikkoon ja valikosta kuoreen sekä mountfs:n suojaus.
 - Avoin: asennus medialle itselleen vaatii tikun vapaaseen tilaan toisen
   plan9-osion, jonka osionimet (`fs`, `nvram`) törmäävät median omiin.
+- **Raudan tulos 28.9.2026 (Dell-kannettava, silli; tikku e225c2b-kuvalla):**
+  - Boot tikulta: loader, kernel, GOP-framebuffer, näppäimistö ja K0:n
+    rivieditori (ohjepalkki, kursori) toimivat; `term%` ilman riota.
+  - Asentaja (gefs, kohteena toinen USB-levy `sdUca793`): `configfs`,
+    `partdisk`, `prepdisk` ja `mountfs` tehtiin nyt järjestyksessä ja
+    valmiiksi; `confignet` automaattisesti (DHCP; `recvra6: no router
+    advs` on vain IPv6-ilmoitus). `mountdist` löysi levyt, myös sillin
+    NVMe:n (`sdN0`: esp, linuxdata, linuxswap), eli NVMe-ajuri toimii.
+  - Keskeytetty `mountdist`/`copydist`in aikaan: kohde-USB-levy oli liian
+    hidas. Ei virhettä Plan2001:ssä; asennus loppuun asti raudalla on vielä
+    tekemättä (seuraavaksi nopeammalle levylle).
+  - Huom: `mountdist`in levyhaku listaa myös Debianin levyn; asentaja ei
+    kirjoita siihen, ellei sitä valita.
