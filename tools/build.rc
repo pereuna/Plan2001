@@ -38,15 +38,20 @@ fn buildkernel {
 		cd $d/kbdfs
 		mk >$d/kbdfs.log >[2=1]
 	}
-	o=`{ls $d/kbdfs/?.out >[2]/dev/null}
+	# the one mk just made: the VM's source directory may hold older ?.out
+	o=`{ls -t $d/kbdfs/?.out >[2]/dev/null}
+	if(! ~ $#o 0)
+		o=$o(1)
 	if(~ $#o 0){
 		tail -20 $d/kbdfs.log
 		echo KBDFS BUILD FAILED
 		exit kbdfs-build-failed
 	}
 	cp $d/kbdfs.log $hostbuild/kbdfs.log
-	cp $o $d/auxbin/kbdfs
+	cp $o $d/auxbin/kbdfs || exit kbdfs-copy-failed
 	bind -b $d/auxbin /$objtype/bin/aux
+	kbdsum=`{md5sum <$d/auxbin/kbdfs}
+	echo kbdfs for bootfs.paq: $kbdsum
 	bind -c $d/9 /sys/src/9
 	cd /sys/src/9/$kdir
 	time mk 'CONF='$kconf >$d/kernel.log >[2=1]
@@ -57,6 +62,16 @@ fn buildkernel {
 	if(! ~ $st '' || ! test -f $kernel){
 		echo KERNEL BUILD FAILED
 		exit kernel-build-failed
+	}
+	# the line editor must be the kbdfs in bootfs.paq (bootrc starts that one)
+	mkdir -p $d/paq
+	paqfs -m $d/paq $kconf.bootfs.paq
+	paqsum=`{md5sum <$d/paq/$objtype/bin/aux/kbdfs}
+	unmount $d/paq
+	echo kbdfs in bootfs.paq: $paqsum
+	if(! ~ $paqsum $kbdsum){
+		echo KBDFS NOT IN BOOTFS
+		exit kbdfs-not-in-bootfs
 	}
 	size $kernel
 	md5sum $kernel

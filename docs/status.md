@@ -612,3 +612,97 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 - Avoimet asiat: ks. `docs/boot-abi-arm64.md`. Näitä ovat laitteiden osoitteet
   FDT:stä, välimuistin siivous raudalle sekä ARM64-asennusmedia.
 
+
+## CPU- ja auth-palvelin-VM drawtermille (27.9.2026, haara `monolith-cpu-vm`)
+
+Monolithia varten (drawterm selaimessa, pereuna/monolith):
+- `tools/vm --net`: QEMU:n user-verkko, porttiohjaukset
+  127.0.0.1:17019 → rcpu 17019 ja 127.0.0.1:5670 → auth 567.
+- `tools/vm-cpu` luo `~/.cache/plan2001/cpu.qcow2`:n (base.qcow2:n overlay)
+  sarjakonsolin kautta noin minuutissa: `auth/wrkey` (glenda, authdom
+  plan2001), `auth/changeuser glenda`, ndb:n ipnet- ja sys-rivit
+  (`ether=` tarvitaan, jotta cpurc konfiguroi IP:n, ja `auth=` ipnetissä,
+  jotta `ndb/query -cia` löytää sen) sekä `service=cpu`. Salasana
+  generoidaan tiedostoon `cpu.pass` välimuistissa, ei repoon.
+- Todennettu: natiivi drawterm (64dcc24) `-G -c 'echo MONOLITH-OK'`
+  tulostaa merkin. drawtermin uusin commit 2840502 kaatuu käynnistyksessä
+  (`up->nerrlab == 0`, bisect).
+- 9run: syötepalat 8 → 4 merkkiä ja 10 → 20 ms, koska UART pudotti
+  satunnaisesti merkin.
+- webterm (`sys/src/cmd/webterm.c`): WebSocket rcpuun (`/17019`) ja authiin
+  (`/567`) portissa 17080, Monolithin vaihe 2a. `tools/vm-cpu` kääntää ja
+  asentaa sen (`--update` olemassa olevaan cpu.qcow2:een), ja `tools/vm
+  --net` ohjaa 127.0.0.1:17080:n siihen.
+- https/wss (Monolithin vaihe 2b): `tlssrv` + `webterm -w /sys/lib/monolith`
+  portissa 17443 tarjoilee sivun ja WebSocketit samasta originista.
+  `tools/vm-cpu` tekee kehitys-CA:n ja varmenteen (`CPU_CERT_SANS`), vie
+  avaimen factotumiin (`/cfg/cirno/cpustart`) ja CA:n ladattavaksi
+  (`/plan2001-ca.crt`); `--update --web DIR` asentaa sivun tiedostot.
+- `webterm -s` (Monolithin vaihe 2c): `/rcpu` tlssrv:n takana tekee
+  p9any-kirjautumisen, `auth_chuid`:n ja rcpu-skriptin ilman TLS-PSK:ta,
+  koska WSS salaa jo. Portissa 17080 (ei TLS:ää) sitä ei ole.
+- webterm-istunnot (Monolithin vaihe 2e): `/rcpu` säilyy WebSocketin
+  katketessa; `/resume/TOKEN/N` liittyy istuntoon `/srv/webterm.HASH`:n
+  kautta, kuittaamaton data lähetetään uudelleen, ja istunto ilman
+  liitosta päättyy 10 minuutissa.
+
+## Oikea rauta: Dell-kannettava (silli), 28.9.2026
+
+- Ensimmäinen boot tikulta: loader, kernel, framebuffer ja ajurit toimivat
+  (rio käynnistyi näytölle). rio jäi kuitenkin harmaaksi: profiilin
+  `rio -i riostart` ja `riostart` puuttuu osajoukosta
+  (`$home/bin/rc`). QEMU-testeissä ei ole framebufferia, joten rio
+  kaatui heti ja init antoi rc:n; siksi tämä ei näkynyt.
+- Korjaus: asennusmedia antaa `term%`-kehotteen ilman riota. Repon
+  `usr/glenda/lib/profile` (9frontin profiili + ehto) sidotaan medialle, ja
+  median plan9.ini:ssä on `plan2001=install`. 9frontin `inst/bootsetup`
+  kopioi käynnissä olevan järjestelmän plan9.ini-muuttujat uudelle levylle,
+  joten repon `rc/bin/inst/bootsetup` (sidotaan medialle) jättää myös
+  `plan2001=`n pois; asennetulla levyllä rio käynnistyy kuten ennen.
+  `tools/subset/test` tarkistaa tämän.
+- Avoin: `riostart` asennetulle järjestelmälle (osajoukon `extra`).
+- Havainto: `tools/subset/test` kaatui satunnaisesti `tools/vm stop`issa:
+  QEMU ehti loppua (pidfile pois) tarkistuksen ja `cat qemu.pid`:n välissä.
+  Korjattu.
+- **K0:n rivieditori ei ollut mukana** (kysymys: "missä kursori ja
+  rivieditori ovat?"). build.rc:n `o=`{ls $d/kbdfs/?.out}` antoi VM:ssä
+  useamman tiedoston, joten `cp` epäonnistui, `auxbin` jäi tyhjäksi ja
+  bootfs.paq:iin meni 9frontin kbdfs. Korjattu: uusin `.out`, ja build.rc
+  tarkistaa, että bootfs.paq:n kbdfs on juuri käännetty (md5), muuten
+  build epäonnistuu. Varmistettu QEMUssa framebufferilla (`-vga std`,
+  sendkey + screendump): ohjepalkki, kursori rivin keskellä, lisäys
+  kursorin kohtaan ja historia toimivat medialla.
+- Toinen boot tikulta raudalla: `term%` ilman riota (käyttäjän vahvistus).
+- Asentaja raudalla (gefs, toinen USB-levy kohteena): asentaja hyppäsi
+  suoraan `mountfs`:ään ja tarjosi vain asennustikun omaa `fs`:ää.
+  Syy: `partdisk` on 9frontissa valmis, jos jollakin levyllä on plan9-osio
+  ja ESP, ja `prepdisk`, jos jollakin on `nvram` - asennusmedialla on
+  molemmat. Testit kiersivät tämän (`vm-install` valitsi partdisk ja
+  prepdisk itse). Korjaus repon `rc/bin/inst/`issa (`defs`: `mediumdisk`,
+  `mediumroot` bootrc:n `$bootargs`ista):
+  - media ei tee partdiskistä eikä prepdiskistä valmista, ellei
+    partdisk ole valinnut sitä (`instdisk`); media näkyy listoissa
+    merkittynä ja on yhä valittavissa (asennus medialle, kuten Alpinessa);
+    partdiskin oletus on ainoa muu levy, prepdiskin partdiskin levy
+  - `mountgefs`/`mounthjfs` eivät tarjoa median käynnissä olevaa fs:ää
+  - Delete tehtävässä: takaisin valikkoon; Delete, ^D tai `quit`
+    valikossa: kuoreen (`mainloop` ei enää pyöri ikuisesti)
+  - `vm-install`:n kierto poistettu: oletusvastaukset riittävät.
+  Testattu: `tools/subset/test` PASS oletuksilla, ja QEMUssa
+  framebufferilla + USB-kohdelevyllä median merkintä, oletus, Delete
+  tehtävästä valikkoon ja valikosta kuoreen sekä mountfs:n suojaus.
+- Avoin: asennus medialle itselleen vaatii tikun vapaaseen tilaan toisen
+  plan9-osion, jonka osionimet (`fs`, `nvram`) törmäävät median omiin.
+- **Raudan tulos 28.9.2026 (Dell-kannettava, silli; tikku e225c2b-kuvalla):**
+  - Boot tikulta: loader, kernel, GOP-framebuffer, näppäimistö ja K0:n
+    rivieditori (ohjepalkki, kursori) toimivat; `term%` ilman riota.
+  - Asentaja (gefs, kohteena toinen USB-levy `sdUca793`): `configfs`,
+    `partdisk`, `prepdisk` ja `mountfs` tehtiin nyt järjestyksessä ja
+    valmiiksi; `confignet` automaattisesti (DHCP; `recvra6: no router
+    advs` on vain IPv6-ilmoitus). `mountdist` löysi levyt, myös sillin
+    NVMe:n (`sdN0`: esp, linuxdata, linuxswap), eli NVMe-ajuri toimii.
+  - Keskeytetty `mountdist`/`copydist`in aikaan: kohde-USB-levy oli liian
+    hidas. Ei virhettä Plan2001:ssä; asennus loppuun asti raudalla on vielä
+    tekemättä (seuraavaksi nopeammalle levylle).
+  - Huom: `mountdist`in levyhaku listaa myös Debianin levyn; asentaja ei
+    kirjoita siihen, ellei sitä valita.

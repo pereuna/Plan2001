@@ -1,0 +1,176 @@
+#!/bin/bash
+# The Plan2001 CPU and auth server VM, for drawterm clients (Monolith, the
+# browser drawterm): cpu.qcow2 in the cache, a persistent overlay of
+# base.qcow2 (which stays the build VM), set up once through the serial
+# console the way 9front sets up a standalone cpu+auth server:
+#   auth/wrkey          host owner glenda, authdom plan2001, into nvram
+#   auth/changeuser     glenda in keyfs, with the same password
+#   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
+#                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
+#   plan9.ini           service=cpu
+#   webterm             sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
+#                       for the browser drawterm, on port 17080 (aux/listen)
+#   tlssrv + webterm    the same on port 17443 as https/wss, serving the
+#                       page too from /sys/lib/monolith (--web DIR), with a
+#                       certificate from a development CA in the cache
+#                       (ca/ca.pem, to install in the browsers, also as
+#                       https://.../plan2001-ca.crt; openssl);
+#                       CPU_CERT_SANS names the machine, default
+#                       IP:127.0.0.1,DNS:localhost
+# The password is generated into cpu.pass in the cache (not the repo).
+#   tools/vm-cpu            create cpu.qcow2 (if missing)
+#   tools/vm-cpu --update [--web DIR]
+#                           reinstall webterm, the certificate and the page
+#                           files in DIR (drawterm.js ...); leaves it running
+# Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
+# and connect:  PASS=$(cat ~/.cache/plan2001/cpu.pass) drawterm \
+#                 -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+vm=$root/build/vm
+cpu=$cache/cpu.qcow2 passf=$cache/cpu.pass
+run9() { "$here/9run" -d "$vm" "$@"; }
+redact() { sed "s/$pass/<password>/g"; }
+halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog - >/dev/null; }
+
+web=
+[ "$1" = --update ] && [ "$2" = --web ] && { web=$3; [ -d "$web" ] || { echo "vm-cpu: no $web" >&2; exit 1; }; }
+
+# the development CA and the machine's certificate (key in PKCS#1 PEM for
+# auth/pemdecode); a new certificate when CPU_CERT_SANS changes
+certs() {
+	local ca=$cache/ca sans=${CPU_CERT_SANS:-IP:127.0.0.1,DNS:localhost}
+	mkdir -p "$ca"; chmod 700 "$ca"
+	if [ ! -s "$ca/ca.key" ]; then
+		openssl req -x509 -newkey rsa:2048 -nodes -keyout "$ca/ca.key" -out "$ca/ca.pem" \
+			-days 3650 -subj "/CN=Plan2001 development CA" \
+			-addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign 2>/dev/null
+	fi
+	if [ ! -s "$ca/cpu.pem" ] || [ "$(cat "$ca/cpu.sans" 2>/dev/null)" != "$sans" ]; then
+		openssl genrsa -traditional -out "$ca/cpu.key" 2048 2>/dev/null
+		openssl req -new -key "$ca/cpu.key" -subj "/CN=plan2001" -out "$ca/cpu.csr"
+		printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n' "$sans" >"$ca/cpu.ext"
+		openssl x509 -req -in "$ca/cpu.csr" -CA "$ca/ca.pem" -CAkey "$ca/ca.key" -CAcreateserial \
+			-days 397 -extfile "$ca/cpu.ext" -out "$ca/cpu.pem" 2>/dev/null
+		echo "$sans" >"$ca/cpu.sans"
+	fi
+	cat "$ca/cpu.pem" "$ca/ca.pem" >"$ca/chain.pem"
+	openssl x509 -in "$ca/ca.pem" -outform der -out "$ca/plan2001-ca.crt"
+}
+
+# webterm from sys/src/cmd, the certificate and the page files, through
+# build/in.img (sdE1); webterm compiled in the VM
+webterm() {
+	echo "vm-cpu: webterm"
+	run9 -t 120 "@{cd /tmp && tar xf /dev/sdE1/data webterm.c && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6}"
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
+	echo "vm-cpu: https and wss on 17443"
+	run9 -t 60 "@{cd /tmp && tar xf /dev/sdE1/data chain.pem cpu.key plan2001-ca.crt} && mkdir -p /sys/lib/tls /sys/lib/monolith /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
+	# the page's ?log=1 lines (webterm runs as none)
+	run9 -t 30 "test -e /sys/log/monolith || { touch /sys/log/monolith && chmod 666 /sys/log/monolith }"
+	# the CA, for browsers to install: https://.../plan2001-ca.crt
+	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/plan2001-ca.crt"
+	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
+	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s monolith.key /cfg/cirno/cpustart || echo 'cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl' >>/cfg/cirno/cpustart"
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /bin/webterm -s -w /sys/lib/monolith' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
+	if [ -n "$web" ]; then
+		echo "vm-cpu: page files from $web"
+		run9 -t 60 "@{cd /tmp && rm -rf web && tar xf /dev/sdE1/data web} && cp /tmp/web/* /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/* && ls -l /sys/lib/monolith"
+	fi
+}
+mkdir -p "$root/build"
+certs
+stage=$(mktemp -d)
+cp "$root/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$stage/"
+webfiles=
+if [ -n "$web" ]; then
+	mkdir "$stage/web"
+	cp -L "$web"/* "$stage/web/"
+	for f in "$stage"/web/*.html "$stage"/web/*.js "$stage"/web/*.wasm; do
+		[ -f "$f" ] && gzip -9kn "$f"
+	done
+	webfiles=web
+fi
+tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c chain.pem cpu.key plan2001-ca.crt $webfiles
+rm -rf "$stage"
+truncate -s 64M "$root/build/in.img"
+
+[ -f "$cache/base.qcow2" ] || { echo "vm-cpu: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+if [ "$1" = --update ]; then
+	[ -f "$cpu" ] || { echo "vm-cpu: no $cpu" >&2; exit 1; }
+	pass=
+	"$here/vm" stop 2>/dev/null || true
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	webterm
+	halt9
+	"$here/vm" stop
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	echo "vm-cpu: updated $cpu, running (tools/vm stop)"
+	exit 0
+fi
+if [ -f "$cpu" ]; then
+	echo "vm-cpu: $cpu exists, nothing to do"
+	exit 0
+fi
+[ -s "$passf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$passf"); }
+pass=$(cat "$passf")
+
+new=$cpu.part
+rm -f "$new"; qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$new"
+trap '"$here/vm" stop' EXIT
+"$here/vm" start --disk "$new" --net
+printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
+
+echo "vm-cpu: host owner key into nvram (auth/wrkey)"
+run9 -t 60 -s auth/wrkey --dialog - <<EOF | redact
+authid: *	glenda
+authdom: *	plan2001
+secstore key: *	''
+confirm password: *	$pass
+password: *	$pass
+enable legacy p9sk1\\[no\\]: *	''
+term% 	!done
+EOF
+echo; echo "vm-cpu: glenda in the auth server (auth/keyfs, auth/changeuser)"
+run9 -t 60 'auth/keyfs -wp -m /mnt/keys /adm/keys'
+run9 -t 60 -s 'auth/changeuser glenda' --dialog - <<EOF | redact
+Confirm password: *	$pass
+Password: *	$pass
+assign new Inferno/POP secret\\? \\[y/n\\]: *	n
+Expiration date .*: *	''
+Post id: *	''
+User's full name: *	''
+Department #: *	''
+User's email address: *	''
+Sponsor's email address: *	''
+term% 	!done
+EOF
+echo; echo "vm-cpu: ndb and plan9.ini"
+run9 -t 60 "grep -v '^(ipnet=plan2001|sys=cirno )' /lib/ndb/local >/tmp/ndb"
+run9 -t 60 "echo 'ipnet=plan2001 ip=10.0.2.0 ipmask=255.255.255.0 ipgw=10.0.2.2 dns=10.0.2.3 auth=cirno authdom=plan2001 cpu=cirno' >>/tmp/ndb"
+run9 -t 60 "echo 'sys=cirno ether=525400123456 ip=10.0.2.15' >>/tmp/ndb; cp /tmp/ndb /lib/ndb/local"
+run9 -t 60 "9fs 9fat"
+run9 -t 60 "{ grep -v '^service=' /n/9fat/plan9.ini; echo 'service=cpu' } >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini"
+webterm
+halt9
+"$here/vm" stop
+
+# Check: boots as a cpu+auth server, rcpu and auth listening
+"$here/vm" start --disk "$new" --net
+printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+for i in 1 2 3 4 5 6; do
+	run9 -t 30 "netstat -n | grep -s 'Listen +567 ' && netstat -n | grep -s 'Listen +17443 '" >/dev/null && break
+	sleep 5
+done
+run9 -t 30 "netstat -n | grep Listen"
+run9 -t 30 "netstat -n | grep -s 'Listen +567 '" >/dev/null || { echo "vm-cpu: no auth listener" >&2; exit 1; }
+run9 -t 30 "netstat -n | grep -s 'Listen +17080 '" >/dev/null || { echo "vm-cpu: no webterm listener" >&2; exit 1; }
+run9 -t 30 "netstat -n | grep -s 'Listen +17443 '" >/dev/null || { echo "vm-cpu: no https listener" >&2; exit 1; }
+halt9
+"$here/vm" stop
+trap - EXIT
+mv "$new" "$cpu"
+echo "vm-cpu: done, $cpu (password in $passf)"

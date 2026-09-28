@@ -34,16 +34,11 @@ mouseport is .*\] *	''
 term% 	!done
 EOF
 } | run9 -t 180 --dialog -
-# finish halts and reboots; the dialog stops at the halt.  Booted from the
-# USB disk, the installer sees its Plan 9 partition and calls partdisk and
-# prepdisk done: run them for sdE0 first (as tools/subset/trace does).
-{
-	if [ $kind = --usb ]; then
-		printf '!once Task to do \\[mountfs\\]: *\tpartdisk\n'
-		printf '!once Task to do \\[mountfs\\]: *\tprepdisk\n'
-	fi
-	sed 's/DEV/sdE0/g' "$here/inst.dialog"
-} | run9 -t 1200 -s inst/start --dialog -
+# finish halts and reboots; the dialog stops at the halt.  From the USB
+# medium the installer offers partdisk and prepdisk itself (Plan2001's
+# rc/bin/inst: the medium's own Plan 9 partition does not count), so the
+# defaults are the right answers; they must not go straight to mountfs.
+sed 's/DEV/sdE0/g' "$here/inst.dialog" | run9 -t 1200 -s inst/start --dialog -
 "$here/vm" stop
 
 # Boot the installed disk once: the installer wrote console=0 into

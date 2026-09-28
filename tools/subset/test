@@ -16,6 +16,10 @@ rm -f "$s/test.qcow2"; qemu-img create -q -f qcow2 "$s/test.qcow2" 20G
 if ! "$tools/vm-install" --usb "$img" "$s/test.qcow2"; then
 	echo "FAIL: see $root/build/vm/serial.log"; exit 1
 fi
+# the medium's plan2001=install (its plan9.ini) must stay on the medium
+if grep -q 'Plan2001 install medium' "$root/build/vm/serial.log"; then
+	echo "FAIL: the installed disk thinks it is the install medium (plan2001= copied)"; exit 1
+fi
 if ! grep -q '^\[P2 L24\] boot' "$root/build/vm/serial.log"; then
 	echo "FAIL: the installed disk did not boot through Plan2001's loader"; exit 1
 fi
