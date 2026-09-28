@@ -124,6 +124,21 @@ UEFI firmware
                       └─ exec("/boot/boot")
 ```
 
+## Monolith: selaimen drawterm
+
+Monolith (https://github.com/pereuna/monolith) on Plan2001:n drawterm
+selaimessa. Raja on tämä:
+
+- **Plan2001:ssä on palvelinpää:** `sys/src/cmd/webterm.c` (WebSocket rcpu:hun
+  ja authiin, `/rcpu` ilman sisempää TLS:ää, istuntojen jatko, sivun
+  tiedostot tlssrv:n takana) sekä CPU-VM:n työkalut `tools/vm --net` ja
+  `tools/vm-cpu`.
+- **Monolith-repossa on asiakas:** `drawterm.wasm`, `gui-web` ja selaimen
+  käyttöliittymä. Plan2001 ei riipu sen lähdekoodista; `tools/vm-cpu --update
+  --web DIR` vain kopioi valmiit sivun tiedostot VM:ään.
+- Historia: moniarkkitehtuurityö (vaiheet 1–4) on `main`in perusta, ja
+  palvelinpää on rakennettu sen päälle omana kokonaisuutenaan.
+
 ## AI/agentille
 
 - `docs/status.md`: mitä on tehty, mitä seuraavaksi.
