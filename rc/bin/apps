@@ -1,0 +1,20 @@
+#!/bin/rc
+# apps [-a] - the programs in browser tabs (Monolith, docs/architecture.md):
+# one webterm session each, which Plan2001 keeps while its tab is away
+# (detached) for a while.  Each session has a process of the user's,
+# webterm [APP STATE] in its args; -a: every user's (as far as /proc lets).
+rfork e
+all=()
+if(~ $1 -a)
+	all=1
+echo 'SESSION	USER	STATE	APP'
+for(f in /proc/[0-9]*/args){
+	a=`{cat $f >[2]/dev/null}
+	if(~ $a(1) webterm && ~ $#a 3 && ~ $a(2) '['*){
+		d=`{basename -d $f}
+		u=`{awk '{print $2; exit}' $d/status >[2]/dev/null}
+		if(! ~ $#u 0 && {~ $#all 1 || ~ $u $user})
+			echo `{basename $d}^'	'^$u^'	'^`{echo $a(3) | sed 's/]$//'}^'	'^`{echo $a(2) | sed 's/^\[//'}
+	}
+}
+exit ''

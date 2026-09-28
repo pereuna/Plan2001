@@ -56,8 +56,16 @@ let pass = frag.get('pass');
 let user = q.get('user') || 'glenda';
 if (location.hash)
 	history.replaceState(null, '', location.pathname + location.search);
+// the tab's program (docs/architecture.md, phase 3): /app/APP or ?app=APP,
+// Plan2001's /bin/app/APP, drawing on the whole tab; default term, rc on
+// drawterm's console
+const appm = location.pathname.match(/\/app\/([a-z0-9-]{1,32})$/);
+const app = appm ? appm[1] : /^[a-z0-9-]{1,32}$/.test(q.get('app') || '') ? q.get('app') : 'term';
+document.title = app + ' · Plan2001';
 const args = q.getAll('a').length ? q.getAll('a')
 	: ['-h', 'plan2001', '-a', 'tcp!plan2001!567', '-u', user];
+if (!q.getAll('a').length && app !== 'term')
+	args.push('-c', 'app/' + app);
 const textonly = args.includes('-G');
 const touchui = q.has('touch') ? q.get('touch') !== '0' : matchMedia('(pointer: coarse)').matches;
 const box = document.getElementById('box');
@@ -233,6 +241,7 @@ window.Module = {
 	preRun: [m => {
 		if (pass) m.ENV.PASS = pass;
 		m.ENV.USER = user;
+		m.ENV.MONOLITH_APP = app;
 		// from Plan2001's webterm over https: its wss on the same origin;
 		// from tools/serve: its relay on the next port
 		m.ENV.MONOLITH_WS = q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
@@ -295,7 +304,7 @@ if (pass || textonly && !q.getAll('a').includes('-u')) {
 		if (!pin.value) return;
 		user = uin.value || 'glenda';
 		pass = pin.value;
-		if (!q.getAll('a').length) args[args.length - 1] = user;
+		if (!q.getAll('a').length) args[args.indexOf('-u') + 1] = user;
 		login.classList.add('hidden');
 		setstatus('loading drawterm…');
 		start();

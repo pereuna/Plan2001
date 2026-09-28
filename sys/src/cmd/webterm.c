@@ -8,7 +8,8 @@
  * own auth and TLS run inside it as over TCP.
  *
  * With -w DIR it also serves the page: GET / or /NAME for a file in DIR
- * (no subdirectories), NAME.gz instead when the browser takes gzip, with
+ * (no subdirectories; GET /app/APP is the page too, and /app/NAME.EXT the
+ * file, for a tab that runs APP), NAME.gz instead when the browser takes gzip, with
  * the COOP/COEP headers the page's threads need; POST /log appends the
  * page's log line (its ?log=1) to /sys/log/monolith.  tlssrv in front of it
  * (/rc/bin/service/tcp17443) makes that https and wss on one origin.
@@ -18,6 +19,10 @@
  * p9any as the server, auth_chuid, the rcpu server script - but the
  * authenticated bytes go straight through the WebSocket, not TLS-PSK.
  * Such a session survives its WebSocket: GET /resume/TOKEN/N (below).
+ * GET /rcpu/APP names the session's program (the page's /app/APP; the page
+ * runs it).  A process of the user's shows it and whether a page is
+ * attached in its args, "APP attached|detached" (ps -a: webterm [APP
+ * STATE]; apps lists them): webterm runs as none, whose processes the user cannot see.
  *
  * A browser says where its page came from (Origin); only this server's
  * own https origin (with -w) and the -o origins may open WebSockets or
@@ -151,6 +156,11 @@ servefile(char *hdr, char *path)
 
 	if(strcmp(path, "/") == 0)
 		path = "/index.html";
+	if(strncmp(path, "/app/", 5) == 0){	/* a tab for an app: the page, its files */
+		path += 4;
+		if(strchr(path, '.') == nil)
+			path = "/index.html";
+	}
 	path++;
 	if(*path == 0 || *path == '.' || strchr(path, '/') != nil || strlen(path) >= sizeof name - 4){
 		status("404 Not Found");
@@ -482,6 +492,8 @@ struct Session {
 	vlong	rcvd;		/* bytes from the page */
 	vlong	acked;		/* rcvd as last acknowledged */
 	int	done;
+	char	app[33];	/* /rcpu/APP */
+	int	st;		/* the state to the user's status process */
 };
 
 static Session ses;
@@ -494,6 +506,16 @@ hex(char *buf, uchar *p, int n)
 
 	for(i = 0; i < n; i++)
 		sprint(buf+2*i, "%02x", p[i]);
+}
+
+/* an app's name: what /rcpu/APP may say */
+static int
+appok(char *a)
+{
+	int n;
+
+	n = strlen(a);
+	return n > 0 && n <= 32 && strspn(a, "abcdefghijklmnopqrstuvwxyz0123456789-") == n;
 }
 
 static void
@@ -523,6 +545,40 @@ text(Session *s, int fd, char *fmt, ...)
 	return r;
 }
 
+/* a pipe whose reader is gone (status process, attachment): write fails */
+static int
+pipenote(void*, char *msg)
+{
+	return strcmp(msg, "sys: write on closed pipe") == 0;
+}
+
+/* the session's state to its status process (below); s->lk held */
+static void
+label(Session *s)
+{
+	fprint(s->st, "%s %s", s->app, s->att >= 0 ? "attached" : "detached");
+}
+
+/*
+ * The status process: the user's, in the rcpu child after auth_chuid.
+ * Each line from the session becomes its args; it ends with the session.
+ */
+static void
+statusproc(int fd)
+{
+	char buf[128], path[40];
+	int n, a;
+
+	snprint(path, sizeof path, "/proc/%d/args", getpid());
+	while((n = read(fd, buf, sizeof buf - 1)) > 0){
+		if((a = open(path, OWRITE)) < 0)
+			break;
+		write(a, buf, n);
+		close(a);
+	}
+	exits(nil);
+}
+
 /* the attachment of generation gen failed or closed */
 static void
 detach(Session *s, int gen)
@@ -532,6 +588,7 @@ detach(Session *s, int gen)
 		close(s->att);
 		s->att = -1;
 		s->since = time(0);
+		label(s);
 	}
 	qunlock(&s->lk);
 }
@@ -702,6 +759,7 @@ sessionctl(Session *s, int ctl)
 		if(s->nbuf > 0)
 			sendframeto(fd, 2, s->buf, s->nbuf);
 		qunlock(&s->wlk);
+		label(s);
 		rwakeup(&s->attached);
 		qunlock(&s->lk);
 	}
@@ -812,14 +870,14 @@ resume(char *hdr, char *arg)
  * Does not return.
  */
 static void
-rcpu(char *hdr)
+rcpu(char *hdr, char *app)
 {
 	AuthInfo *ai;
 	uchar rnd[16];
 	char name[64], path[80];
-	int p[2], c[2], fd;
+	int p[2], c[2], st[2], fd;
 
-	if(pipe(p) < 0 || pipe(c) < 0)
+	if(pipe(p) < 0 || pipe(c) < 0 || pipe(st) < 0)
 		reply("500 Internal Server Error");
 	wsaccept(hdr);
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
@@ -837,10 +895,21 @@ rcpu(char *hdr)
 		if(auth_chuid(ai, nil) < 0)
 			exits("auth_chuid");
 		auth_freeAI(ai);
+		close(st[0]);
+		switch(rfork(RFPROC|RFFDG|RFNOTEG)){
+		case 0:
+			close(0);
+			close(1);
+			close(2);
+			statusproc(st[1]);
+		}
+		close(st[1]);
 		execl("/bin/rc", "rc", "-c", rcpuscript, nil);
 		exits("exec");
 	}
 	close(p[1]);
+	close(st[1]);
+	ses.st = st[0];
 
 	genrandom(rnd, sizeof rnd);
 	hex(ses.token, rnd, sizeof rnd);
@@ -851,6 +920,7 @@ rcpu(char *hdr)
 	fprint(fd, "%d", c[1]);
 	close(c[1]);
 	ses.sfd = p[0];
+	strecpy(ses.app, ses.app+sizeof ses.app, app);
 	ses.att = -1;
 	ses.since = time(0);
 	ses.attached.l = &ses.lk;
@@ -867,6 +937,10 @@ rcpu(char *hdr)
 		close(1);
 		open("/dev/null", OREAD);
 		open("/dev/null", OWRITE);
+		atnotify(pipenote, 1);
+		qlock(&ses.lk);
+		label(&ses);
+		qunlock(&ses.lk);
 		if(rfork(RFPROC|RFMEM) == 0)
 			sessiondown(&ses);
 		if(rfork(RFPROC|RFMEM) == 0)
@@ -878,6 +952,7 @@ rcpu(char *hdr)
 	}
 	close(p[0]);
 	close(c[0]);
+	close(st[0]);
 	close(fd);
 	attach(ses.token, 0);
 }
@@ -929,7 +1004,9 @@ main(int argc, char **argv)
 			if(!originok(hdr))
 				reply("403 Forbidden");
 			if(secure && strcmp(path, "/rcpu") == 0)
-				rcpu(hdr);
+				rcpu(hdr, "term");
+			if(secure && strncmp(path, "/rcpu/", 6) == 0 && appok(path+6))
+				rcpu(hdr, path+6);
 			if(secure && strncmp(path, "/resume/", 8) == 0)
 				resume(hdr, path+8);
 			for(s = services; *s != nil; s++)

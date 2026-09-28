@@ -6,7 +6,8 @@
  * hands the bytes over and returns.  The
  * address in connect() is not used: the WebSocket server is the machine.
  *
- * Over wss the rcpu connection (port 17019) is MONOLITH_WS/rcpu instead:
+ * Over wss the rcpu connection (port 17019) is MONOLITH_WS/rcpu instead
+ * (MONOLITH_WS/rcpu/APP with MONOLITH_APP, the tab's program):
  * webterm authenticates and runs rcpu without its TLS-PSK, the WebSocket's
  * TLS being enough, and cpu.c's tlsClient (-DtlsClient=monolithtlsclient
  * for cpu.c only, in web.c) leaves that connection as it is.
@@ -176,7 +177,7 @@ int
 wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 {
 	Conn *c;
-	char *base, path[16], url[512];
+	char *base, *app, path[48], url[512];
 	int i, gen, ok;
 
 	if((c = conn(fd)) == NULL)
@@ -194,9 +195,14 @@ wsconnect(int fd, const struct sockaddr *a, socklen_t alen)
 	base = getenv("MONOLITH_WS");
 	if(base == NULL)
 		base = "ws://127.0.0.1:8081";
-	if(c->port == 17019 && wsrcpuplain())
-		strcpy(path, "rcpu");
-	else
+	if(c->port == 17019 && wsrcpuplain()){
+		/* MONOLITH_APP: the tab's program, for the session's name */
+		app = getenv("MONOLITH_APP");
+		if(app != NULL && *app != 0 && strlen(app) < sizeof path - 6)
+			snprintf(path, sizeof path, "rcpu/%s", app);
+		else
+			strcpy(path, "rcpu");
+	}else
 		snprintf(path, sizeof path, "%d", c->port);
 	snprintf(url, sizeof url, "%s/%s", base, path);
 	js_netopen(i, gen, url);
