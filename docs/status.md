@@ -673,3 +673,23 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   sendkey + screendump): ohjepalkki, kursori rivin keskellä, lisäys
   kursorin kohtaan ja historia toimivat medialla.
 - Toinen boot tikulta raudalla: `term%` ilman riota (käyttäjän vahvistus).
+- Asentaja raudalla (gefs, toinen USB-levy kohteena): asentaja hyppäsi
+  suoraan `mountfs`:ään ja tarjosi vain asennustikun omaa `fs`:ää.
+  Syy: `partdisk` on 9frontissa valmis, jos jollakin levyllä on plan9-osio
+  ja ESP, ja `prepdisk`, jos jollakin on `nvram` - asennusmedialla on
+  molemmat. Testit kiersivät tämän (`vm-install` valitsi partdisk ja
+  prepdisk itse). Korjaus repon `rc/bin/inst/`issa (`defs`: `mediumdisk`,
+  `mediumroot` bootrc:n `$bootargs`ista):
+  - media ei tee partdiskistä eikä prepdiskistä valmista, ellei
+    partdisk ole valinnut sitä (`instdisk`); media näkyy listoissa
+    merkittynä ja on yhä valittavissa (asennus medialle, kuten Alpinessa);
+    partdiskin oletus on ainoa muu levy, prepdiskin partdiskin levy
+  - `mountgefs`/`mounthjfs` eivät tarjoa median käynnissä olevaa fs:ää
+  - Delete tehtävässä: takaisin valikkoon; Delete, ^D tai `quit`
+    valikossa: kuoreen (`mainloop` ei enää pyöri ikuisesti)
+  - `vm-install`:n kierto poistettu: oletusvastaukset riittävät.
+  Testattu: `tools/subset/test` PASS oletuksilla, ja QEMUssa
+  framebufferilla + USB-kohdelevyllä median merkintä, oletus, Delete
+  tehtävästä valikkoon ja valikosta kuoreen sekä mountfs:n suojaus.
+- Avoin: asennus medialle itselleen vaatii tikun vapaaseen tilaan toisen
+  plan9-osion, jonka osionimet (`fs`, `nvram`) törmäävät median omiin.
