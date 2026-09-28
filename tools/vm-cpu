@@ -17,6 +17,11 @@
 #                       https://.../plan2001-ca.crt; openssl);
 #                       CPU_CERT_SANS names the machine, default
 #                       IP:127.0.0.1,DNS:localhost
+#                       WebSockets only from the pages' own origin (17443)
+#                       or WEBTERM_ORIGINS (17080; default the tools/serve
+#                       and test pages on loopback)
+# The private key reaches the VM through build/in.img (mode 600), which is
+# zeroed as soon as the VM has read it.
 # The password is generated into cpu.pass in the cache (not the repo).
 #   tools/vm-cpu            create cpu.qcow2 (if missing)
 #   tools/vm-cpu --update [--web DIR]
@@ -63,10 +68,15 @@ certs() {
 # build/in.img (sdE1); webterm compiled in the VM
 webterm() {
 	echo "vm-cpu: webterm"
-	run9 -t 120 "@{cd /tmp && tar xf /dev/sdE1/data webterm.c && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6}"
-	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
+	# everything off in.img at once, then no key there any more
+	run9 -t 60 "@{cd /tmp && rm -rf web && tar xf /dev/sdE1/data}"
+	dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none
+	run9 -t 120 "@{cd /tmp && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6}"
+	o=
+	for x in ${WEBTERM_ORIGINS:-http://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:18080}; do o="$o -o $x"; done
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm$o' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
 	echo "vm-cpu: https and wss on 17443"
-	run9 -t 60 "@{cd /tmp && tar xf /dev/sdE1/data chain.pem cpu.key plan2001-ca.crt} && mkdir -p /sys/lib/tls /sys/lib/monolith /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
+	run9 -t 60 "mkdir -p /sys/lib/tls /sys/lib/monolith /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
 	# the page's ?log=1 lines (webterm runs as none)
 	run9 -t 30 "test -e /sys/log/monolith || { touch /sys/log/monolith && chmod 666 /sys/log/monolith }"
 	# the CA, for browsers to install: https://.../plan2001-ca.crt
@@ -76,7 +86,7 @@ webterm() {
 	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /bin/webterm -s -w /sys/lib/monolith' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"
-		run9 -t 60 "@{cd /tmp && rm -rf web && tar xf /dev/sdE1/data web} && cp /tmp/web/* /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/* && ls -l /sys/lib/monolith"
+		run9 -t 60 "cp /tmp/web/* /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/* && ls -l /sys/lib/monolith"
 	fi
 }
 mkdir -p "$root/build"
@@ -92,7 +102,11 @@ if [ -n "$web" ]; then
 	done
 	webfiles=web
 fi
-tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c chain.pem cpu.key plan2001-ca.crt $webfiles
+# the key must not stay on the host's in.img, however this script ends
+scrub() { [ -f "$root/build/in.img" ] && dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none; true; }
+trap scrub EXIT
+rm -f "$root/build/in.img"
+(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c chain.pem cpu.key plan2001-ca.crt $webfiles)
 rm -rf "$stage"
 truncate -s 64M "$root/build/in.img"
 
@@ -120,7 +134,7 @@ pass=$(cat "$passf")
 
 new=$cpu.part
 rm -f "$new"; qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$new"
-trap '"$here/vm" stop' EXIT
+trap 'scrub; "$here/vm" stop' EXIT
 "$here/vm" start --disk "$new" --net
 printf 'term%% \t!done\n' | run9 -t 180 --dialog - >/dev/null
 
@@ -171,6 +185,6 @@ run9 -t 30 "netstat -n | grep -s 'Listen +17080 '" >/dev/null || { echo "vm-cpu:
 run9 -t 30 "netstat -n | grep -s 'Listen +17443 '" >/dev/null || { echo "vm-cpu: no https listener" >&2; exit 1; }
 halt9
 "$here/vm" stop
-trap - EXIT
+trap scrub EXIT
 mv "$new" "$cpu"
 echo "vm-cpu: done, $cpu (password in $passf)"
