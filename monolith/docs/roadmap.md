@@ -11,7 +11,7 @@
 | 2d | JS + WASM -raja: `gui-web/monolith.h`, `library.js`, `web/monolith.js` | ei selainkoodia C:ssä (`EM_ASM`) | valmis 27.9. |
 | 2e | Uudelleenyhdistys: katkennut WebSocket (tausta-välilehti, mobiiliverkko) ei päätä istuntoa | `test-rio --vm --drop`: yhteydet poikki, rio jatkuu, välissä kirjoitetut näppäimet perille | valmis 27.9. |
 | 3a | Ei rioa: välilehti = ohjelma (`/app/APP`), Plan2001 tuntee istunnot (`apps`: attached/detached) | `tools/test-apps`: term ja clock omissa välilehdissään, `apps` näkee molemmat ja suljetun irrotettuna | valmis 28.9. |
-| 3b | Ajoympäristön oma rajapinta (ei drawtermia välilehdessä), oma nimiavaruus ja capabilityt per istunto, prosessi liittyy uuteen välilehteen (`docs/architecture.md`). **Toteutustapa päättämättä**: näyttö palvelimella (vncs), ohjelma wasmina tai drawterm + turva; vertailu `docs/architecture.md`, "Avoin kysymys" | | avoin |
+| 3b | Ajoympäristön oma rajapinta (ei drawtermia välilehdessä), oma nimiavaruus ja capabilityt per istunto, prosessi liittyy uuteen välilehteen (`docs/architecture.md`). **Toteutustapa päättämättä**: näyttö palvelimella (vncs), ohjelma wasmina tai drawterm + turva; vertailu `docs/architecture.md`, "Avoin kysymys"; perusarkkitehtuuri `../docs/cpu-server-design.md` puoltaa B:tä | | avoin |
 | 4 | WebGPU: ensin esitys, sitten GPU-backend pikselivertailulla | referenssikuvat vastaavat | |
 
 ## Kehitysympäristö

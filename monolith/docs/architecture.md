@@ -222,7 +222,10 @@ Vaihe 3a ajaa drawterm.wasmia välilehdessä: ohjelma pyörii Plan2001:ssä,
 mutta sen näyttö (`/dev/draw`in kuvat) on välilehden drawtermissa. Siksi
 suljetun välilehden istuntoon ei voi liittää uutta välilehteä, vaikka
 istunto elää vielä. Vaihe 3b ratkaisee tämän; toteutustapa on
-päättämättä (28.9.). Vaihtoehdot:
+päättämättä (28.9.). Ratkaisua ohjaa Plan2001:n perusarkkitehtuuri,
+`docs/cpu-server-design.md`: CPU-palvelin omistaa tilan, nimiavaruudet ja
+koordinoinnin, mutta laskenta tulee päätteiltä (laskentapooli, PU:t), ja
+CPU-palvelin voi olla pieni. Vaihtoehdot:
 
 | | A: näyttö palvelimella | B: ohjelma wasmina välilehdessä | C: drawterm jää, lisätään turva |
 |---|---|---|---|
@@ -248,7 +251,22 @@ päättämättä (28.9.). Vaihtoehdot:
 - A ja B eivät sulje toisiaan pois: A ensin kaikille ohjelmille, B
   myöhemmin niille, joille selaimessa laskeminen sopii.
 
-Suositus (Claude): A. Päätös: avoin.
+Perusarkkitehtuuri muuttaa arviota (29.9.):
+
+- **A sotii perusarkkitehtuuria vastaan:** jokaisen välilehden piirto ja
+  ohjelman laskenta olisivat CPU-palvelimella, jonka ei tarvitse olla
+  laskentateho. Se jää pois, paitsi ehkä kevyiden ohjelmien varavaihtoehtona.
+- **B on perusarkkitehtuurin mukainen:** välilehti on sekä ohjelman
+  suoritusympäristö että poolin laskentasolmu (PU), ja data on käyttäjän
+  nimiavaruudessa. Jatko toiselta laitteelta syntyy siitä, että ohjelman
+  pysyvä tila on tiedostoina Plan2001:ssä, ja tuloksen atomisuus
+  (`cpu-server-design.md`) koskee myös ohjelman tallentamaa tilaa.
+- **C** on edelleen mahdollinen välivaihe (istuntokohtainen nimiavaruus,
+  palvelimen valitsema ohjelma) B:n rinnalla.
+
+Suositus (Claude): B, ensimmäisenä askeleena PU-rajapinta
+(`cpu-server-design.md`, avoimet kysymykset) ja yksinkertainen työ selaimen
+PU:lle, esim. rinnakkainen käännös. Päätös: avoin.
 
 ## Vaihe 4: WebGPU
 
