@@ -18,6 +18,11 @@
  * p9any as the server, auth_chuid, the rcpu server script - but the
  * authenticated bytes go straight through the WebSocket, not TLS-PSK.
  * Such a session survives its WebSocket: GET /resume/TOKEN/N (below).
+ *
+ * A browser says where its page came from (Origin); only this server's
+ * own https origin (with -w) and the -o origins may open WebSockets or
+ * post the log, so no other site can use a visitor's browser to reach
+ * rcpu.  A request without Origin is not from a browser page.
  */
 #include <u.h>
 #include <libc.h>
@@ -33,6 +38,8 @@ enum {
 
 static char *services[] = { "17019", "567", nil };
 static char *webdir;
+static char *origins[16];	/* -o */
+static int norigins;
 static int secure;	/* -s: the connection is TLS already */
 
 /* the rcpu server (/rc/bin/service/tcp17019 runs it after tlssrv -a) */
@@ -318,6 +325,31 @@ upstream(int sfd)
 	}
 }
 
+/* the request's Origin, if any, is this server's or a -o one */
+static int
+originok(char *hdr)
+{
+	char *o, *host, own[256];
+	int i;
+
+	if((o = header(hdr, "Origin")) == nil)
+		return 1;
+	o = strdup(o);
+	for(i = 0; i < norigins; i++)
+		if(cistrcmp(o, origins[i]) == 0)
+			goto ok;
+	if(webdir != nil && (host = header(hdr, "Host")) != nil){
+		snprint(own, sizeof own, "https://%s", host);
+		if(cistrcmp(o, own) == 0)
+			goto ok;
+	}
+	free(o);
+	return 0;
+ok:
+	free(o);
+	return 1;
+}
+
 /* POST /log: one line of the page's log, to /sys/log/monolith */
 static void
 logline(char *hdr)
@@ -347,7 +379,7 @@ logline(char *hdr)
 static void
 usage(void)
 {
-	fprint(2, "usage: webterm [-s] [-w webdir]\n");
+	fprint(2, "usage: webterm [-s] [-w webdir] [-o origin]...\n");
 	exits("usage");
 }
 
@@ -355,9 +387,12 @@ usage(void)
 static void
 wsaccept(char *hdr)
 {
-	char *key, buf[128], accept[64];
+	char *key, *v, buf[128], accept[64];
 	uchar digest[SHA1dlen];
 
+	/* header() returns one static buffer: the version first, then the key */
+	if((v = header(hdr, "Sec-WebSocket-Version")) == nil || strcmp(v, "13") != 0)
+		reply("426 Upgrade Required");
 	if((key = header(hdr, "Sec-WebSocket-Key")) == nil)
 		reply("400 Bad Request");
 	snprint(buf, sizeof buf, "%s%s", key, guid);
@@ -416,26 +451,34 @@ websocket(char *hdr, char *s)
  * give the token), gets "attach TOKEN SRVNAME N", and SRVNAME in /srv is
  * the attachment's own pipe.  A session without an attachment for Keep
  * seconds ends.
+ *
+ * What the page has not acknowledged is bounded: at Highwater the
+ * session stops reading rcpu until acknowledgements bring it below
+ * Lowwater, so a page that is away or slow holds rcpu back through its
+ * pipe instead of growing the buffer.
  */
 enum {
 	Keep	= 10*60,
 	Ackevery	= 16*1024,
+	Highwater	= 8*1024*1024,
+	Lowwater	= 4*1024*1024,
 };
 
 typedef struct Session Session;
 struct Session {
 	QLock	lk;
 	Rendez	attached;
+	Rendez	room;		/* the buffer is below Lowwater again */
+	int	full;		/* at Highwater, until below Lowwater */
 	QLock	wlk;		/* frames to the attachment */
 	char	token[33];
 	int	sfd;		/* rcpu */
 	int	att;		/* the attachment, -1 none */
 	int	gen;
 	long	since;		/* without an attachment since */
-	uchar	*buf;		/* to the page, unacknowledged: [base, base+nbuf) */
+	uchar	*buf;		/* to the page, unacknowledged: [base, base+nbuf), Highwater */
 	vlong	base;
 	long	nbuf;
-	long	cap;
 	vlong	rcvd;		/* bytes from the page */
 	vlong	acked;		/* rcvd as last acknowledged */
 	int	done;
@@ -507,17 +550,23 @@ static void
 sessiondown(Session *s)
 {
 	uchar buf[Iosize];
-	long n;
+	long n, m;
 	int fd, gen, r;
 
-	while((n = read(s->sfd, buf, sizeof buf)) > 0){
+	for(;;){
+		/* no more than the buffer can take: rcpu waits for the page */
 		qlock(&s->lk);
-		if(s->nbuf+n > s->cap){
-			s->cap = (s->nbuf+n)*2;
-			s->buf = realloc(s->buf, s->cap);
-			if(s->buf == nil)
-				sysfatal("out of memory");
-		}
+		if(s->nbuf >= Highwater)
+			s->full = 1;
+		while(s->full)
+			rsleep(&s->room);
+		m = Highwater - s->nbuf;
+		qunlock(&s->lk);
+		if(m > sizeof buf)
+			m = sizeof buf;
+		if((n = read(s->sfd, buf, m)) <= 0)
+			break;
+		qlock(&s->lk);
 		memmove(s->buf+s->nbuf, buf, n);
 		s->nbuf += n;
 		fd = s->att;
@@ -554,6 +603,10 @@ trim(Session *s, vlong n)
 	memmove(s->buf, s->buf+d, s->nbuf-d);
 	s->nbuf -= d;
 	s->base = n;
+	if(s->full && s->nbuf < Lowwater){
+		s->full = 0;
+		rwakeup(&s->room);
+	}
 }
 
 /* the page to rcpu, from whichever attachment there is */
@@ -801,6 +854,9 @@ rcpu(char *hdr)
 	ses.att = -1;
 	ses.since = time(0);
 	ses.attached.l = &ses.lk;
+	ses.room.l = &ses.lk;
+	if((ses.buf = malloc(Highwater)) == nil)
+		exits("no memory");
 
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
 	case -1:
@@ -838,6 +894,11 @@ main(int argc, char **argv)
 	case 's':
 		secure = 1;
 		break;
+	case 'o':
+		if(norigins == nelem(origins))
+			sysfatal("too many -o");
+		origins[norigins++] = EARGF(usage());
+		break;
 	default:
 		usage();
 	}ARGEND
@@ -848,6 +909,8 @@ main(int argc, char **argv)
 	for(;;){
 		hdr = readhdr();
 		if(webdir != nil && strncmp(hdr, "POST /log ", 10) == 0){
+			if(!originok(hdr))
+				reply("403 Forbidden");
 			logline(hdr);
 			continue;
 		}
@@ -863,6 +926,8 @@ main(int argc, char **argv)
 			*e = 0;
 		up = header(hdr, "Upgrade");
 		if(up != nil && cistrcmp(up, "websocket") == 0){
+			if(!originok(hdr))
+				reply("403 Forbidden");
 			if(secure && strcmp(path, "/rcpu") == 0)
 				rcpu(hdr);
 			if(secure && strncmp(path, "/resume/", 8) == 0)

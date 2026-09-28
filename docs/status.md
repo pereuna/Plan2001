@@ -706,3 +706,12 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
     tekemättä (seuraavaksi nopeammalle levylle).
   - Huom: `mountdist`in levyhaku listaa myös Debianin levyn; asentaja ei
     kirjoita siihen, ellei sitä valita.
+
+## webterm-kovennus (28.9.2026, haara `webterm-hardening`)
+
+Katselmoinnin kohdat: istunnon puskuri rajattu backpressurella (8/4 MiB
+high/low water), Origin-tarkistus (`-w` oma https-origin, `-o` lisää;
+17080:lle `WEBTERM_ORIGINS`), `Sec-WebSocket-Version: 13`, ja `vm-cpu`
+ei jätä TLS-avainta `build/in.img`:iin (600, nollaus heti ja trapissa).
+Monolithin puolella vastaavat rajat ja `tools/test-stress`: 156 Mt
+kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
