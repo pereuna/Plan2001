@@ -62,7 +62,7 @@ case go
 
 	if(~ $ream yes){
 		echo gefs -n $sname -r $user $fsflags -SAf $fs
-		gefs -n $sname -r $user $fsflags -SAf $fs
+		busy gefs -n $sname -r $user $fsflags -SAf $fs
 	}
 	gefs -n $sname $fsflags -SAf $fs
 

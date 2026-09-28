@@ -715,3 +715,22 @@ high/low water), Origin-tarkistus (`-w` oma https-origin, `-o` lisää;
 ei jätä TLS-avainta `build/in.img`:iin (600, nollaus heti ja trapissa).
 Monolithin puolella vastaavat rajat ja `tools/test-stress`: 156 Mt
 kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
+
+## Asennin: mountdist ja näkyvyys (28.9.2026, haara `installer-progress`)
+
+- Raudalla (gefs, kohteena 32 Gt:n USB-tikku) `mountdist` oli hyvin hidas:
+  se ei ole pelkkä liitos, vaan ajaa `fstype`n jokaiselle osiolle kaikilla
+  levyillä etsiessään FAT/ISO-jakelua. Plan2001:n medialla jakelu on media
+  itse (`/`), kuten 9frontin ISO kertoo `cdboot`illa. Repon
+  `rc/bin/inst/mountdist`: medialta asennettaessa oletus `/` ilman levyjen
+  läpikäyntiä (`cdboot`ia ei voi laittaa plan9.ini:hin, koska
+  `boot/local.rc` käyttää sitä bootlaitteen valintaan).
+- Pitkät vaiheet näyttävät elävänsä: `defs`in `busy` tulostaa pisteen 2 s
+  välein (`copydist`in `disk/mkfs`, gefs:n reamaus). Palvelimia, jotka jäävät
+  käyntiin, ei kääritä.
+- QEMUssa (kohde hidastettu 5 Mt/s, `VM_DISK_BPS`; gefs `VM_INSTALL_RULES`):
+  ennen `Scanning storage devices` ja `[no default]`, nyt suoraan
+  `Distribution disk (/dev/sdE0/fs, /)[/]`; pisteet näkyvät. Raudan
+  hitautta ei saatu QEMUssa toistettua (läpikäynti 1 s); todennäköinen syy on
+  USB-ajurin viive oikealla tikulla gefs:n kirjoittaessa samaan aikaan, ja
+  korjaus ohittaa ne luvut kokonaan. `tools/subset/test` PASS.
