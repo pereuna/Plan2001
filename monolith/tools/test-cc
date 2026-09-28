@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+// 6c.wasm (tools/build-cc wasm) against Plan 9's own 6c: compiles
+// DIR/FILE.c for each FILE in a fresh module, with the headers at
+// /sys/include and /amd64/include and the source at the same absolute path
+// as on Plan 9 (CWD), so that the objects must be byte for byte the same
+// as REFDIR/FILE.6.
+//   tools/test-cc INCROOT CWD REFDIR FILE...   (INCROOT has sys/include, amd64/include)
+'use strict';
+const fs = require('fs'), path = require('path');
+const root = path.dirname(__dirname);
+const Cc6 = require(path.join(root, 'build/cc-wasm/6c.js'));
+const [incroot, cwd, refdir, ...files] = process.argv.slice(2);
+
+function copytree(FS, from, to) {
+	FS.mkdirTree(to);
+	for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+		const f = path.join(from, e.name), t = to + '/' + e.name;
+		if (e.isDirectory()) copytree(FS, f, t);
+		else try { FS.writeFile(t, fs.readFileSync(f)); } catch (x) { throw new Error(`${t}: errno ${x.errno}`); }
+	}
+}
+
+async function compile(src) {
+	let out = '';
+	const m = await Cc6({ print: t => { out += t + '\n'; }, printErr: t => { out += t + '\n'; } });
+	copytree(m.FS, path.join(incroot, 'sys/include'), '/sys/include');
+	copytree(m.FS, path.join(incroot, 'amd64/include'), '/amd64/include');
+	m.FS.mkdirTree(cwd + '/' + path.dirname(src));
+	m.FS.writeFile(cwd + '/' + src, fs.readFileSync(path.join(refdir, '..', src)));
+	m.FS.chdir(cwd);
+	const t0 = Date.now();
+	let status = 0;
+	try { m.callMain(['-FTVw', '-o', 'out.6', src]); } catch (e) { status = e.status ?? 1; }
+	let obj = null;
+	try { obj = m.FS.readFile(cwd + '/out.6'); } catch (e) { status = status || 1; }
+	return { status, out, ms: Date.now() - t0, obj };
+}
+
+(async () => {
+	let bad = 0;
+	for (const f of files) {
+		const r = await compile(f);
+		const ref = fs.readFileSync(path.join(refdir, path.basename(f, '.c') + '.6'));
+		const same = r.obj && Buffer.compare(Buffer.from(r.obj), ref) === 0;
+		console.log(`${same ? 'SAME' : 'DIFF'} ${f} ${r.obj ? r.obj.length : '-'} bytes, ${r.ms} ms${r.out ? ': ' + r.out.trim() : ''}`);
+		if (!same) bad++;
+	}
+	process.exit(bad ? 1 : 0);
+})().catch(e => { console.error("test-cc:", e.errno, e.message, e.stack); process.exit(2); });

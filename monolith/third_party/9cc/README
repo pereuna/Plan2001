@@ -1,0 +1,7 @@
+9front's C compiler for amd64 (6c): sys/src/cmd/cc, sys/src/cmd/6c and
+sys/src/libbio, copied from the Plan2001 CPU VM's 9front (28.9.2026; 9front
+is MIT-licensed).  Built on POSIX and as WebAssembly by tools/build-cc
+through ../../cc9 (u.h, libc.h, bio.h, the system calls, 9front's qsort).
+Changed here: libbio/bvprint.c (va_copy: va_list may be an array).
+Not used: cc/compat (Plan 9's brk allocator; cc9/compat.c instead),
+cc/omachcap.c (6c has its own machcap).

@@ -34,32 +34,32 @@ tuoda järjestelmään laskentakapasiteettia.
 - **Pääte** on käyttäjän laite: selain (Monolith), natiivi pääte
   (drawterm) tai toinen Plan2001-kone. Käyttäjän data on päätteen
   nimiavaruudessa ja käyttäjän hallinnassa.
-- **Laskentaresurssi (PU)** on mikä tahansa, mikä laskee ja suorittaa:
+- **Laskentaresurssi (Compute Resource, CR)** on mikä tahansa, mikä laskee ja suorittaa:
   CPU-säikeet, GPU, NPU tai jokin, jota ei vielä ole. Plan2001 ei oleta
-  PU:n toteutuksesta muuta kuin että sille voi antaa työn ja siltä saa
+  CR:n toteutuksesta muuta kuin että sille voi antaa työn ja siltä saa
   tuloksen.
-- **Laskentapooli** on CPU-palvelimeen liitettyjen PU:iden joukko. CPU-palvelin
+- **Laskentapooli** on CPU-palvelimeen liitettyjen CR:ien joukko. CPU-palvelin
   jakaa sen kaikille omille asiakkailleen.
 
-## PU:iden lähteet
+## CR:ien lähteet
 
-PU on abstraktio, jonka takana voi olla:
+CR on abstraktio, jonka takana voi olla:
 
 | Lähde | Esimerkki | Liittyminen |
 |---|---|---|
 | paikallinen kortti | GPU- tai kiihdytinkortti CPU-palvelimessa | Plan2001:n ajuri |
 | natiivi solmu | Linux-kone, joka jakaa CPU:nsa tai GPU:nsa | solmun palvelu, joka liittyy CPU-palvelimeen |
 | selain | WASM-workerit, WebGPU, WebNN | Monolithin välilehti, ilman asennusta |
-| tuleva laite | esim. kielimallitranspuuteri (LLMT) | ajuri tai palvelu; sama PU-rajapinta |
+| tuleva laite | esim. kielimallitranspuuteri (LLMT) | ajuri tai palvelu; sama CR-rajapinta |
 
-Uusi PU-tyyppi ei saa vaatia muutosta nimiavaruuteen tai ajoittajaan: se on
+Uusi CR-tyyppi ei saa vaatia muutosta nimiavaruuteen tai ajoittajaan: se on
 uusi `type`- ja `api`-arvo.
 
 Selain on helpoin lähde: se hoitaa hiekkalaatikon, säikeet, GPU:n, muistin
 ja salatun yhteyden, eikä päätteelle asenneta ajuria tai palvelua.
 Välilehti ilmoittaa liittyessään, mitä se tarjoaa (esim. 24 WASM-workeria,
 WebGPU-sovitin ja sen muisti, NPU), ja CPU-palvelin rekisteröi ne.
-Resurssit ovat ohimeneviä: kun välilehti sulkeutuu, sen PU:t katoavat
+Resurssit ovat ohimeneviä: kun välilehti sulkeutuu, sen CR:t katoavat
 poolista, mikä sopii Plan 9:n tapaan ajatella resursseja.
 
 ## Nimiavaruus
@@ -67,13 +67,13 @@ poolista, mikä sopii Plan 9:n tapaan ajatella resursseja.
 Resurssi tulee prosessin näkyviin nimiavaruuden polun kautta, kuten Plan
 9:ssä, mutta resurssi on nyt myös laskentakykyä. Näkymiä on kaksi:
 
-- **`/global/compute`** sisältää kaikki CPU-palvelimeen liitetyt PU:t.
+- **`/global/compute`** sisältää kaikki CPU-palvelimeen liitetyt CR:t.
   Ajoittaja näkee sen kokonaan.
 - **`/compute`** käyttäjän nimiavaruudessa: politiikan sallima osa, esim.
   `/compute/shared/*` ja omat `/compute/self/*`, mutta ei toisen käyttäjän
-  PU:iden hallintaliittymää.
+  CR:ien hallintaliittymää.
 
-Jokainen PU on hakemisto, joka kertoo ominaisuutensa tiedostoina:
+Jokainen CR on hakemisto, joka kertoo ominaisuutensa tiedostoina:
 
 ```
 /global/compute/217/type      browser-gpu
@@ -83,7 +83,7 @@ Jokainen PU on hakemisto, joka kertoo ominaisuutensa tiedostoina:
 /global/compute/217/state     idle
 ```
 
-Ajoittajan ei tarvitse tietää, onko PU Chrome-selaimessa Helsingissä vai
+Ajoittajan ei tarvitse tietää, onko CR Chrome-selaimessa Helsingissä vai
 PCIe-väylällä CPU-palvelimessa. Resursseja ei hallita erillisellä
 klusterinhallinnalla, vaan ne ovat nimiavaruudessa.
 
@@ -91,35 +91,35 @@ klusterinhallinnalla, vaan ne ovat nimiavaruudessa.
 
 Käyttötapaukset, joiden pitää sopia malliin:
 
-- ohjelmien kääntäminen rinnakkain (`mk` jakaa käännökset PU:ille)
+- ohjelmien kääntäminen rinnakkain (`mk` jakaa käännökset CR:ille)
 - matriisilaskenta, CAD
 - FEM, 3D
 - LLM-päättely
 
 **Data pysyy käyttäjällä.** Vain laskentaresurssi jaetaan: työn syötteet
 ja tulokset ovat käyttäjän nimiavaruudessa ja käyttäjän hallinnassa, eikä
-CPU-palvelin tai PU omista niitä.
+CPU-palvelin tai CR omista niitä.
 
 **Tulos on atominen.** Työn tulos on joko valmis tai sitä ei ole: `-o
 foo.o` syntyy kokonaisena tai ei lainkaan, eikä puolikas tulos näy koskaan
-käyttäjän nimiavaruudessa. Tämä on edellytys sille, että katoavan PU:n
-(suljettu välilehti) työ voidaan antaa toiselle PU:lle.
+käyttäjän nimiavaruudessa. Tämä on edellytys sille, että katoavan CR:n
+(suljettu välilehti) työ voidaan antaa toiselle CR:lle.
 
 **Kaista ei ole CPU-palvelimen ongelma.** CPU-palvelin koordinoi; raskas
-data kulkee käyttäjän ja PU:n välillä, ja tulokset ovat usein pieniä
+data kulkee käyttäjän ja CR:n välillä, ja tulokset ovat usein pieniä
 ("osta osaketta RTH098", "FEM: 123.56 Nm"). Ethernet ja pieni
 CPU-palvelin riittävät koordinointiin.
 
 ## Luottamus ja suostumus
 
-- Aluksi PU:ita tarjoavat vain vapaaehtoiset, jotka tuntevat riskit.
-- Luottamuskysymykset (kenen työtä PU ajaa, voiko tulokseen luottaa, näkeekö
-  PU:n omistaja käsittelemänsä datan) jätetään ensimmäisestä toteutuksesta
-  pois, mutta rakenne pitää ne mahdollisina: PU:lla on omistaja (`owner`),
+- Aluksi CR:iä tarjoavat vain vapaaehtoiset, jotka tuntevat riskit.
+- Luottamuskysymykset (kenen työtä CR ajaa, voiko tulokseen luottaa, näkeekö
+  CR:n omistaja käsittelemänsä datan) jätetään ensimmäisestä toteutuksesta
+  pois, mutta rakenne pitää ne mahdollisina: CR:llä on omistaja (`owner`),
   käyttäjän näkymä on politiikan rajaama (`/compute`), ja työ ja data
   pidetään erillään, jotta eristystä, varmistusta (esim. sama työ kahdelle
-  PU:lle) ja rajoja voidaan lisätä myöhemmin.
-- PU:n tarjoaja päättää, paljonko ja milloin se antaa kapasiteettiaan.
+  CR:lle) ja rajoja voidaan lisätä myöhemmin.
+- CR:n tarjoaja päättää, paljonko ja milloin se antaa kapasiteettiaan.
 
 ## Suhde Monolithiin
 
@@ -127,7 +127,7 @@ CPU-palvelin riittävät koordinointiin.
   Vaiheen 3 ajatus (suoritus selaimessa on ohimenevää, Plan2001:n prosessi
   ja tila pysyvät) on tämän mallin erikoistapaus.
 - drawterm tuo jo nyt päätteen laitteet CPU-palvelimelle (`/mnt/term`);
-  PU:t ovat sama ajatus laajennettuna laskentaan. webtermin istunnot ja
+  CR:t ovat sama ajatus laajennettuna laskentaan. webtermin istunnot ja
   `apps` ovat valmiiksi rekisteri, josta `/global/compute/<istunto>` voi
   syntyä.
 - Vaiheen 3b vaihtoehto A (näyttö ja piirto CPU-palvelimella) sotii tätä
@@ -136,9 +136,43 @@ CPU-palvelin riittävät koordinointiin.
 
 ## Avoimet kysymykset
 
-- Työn muoto: mitä PU:lle annetaan (esim. WASM-moduuli tai WebGPU-shader ja
+- Työn muoto: mitä CR:lle annetaan (esim. WASM-moduuli tai WebGPU-shader ja
   syötteet 9P-tiedostoina) ja miten tulos palaa atomisesti.
-- PU:n rajapinta nimiavaruudessa: `ctl`-, `job`- ja tulostiedostot, joita
-  kaikki lähteet (ajuri, natiivi solmu, selain, tuleva PU) toteuttavat.
-- Ajoittaja: miten työt jaetaan, kun PU:t tulevat ja menevät.
+- CR:n rajapinta nimiavaruudessa: `ctl`-, `job`- ja tulostiedostot, joita
+  kaikki lähteet (ajuri, natiivi solmu, selain, tuleva CR) toteuttavat.
+- Ajoittaja: miten työt jaetaan, kun CR:t tulevat ja menevät.
 - Politiikka: mitä käyttäjän `/compute` näyttää.
+
+## Ensimmäinen koe: käännös selainten CR:illä (28.9.)
+
+Haara `compute-pool`. Tavoite: käännöstyö jaetaan muutamalle asiakaskoneelle
+selaimen kautta.
+
+- **CR selaimessa:** `https://kone:17443/cr.html` (Monolith, `monolith/web/cr.*`).
+  Välilehti liittyy pooliin, ja sen web workerit ajavat 9frontin C-kääntäjää
+  `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
+  libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,
+  `6c.wasm` 218 kt). Välilehti on ohimenevä: kun se sulkeutuu, CR katoaa.
+- **CPU-palvelin:** `crsrv` (`sys/src/cmd/crsrv.c`) kuuntelee CR:iä
+  (tcp 17030; selaimen yhteys tulee webtermin WebSocketin `/17030` kautta) ja
+  tarjoaa poolin nimiavaruuteen: `/srv/compute` → `/mnt/compute`:
+  `status`, `cc` (työt) ja jokaiselle CR:lle `N/{type,api,workers,owner,state,jobs}`.
+  CR saa liittyessään palvelimen otsikot (`/sys/include`, `/amd64/include`).
+- **Käyttäjä:** `rcc` (`sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk
+  'CC=rcc'`. Työ sisältää lähteen ja sen hakemistojen `.h`-tiedostot, eli
+  data tulee käyttäjän nimiavaruudesta. CR kääntää samannimisessä
+  hakemistossa kuin käyttäjä, joten objekti on sama kuin palvelimen `6c`:n.
+  Tulos kirjoitetaan atomisesti (`NAME.tmp` → `NAME`). Jos poolissa ei ole
+  CR:iä, `rcc` ajaa `6c`:n itse. Katoavan CR:n työ annetaan toiselle.
+- **Testi:** `monolith/tools/test-compute`: kolme headless-Chromium-välilehteä
+  (2 workeria kukin), acme käännetään VM:llä ensin `6c`:llä ja sitten
+  poolissa samassa hakemistossa. Tulos: työt jakautuivat kaikille kolmelle
+  CR:lle (6, 6, 9), ja kaikki 21 objektia ja linkitetty `6.out` ovat tavu
+  tavulta samat. PASS.
+- **Rajat:** vain `6c`. Otsikoista mukana ovat vain lähteen, nykyisen ja
+  `-I`-hakemistojen `.h`:t. Ei tunnistautumista (`crsrv -k` ja `#key=` ovat
+  vain vahinkoyhteyksiä vastaan), ei luottamusta tuloksiin, eikä
+  keskeytettyjen töiden uudelleenyrityksiä ole vielä testattu. Plan 9:n
+  kääntäjä on nopea, joten acmen kokoisessa työssä pooli ei vielä nopeuta
+  (paikallisesti noin 1 s, poolissa noin 1 s). Hyöty tulee raskaista töistä ja
+  suurista käännöksistä.

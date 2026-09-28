@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CR · Plan2001</title>
+<style>
+:root { --bg: #fdfdf8; --fg: #1d1d1b; --dim: #6b6b66; --line: #d8d8cf; --ok: #2e7d32; --bad: #b3261e; }
+@media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #e8e8e2; --dim: #9a9a93; --line: #34342f; --ok: #7bc47f; --bad: #f2867c; } }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px; }
+h1 { font-size: 17px; margin: 0 0 4px; }
+p { margin: 0 0 12px; color: var(--dim); max-width: 60em; }
+#state { font-weight: bold; }
+#state.on { color: var(--ok); } #state.off { color: var(--bad); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; margin: 12px 0; }
+dt { color: var(--dim); }
+pre { border-top: 1px solid var(--line); padding-top: 8px; white-space: pre-wrap; word-break: break-all; max-height: 50vh; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>Compute resource</h1>
+<p>This tab lends its CPU to the Plan2001 CPU server's compute pool
+(docs/cpu-server-design.md): it compiles C with 9front's 6c (WebAssembly)
+for the server's users.  Close the tab to leave the pool.</p>
+<div>state: <span id="state" class="off">connecting</span></div>
+<dl>
+<dt>workers</dt><dd id="workers">-</dd>
+<dt>jobs</dt><dd id="jobs">0</dd>
+<dt>busy</dt><dd id="busy">0</dd>
+</dl>
+<pre id="log"></pre>
+<script src="cr.js"></script>
+</body>
+</html>

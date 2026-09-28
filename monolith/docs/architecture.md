@@ -224,7 +224,7 @@ suljetun välilehden istuntoon ei voi liittää uutta välilehteä, vaikka
 istunto elää vielä. Vaihe 3b ratkaisee tämän; toteutustapa on
 päättämättä (28.9.). Ratkaisua ohjaa Plan2001:n perusarkkitehtuuri,
 `docs/cpu-server-design.md`: CPU-palvelin omistaa tilan, nimiavaruudet ja
-koordinoinnin, mutta laskenta tulee päätteiltä (laskentapooli, PU:t), ja
+koordinoinnin, mutta laskenta tulee päätteiltä (laskentapooli, CR:t), ja
 CPU-palvelin voi olla pieni. Vaihtoehdot:
 
 | | A: näyttö palvelimella | B: ohjelma wasmina välilehdessä | C: drawterm jää, lisätään turva |
@@ -257,16 +257,16 @@ Perusarkkitehtuuri muuttaa arviota (28.9.):
   ohjelman laskenta olisivat CPU-palvelimella, jonka ei tarvitse olla
   laskentateho. Se jää pois, paitsi ehkä kevyiden ohjelmien varavaihtoehtona.
 - **B on perusarkkitehtuurin mukainen:** välilehti on sekä ohjelman
-  suoritusympäristö että poolin laskentasolmu (PU), ja data on käyttäjän
+  suoritusympäristö että poolin laskentasolmu (CR), ja data on käyttäjän
   nimiavaruudessa. Jatko toiselta laitteelta syntyy siitä, että ohjelman
   pysyvä tila on tiedostoina Plan2001:ssä, ja tuloksen atomisuus
   (`cpu-server-design.md`) koskee myös ohjelman tallentamaa tilaa.
 - **C** on edelleen mahdollinen välivaihe (istuntokohtainen nimiavaruus,
   palvelimen valitsema ohjelma) B:n rinnalla.
 
-Suositus (Claude): B, ensimmäisenä askeleena PU-rajapinta
+Suositus (Claude): B, ensimmäisenä askeleena CR-rajapinta
 (`cpu-server-design.md`, avoimet kysymykset) ja yksinkertainen työ selaimen
-PU:lle, esim. rinnakkainen käännös. Päätös: avoin.
+CR:lle, esim. rinnakkainen käännös. Päätös: avoin.
 
 ## Vaihe 4: WebGPU
 
