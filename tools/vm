@@ -61,7 +61,7 @@ start)
 	log=serial-$(date +%Y%m%d-%H%M%S).log
 	ln -sfn "$log" "$vm/serial.log"; : > "$vm/$log"
 	nic=(-nic none)
-	[ -n "$net" ] && nic=(-nic user,hostfwd=tcp:127.0.0.1:17019-:17019,hostfwd=tcp:127.0.0.1:5670-:567,hostfwd=tcp:127.0.0.1:17080-:17080,hostfwd=tcp:127.0.0.1:17443-:17443)
+	[ -n "$net" ] && nic=(-nic user,hostfwd=tcp:127.0.0.1:17019-:17019,hostfwd=tcp:127.0.0.1:5670-:567,hostfwd=tcp:127.0.0.1:17080-:17080,hostfwd=tcp:127.0.0.1:17443-:17443,hostfwd=tcp:127.0.0.1:17010-:17010)
 	cd=()
 	[ -n "$iso" ] && cd=(-drive file="$iso",if=none,id=cd,media=cdrom,readonly=on -device ide-cd,drive=cd,bus=ide.3,bootindex=0)
 	[ -n "$scratch" ] && cd=(-drive file="$scratch",if=none,id=sc,format=qcow2 -device ide-hd,drive=sc,bus=ide.3)

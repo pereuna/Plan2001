@@ -3,6 +3,24 @@ bind -a $home/bin/$cputype /bin
 if(! syscall create /tmp/xxx 1 0666 >[2]/dev/null)
 	ramfs	# in case we're running off a cd
 font=/lib/font/bit/vga/unicode.font
+
+# Plan2001: remote gives another machine on the network a shell here, e.g.
+# to drive the install (tools/hw on the other side): this machine's
+# address (DHCP if it has none) and a short key; a connection that sends
+# the key as its first line gets rc.  The key only keeps out accidental
+# connections: the network is trusted.
+fn remote {
+	a=`{awk '$3 ~ /u/ && $1 ~ /\./ && $1 !~ /^127\./ {print $1; exit}' /net/ipselftab}
+	if(~ $#a 0){
+		ip/ipconfig
+		a=`{awk '$3 ~ /u/ && $1 ~ /\./ && $1 !~ /^127\./ {print $1; exit}' /net/ipselftab}
+	}
+	remotekey=`{dd -if /dev/random -bs 2 -count 1 >[2]/dev/null | xd -1x | awk '{print $2 $3; exit}'}
+	echo 'remote: tcp!'^$"a^'!17010 key '^$remotekey
+	# its own note group: Delete on this console must not end it
+	@{rfork s; exec aux/listen1 -t 'tcp!*!17010' /bin/rc -c 'k=`{read}; if(~ $k $remotekey){ prompt=(''term% '' ''	''); exec rc -i >[2=1] }'} &
+}
+
 switch($service){
 case terminal
 	if(! webcookies >[2]/dev/null)

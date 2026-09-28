@@ -45,6 +45,13 @@ IGNORE = re.compile(r'^/usr/glenda/(trace/|tmp/|snap\.rc$|export\.rc$)'
 	r'|^/dist/')
 # rc words that are not commands
 RCWORDS = set('if not for in while switch case fn eval exec exit shift cd builtin . ~ ! @ wait whatis rfork flag status'.split())
+# rc functions of the installer (rc/bin/inst/defs) that run their arguments
+# as a command, and exec: the command is the next word (logprog chgrp ...)
+WRAPPERS = {'logprog', 'busy', 'exec'}
+# Plan2001's own versions of 9front files (the repo's rc/ and usr/, bound
+# over the VM's on the medium by tools/subset/mkusb): read those, not the VM's
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OVERLAYS = ('/rc/', '/usr/')
 KERNELDIRS = ['/sys/src/9/' + d for d in T['ksrc']] + ['/sys/src/boot/efi']
 # Legacy that Plan2001 leaves out even where a script names it (mountdist's
 # iso9660 branch, bootsetup's BIOS boot blocks): the install medium is a
@@ -88,6 +95,8 @@ class Tree:
 	def script(self, path):
 		"""Text of an rc script, or None."""
 		p = self.text + path
+		if path.startswith(OVERLAYS) and os.path.isfile(REPO + path):
+			p = REPO + path
 		if not os.path.isfile(p):
 			return None
 		t = open(p, 'rb').read()
@@ -119,6 +128,10 @@ def rccommands(text):
 			w = m.group(1)
 			if w not in RCWORDS and not w.startswith('$'):
 				cmds.add(w)
+			if w in WRAPPERS:
+				n = re.match(r'\s+([A-Za-z0-9_./+-]+)', line[m.end():])
+				if n and not n.group(1).startswith('$'):
+					cmds.add(n.group(1))
 		line = re.sub(r'\$(objtype|cputype)\b', ARCH, line)
 		for m in re.finditer(r'(?<![A-Za-z0-9_$])(/[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)+)', line):
 			paths.add(m.group(1))

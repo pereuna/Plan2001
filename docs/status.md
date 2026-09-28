@@ -734,3 +734,15 @@ kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
   hitautta ei saatu QEMUssa toistettua (läpikäynti 1 s); todennäköinen syy on
   USB-ajurin viive oikealla tikulla gefs:n kirjoittaessa samaan aikaan, ja
   korjaus ohittaa ne luvut kokonaan. `tools/subset/test` PASS.
+- Etäasennus (28.9.): asennusmedian `term%`-kehotteessa `remote` (repon
+  glenda-profiili) hakee osoitteen DHCP:llä, näyttää `tcp!IP!17010` ja
+  neljän merkin avaimen ja käynnistää `aux/listen1`n; avaimen ensin
+  lähettävä yhteys saa `rc -i`:n (stderr samaan yhteyteen, jotta asentajan
+  kehotteet näkyvät). Toisella koneella `tools/hw connect IP KEY`, ja
+  `tools/9run -d build/hw` toimii kuten VM:n kanssa (9run:n relay TCP:llä).
+  Avain vain estää vahingossa syntyvät yhteydet; lähiverkko on luotettu.
+- Raudan gefs-asennuksessa `chgrp` puuttui medialta: osajoukon analyysi
+  näki `logprog chgrp` -rivistä vain `logprog`in. Nyt kääreet ja repon omat
+  tiedostot analysoidaan (`chgrp`, `aux/listen1` tulivat mukaan), ja
+  `tools/subset/test-remote [cwfs64x|hjfs|gefs]` asentaa QEMUssa TCP:n yli
+  kuten raudalla: gefs 53 s ja hjfs 57 s PASS, `tools/subset/test` PASS.

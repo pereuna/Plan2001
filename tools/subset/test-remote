@@ -1,0 +1,41 @@
+#!/bin/bash
+# The install as on real hardware from another machine: the USB medium
+# in QEMU with a network (tools/vm --net forwards 17010), 'remote' typed on
+# its console, then tools/hw connects with the key it shows and drives
+# inst/start over TCP with the file system FS (default gefs) onto an empty
+# disk.  PASS or FAIL; logs: build/vm/serial.log (console),
+# build/hw/serial.log (the remote shell), build/subset/$TARGET/remote.log.
+#   tools/subset/test-remote [cwfs64x|hjfs|gefs]
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$(dirname "$here")")
+. "$root/tools/target.sh"
+S=$root/build/subset/$TARGET
+fs=${1:-gefs}
+run9() { "$root/tools/9run" -d "$root/build/vm" "$@"; }
+hw9() { "$root/tools/9run" -d "$root/build/hw" "$@"; }
+rm -f $S/remote.qcow2; qemu-img create -q -f qcow2 $S/remote.qcow2 20G
+"$root/tools/vm" stop 2>/dev/null || true; "$root/tools/hw" stop
+trap '"$root/tools/hw" stop; "$root/tools/vm" stop' EXIT
+"$root/tools/vm" start --disk $S/remote.qcow2 --usb "$S/plan2001-inst.img" --net
+{
+	printf '!now bootfile=\\S+\\n\t\\nconsole=0\\nboot\n'
+	printf 'bootargs is .*\\] *\t%s\n' "''"
+	printf 'user\\[glenda\\]: *\t%s\n' "''"
+	printf 'term%% \t!done\n'
+} | run9 -t 180 --dialog - >/dev/null
+printf "!now remote: tcp!\\S+ key [0-9a-f]+\\s\t!done\n" | run9 -t 120 -s remote --dialog - >/dev/null
+key=$(grep -a -o 'remote: tcp![^ ]* key [0-9a-f]*' "$root/build/vm/serial.log" | tail -1 | awk '{print $4}')
+echo "remote key: $key"
+"$root/tools/hw" connect 127.0.0.1 "$key"
+hw9 -t 30 'cat /dev/sysname; echo; echo $plan2001'
+case $fs in
+gefs)	rules='File system \(cwfs64x, hjfs, gefs\)\[cwfs64x\]: *	gefs' ;;
+hjfs)	rules='File system \(cwfs64x, hjfs, gefs\)\[cwfs64x\]: *	hjfs' ;;
+*)	rules='' ;;
+esac
+start=$(date +%s)
+{ [ -n "$rules" ] && echo "$rules"; sed 's/DEV/sdE0/g' "$root/tools/inst.dialog" | grep -v 'Gefs partition\|Hjfs partition'; } | hw9 -t 1800 -s inst/start --dialog - >$S/remote.log 2>&1 || { echo "FAIL: the install over tcp ($fs), see $S/remote.log"; tail -20 $S/remote.log; exit 1; }
+if grep -a -q 'file does not exist' "$root/build/hw/serial.log"; then
+	echo "FAIL: a file missing on the medium:"; grep -a 'file does not exist' "$root/build/hw/serial.log" | sort -u | head; exit 1
+fi
+echo "PASS: $fs installed over tcp in $(( $(date +%s) - start ))s"

@@ -1,0 +1,2 @@
+#define	NUMBER	57346
+#define	UNARYMINUS	57347
