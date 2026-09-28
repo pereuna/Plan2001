@@ -746,3 +746,9 @@ kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
   tiedostot analysoidaan (`chgrp`, `aux/listen1` tulivat mukaan), ja
   `tools/subset/test-remote [cwfs64x|hjfs|gefs]` asentaa QEMUssa TCP:n yli
   kuten raudalla: gefs 53 s ja hjfs 57 s PASS, `tools/subset/test` PASS.
+- Raudalla (28.9.) etäasennus toisella Dellillä: `remote` → `tools/hw
+  connect`, gefs 32 Gt:n USB-tikulle 75 s, ei puuttuvia tiedostoja.
+  Asennettu järjestelmä käynnistyy tikulta, rivieditori toimii. rio jäi
+  harmaaksi (`riostart` puuttui osajoukosta), mutta Plan2001:ssä ei ole
+  rioa: ikkunat tulevat Monolithista. glenda-profiili ei enää käynnistä
+  rioa vaan antaa `term%`-kehotteen kuten asennusmedia.
