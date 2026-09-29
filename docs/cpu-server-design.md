@@ -7,6 +7,8 @@
 
 Tämä on Plan2001:n oma arkkitehtoninen ajatus, ei vain modernisoitu Plan 9.
 Se on ratkaistava ennen Monolithin vaihetta 3b (`monolith/docs/architecture.md`).
+Selainsovellusten turvamalli (origin = sovellus, nimiavaruuspohjat,
+`/global/compute` ja `/compute`): `docs/app-origins.md`.
 
 ## Käänne Plan 9:stä
 
@@ -148,14 +150,19 @@ CPU-palvelin riittävät koordinointiin.
 Haara `compute-pool`. Tavoite: käännöstyö jaetaan muutamalle asiakaskoneelle
 selaimen kautta.
 
-- **CR selaimessa:** `https://kone:17443/cr.html` (Monolith, `monolith/web/cr.*`).
+- **CR selaimessa:** `https://compute.kone:17443/cr.html` (Monolith,
+  `monolith/web/cr.*`; laskentapoolin origin, `docs/app-origins.md`).
+  Selain tarjoaa laitteensa kerran: saman selaimen compute-välilehdistä vain
+  lukon (Web Locks) haltija on CR, muut odottavat. Workereita on oletuksena
+  laitteen säikeet miinus yksi, joten yksi jää käyttäjälle (`?workers=N`).
   Välilehti liittyy pooliin, ja sen web workerit ajavat 9frontin C-kääntäjää
   `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
   libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,
   `6c.wasm` 218 kt). Välilehti on ohimenevä: kun se sulkeutuu, CR katoaa.
 - **CPU-palvelin:** `crsrv` (`sys/src/cmd/crsrv.c`) kuuntelee CR:iä
   (tcp 17030; selaimen yhteys tulee webtermin WebSocketin `/17030` kautta) ja
-  tarjoaa poolin nimiavaruuteen: `/srv/compute` → `/mnt/compute`:
+  tarjoaa poolin nimiavaruuteen: `/srv/compute` → palvelimen `/global/compute`
+  ja sovelluksen nimiavaruudessa `/compute` (`lib/app/term/namespace`):
   `status`, `cc` (työt) ja jokaiselle CR:lle `N/{type,api,workers,owner,state,jobs}`.
   CR saa liittyessään palvelimen otsikot (`/sys/include`, `/amd64/include`).
 - **Käyttäjä:** `rcc` (`sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk

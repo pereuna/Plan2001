@@ -2,8 +2,9 @@
  * crsrv - the compute pool (docs/cpu-server-design.md), a first test:
  * compute resources (CRs) connect over TCP (tcp!*!17030; a browser's
  * through webterm's WebSocket /17030) and run compile jobs; users give
- * jobs through the file system crsrv posts (/srv/compute, mounted on
- * /mnt/compute):
+ * jobs through the file system crsrv posts (/srv/compute): the server's
+ * view is /global/compute, and an app's namespace file mounts it on
+ * /compute for its processes (docs/app-origins.md):
  *
  *	cc	open, write a job, read its result (rcc)
  *	status	crs N workers N queued N running N done N

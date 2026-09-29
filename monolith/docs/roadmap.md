@@ -42,8 +42,10 @@ tools/serve --listen 10.77.0.5   # esim. WireGuard-osoitteessa (kännykkä)
 
 Selaimessa `http://127.0.0.1:8080/#pass=SALASANA` avaa drawtermin
 konsolin (`-h plan2001 -a tcp!plan2001!567 -u glenda`; osoitteet eivät merkitse, WebSocket menee aina webtermiin).
-VM:n sivulla `https://127.0.0.1:17443/app/APP` ajaa ohjelman APP
-(`/bin/app/APP`: term, acme, sam, stats, clock) koko välilehdessä. Muut argumentit kyselynä (`?a=-h&a=...`; `-G` näyttää vain
+VM:n sivulla `https://APP.localhost:17443/` ajaa ohjelman APP
+(`/lib/app/APP`: term, acme, sam, stats, clock) koko välilehdessä; sovellus
+on origin (`../docs/app-origins.md`), ja `compute.localhost:17443/cr.html` on
+laskentapoolin CR. Muut argumentit kyselynä (`?a=-h&a=...`; `-G` näyttää vain
 tekstin). Salasana on fragmentissa, joten se ei lähde palvelimelle. Jos
 selain on toisella koneella: `ssh -L 8080:127.0.0.1:8080 -L
 8081:127.0.0.1:8081 debian-kone`.
@@ -206,6 +208,8 @@ Katselmoinnin neljä kohtaa ja rasitustesti (Plan2001 ja Monolith, haarat
 - rio on poistettu Plan2001:stä: osajoukko ei ota sitä (eikä sen lähteitä,
   libframea ja libcompletea), glendan profiili antaa `term%`-kehotteen, ja
   `tools/vm-cpu --update` poistaa sen CPU-VM:stä.
+- (29.9. korvattu: sovellus on origin `APP.kone`, ja palvelin ajaa sen;
+  `../docs/app-origins.md`.)
 - `https://kone:17443/app/APP` (tai `?app=APP`): webterm tarjoilee sivun, ja
   sivu ajaa drawtermin `-c app/APP` (Plan2001:n `/rc/bin/app/APP`: term,
   acme, sam, stats, clock). Ohjelma piirtää koko välilehteen drawtermin

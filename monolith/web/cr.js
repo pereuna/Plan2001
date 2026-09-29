@@ -4,15 +4,18 @@
 // jobs (job), runs them in web workers with 6c.wasm (cr-worker.js) and
 // sends the results (result).  Messages: a 4-byte big-endian length, a
 // header line (tab-separated fields), a body of files (name, NUL, 4-byte
-// length, data).  ?workers=N (default the CPU's threads), ?owner=NAME,
-// #key=KEY (crsrv -k).
+// length, data).  ?workers=N (default the CPU's threads less one, left
+// to the user), ?nolock (tests: tabs of one browser as separate machines),
+// #key=KEY (crsrv
+// -k).  The page is the compute origin's (compute.MACHINE: policy cr,
+// docs/app-origins.md).  Its owner is not the browser's to say: "-" until
+// CRs authenticate.
 'use strict';
 (() => {
 const q = new URLSearchParams(location.search);
 const frag = new URLSearchParams(location.hash.slice(1));
 const key = frag.get('key') || '';
-const owner = (q.get('owner') || 'browser').replace(/\s/g, '_');
-const nworkers = Math.max(1, Math.min(64, +q.get('workers') || navigator.hardwareConcurrency || 4));
+const nworkers = Math.max(1, Math.min(64, +q.get('workers') || (navigator.hardwareConcurrency || 2) - 1));
 const $ = id => document.getElementById(id);
 const enc = new TextEncoder(), dec = new TextDecoder();
 let ndone = 0;
@@ -114,7 +117,7 @@ function connect() {
 	ws.binaryType = 'arraybuffer';
 	buf = new Uint8Array(0);
 	ws.onopen = () => {
-		send(msg(`hello\t${key}\tbrowser-cpu\twasm\t${nworkers}\t${owner}`));
+		send(msg(`hello\t${key}\tbrowser-cpu\twasm\t${nworkers}\t-`));
 		state('in the pool', true);
 		log(`connected, ${nworkers} workers`);
 	};
@@ -127,7 +130,16 @@ function connect() {
 	};
 }
 
-fetch('6c.wasm').then(r => r.arrayBuffer()).then(b => { wasm = b; connect(); })
-	.catch(e => { state('no 6c.wasm: ' + e, false); });
+// one CR per browser: the machine's threads are offered once, by the tab
+// holding the lock; another tab of the compute origin waits for it
+function start() {
+	fetch('6c.wasm').then(r => r.arrayBuffer()).then(b => { wasm = b; connect(); })
+		.catch(e => { state('no 6c.wasm: ' + e, false); });
+}
+if (navigator.locks && !q.has('nolock')) {
+	state('another tab of this browser is the CR; waiting', false);
+	navigator.locks.request('plan2001-cr', () => { start(); return new Promise(() => {}); });
+} else
+	start();
 window.cr = { get done() { return ndone; }, get workers() { return nworkers; } };
 })();

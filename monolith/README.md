@@ -4,7 +4,8 @@
 Plan2001:een cpu-palvelimena ja tarjoaa sille näytön, hiiren ja näppäimistön,
 kuten drawterm tekee X11:n, Waylandin tai Win32:n päällä. CPU-palvelin
 mounttaa ne `/mnt/term`iin. Plan2001:ssä ei ole rioa: jokainen ohjelma on
-oma välilehtensä (`https://kone:17443/app/acme`), ja selain on ikkunamanageri.
+oma välilehtensä ja originsa (`https://acme.kone:17443/`), ja selain on
+ikkunamanageri.
 
 Nimi tulee Avaruusseikkailu 2001:stä: musta laatta, jonka kautta toinen
 maailma tulee näkyviin. Monolith on osa [Plan2001](https://github.com/pereuna/Plan2001):tä
@@ -32,7 +33,7 @@ Selain: Monolith
 Vaihe 1: **9frontin drawterm kokonaisena WASMiksi** Emscriptenillä, ja
 drawtermiin uusi `gui-web`-näyttöbackend. `drawterm.wasm` selaimessa kirjautuu
 Plan2001:een (dp9ik, TLS, 9P). Vaihe 2: oma WSS-transportti ja
-jatkuvat istunnot. Vaihe 3a: välilehti = Plan2001-ohjelma (`/app/APP`), ja
+jatkuvat istunnot. Vaihe 3a: välilehti = Plan2001-ohjelma (origin `APP.kone`, `docs/app-origins.md`), ja
 `apps` listaa istunnot. Käyttö: [docs/roadmap.md](docs/roadmap.md#käyttö). Suunnitelma ja vaiheet:
 [docs/roadmap.md](docs/roadmap.md). Arkkitehtuuri:
 [docs/architecture.md](docs/architecture.md).

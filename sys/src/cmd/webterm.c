@@ -3,14 +3,13 @@
  * drawterm in a browser (Monolith).  aux/listen runs it for each
  * connection (/rc/bin/service/tcp17080), the connection on fd 0 and 1.
  *
- * GET /17019 is rcpu, GET /567 is auth, GET /17030 is the compute pool
- * (crsrv: a browser tab as a compute resource); nothing else.  The WebSocket
+ * GET /17019 is rcpu, GET /567 is auth; with -s GET /17030 is the compute
+ * pool too (crsrv: a browser tab as a compute resource); nothing else.  The WebSocket
  * carries the service's bytes unchanged in binary frames, so drawterm's
  * own auth and TLS run inside it as over TCP.
  *
  * With -w DIR it also serves the page: GET / or /NAME for a file in DIR
- * (no subdirectories; GET /app/APP is the page too, and /app/NAME.EXT the
- * file, for a tab that runs APP), NAME.gz instead when the browser takes gzip, with
+ * (no subdirectories), NAME.gz instead when the browser takes gzip, with
  * the COOP/COEP headers the page's threads need; POST /log appends the
  * page's log line (its ?log=1) to /sys/log/monolith.  tlssrv in front of it
  * (/rc/bin/service/tcp17443) makes that https and wss on one origin.
@@ -20,10 +19,16 @@
  * p9any as the server, auth_chuid, the rcpu server script - but the
  * authenticated bytes go straight through the WebSocket, not TLS-PSK.
  * Such a session survives its WebSocket: GET /resume/TOKEN/N (below).
- * GET /rcpu/APP names the session's program (the page's /app/APP; the page
- * runs it).  A process of the user's shows it and whether a page is
- * attached in its args, "APP attached|detached" (ps -a: webterm [APP
- * STATE]; apps lists them): webterm runs as none, whose processes the user cannot see.
+ *
+ * With -s the origin is the app (docs/app-origins.md): Host APP.MACHINE
+ * names /lib/app/APP (else the app is term), whose policy says what its
+ * WebSockets may open (rcpu: /rcpu, /resume, /567; cr: /17030) and whose
+ * image the rcpu session runs, after its namespace file - webterm's own
+ * script, not the client's, which is read and dropped.  A session keeps
+ * its origin, and only that origin may resume it.  A process of the
+ * user's shows the app and whether a page is attached in its args, "APP
+ * attached|detached" (ps -a: webterm [APP STATE]; apps lists them):
+ * webterm runs as none, whose processes the user cannot see.
  *
  * A browser says where its page came from (Origin); only this server's
  * own https origin (with -w) and the -o origins may open WebSockets or
@@ -42,14 +47,28 @@ enum {
 	Iosize	= 32*1024,
 };
 
-static char *services[] = { "17019", "567", "17030", nil };	/* rcpu, auth, crsrv */
+static char *services[] = { "17019", "567", nil };	/* without -s: rcpu, auth */
 static char *webdir;
 static char *origins[16];	/* -o */
 static int norigins;
 static int secure;	/* -s: the connection is TLS already */
 
-/* the rcpu server (/rc/bin/service/tcp17019 runs it after tlssrv -a) */
-static char rcpuscript[] = ". <{n=`{read} && ! ~ $#n 0 && read -c $n} >[2=1]";
+/*
+ * The rcpu session of an app: the client's script (as sent by drawterm) is
+ * read and dropped; the terminal is mounted as drawterm's script would, and
+ * the app's namespace file and image run, as the user (rc -l: the profile).
+ */
+static char appscript[] =
+	"n=`{read} && ! ~ $#n 0 && read -c $n >/dev/null || exit\n"
+	"mount -nc /fd/0 /mnt/term || exit\n"
+	"bind -q /mnt/term/dev/cons /dev/cons\n"
+	"if(test -r /mnt/term/dev/kbd){\n"
+	"	</dev/cons >/dev/cons >[2=1] aux/kbdfs -dq -m /mnt/term/dev\n"
+	"	bind -q /mnt/term/dev/cons /dev/cons\n"
+	"}\n"
+	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image'\n"
+	"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
+	"echo -n hangup >/proc/$pid/notepg\n";
 static char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 static void
@@ -157,11 +176,6 @@ servefile(char *hdr, char *path)
 
 	if(strcmp(path, "/") == 0)
 		path = "/index.html";
-	if(strncmp(path, "/app/", 5) == 0){	/* a tab for an app: the page, its files */
-		path += 4;
-		if(strchr(path, '.') == nil)
-			path = "/index.html";
-	}
 	path++;
 	if(*path == 0 || *path == '.' || strchr(path, '/') != nil || strlen(path) >= sizeof name - 4){
 		status("404 Not Found");
@@ -493,7 +507,8 @@ struct Session {
 	vlong	rcvd;		/* bytes from the page */
 	vlong	acked;		/* rcvd as last acknowledged */
 	int	done;
-	char	app[33];	/* /rcpu/APP */
+	char	app[33];	/* its origin's app */
+	char	*origin;	/* the page's Origin ("" without): only it may resume */
 	int	st;		/* the state to the user's status process */
 };
 
@@ -509,7 +524,7 @@ hex(char *buf, uchar *p, int n)
 		sprint(buf+2*i, "%02x", p[i]);
 }
 
-/* an app's name: what /rcpu/APP may say */
+/* an app's name */
 static int
 appok(char *a)
 {
@@ -517,6 +532,49 @@ appok(char *a)
 
 	n = strlen(a);
 	return n > 0 && n <= 32 && strspn(a, "abcdefghijklmnopqrstuvwxyz0123456789-") == n;
+}
+
+/* the app of a request: Host APP.MACHINE[:PORT] with /lib/app/APP, else term */
+static char*
+hostapp(char *hdr)
+{
+	static char app[40];
+	char *h, *e, path[64];
+	Dir *d;
+
+	strcpy(app, "term");
+	if((h = header(hdr, "Host")) == nil || (e = strchr(h, '.')) == nil || e - h >= sizeof app)
+		return app;
+	memmove(app, h, e - h);
+	app[e - h] = 0;
+	snprint(path, sizeof path, "/lib/app/%s", app);
+	if(!appok(app) || (d = dirstat(path)) == nil || (d->mode & DMDIR) == 0)
+		strcpy(app, "term");
+	else
+		free(d);
+	return app;
+}
+
+/* whether app's policy (/lib/app/APP/policy: words) has service */
+static int
+allowed(char *app, char *service)
+{
+	char path[64], buf[512], *f[32];
+	int fd, n, i;
+
+	snprint(path, sizeof path, "/lib/app/%s/policy", app);
+	if((fd = open(path, OREAD)) < 0)
+		return 0;
+	n = read(fd, buf, sizeof buf - 1);
+	close(fd);
+	if(n <= 0)
+		return 0;
+	buf[n] = 0;
+	n = tokenize(buf, f, nelem(f));
+	for(i = 0; i < n; i++)
+		if(strcmp(f[i], service) == 0)
+			return 1;
+	return 0;
 }
 
 static void
@@ -719,19 +777,31 @@ sessionup(Session *s)
 	}
 }
 
-/* attachments: "attach TOKEN SRVNAME N" on the ctl pipe */
+/* attachments: "attach TOKEN SRVNAME N ORIGIN" on the ctl pipe (ORIGIN quoted) */
 static void
 sessionctl(Session *s, int ctl)
 {
-	char buf[256], path[128], *f[5];
+	char buf[512], path[128], *f[6];
 	vlong have;
 	int n, fd, first;
 
 	while((n = read(ctl, buf, sizeof buf - 1)) > 0){
 		buf[n] = 0;
-		if(tokenize(buf, f, nelem(f)) != 4 || strcmp(f[0], "attach") != 0
+		if(tokenize(buf, f, nelem(f)) != 5 || strcmp(f[0], "attach") != 0
 		|| strcmp(f[1], s->token) != 0 || strchr(f[2], '/') != nil)
 			continue;
+		if(strcmp(f[4], s->origin) != 0){
+			/* another origin with this session's token: no such session */
+			snprint(path, sizeof path, "/srv/%s", f[2]);
+			fd = open(path, ORDWR);
+			remove(path);
+			if(fd >= 0){
+				sendframeto(fd, 1, (uchar*)"e", 1);
+				sendframeto(fd, 8, nil, 0);
+				close(fd);
+			}
+			continue;
+		}
 		snprint(path, sizeof path, "/srv/%s", f[2]);
 		fd = open(path, ORDWR);
 		remove(path);
@@ -820,9 +890,9 @@ splice(int fd)
 	exits(nil);
 }
 
-/* attach this connection to the session with token, having n bytes of it */
+/* attach this connection, from origin, to the session with token, having n bytes of it */
 static void
-attach(char *token, vlong n)
+attach(char *token, vlong n, char *origin)
 {
 	char name[64], att[80];
 	int ctl, p[2], fd;
@@ -842,7 +912,7 @@ attach(char *token, vlong n)
 	fprint(fd, "%d", p[1]);
 	close(fd);
 	close(p[1]);
-	fprint(ctl, "attach %s %s.%d %lld", token, name, getpid(), n);
+	fprint(ctl, "attach %s %s.%d %lld %q", token, name, getpid(), n, origin);
 	close(ctl);
 	splice(p[0]);
 }
@@ -851,7 +921,7 @@ attach(char *token, vlong n)
 static void
 resume(char *hdr, char *arg)
 {
-	char *f[3], *tok;
+	char *f[3], *tok, *o;
 	int i;
 
 	if(getfields(arg, f, nelem(f), 1, "/") != 2 || strlen(f[0]) != 32)
@@ -860,8 +930,10 @@ resume(char *hdr, char *arg)
 	for(i = 0; i < 32; i++)
 		if(strchr("0123456789abcdef", tok[i]) == nil)
 			reply("404 Not Found");
+	o = header(hdr, "Origin");
+	o = strdup(o != nil ? o : "");
 	wsaccept(hdr);
-	attach(tok, strtoll(f[1], nil, 10));
+	attach(tok, strtoll(f[1], nil, 10), o);
 }
 
 /*
@@ -875,11 +947,14 @@ rcpu(char *hdr, char *app)
 {
 	AuthInfo *ai;
 	uchar rnd[16];
-	char name[64], path[80];
+	char name[64], path[80], *origin, *script;
 	int p[2], c[2], st[2], fd;
 
 	if(pipe(p) < 0 || pipe(c) < 0 || pipe(st) < 0)
 		reply("500 Internal Server Error");
+	origin = header(hdr, "Origin");
+	origin = strdup(origin != nil ? origin : "");
+	script = smprint(appscript, app);
 	wsaccept(hdr);
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
 	case -1:
@@ -905,7 +980,7 @@ rcpu(char *hdr, char *app)
 			statusproc(st[1]);
 		}
 		close(st[1]);
-		execl("/bin/rc", "rc", "-c", rcpuscript, nil);
+		execl("/bin/rc", "rc", "-c", script, nil);
 		exits("exec");
 	}
 	close(p[1]);
@@ -922,6 +997,7 @@ rcpu(char *hdr, char *app)
 	close(c[1]);
 	ses.sfd = p[0];
 	strecpy(ses.app, ses.app+sizeof ses.app, app);
+	ses.origin = origin;
 	ses.att = -1;
 	ses.since = time(0);
 	ses.attached.l = &ses.lk;
@@ -955,14 +1031,15 @@ rcpu(char *hdr, char *app)
 	close(c[0]);
 	close(st[0]);
 	close(fd);
-	attach(ses.token, 0);
+	attach(ses.token, 0, origin);
 }
 
 void
 main(int argc, char **argv)
 {
-	char *hdr, *path, *e, *up, *conn, **s;
+	char *hdr, *path, *e, *up, *conn, **s, *app;
 
+	quotefmtinstall();
 	ARGBEGIN{
 	case 'w':
 		webdir = EARGF(usage());
@@ -1004,12 +1081,18 @@ main(int argc, char **argv)
 		if(up != nil && cistrcmp(up, "websocket") == 0){
 			if(!originok(hdr))
 				reply("403 Forbidden");
-			if(secure && strcmp(path, "/rcpu") == 0)
-				rcpu(hdr, "term");
-			if(secure && strncmp(path, "/rcpu/", 6) == 0 && appok(path+6))
-				rcpu(hdr, path+6);
-			if(secure && strncmp(path, "/resume/", 8) == 0)
-				resume(hdr, path+8);
+			if(secure){
+				/* the origin's app and what its policy allows */
+				app = strdup(hostapp(hdr));
+				if(strcmp(path, "/rcpu") == 0 && allowed(app, "rcpu"))
+					rcpu(hdr, app);
+				if(strncmp(path, "/resume/", 8) == 0 && allowed(app, "rcpu"))
+					resume(hdr, path+8);
+				if(strcmp(path, "/567") == 0 && allowed(app, "rcpu")
+				|| strcmp(path, "/17030") == 0 && allowed(app, "cr"))
+					websocket(hdr, path+1);
+				reply("403 Forbidden");
+			}
 			for(s = services; *s != nil; s++)
 				if(strcmp(path+1, *s) == 0)
 					websocket(hdr, *s);

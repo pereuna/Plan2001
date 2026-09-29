@@ -12,6 +12,9 @@
 #                                   server's ports on the host: rcpu at
 #                                   127.0.0.1:17019, auth at 127.0.0.1:5670
 #                                   (567 is privileged on the host)
+#                                   PLAN2001_LAN=IP: https (17443) on IP too,
+#                                   for the machines of the local network
+#                                   (tools/vm-cpu names APP.IP.nip.io)
 #   tools/vm stop                   quit QEMU; delete the overlay unless KEEP=1
 #   tools/vm status
 #
@@ -61,7 +64,9 @@ start)
 	log=serial-$(date +%Y%m%d-%H%M%S).log
 	ln -sfn "$log" "$vm/serial.log"; : > "$vm/$log"
 	nic=(-nic none)
-	[ -n "$net" ] && nic=(-nic user,hostfwd=tcp:127.0.0.1:17019-:17019,hostfwd=tcp:127.0.0.1:5670-:567,hostfwd=tcp:127.0.0.1:17080-:17080,hostfwd=tcp:127.0.0.1:17443-:17443,hostfwd=tcp:127.0.0.1:17010-:17010)
+	lan=
+	[ -n "$PLAN2001_LAN" ] && lan=,hostfwd=tcp:$PLAN2001_LAN:17443-:17443
+	[ -n "$net" ] && nic=(-nic user,hostfwd=tcp:127.0.0.1:17019-:17019,hostfwd=tcp:127.0.0.1:5670-:567,hostfwd=tcp:127.0.0.1:17080-:17080,hostfwd=tcp:127.0.0.1:17443-:17443,hostfwd=tcp:127.0.0.1:17010-:17010$lan)
 	cd=()
 	[ -n "$iso" ] && cd=(-drive file="$iso",if=none,id=cd,media=cdrom,readonly=on -device ide-cd,drive=cd,bus=ide.3,bootindex=0)
 	[ -n "$scratch" ] && cd=(-drive file="$scratch",if=none,id=sc,format=qcow2 -device ide-hd,drive=sc,bus=ide.3)

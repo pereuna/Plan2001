@@ -6,7 +6,9 @@
  * directory, the current one and the -I ones; the CR has /sys/include and
  * /$objtype/include from crsrv, and compiles in a directory of the same
  * name as this one, so the object is the same as 6c's here.  With no
- * CR in /mnt/compute (mounted from /srv/compute if need be), rcc runs 6c.
+ * CR in /compute - the pool as the process's namespace has it (its app's
+ * namespace file, docs/app-origins.md): none there, none to use - rcc
+ * runs 6c.
  *	NPROC=8 mk 'CC=rcc'
  */
 #include <u.h>
@@ -127,11 +129,7 @@ pooled(void)
 	char buf[128], *f[2];
 	int fd, n;
 
-	if(access("/mnt/compute/status", AEXIST) < 0
-	&& (fd = open("/srv/compute", ORDWR)) >= 0
-	&& mount(fd, -1, "/mnt/compute", MREPL, "") < 0)
-		close(fd);
-	if((fd = open("/mnt/compute/status", OREAD)) < 0)
+	if((fd = open("/compute/status", OREAD)) < 0)
 		return 0;
 	n = read(fd, buf, sizeof buf - 1);
 	close(fd);
@@ -208,8 +206,8 @@ job(char *cwd, char *src)
 	memmove(msg+4+l, b, n);
 	free(b);
 
-	if((fd = open("/mnt/compute/cc", ORDWR)) < 0){
-		fprint(2, "rcc: /mnt/compute/cc: %r\n");
+	if((fd = open("/compute/cc", ORDWR)) < 0){
+		fprint(2, "rcc: /compute/cc: %r\n");
 		return -1;
 	}
 	iounit = 8192;

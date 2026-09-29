@@ -79,7 +79,8 @@ sen ikkunat ja välilehdet sekä käyttöjärjestelmän ikkunanhallinta. Monolit
 on Plan2001:n ajoympäristön rajapinta (execution/runtime ABI) selaimen
 hiekkalaatikolle. Vaiheiden 1–2 drawterm, jossa rio piirtää ikkunansa yhden
 canvasin sisään, on tämän esiaste. Vaihe 3a (tehty) poisti rion: sama drawterm.wasm ajaa
-yhden ohjelman välilehteä kohden (`/app/APP`), ja Plan2001 tuntee istunnot
+yhden ohjelman välilehteä kohden (29.9. alkaen sovellus on origin `APP.kone`,
+`docs/app-origins.md`), ja Plan2001 tuntee istunnot
 (`apps`; `docs/roadmap.md`). Alla oleva on vaiheen 3b tavoite.
 
 ### Yksi välilehti = yksi Plan2001-prosessi
@@ -263,6 +264,11 @@ Perusarkkitehtuuri muuttaa arviota (28.9.):
   (`cpu-server-design.md`) koskee myös ohjelman tallentamaa tilaa.
 - **C** on edelleen mahdollinen välivaihe (istuntokohtainen nimiavaruus,
   palvelimen valitsema ohjelma) B:n rinnalla.
+
+Turvamalli (29.9.): sovellus on selaimen origin, ja palvelin päättää sen
+Host-headerista; jokainen välilehti saa sovelluksen nimiavaruuspohjasta oman
+kloonin (`docs/app-origins.md`). Tämä korvaa ylläolevan "sama origin +
+istunnon capability" -mallin.
 
 Suositus (Claude): B, ensimmäisenä askeleena CR-rajapinta
 (`cpu-server-design.md`, avoimet kysymykset) ja yksinkertainen työ selaimen
