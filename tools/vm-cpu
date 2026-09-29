@@ -97,6 +97,9 @@ webterm() {
 	run9 -t 30 "test -d /global/compute || { mount -c /srv/boot /n/croot && mkdir -p /n/croot/global/compute /n/croot/compute; unmount /n/croot }"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s crsrv /cfg/cirno/cpustart || echo crsrv >>/cfg/cirno/cpustart"
 	run9 -t 30 "grep -s /global/compute /cfg/cirno/cpustart || echo 'mount -c /srv/compute /global/compute' >>/cfg/cirno/cpustart"
+	# on another machine or network (the cloud, docs/cloud.md) /lib/ndb has
+	# no entry for the MAC and cpurc sets no address: DHCP
+	run9 -t 30 "grep -s ipconfig /cfg/cirno/cpustart || echo 'if(! grep u /net/ipselftab | grep -sv ''^(127.0.0.1|::1)'') ip/ipconfig -h \$sysname ether /net/ether0' >>/cfg/cirno/cpustart"
 	echo "vm-cpu: apps, no rio"
 	run9 -t 30 "rm -rf /rc/bin/app /lib/app && mkdir -p /lib/app && dircp /tmp/app /lib/app && chmod 775 /lib/app/* && chmod 664 /lib/app/*/* && chmod 775 /lib/app/*/image >[2]/dev/null; cp /tmp/apps /rc/bin/apps && chmod 775 /rc/bin/apps && rm -f /amd64/bin/rio"
 	o=
