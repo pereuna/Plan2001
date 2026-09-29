@@ -106,12 +106,16 @@ Chrome ohjaa `*.localhost`-nimet loopbackiin ilman DNS:ää:
 
 ## Eteneminen
 
-Haara `origin-apps` (29.9.): kohdat 1–8 tehty, `monolith/tools/test-apps`
+Haara `origin-apps` (29.9.): kohdat 1–10 tehty, `monolith/tools/test-apps`
 PASS (myös `--drop`) ja `monolith/tools/test-compute` PASS compute-originista.
 Toteutus: webterm (`hostapp`, `allowed`, oma rcpu-skripti `appscript`,
 istunnon `origin`), sovelluspohjat `lib/app/`, `tools/vm-cpu` (asennus,
 `*.localhost`-nimet varmenteeseen). Testi tarkistaa lisäksi, että sivu, joka
 pyytää drawtermilla `-c 'sleep 777'`, saa silti originin sovelluksen.
+Kohdat 9–10: `crsrv` on palvelimen nimiavaruudessa `/global/compute`
+(`cpustart`), ja termin `namespace` liittää sen `/compute`:ksi; kellolla
+sitä ei ole (testi katsoo prosessin `/proc/N/ns`:stä). `rcc` käyttää
+`/compute/cc`:tä eikä liitä poolia itse.
 
 1. `*.kone` → sama webterm
 2. Host määrää sovelluksen

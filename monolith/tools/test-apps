@@ -256,6 +256,12 @@ def main():
 		shot(clock, 'clock')
 		waitapps([('term', 'attached'), ('clock', 'attached')], 30, 'both tabs')
 
+		# the pool is in term's namespace (/lib/app/term/namespace), not the clock's
+		ns = run9("for(p in `{ps | grep ' clock$' | awk '{print $2}'}) grep -c ' /compute' /proc/$p/ns")
+		if not ns.split() or any(n != '0' for n in ns.split() if n.isdigit()):
+			raise SystemExit(f'test-apps: the clock has /compute: {ns!r}')
+		print('test-apps: no /compute in the clock\'s namespace')
+
 		# the origins apart: storage, the session token, the policies
 		idb = ("new Promise(ok => { const r = indexedDB.open('monolith-test', 1); "
 			"r.onupgradeneeded = () => r.result.createObjectStore('s'); "

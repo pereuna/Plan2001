@@ -85,7 +85,11 @@ webterm() {
 	run9 -t 120 "@{cd /tmp && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6}"
 	echo "vm-cpu: crsrv, rcc"
 	run9 -t 120 "@{cd /tmp && for(p in crsrv rcc){ 6c -FTVw \$p.c && 6l -o /amd64/bin/\$p \$p.6 || exit } }"
+	# / is a union of the disk's root, mounted without create: the
+	# directories are made through a mount that allows it
+	run9 -t 30 "test -d /global/compute || { mount -c /srv/boot /n/croot && mkdir -p /n/croot/global/compute /n/croot/compute; unmount /n/croot }"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s crsrv /cfg/cirno/cpustart || echo crsrv >>/cfg/cirno/cpustart"
+	run9 -t 30 "grep -s /global/compute /cfg/cirno/cpustart || echo 'mount -c /srv/compute /global/compute' >>/cfg/cirno/cpustart"
 	echo "vm-cpu: apps, no rio"
 	run9 -t 30 "rm -rf /rc/bin/app /lib/app && mkdir -p /lib/app && dircp /tmp/app /lib/app && chmod 775 /lib/app/* && chmod 664 /lib/app/*/* && chmod 775 /lib/app/*/image >[2]/dev/null; cp /tmp/apps /rc/bin/apps && chmod 775 /rc/bin/apps && rm -f /amd64/bin/rio"
 	o=

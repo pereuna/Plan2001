@@ -158,7 +158,8 @@ selaimen kautta.
   `6c.wasm` 218 kt). Välilehti on ohimenevä: kun se sulkeutuu, CR katoaa.
 - **CPU-palvelin:** `crsrv` (`sys/src/cmd/crsrv.c`) kuuntelee CR:iä
   (tcp 17030; selaimen yhteys tulee webtermin WebSocketin `/17030` kautta) ja
-  tarjoaa poolin nimiavaruuteen: `/srv/compute` → `/mnt/compute`:
+  tarjoaa poolin nimiavaruuteen: `/srv/compute` → palvelimen `/global/compute`
+  ja sovelluksen nimiavaruudessa `/compute` (`lib/app/term/namespace`):
   `status`, `cc` (työt) ja jokaiselle CR:lle `N/{type,api,workers,owner,state,jobs}`.
   CR saa liittyessään palvelimen otsikot (`/sys/include`, `/amd64/include`).
 - **Käyttäjä:** `rcc` (`sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk

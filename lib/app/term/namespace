@@ -1,2 +1,4 @@
 # what the app's processes see, added to the user's namespace
 # (docs/app-origins.md); sourced by rc before the image
+# the compute pool: rcc compiles there
+test -e /srv/compute && mount -c /srv/compute /compute

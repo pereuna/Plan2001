@@ -8,7 +8,8 @@ Opens TABS headless Chromium tabs on Plan2001's cr.html
 (https://compute.localhost:17443/cr.html, the compute origin), each a
 compute resource (CR) with
 WORKERS web workers running 6c.wasm, and waits until crsrv lists them in
-/mnt/compute.  Then on the CPU VM's console it builds acme twice in the
+/global/compute.  Then on the CPU VM's console, in the term app's
+namespace (/lib/app/term/namespace: the pool on /compute), it builds acme twice in the
 same directory: with Plan 9's own 6c, then with NPROC=12 mk CC=rcc, where
 each compile is a job for the pool.  Every object and the linked 6.out
 must be the same, and the jobs must have gone to more than one CR.
@@ -29,7 +30,8 @@ def run9(cmd, t=300):
 
 BUILD = r'''
 rfork e
-mount /srv/compute /mnt/compute
+test -e /global/compute/status || mount -c /srv/compute /global/compute
+. /lib/app/term/namespace
 rm -rf /tmp/ctest && mkdir -p /tmp/ctest/ref /tmp/ctest/acme && dircp /sys/src/cmd/acme /tmp/ctest/acme
 cd /tmp/ctest/acme && mk clean >/dev/null
 t0=`{date -n}
@@ -44,8 +46,8 @@ n=0; bad=0
 for(f in ../ref/*){ n=`{echo $n+1 | hoc}; cmp -s $f `{basename $f} || { bad=`{echo $bad+1 | hoc}; echo DIFF `{basename $f} } }
 echo COMPARED $n DIFFERENT $bad
 echo TIME local `{echo $t1-$t0 | hoc} pool `{echo $t3-$t2 | hoc}
-for(d in /mnt/compute/[0-9]*) echo CR `{basename $d} `{cat $d/owner} jobs `{cat $d/jobs}
-cat /mnt/compute/status
+for(d in /global/compute/[0-9]*) echo CR `{basename $d} `{cat $d/owner} jobs `{cat $d/jobs}
+cat /global/compute/status
 '''
 
 
@@ -71,7 +73,7 @@ def main():
 				f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT'))
 		end = time.time() + 60
 		while time.time() < end:
-			st = run9('mount /srv/compute /mnt/compute; cat /mnt/compute/status', 30)
+			st = run9('test -e /global/compute/status || mount -c /srv/compute /global/compute; cat /global/compute/status', 30)
 			if f'crs {tabs} ' in st:
 				break
 			time.sleep(2)
