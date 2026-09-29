@@ -15,6 +15,11 @@
 #                                   PLAN2001_LAN=IP: https (17443) on IP too,
 #                                   for the machines of the local network
 #                                   (tools/vm-cpu names APP.IP.nip.io)
+#   tools/vm start ... --oci        the hardware of an Oracle Cloud
+#                                   VM.Standard.E2.1.Micro instead: 1 GB,
+#                                   the disk on virtio-scsi, legacy
+#                                   virtio-net with its MAC and subnet,
+#                                   no in.img/out.img
 #   tools/vm stop                   quit QEMU; delete the overlay unless KEEP=1
 #   tools/vm status
 #
@@ -38,7 +43,7 @@ running() { [ -f "$vm/qemu.pid" ] && kill -0 "$(cat "$vm/qemu.pid")" 2>/dev/null
 
 case $1 in
 start)
-	shift; disk= iso= scratch= usb= net=
+	shift; disk= iso= scratch= usb= net= oci=
 	while [ $# -gt 0 ]; do
 		case $1 in
 		--disk) disk=$2; shift 2 ;;
@@ -46,6 +51,7 @@ start)
 		--scratch) scratch=$2; shift 2 ;;
 		--usb) usb=$2; shift 2 ;;
 		--net) net=1; shift ;;
+		--oci) oci=1; shift ;;
 		*) echo "usage: tools/vm start [--disk FILE] [--iso ISO | --scratch FILE] [--usb IMG] [--net]" >&2; exit 2 ;;
 		esac
 	done
@@ -72,14 +78,26 @@ start)
 	[ -n "$scratch" ] && cd=(-drive file="$scratch",if=none,id=sc,format=qcow2 -device ide-hd,drive=sc,bus=ide.3)
 	[ -n "$usb" ] && cd=("${cd[@]}" -device qemu-xhci,id=xhci -drive file="$usb",if=none,id=usb,format=raw \
 		-device usb-storage,bus=xhci.0,drive=usb,bootindex=0)
-	qemu-system-x86_64 -name plan2001-vm -accel kvm -cpu host -machine q35 -m 2048 -smp 2 \
+	disks=(-drive file="$disk",if=none,id=hd,format=qcow2${VM_DISK_BPS:+,throttling.bps-total=$VM_DISK_BPS} -device ide-hd,drive=hd,bus=ide.0,bootindex=1
+		-drive file="$root/build/in.img",if=none,id=in,format=raw -device ide-hd,drive=in,bus=ide.1
+		-drive file="$root/build/out.img",if=none,id=out,format=raw -device ide-hd,drive=out,bus=ide.2)
+	mem=2048
+	if [ -n "$oci" ]; then
+		mem=1024
+		disks=(-device virtio-scsi-pci,id=scsi -drive file="$disk",if=none,id=hd,format=qcow2
+			-device scsi-hd,drive=hd,bus=scsi.0,lun=${OCI_LUN:-1},bootindex=1)
+		# and its network: its MAC (OCI_MAC), 10.0.0.0/24, DHCP from .223
+		fwd=${nic[1]#user}
+		[ -z "$net" ] && fwd=
+		nic=(-netdev "user,id=n0,net=10.0.0.0/24,host=10.0.0.1,dhcpstart=10.0.0.223$fwd"
+			-device virtio-net-pci,netdev=n0,disable-modern=on,mac=${OCI_MAC:-02:00:17:00:36:f7})
+	fi
+	qemu-system-x86_64 -name plan2001-vm -accel kvm -cpu host -machine q35 -m $mem -smp 2 \
 		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" -drive if=pflash,format=raw,file="$vm/vars.fd" \
 		-display none -vga none "${nic[@]}" -rtc base=utc \
 		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 		-monitor unix:"$vm/mon.sock",server=on,wait=off \
-		-drive file="$disk",if=none,id=hd,format=qcow2${VM_DISK_BPS:+,throttling.bps-total=$VM_DISK_BPS} -device ide-hd,drive=hd,bus=ide.0,bootindex=1 \
-		-drive file="$root/build/in.img",if=none,id=in,format=raw -device ide-hd,drive=in,bus=ide.1 \
-		-drive file="$root/build/out.img",if=none,id=out,format=raw -device ide-hd,drive=out,bus=ide.2 \
+		"${disks[@]}" \
 		"${cd[@]}" -daemonize -pidfile "$vm/qemu.pid"
 	rm -f "$vm/serial.in"; mkfifo "$vm/serial.in"
 	setsid python3 "$here/9run" --relay "$vm" </dev/null >/dev/null 2>&1 &
