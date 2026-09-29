@@ -23,7 +23,10 @@
 #                       https://.../plan2001-ca.crt; openssl);
 #                       CPU_CERT_SANS names the machine, default
 #                       127.0.0.1, localhost and APP.localhost for the apps
-#                       in lib/app (Chrome sends *.localhost to loopback)
+#                       in lib/app (Chrome sends *.localhost to loopback);
+#                       with PLAN2001_LAN=IP (tools/vm) also IP and
+#                       APP.IP.nip.io, for the local network (nip.io
+#                       resolves them to IP)
 #                       WebSockets only from the pages' own origin (17443)
 #                       or WEBTERM_ORIGINS (17080; default the tools/serve
 #                       and test pages on loopback)
@@ -56,6 +59,10 @@ certs() {
 	if [ -z "$sans" ]; then
 		sans=IP:127.0.0.1,DNS:localhost
 		for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").localhost; done
+		if [ -n "$PLAN2001_LAN" ]; then
+			sans=$sans,IP:$PLAN2001_LAN
+			for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$PLAN2001_LAN.nip.io; done
+		fi
 	fi
 	mkdir -p "$ca"; chmod 700 "$ca"
 	if [ ! -s "$ca/ca.key" ]; then

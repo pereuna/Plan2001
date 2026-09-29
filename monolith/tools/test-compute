@@ -68,7 +68,7 @@ def main():
 			except Exception:
 				time.sleep(0.2)
 		for i in range(tabs):
-			url = f'https://compute.localhost:17443/cr.html?workers={workers}'
+			url = f'https://compute.localhost:17443/cr.html?workers={workers}&nolock'  # as if separate machines
 			urllib.request.urlopen(urllib.request.Request(
 				f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT'))
 		end = time.time() + 60

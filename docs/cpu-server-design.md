@@ -152,6 +152,9 @@ selaimen kautta.
 
 - **CR selaimessa:** `https://compute.kone:17443/cr.html` (Monolith,
   `monolith/web/cr.*`; laskentapoolin origin, `docs/app-origins.md`).
+  Selain tarjoaa laitteensa kerran: saman selaimen compute-välilehdistä vain
+  lukon (Web Locks) haltija on CR, muut odottavat. Workereita on oletuksena
+  laitteen säikeet miinus yksi, joten yksi jää käyttäjälle (`?workers=N`).
   Välilehti liittyy pooliin, ja sen web workerit ajavat 9frontin C-kääntäjää
   `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
   libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,

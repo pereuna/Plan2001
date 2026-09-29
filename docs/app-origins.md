@@ -104,6 +104,13 @@ Chrome ohjaa `*.localhost`-nimet loopbackiin ilman DNS:ää:
 `compute.localhost`. Varmenteeseen nimet luetellaan erikseen
 (`CPU_CERT_SANS`; `*.localhost`-jokerimerkkiä selaimet eivät hyväksy).
 
+Lähiverkossa: `PLAN2001_LAN=IP` (`tools/vm`, `tools/vm-cpu`, `tools/deploy`)
+avaa https-portin 17443 myös osoitteeseen IP ja nimeää sovellukset
+`APP.IP.nip.io` (nip.io:n nimipalvelu palauttaa IP:n), esim.
+`https://compute.10.80.73.196.nip.io:17443/cr.html`. Muiden koneiden
+selaimet luottavat kehitys-CA:han (`https://…/plan2001-ca.crt`) tai
+hyväksyvät varoituksen kerran kutakin originia kohden.
+
 ## Eteneminen
 
 Haara `origin-apps` (29.9.): kohdat 1–10 tehty, `monolith/tools/test-apps`
