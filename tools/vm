@@ -85,7 +85,7 @@ start)
 	if [ -n "$oci" ]; then
 		mem=1024
 		disks=(-device virtio-scsi-pci,id=scsi -drive file="$disk",if=none,id=hd,format=qcow2
-			-device scsi-hd,drive=hd,bus=scsi.0,bootindex=1)
+			-device scsi-hd,drive=hd,bus=scsi.0,lun=${OCI_LUN:-1},bootindex=1)
 		# and its network: its MAC (OCI_MAC), 10.0.0.0/24, DHCP from .223
 		fwd=${nic[1]#user}
 		[ -z "$net" ] && fwd=

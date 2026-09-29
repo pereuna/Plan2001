@@ -26,7 +26,8 @@
 #                       in lib/app (Chrome sends *.localhost to loopback);
 #                       with PLAN2001_LAN=IP (tools/vm) also IP and
 #                       APP.IP.nip.io, for the local network (nip.io
-#                       resolves them to IP)
+#                       resolves them to IP); PLAN2001_PUBLIC=IP the same
+#                       for a public address (docs/cloud.md)
 #                       WebSockets only from the pages' own origin (17443)
 #                       or WEBTERM_ORIGINS (17080; default the tools/serve
 #                       and test pages on loopback)
@@ -59,10 +60,12 @@ certs() {
 	if [ -z "$sans" ]; then
 		sans=IP:127.0.0.1,DNS:localhost
 		for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").localhost; done
-		if [ -n "$PLAN2001_LAN" ]; then
-			sans=$sans,IP:$PLAN2001_LAN
-			for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$PLAN2001_LAN.nip.io; done
-		fi
+		# the local network's address (PLAN2001_LAN) and a public one
+		# (PLAN2001_PUBLIC: the cloud, docs/cloud.md)
+		for ip in $PLAN2001_LAN $PLAN2001_PUBLIC; do
+			sans=$sans,IP:$ip
+			for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$ip.nip.io; done
+		done
 	fi
 	mkdir -p "$ca"; chmod 700 "$ca"
 	if [ ! -s "$ca/ca.key" ]; then

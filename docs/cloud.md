@@ -49,6 +49,23 @@ sellaisenaan, ja mitä Plan2001:n pitää siksi olla.
 6. **Tiedostojen siirto koneelle:** `in.img`/`out.img` eivät ole pilvessä;
    harjoituksessa siirto kulki http:llä (`hget` → sillin 10.0.2.2) ja vaati
    ensin `webfs`:n.
+8. **OCI:n käynnistyslevy on LUN 1:ssä.** QEMU/KVM vastaa LUN 0:ssa
+   paikkamerkillä "QEMU TARGET", ja 9frontin `sdvirtio` käytti aina LUN 0:aa
+   (`scsiverify`: `r->lun = 0; /* ??? */`): UEFI löysi levyn ja latasi
+   kernelin, mutta kernel ei nähnyt osioita (`/dev/sd00/fscache: file does
+   not exist`). Korjaus: `sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
+   ensimmäisen LUNin (0–7), jonka INQUIRY sanoo laitteen olevan kytketty.
+   Harjoitus: `tools/vm … --oci` laittaa levyn LUN 1:een (`OCI_LUN`).
+9. **Loaderin ja kernelin on oltava pari.** CPU-palvelin oli 9frontin
+   asentama (9frontin loader ja kernel); Plan2001:n kernel vaatii
+   Plan2001:n loaderin (BootInfo): väärä pari käynnistyy silmukkaan.
+   Pilvikuvassa on nyt Plan2001:n molemmat (`9fat`: `9pc64`,
+   `EFI/BOOT/BOOTX64.EFI`; ESP-osio on tyhjä).
+10. **Ensimmäinen siirto:** kuva kirjoitettiin Ubuntun päälle
+    (`dd` ssh:n yli), ja Plan2001 käynnistyi OCI:ssa sarjakonsoliin asti,
+    mutta ilman levyä (kohta 8). Ubuntu on poissa, joten uutta kuvaa ei voi
+    kirjoittaa samalla tavalla: tarvitaan käynnistyslevyn vaihto Ubuntuun
+    (OCI) ja uusi siirto.
 7. **Pääsynvalvonta:** Plan2001:ssä ei ole WireGuardia; pilvessä suoja on
    pilven palomuuri (security list) ja TLS. Laskentapoolia ei avata
    julkisesti ennen CR:ien tunnistautumista (`docs/app-origins.md`, kohta 11).
