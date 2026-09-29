@@ -4,14 +4,15 @@
 // jobs (job), runs them in web workers with 6c.wasm (cr-worker.js) and
 // sends the results (result).  Messages: a 4-byte big-endian length, a
 // header line (tab-separated fields), a body of files (name, NUL, 4-byte
-// length, data).  ?workers=N (default the CPU's threads), ?owner=NAME,
-// #key=KEY (crsrv -k).
+// length, data).  ?workers=N (default the CPU's threads), #key=KEY (crsrv
+// -k).  The page is the compute origin's (compute.MACHINE: policy cr,
+// docs/app-origins.md).  Its owner is not the browser's to say: "-" until
+// CRs authenticate.
 'use strict';
 (() => {
 const q = new URLSearchParams(location.search);
 const frag = new URLSearchParams(location.hash.slice(1));
 const key = frag.get('key') || '';
-const owner = (q.get('owner') || 'browser').replace(/\s/g, '_');
 const nworkers = Math.max(1, Math.min(64, +q.get('workers') || navigator.hardwareConcurrency || 4));
 const $ = id => document.getElementById(id);
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -114,7 +115,7 @@ function connect() {
 	ws.binaryType = 'arraybuffer';
 	buf = new Uint8Array(0);
 	ws.onopen = () => {
-		send(msg(`hello\t${key}\tbrowser-cpu\twasm\t${nworkers}\t${owner}`));
+		send(msg(`hello\t${key}\tbrowser-cpu\twasm\t${nworkers}\t-`));
 		state('in the pool', true);
 		log(`connected, ${nworkers} workers`);
 	};

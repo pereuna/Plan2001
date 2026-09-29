@@ -7,6 +7,8 @@
 
 Tämä on Plan2001:n oma arkkitehtoninen ajatus, ei vain modernisoitu Plan 9.
 Se on ratkaistava ennen Monolithin vaihetta 3b (`monolith/docs/architecture.md`).
+Selainsovellusten turvamalli (origin = sovellus, nimiavaruuspohjat,
+`/global/compute` ja `/compute`): `docs/app-origins.md`.
 
 ## Käänne Plan 9:stä
 
@@ -148,7 +150,8 @@ CPU-palvelin riittävät koordinointiin.
 Haara `compute-pool`. Tavoite: käännöstyö jaetaan muutamalle asiakaskoneelle
 selaimen kautta.
 
-- **CR selaimessa:** `https://kone:17443/cr.html` (Monolith, `monolith/web/cr.*`).
+- **CR selaimessa:** `https://compute.kone:17443/cr.html` (Monolith,
+  `monolith/web/cr.*`; laskentapoolin origin, `docs/app-origins.md`).
   Välilehti liittyy pooliin, ja sen web workerit ajavat 9frontin C-kääntäjää
   `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
   libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,

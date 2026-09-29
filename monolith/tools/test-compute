@@ -5,7 +5,8 @@ spread over browser tabs.
   tools/test-compute [TABS [WORKERS]]     (default 3 tabs, 2 workers each)
 
 Opens TABS headless Chromium tabs on Plan2001's cr.html
-(https://127.0.0.1:17443/cr.html), each a compute resource (CR) with
+(https://compute.localhost:17443/cr.html, the compute origin), each a
+compute resource (CR) with
 WORKERS web workers running 6c.wasm, and waits until crsrv lists them in
 /mnt/compute.  Then on the CPU VM's console it builds acme twice in the
 same directory: with Plan 9's own 6c, then with NPROC=12 mk CC=rcc, where
@@ -65,7 +66,7 @@ def main():
 			except Exception:
 				time.sleep(0.2)
 		for i in range(tabs):
-			url = f'https://127.0.0.1:17443/cr.html?workers={workers}&owner=tab{i+1}'
+			url = f'https://compute.localhost:17443/cr.html?workers={workers}'
 			urllib.request.urlopen(urllib.request.Request(
 				f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT'))
 		end = time.time() + 60

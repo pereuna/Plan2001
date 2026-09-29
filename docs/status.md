@@ -764,3 +764,13 @@ kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
   ja `/rc/bin/apps` listaa ne. `tools/vm-cpu --update` asentaa nämä ja
   poistaa rion CPU-VM:stä. Monolithin `tools/test-apps` (myös `--drop`,
   `--mobile`) PASS; tarkemmin `monolith/docs/roadmap.md`.
+
+## Sovellus on origin (29.9.)
+
+`docs/app-origins.md`: webterm päättää sovelluksen Host-headerista
+(`APP.kone` → `/lib/app/APP/{image,namespace,policy}`) ja ajaa sen omalla
+rcpu-skriptillään (asiakkaan skripti luetaan ja ohitetaan). Policy rajaa
+originin WebSocketit (rcpu, cr), ja istunnon voi jatkaa vain sen omasta
+originista. `/app/APP`, `?app=` ja `?owner=` poistuivat. `tools/vm-cpu`
+asentaa `/lib/app`:n ja lisää varmenteeseen `APP.localhost`-nimet.
+Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.

@@ -56,16 +56,13 @@ let pass = frag.get('pass');
 let user = q.get('user') || 'glenda';
 if (location.hash)
 	history.replaceState(null, '', location.pathname + location.search);
-// the tab's program (docs/architecture.md, phase 3): /app/APP or ?app=APP,
-// Plan2001's /bin/app/APP, drawing on the whole tab; default term, rc on
-// drawterm's console
-const appm = location.pathname.match(/\/app\/([a-z0-9-]{1,32})$/);
-const app = appm ? appm[1] : /^[a-z0-9-]{1,32}$/.test(q.get('app') || '') ? q.get('app') : 'term';
+// the tab's program is the origin's app (docs/app-origins.md): Plan2001
+// decides it from the host name (APP.MACHINE) and runs /lib/app/APP; the
+// page only names the tab
+const app = /^[a-z][a-z0-9-]*\./.test(location.hostname) ? location.hostname.split('.')[0] : 'term';
 document.title = app + ' · Plan2001';
 const args = q.getAll('a').length ? q.getAll('a')
 	: ['-h', 'plan2001', '-a', 'tcp!plan2001!567', '-u', user];
-if (!q.getAll('a').length && app !== 'term')
-	args.push('-c', 'app/' + app);
 const textonly = args.includes('-G');
 const touchui = q.has('touch') ? q.get('touch') !== '0' : matchMedia('(pointer: coarse)').matches;
 const box = document.getElementById('box');
@@ -241,7 +238,6 @@ window.Module = {
 	preRun: [m => {
 		if (pass) m.ENV.PASS = pass;
 		m.ENV.USER = user;
-		m.ENV.MONOLITH_APP = app;
 		// from Plan2001's webterm over https: its wss on the same origin;
 		// from tools/serve: its relay on the next port
 		m.ENV.MONOLITH_WS = q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
@@ -252,7 +248,7 @@ window.Module = {
 	onExit: code => { setstatus('drawterm exited (' + code + ')'); console.log('MONOLITH-EXIT ' + code); },
 };
 // for tests driving the page (tools/test-rio)
-window.monolith = { push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, dropnet: () => mo.dropnet() };
+window.monolith = { push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, get tokens() { return mo.tokens; }, dropnet: () => mo.dropnet() };
 // ?dropevery=MS (tests): drop the connections every MS ms, as a phone does
 if (+q.get('dropevery') > 0)
 	setInterval(() => { if (mo.ready) mo.dropnet(); }, +q.get('dropevery'));

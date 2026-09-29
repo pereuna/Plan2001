@@ -30,7 +30,7 @@ function Monolith(opts) {
 	class Link {
 		constructor(conn, gen, url) {
 			this.conn = conn; this.gen = gen;
-			this.origin = url.replace(/\/rcpu(\/[a-z0-9-]+)?$/, '');
+			this.origin = url.replace(/\/rcpu$/, '');
 			this.token = null;
 			this.rcvd = 0; this.acked = 0;	/* from the session */
 			this.sent = []; this.sentbase = 0;	/* not acknowledged: chunks from sentbase */
@@ -139,6 +139,8 @@ function Monolith(opts) {
 		get ready() { return wasm !== null; },
 		get flushes() { return flushes; },
 		get resumes() { return resumes; },
+		/* tests: the resumable sessions' tokens */
+		get tokens() { return Object.values(socks).filter(l => l instanceof Link && l.token).map(l => l.token); },
 
 		/* from the page: mouse (1: x, y, buttons), key (2: rune, down), resize (3: w, h) */
 		input(type, a, b, c) {
@@ -165,9 +167,9 @@ function Monolith(opts) {
 
 		/* drawterm's connections: one WebSocket each; gen tells an old
 		   socket's late events from the new one's in the same slot.  rcpu
-		   over wss (url .../rcpu or .../rcpu/APP) is a resumable link (below). */
+		   over wss (url .../rcpu) is a resumable link (below). */
 		netopen(conn, gen, url) {
-			if (/^wss:.*\/rcpu(\/[a-z0-9-]+)?$/.test(url)) {
+			if (/^wss:.*\/rcpu$/.test(url)) {
 				socks[conn] = new Link(conn, gen, url);
 				return;
 			}
