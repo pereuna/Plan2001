@@ -8,8 +8,8 @@ Chromium opens https://HOST/ (the term app, drawterm in the page), logs in
 as glenda with ~/.cache/plan2001/cpu.pass and types the command with its
 output going to /sys/lib/monolith/o-NONCE.txt, which webterm serves; this
 reads it over https, prints it and removes it.  Anything the command
-prints is on the web for those seconds: print no secrets.  CA:
-~/.cache/plan2001/ca/ca.pem.  Exit status: the command's ('' is 0).
+prints is on the web for those seconds: print no secrets.  CAs: the
+system's and ~/.cache/plan2001/ca/ca.pem.  Exit status: the command's ('' is 0).
 """
 import base64, json, os, secrets, ssl, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
@@ -37,7 +37,8 @@ def main():
 	if len(sys.argv) != 3:
 		raise SystemExit('usage: tools/term HOST command')
 	host, cmd = sys.argv[1], sys.argv[2]
-	ctx = ssl.create_default_context(cafile=os.path.join(cache, 'ca/ca.pem'))
+	ctx = ssl.create_default_context()	# the system's CAs (Let's Encrypt) and the development CA
+	ctx.load_verify_locations(os.path.join(cache, 'ca/ca.pem'))
 	nonce = secrets.token_hex(12)
 	out = f'/sys/lib/monolith/o-{nonce}.txt'
 	spki = subprocess.run([os.path.join(root, 'tools/spki')], capture_output=True, text=True).stdout.strip()
