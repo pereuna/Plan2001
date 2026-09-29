@@ -109,5 +109,23 @@ Harjoitus sillissä (`tools/vm start --disk build/oci/cpu-oci.qcow2 --net
   (`test-compute`in käännösosa siirtää skriptinsä `out.img`:llä, jota
   OCI-tilassa ei ole: testin rajoitus).
 
-Seuraavaksi siirtotavan valinta: custom image (Object Storage → import)
-vai käynnistyslevyn uudelleenkirjoitus Ubuntusta, ja pilven palomuuri.
+**Pilvessä (29.9.):** kuva kirjoitettiin Ubuntun päälle
+(`dd if=cpu-oci.raw | gzip -1 | ssh … 'gunzip | dd of=/dev/sda'`, noin
+10 min; ensimmäinen yritys ilman LUN-korjausta, kohta 8, sitten OCI:n
+käynnistyslevyn vaihto takaisin Ubuntuun ja uusi kirjoitus). Plan2001
+käynnistyy OCI:ssa ilman käsityötä: `https://APP.82.70.55.84.nip.io:17443/`
+vastaa, `term`-origin avaa rcpu:n muttei poolia ja `compute`-origin
+päinvastoin; rcpu (17019), auth (567), 17080, 17010 ja 22 eivät näy
+internetiin (security list: vain 17443). Laskentapooli: `crsrv -k`
+(avain `~/.cache/plan2001/cr.key`, sivulle `#key=`).
+
+## Seuraavaksi: asennus, ei levykuva
+
+20 Gt:n levykuva (2 Gt dataa) on kiertotie. Tavoite: pieni asennusmedia
+käynnistyy pilvessä ja asentaa Plan2001:n samalle levylle ilman
+interaktiota, ja CPU-palvelimen asetukset (auth, käyttäjät, webterm,
+crsrv, `/lib/app`, varmenne) ovat osa asennusta eivätkä sillin
+`tools/vm-cpu`:ta. Esteet nyt: asennin asentaa asennusosajoukon, ei
+CPU-palvelinta; pilvikoneessa on yksi levy (asennus omalle medialle on
+auki); `remote`-etäasennus (portti 17010, lyhyt avain) on lähiverkkoa
+varten, ei internetiin.
