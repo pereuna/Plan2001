@@ -129,3 +129,35 @@ crsrv, `/lib/app`, varmenne) ovat osa asennusta eivätkä sillin
 CPU-palvelinta; pilvikoneessa on yksi levy (asennus omalle medialle on
 auki); `remote`-etäasennus (portti 17010, lyhyt avain) on lähiverkkoa
 varten, ei internetiin.
+
+## Oma verkkotunnus: cpu.plan2001.com (29.9.)
+
+`plan2001.com` on rekisteröity Cloudflaressa, joten sen nimipalvelu on
+Cloudflarella. `cpu.plan2001.com` on delegoitu Plan2001-palvelimelle, joka
+vastaa omasta vyöhykkeestään ja hakee varmenteensa itse:
+
+- **Cloudflare:** `ns1 A 82.70.55.84` (DNS only) ja `cpu NS ns1.plan2001.com`
+  (nimipalvelimen nimi vyöhykkeen ulkopuolella: Cloudflare ei salli
+  tietueita delegoidun aliverkkotunnuksen sisällä).
+- **OCI:n security list:** TCP 443, TCP ja UDP 53 (ja 17443).
+- **Plan2001 (`/lib/ndb/local`):** `dom=cpu.plan2001.com soa=` (ns, mb,
+  `caa=letsencrypt.org`) ja `APP.cpu.plan2001.com ip=82.70.55.84`
+  sovelluksille. `/cfg/cirno/cpurc`: `ndb/dns -rsL` - vastaa julkisesti
+  omasta vyöhykkeestään, rekursio vain paikalliselle verkolle (ulkopuolisen
+  kysely `google.com`: REFUSED).
+- **Varmenne:** `auth/acmed -t dns` (Let's Encrypt, DNS-haaste
+  `/lib/ndb/dnschallenge`:n kautta): jokerivarmenne `*.cpu.plan2001.com`,
+  voimassa 28.12.2026 asti. Tili `hostmaster@plan2001.com`
+  (`/sys/lib/tls/acmed/`), TLS-avain `/sys/lib/tls/cpu.plan2001.com.key`
+  (factotumiin `cpustart`issa).
+- **Portti 443:** `/rc/bin/service/tcp443`: `tlssrv -c
+  /sys/lib/tls/acmed/cpu.plan2001.com.crt /bin/webterm -s -w
+  /sys/lib/monolith`. Osoitteet: `https://term.cpu.plan2001.com/`,
+  `acme.`, `clock.`, `compute.` … ilman varmennevaroituksia.
+- **Hallinta:** pilvipalvelimeen ei ole ssh:ta; `monolith/tools/term HOST
+  'komento'` ajaa komennon term-sovelluksessa (headless Chromium) ja lukee
+  tulosteen https:llä.
+
+Kesken: varmenteen uusiminen ennen 28.12.2026 (`acmed` ajastettuna,
+esim. `cron`), ja nämä asetukset osaksi asennusta (nyt tehty käsin
+palvelimella, kirjattu tähän).
