@@ -57,10 +57,14 @@ webtermin Origin-tarkistus (Origin = `https://` + Host) estää muiden
 sivustojen WebSocketit (CSWSH), mutta originit ovat nyt eri sovelluksia,
 joten jokaisella on omat palvelunsa (`policy`):
 
-| policy | WebSocketit |
-|---|---|
-| `rcpu` | `/rcpu`, `/resume/…`, `/567` (auth) |
-| `cr` | `/17030` (laskentapooli, CR:n rekisteröinti) |
+| policy | kyky | mitä se antaa |
+|---|---|---|
+| `rcpu` | terminal | WebSocketit `/rcpu`, `/resume/…`, `/567` (auth): graafinen istunto |
+| `cr` | compute-provider | WebSocket `/17030`: selain tarjoaa laskentaa pooliin (CR) |
+| `compute` | compute-consumer | istunnon nimiavaruuteen `/compute` (webterm antaa `$computepool=1` sovelluksen namespace-tiedostolle) |
+
+Kyvyt ovat erillisiä: yksi ei anna toista. `term.kone` = `rcpu compute`,
+`compute.kone` = `cr`, editorit = `rcpu`.
 
 `cad.kone` ei saa avata `/17030`:aa, ellei sen policy salli sitä.
 

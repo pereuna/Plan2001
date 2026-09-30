@@ -1,4 +1,5 @@
 # what the app's processes see, added to the user's namespace
 # (docs/app-origins.md); sourced by rc before the image
-# the compute pool: rcc compiles there
-test -e /srv/compute && mount -c /srv/compute /compute
+# the compute pool, for an app its policy lets use it (compute: a compute
+# consumer, docs/app-origins.md): rcc compiles there
+if(~ $computepool 1 && test -e /srv/compute) mount -c /srv/compute /compute

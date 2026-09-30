@@ -145,6 +145,94 @@ CPU-palvelin riittävät koordinointiin.
 - Ajoittaja: miten työt jaetaan, kun CR:t tulevat ja menevät.
 - Politiikka: mitä käyttäjän `/compute` näyttää.
 
+## Selain: pääte, CR tai molemmat (30.9.)
+
+Selain voi olla kahdessa toisistaan riippumattomassa roolissa: Plan2001-pääte
+(Monolith/drawterm, `term.kone`) ja laskentaresurssin tarjoaja
+(`compute.kone`). Roolit ovat pääte, CR tai molemmat. Vastavuoroisuutta
+ei vaadita: resurssin tarjoaminen ja poolin käyttäminen ovat eri
+oikeuksia, eli eri kykyjä (`docs/app-origins.md`: `rcpu`, `cr`,
+`compute`).
+
+```
+                         PLAN2001 CPU SERVER
+                       processes / namespaces
+                    ┌─────────┴─────────┐
+                 terminal           /compute  (policy compute)
+                 sessions              │
+                    │           crsrv: CR scheduling
+        ┌───────────┼───────────┐       │
+     Browser A   Browser B   Browser C  ◄┘
+     terminal    CR only     terminal
+       + CR                     + CR
+```
+
+**Koneella on 0 tai 1 CR ja 0..N päätettä.** Compute-sivun välilehti
+tarjoaa laskentaa vain, kun se pitää Web Lockia `plan2001-cr`; saman
+selaimen toinen compute-välilehti odottaa. Terminaalivälilehtiä voi olla
+useita, ja jokainen on oma rcpu-istuntonsa ja nimiavaruutensa.
+
+**Yksi provider on yksi globaalisti ajoitettu CR**, ei yksi CR ydintä
+kohden. CR:n workers-luku on vain tieto.
+
+**Ajoitus on kaksitasoinen:**
+- crsrv päättää, mille CR:lle työ annetaan. CR ilmoittaa `hello`ssa
+  credit-arvonsa, eli montako työtä se ottaa kerralla oma jononsa mukaan
+  luettuna, ja voi muuttaa sitä viestillä `credits N`. crsrv ei pidä
+  CR:llä enempää töitä kuin credit sallii, ja valitsee CR:n, jolla on
+  eniten vapaata.
+- Provider päättää, millä workerilla (myöhemmin GPU:lla tai NPU:lla) työ
+  ajetaan. Selaimen oma jono ja web workerit ovat `cr.js`:ssä. Selain
+  ilmoittaa credit-arvoksi workerit + ¼ (ainakin 1), jotta mikään worker
+  ei odota verkkoa.
+
+**Nimiavaruus:**
+- `/global/compute/ID/`: `type`, `api`, `workers`, `credits`, `owner`,
+  `state` (ready/full) ja `jobs`. Tunnisteen antaa palvelin (6
+  heksanumeroa), ei CR itse.
+- `/compute` on prosessin näkymä poolista. Se sidotaan istuntoon vain
+  `compute`-kyvyllä.
+
+**Luottamus:**
+- Provider on epäluotettava, työn syöte on julkista ja tulos
+  verifioimaton.
+- Selaimen hiekkalaatikko (web worker + WebAssembly) suojaa provideria.
+- Verifiointi suojaa käyttäjää: `crsrv -v none|duplicate|2of3`.
+  - `duplicate`: työ ajetaan kahdella CR:llä ja hyväksytään, jos tulokset
+    ovat samat; muuten työ epäonnistuu.
+  - `2of3`: kun kaksi tulosta eroaa, kolmas CR ratkaisee.
+  - Tuloksia verrataan SHA-1:llä ilman lokia.
+- Työn tunniste on hash komennosta ja syötetiedostoista (`JID.SEQ`, jossa
+  SEQ erottaa ajot).
+- Kadonneen CR:n työt palaavat jonon kärkeen.
+- `verify local` (CPU-palvelin laskee itse) on vielä tekemättä.
+
+**Suostumus:** compute-sivu ei tarjoa mitään ennen kuin käyttäjä painaa
+START SHARING. Sivulla näkyvät säiemäärä (esim. 11 / 12), työt, jaettu
+aika ja STOP; jaon aikana taustalla putoavat merkit. Testeissä on
+`?autostart`, ja `?corrupt` tekee tabista tarkoituksella virheellisen CR:n.
+
+**Päätteenä ja CR:nä samaan aikaan:** päätteen käyttäjä avaa
+`compute.kone`:n toiseen välilehteen. Kyky pysyy compute-originilla.
+Päätteeseen upotettu jako-painike (iframe tai host.js) on tekemättä.
+
+**Päivitys ilman uudelleenkäynnistystä:** `tools/cpu-live SOCK` päivittää
+käynnissä olevan CPU-palvelimen 9pterm-istunnon kautta: sivut (+ .gz),
+`lib/app`, webterm (aux/listen ajaa sen yhteyskohtaisesti), rcc ja crsrv,
+joka käynnistetään uudelleen `cpustart`in argumenteilla. CR:t yhdistävät
+itse uudelleen, ja kesken olevat työt epäonnistuvat asiakkailleen.
+Pilvessä ydintä ei tarvitse vaihtaa.
+
+**Testit** (paikallinen cirno, `monolith/tools/test-compute`, 3 × 2
+workeria, acme):
+
+| crsrv | CR:t | tulos |
+|---|---|---|
+| `-v none` | 3 hyvää | 21 työtä kolmelle CR:lle, 9 credit-arvoa, objektit samat kuin 6c:n |
+| `-v duplicate` | 3 hyvää | 42 ajoa, 21 verifioitu |
+| `-v 2of3` | 1 viallinen, 2 hyvää | 18 ristiriitaa, kaikki 21 verifioitu, objektit oikein |
+| `-v duplicate` | 1 viallinen, 2 hyvää | 7 hylätty (differed), väärää objektia ei hyväksytty |
+
 ## Ensimmäinen koe: käännös selainten CR:illä (28.9.)
 
 Haara `compute-pool`. Tavoite: käännöstyö jaetaan muutamalle asiakaskoneelle

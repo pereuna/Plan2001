@@ -3,6 +3,8 @@
 spread over browser tabs.
 
   tools/test-compute [TABS [WORKERS]]     (default 3 tabs, 2 workers each)
+  CORRUPT=N tools/test-compute ...       the first N tabs return wrong objects
+                                          (with crsrv -v 2of3 the build must still match)
   KERNEL=1 tools/test-compute ...         the kernel (sys/src/9/pc64) instead of
                                           acme; its objects are listed where
                                           they differ (build dates)
@@ -34,6 +36,7 @@ def run9(cmd, t=300):
 KBUILD = r'''
 rfork e
 test -e /global/compute/status || mount -c /srv/compute /global/compute
+computepool=1
 . /lib/app/term/namespace
 rm -rf /tmp/ctest && mkdir -p /tmp/ctest/ref /tmp/ctest/k9 && dircp /sys/src/9 /tmp/ctest/k9
 cd /tmp/ctest/k9/pc64 && mk clean >/dev/null >[2=1]
@@ -49,7 +52,7 @@ for(f in /tmp/ctest/ref/*){ n=`{echo $n+1 | hoc}; cmp -s $f `{basename $f} || { 
 echo COMPARED $n DIFFERENT $bad
 echo TIME local `{echo $t1-$t0 | hoc} pool `{echo $t3-$t2 | hoc}
 ls -l 9pc64
-for(d in /global/compute/[0-9]*) echo CR `{basename $d} `{cat $d/owner} jobs `{cat $d/jobs}
+for(d in /global/compute/*) if(test -d $d) echo CR `{basename $d} `{cat $d/owner} jobs `{cat $d/jobs}
 cat /global/compute/status
 grep -v '^(rcc|6l|6a) ' /tmp/ctest/mk.out | sed 8q
 '''
@@ -58,6 +61,7 @@ grep -v '^(rcc|6l|6a) ' /tmp/ctest/mk.out | sed 8q
 BUILD = r'''
 rfork e
 test -e /global/compute/status || mount -c /srv/compute /global/compute
+computepool=1
 . /lib/app/term/namespace
 rm -rf /tmp/ctest && mkdir -p /tmp/ctest/ref /tmp/ctest/acme && dircp /sys/src/cmd/acme /tmp/ctest/acme
 cd /tmp/ctest/acme && mk clean >/dev/null
@@ -73,7 +77,7 @@ n=0; bad=0
 for(f in /tmp/ctest/ref/*){ n=`{echo $n+1 | hoc}; cmp -s $f `{basename $f} || { bad=`{echo $bad+1 | hoc}; echo DIFF `{basename $f} } }
 echo COMPARED $n DIFFERENT $bad
 echo TIME local `{echo $t1-$t0 | hoc} pool `{echo $t3-$t2 | hoc}
-for(d in /global/compute/[0-9]*) echo CR `{basename $d} `{cat $d/owner} jobs `{cat $d/jobs}
+for(d in /global/compute/*) if(test -d $d) echo CR `{basename $d} `{cat $d/owner} jobs `{cat $d/jobs}
 cat /global/compute/status
 '''
 
@@ -95,7 +99,9 @@ def main():
 			except Exception:
 				time.sleep(0.2)
 		for i in range(tabs):
-			url = f'https://compute.localhost:17443/cr.html?workers={workers}&nolock'  # as if separate machines
+			url = f'https://compute.localhost:17443/cr.html?workers={workers}&nolock&autostart'  # as if separate machines
+			if i < int(os.environ.get('CORRUPT', '0')):
+				url += '&corrupt'	# a CR not to be trusted: crsrv -v 2of3 must still get it right
 			urllib.request.urlopen(urllib.request.Request(
 				f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT'))
 		end = time.time() + 60

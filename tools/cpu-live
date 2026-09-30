@@ -1,0 +1,15 @@
+#!/bin/bash
+# Bring a running Plan2001 CPU server's compute pool and browser side up to
+# date from this repo, through a 9pterm session, without a reboot: the
+# pages (cr.html ...), lib/app, webterm, rcc, and crsrv, restarted with its
+# own arguments (tools/cpu-live.rc says what each means).  The session's
+# 9pterm sees this repo at /mnt/term.
+#   tools/cpu-live SOCK [pages|apps|webterm|rcc|crsrv]...
+# e.g. tools/cpu-live ~/.cache/9pterm.sock          (the cloud)
+#      tools/cpu-live ~/.cache/9pterm-local.sock    (the local CPU VM)
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+[ $# -ge 1 ] || { echo "usage: tools/cpu-live SOCK [pages|apps|webterm|rcc|crsrv]..." >&2; exit 2; }
+sock=$1; shift
+exec "$root/monolith/build/9pterm/9pterm" -S "$sock" -T 600 \
+	-c "rc /mnt/term$root/tools/cpu-live.rc /mnt/term$root $*"

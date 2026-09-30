@@ -1,0 +1,75 @@
+#!/bin/rc
+# Runs ON a Plan2001 CPU server, through a 9pterm session (tools/cpu-live):
+# brings the compute pool and the browser side up to date from the repo at
+# $1 (a /mnt/term path), without a reboot:
+#   pages      monolith/web's cr.html, cr.js, cr-worker.js into
+#              /sys/lib/monolith (and their .gz, which webterm prefers)
+#   apps       lib/app (policies and namespace files: the next session)
+#   webterm    compiled and installed: aux/listen runs it per connection
+#   rcc        compiled and installed
+#   crsrv      compiled, installed and restarted with the arguments of its
+#              line in /cfg/$sysname/cpustart; CRs reconnect by themselves
+#              (the pages retry), jobs in flight fail for their clients
+# What to do: $2... (default all of them).
+rfork en
+repo=$1
+shift
+what=$*
+if(~ $#what 0)
+	what=(pages apps webterm rcc crsrv)
+fn want { ~ $1 $what }
+t=/tmp/cpulive.$pid
+mkdir -p $t
+fn fail { echo CPU-LIVE FAILED: $*; rm -rf $t; exit $1 }
+
+if(want pages){
+	for(f in cr.html cr.js cr-worker.js){
+		cp $repo/monolith/web/$f /sys/lib/monolith/$f || fail pages
+		chmod 644 /sys/lib/monolith/$f
+		if(test -e /sys/lib/monolith/$f.gz){
+			gzip -9 -c /sys/lib/monolith/$f >/sys/lib/monolith/$f.gz || fail gzip
+			chmod 644 /sys/lib/monolith/$f.gz
+		}
+	}
+	echo pages: cr.html cr.js cr-worker.js
+}
+if(want apps){
+	for(a in `{ls $repo/lib/app}){
+		a=`{basename $a}
+		mkdir -p /lib/app/$a
+		for(f in `{ls $repo/lib/app/$a}){
+			cp $f /lib/app/$a/ || fail apps
+		}
+		chmod 664 /lib/app/$a/*
+		test -e /lib/app/$a/image && chmod 775 /lib/app/$a/image
+	}
+	echo apps: `{ls /lib/app}
+}
+for(p in webterm rcc crsrv){
+	if(want $p){
+		@{ cd $t && cp $repo/sys/src/cmd/$p.c . && 6c -FTVw $p.c && 6l -o $p $p.6 } || fail $p
+		cp $t/$p /amd64/bin/$p || fail install $p
+		echo $p: installed
+	}
+}
+if(want crsrv){
+	args=`{grep '^crsrv' /cfg/$sysname/cpustart}
+	if(~ $#args 0)
+		args=crsrv
+	for(p in `{ps | awk '$NF == "crsrv" {print $2}'})
+		echo kill >/proc/$p/notepg >[2]/dev/null
+	for(i in 1 2 3 4 5 6 7 8 9 10)
+		if(test -e /srv/compute)
+			sleep 0.5
+	rm -f /srv/compute
+	# its own namespace and note group: it outlives this session
+	@{ rfork ns; exec $args </dev/null >/dev/null >[2=1] } &
+	for(i in 1 2 3 4 5 6 7 8 9 10)
+		if(! test -e /srv/compute)
+			sleep 0.5
+	test -e /srv/compute || fail crsrv did not start
+	mount -c /srv/compute /mnt/cpulive && cat /mnt/cpulive/status && unmount /mnt/cpulive
+	echo crsrv: restarted as $args(1) `{echo $args(2-) | sed 's/-k [^ ]*/-k <key>/'}
+}
+rm -rf $t
+echo CPU-LIVE-DONE
