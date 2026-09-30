@@ -147,6 +147,10 @@ startaan(char *host, int fd)
  */
 static int waitsecs = 30, cmdsecs;
 static volatile int authed;
+static int interactive;	/* no -c and a terminal: kbdfs on the server edits lines */
+
+extern void ninetermkbdstart(void);
+extern int ninetermkeys;
 
 extern void osmsleep(int);
 
@@ -268,6 +272,8 @@ rcpu(char *host, char *cmd)
 	memset(secstorebuf, 0, sizeof(secstorebuf));	/* forget secstore secrets */
 #ifdef NINEPTERM
 	authed = 1;
+	if(interactive)
+		ninetermkbdstart();
 #endif
 
 	if(cmd == nil)
@@ -357,7 +363,7 @@ void
 usage(void)
 {
 #ifdef NINEPTERM
-	fprint(2, "usage: %s [-O] [-h host] [-u user] [-a authserver] [-P passfile] "
+	fprint(2, "usage: %s [-OK] [-h host] [-u user] [-a authserver] [-P passfile] "
 		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ...]\n", argv0);
 	exits("usage");
 #endif
@@ -459,6 +465,9 @@ cpumain(int argc, char **argv)
 	case 'P':
 		pass = readpassfile(EARGF(usage()));
 		break;
+	case 'K':
+		ninetermkeys = 1;
+		break;
 #endif
 	case 'x':
 		scalef = 1;
@@ -476,6 +485,11 @@ cpumain(int argc, char **argv)
 
 	if(argc != 0)
 		usage();
+#ifdef NINEPTERM
+	interactive = cmd == nil && isatty(0);
+	if(interactive)
+		nokbd = 0;	/* /dev/kbd for the server's kbdfs */
+#endif
 
 	if(nineflag){
 		exportfs(lfdfd(0), lfdfd(1));

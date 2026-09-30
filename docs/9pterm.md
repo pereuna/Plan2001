@@ -29,6 +29,7 @@ Valitsimet (drawtermin lisäksi):
 | `-P tiedosto` | salasana tiedostosta (tai ympäristömuuttuja `PASS`); ei koskaan kaiuteta |
 | `-W s` | yhteyden ja tunnistautumisen aikaraja, oletus 30 |
 | `-T s` | komennon aikaraja, oletus ei rajaa |
+| `-K` | interaktiivisessa istunnossa myös kursorinäppäimet (nuolet, Home, End, PgUp/PgDn) - vain palvelimelle, jonka kbdfs:ssä on rivieditori (Plan2001:n); 9frontin kbdfs lisää ne riville merkkeinä, joten oletuksena ne ohitetaan |
 
 Paluuarvo: 0 = etäkomennon status tyhjä; 1 = status ei tyhjä (status
 stderr:iin, esim. `rc 608: oops`); 2 = paikallinen virhe (yhteys,
@@ -38,13 +39,20 @@ stdout on etäkomennon tuloste, stderr sen fd 2 (`/mnt/term/dev/stderr`,
 devconsin `NINEPTERM`-tiedosto) ja 9ptermin omat viestit. stdin menee
 komennolle, ja EOF päättää sen syötteen.
 
+Interaktiivinen istunto (ei `-c`:tä, stdin on pääte): 9pterm tarjoaa
+`/dev/kbd`:n, joten palvelimen kbdfs hoitaa rivieditorin, kaiun ja
+keskeytyksen kuten drawtermissa; paikallinen pääte on raw-tilassa
+(`gui-none/tty.c`) ja palautuu lopuksi. Näppäimet: Backspace → ^H,
+**Ctrl-C → Delete eli keskeytys**, Enter → rivinvaihto, ^D → EOF.
+Putkella ilman `-c`:tä syöte menee rc:lle sellaisenaan.
+
 ## Vaiheet
 
 | # | Vaihe | Tila |
 |---|---|---|
 | 1 | Build ilman GUI:ta; `-c` toimii | tehty 30.9.: `echo hi` 0,23 s, väärä salasana 0,1 s |
 | 2 | AI-ystävällinen `-c`: paluuarvot 0/1/2/124, stderr erikseen, aikarajat `-W` ja `-T`, `-P`, EOF stdinissä | tehty 30.9. (testattu sillin CPU-VM:ää vasten; natiivi drawterm kääntyy ennallaan) |
-| 3 | Interaktiivinen istunto: raw-tila, `/dev/kbd` palvelimen kbdfs:lle, rivieditori ja Delete | |
+| 3 | Interaktiivinen istunto: raw-tila, `/dev/kbd` palvelimen kbdfs:lle, rivieditori ja Delete | tehty 30.9.: pty-testi - komento, Backspace, Ctrl-C keskeyttää `sleep 100`:n 0,03 s:ssa, `exit` → 0; `-K` kursorinäppäimille |
 | 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | |
 | 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa, tai WSS myöhemmin | |
 | 6 | Windows (`Make.win64` + gui-none) | |

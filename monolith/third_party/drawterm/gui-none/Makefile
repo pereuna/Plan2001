@@ -4,6 +4,7 @@ LIB=libgui.a
 
 OFILES=\
 	none.$O\
+	tty.$O\
 
 default: $(LIB)
 $(LIB): $(OFILES)

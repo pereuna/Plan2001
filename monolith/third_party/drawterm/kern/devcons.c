@@ -528,10 +528,16 @@ consclose(Chan *c)
 	}
 }
 
+#ifdef NINEPTERM
+extern int ninetermkbd;	/* 9pterm interactive: fd 0 is the keyboard's (gui-none/tty.c) */
+#else
+#define ninetermkbd 0
+#endif
+
 static int
 qreadcons(Queue *q, char *buf, int n)
 {
-	if(screenputs==0 && !qcanread(q))
+	if(screenputs==0 && !qcanread(q) && !ninetermkbd)
 		return read(0, buf, n);
 	return qread(q, buf, n);
 }
