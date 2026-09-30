@@ -82,3 +82,28 @@ Paluuarvot kuten `-c`:ssä: 1 etäpään virheestä (esim. status `copy`,
 | 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | tehty 30.9.: 5 Mt put 0,38 s, get 0,60 s, md5 sama; virheet 1/2, ei `.9ptmp`-jäänteitä |
 | 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa | tehty 30.9.: `-c` 1,3 s, put+get 5 Mt 17 s md5 sama, interaktiivinen istunto ja Ctrl-C toimivat. Korjaus: drawterm kokeilee aina secstorea (auth-palvelimen portti 5356), ja pilven palomuuri pudottaa paketit hiljaa, jolloin yhteys odotti TCP:n aikarajaan; 9pterm käyttää secstorea vain `-s`:llä |
 | 6 | Windows (`Make.win64` + gui-none) | vanhentunut (obsolete) toistaiseksi: ei tehdä nyt |
+
+## Stressitesti pilveen (30.9.)
+
+Pilvipalvelin (1/8 OCPU) käänsi ohjelmia 9pterm-yhteyksien kautta; pooli:
+käyttäjän selainvälilehdet (`compute.cpu.plan2001.com`), 23 + 3 workeria.
+Skriptit viety `put`illa, ajettu `-c`:llä (`/tmp/build.rc`, `/tmp/stress.rc`).
+
+| Kierros | Tulos |
+|---|---|
+| peräkkäin, oma 6c vs. pooli | acme 9 s → **1 s**; sam < 1 s molemmin; kernel pc64 (174 obj.) 23 s → 24 s. Objektit samat (kernelissä eroavat vain päiväykselliset `pc64.6`, `pc64.root.6`). 211 käännöstyötä, jako 125 / 86 |
+| 3 yhteyttä yhtä aikaa: acme, sam, kernel | kaikki paluuarvo 0; 3,4 s, 4,5 s, 24,8 s; objektit samat kuin omalla 6c:llä |
+| 3 yhteyttä yhtä aikaa: 3 kernelin kopiota | kaikki paluuarvo 0, 174 objektia ja `9pc64` kussakin; yhteensä 68 s. Pienempi välilehti poistui kesken, pooli jatkoi yhdellä (754 työtä) |
+
+Havainnot:
+- 9pterm kesti rinnakkaiset yhteydet ja minuutin istunnot; tuloste tuli
+  reaaliajassa.
+- Kernel ei nopeudu: kolme kerneliä rinnakkain vie saman ajan kuin
+  peräkkäin (3 × 23 s). Pullonkaula on pilvipalvelin: jokaiselle
+  käännökselle `rcc` kokoaa otsikoiden sulkeuman (kymmeniä tiedostoja) ja
+  lähettää sen selaimeen. Seuraava parannus: CR:n otsikkovälimuisti
+  (työ lähettää tunnisteet, CR hakee puuttuvat).
+- Ajoittaja antaa työn ensimmäiselle vapaalle workerille, ei kapasiteetin
+  suhteessa.
+- Yksi yhdistetty vertailukomento jäi kerran kiinni (ei toistunut);
+  AI:n komennoissa aina `-T`.
