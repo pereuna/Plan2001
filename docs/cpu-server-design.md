@@ -207,9 +207,11 @@ kohden. CR:n workers-luku on vain tieto.
 - Kadonneen CR:n työt palaavat jonon kärkeen.
 - `verify local` (CPU-palvelin laskee itse) on vielä tekemättä.
 
-**Suostumus:** compute-sivu ei tarjoa mitään ennen kuin käyttäjä painaa
-START SHARING. Sivulla näkyvät säiemäärä (esim. 11 / 12), työt, jaettu
-aika ja STOP; jaon aikana taustalla putoavat merkit. Testeissä on
+**Suostumus:** compute-sivu ei tarjoa mitään ennen kuin käyttäjä valitsee
+"share spare compute" (ja säikeiden määrän), ja "stop" on aina näkyvissä.
+Sivu on tarkoituksella lähes häiritsevän tylsä: koko ruutu mustaa,
+himmeä retrokello, pieni "CR available" ja yksi rauhallisesti hengittävä
+piste; työt ja jaettu aika pienellä himmeällä rivillä. Testeissä
 `?autostart`, ja `?corrupt` tekee tabista tarkoituksella virheellisen CR:n.
 
 **Päätteenä ja CR:nä samaan aikaan:** päätteen käyttäjä avaa
