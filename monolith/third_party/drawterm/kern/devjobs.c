@@ -9,6 +9,10 @@
  *	jobs/N/out	written: to the client's stdout
  *	jobs/N/err	written: to the client's stderr
  *	jobs/N/status	written: the command's status; the job ends
+ *	jobs/ctl	the jobs in one file, for 9pjobd (kern/9pjobd.c): a read
+ *			gives a job ('J' id len command), writes return its
+ *			output and status ('o'|'e'|'s' id len data)
+ *	jobs/src	9pjobd's source, which the session compiles
  *
  * Socket frames, both ways: a type byte, a 4-byte big-endian length, data.
  *	client:	C command
@@ -35,6 +39,8 @@ enum {
 	Qroot,
 	Qjobs,
 	Qnew,
+	Qctl,
+	Qsrc,
 	Qjobdir,
 	Qcmd,
 	Qout,
@@ -43,6 +49,10 @@ enum {
 
 	Maxcmd	= 1024*1024,
 };
+
+static char jobdsrc[] =
+#include "9pjobd.h"
+;
 
 #define KIND(p)	((int)((p) & 0xFF))
 #define JID(p)	((int)((p) >> 8))
@@ -138,7 +148,7 @@ jobsgen(Chan *c, char *name, Dirtab *tab, int ntab, int s, Dir *dp)
 	k = KIND(c->qid.path);
 	id = JID(c->qid.path);
 	/* a file's entries are its directory's (devstat, devopen look there) */
-	if(k == Qnew)
+	if(k == Qnew || k == Qctl || k == Qsrc)
 		k = Qjobs;
 	else if(k >= Qcmd)
 		k = Qjobdir;
@@ -165,8 +175,18 @@ jobsgen(Chan *c, char *name, Dirtab *tab, int ntab, int s, Dir *dp)
 			devdir(c, q, "new", 0, eve, 0444, dp);
 			return 1;
 		}
+		if(s == 1){
+			mkqid(&q, QID(0, Qctl), 0, QTFILE);
+			devdir(c, q, "ctl", 0, eve, 0666, dp);
+			return 1;
+		}
+		if(s == 2){
+			mkqid(&q, QID(0, Qsrc), 0, QTFILE);
+			devdir(c, q, "src", sizeof jobdsrc - 1, eve, 0444, dp);
+			return 1;
+		}
 		lock(&jl);
-		for(i = 1, j = jobs; j != nil && i < s; j = j->next)
+		for(i = 3, j = jobs; j != nil && i < s; j = j->next)
 			i++;
 		id = j != nil ? j->id : 0;
 		unlock(&jl);
@@ -235,6 +255,28 @@ havepending(void *v)
 	return npending > 0;
 }
 
+/* the next job not yet given out, waiting for one */
+static Job*
+takejob(void)
+{
+	Job *j;
+
+	for(;;){
+		sleep(&newr, havepending, nil);
+		lock(&jl);
+		for(j = jobs; j != nil; j = j->next)
+			if(!j->given)
+				break;
+		if(j != nil){
+			j->given = 1;
+			npending--;
+		}
+		unlock(&jl);
+		if(j != nil)
+			return j;
+	}
+}
+
 static long
 jobsread(Chan *c, void *va, long n, vlong off)
 {
@@ -249,24 +291,22 @@ jobsread(Chan *c, void *va, long n, vlong off)
 		return devdirread(c, va, n, 0, 0, jobsgen);
 	case Qnew:
 		if(off == 0 && c->aux == nil){
-			for(;;){
-				sleep(&newr, havepending, nil);
-				lock(&jl);
-				for(j = jobs; j != nil; j = j->next)
-					if(!j->given)
-						break;
-				if(j != nil){
-					j->given = 1;
-					npending--;
-				}
-				unlock(&jl);
-				if(j != nil)
-					break;
-			}
+			j = takejob();
 			snprint(buf, sizeof buf, "%d\n", j->id);
 			c->aux = strdup(buf);
 		}
 		return readstr(off, va, n, c->aux != nil ? c->aux : "");
+	case Qsrc:
+		return readstr(off, va, n, jobdsrc);
+	case Qctl:
+		j = takejob();
+		if(n < 9 + j->ncmd)
+			error("ctl: read buffer too small for the job");
+		((uchar*)va)[0] = 'J';
+		put32((uchar*)va+1, j->id);
+		put32((uchar*)va+5, j->ncmd);
+		memmove((uchar*)va+9, j->cmd, j->ncmd);
+		return 9 + j->ncmd;
 	case Qcmd:
 		if((j = lookjob(JID(c->qid.path))) == nil)
 			error(Enonexist);
@@ -281,6 +321,35 @@ jobsread(Chan *c, void *va, long n, vlong off)
 	return 0;
 }
 
+/* 9pjobd's frames: 'o'|'e'|'s' id[4] len[4] data, one or more */
+static long
+ctlwrite(void *va, long n)
+{
+	uchar *p, *e;
+	ulong id, len;
+	Job *j;
+
+	for(p = va, e = p + n; e - p >= 9; p += 9 + len){
+		id = p[1]<<24 | p[2]<<16 | p[3]<<8 | p[4];
+		len = p[5]<<24 | p[6]<<16 | p[7]<<8 | p[8];
+		if(len > e - p - 9)
+			error("ctl: short frame");
+		if((j = lookjob(id)) == nil)
+			continue;
+		switch(p[0]){
+		case 'o':
+		case 'e':
+			frame(j, p[0], p+9, len);
+			break;
+		case 's':
+			frame(j, 's', p+9, len);
+			endjob(j);
+			break;
+		}
+	}
+	return n;
+}
+
 static long
 jobswrite(Chan *c, void *va, long n, vlong off)
 {
@@ -289,6 +358,8 @@ jobswrite(Chan *c, void *va, long n, vlong off)
 
 	USED(off);
 	k = KIND(c->qid.path);
+	if(k == Qctl)
+		return ctlwrite(va, n);
 	if(k != Qout && k != Qerr && k != Qstatus)
 		error(Eperm);
 	if((j = lookjob(JID(c->qid.path))) == nil)

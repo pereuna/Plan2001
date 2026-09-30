@@ -158,13 +158,25 @@ static char *mastersock, *clientsock;
 extern int jobslisten(char*);
 extern int ninepclient(char*, char*, int);
 static char jobloop[] =
+	/* 9pjobd (kern/9pjobd.c, our jobs/src), compiled here when new or changed */
+	"j=/mnt/term/dev/jobs\n"
+	"b=$home/bin/$cputype/9pjobd\n"
+	"s=$home/lib/9pjobd.c\n"
+	"if(! test -x $b || ! cmp -s $j/src $s){\n"
+	"	O=`{sed -n 's/^O=//p' /$cputype/mkfile}\n"
+	"	mkdir -p $home/bin/$cputype $home/lib\n"
+	"	cp $j/src $s\n"
+	"	@{ cd /tmp && $O^c -o 9pjobd.$pid.$O $s && $O^l -o $b 9pjobd.$pid.$O; rm -f 9pjobd.$pid.$O } >[2=1] || rm -f $b\n"
+	"}\n"
+	"if(test -x $b) exec $b $j/ctl\n"
+	/* else a job per rc process over the job files */
 	"while(~ 1 1){\n"
-	"	id=`{cat /mnt/term/dev/jobs/new}\n"
+	"	id=`{cat $j/new}\n"
 	"	if(~ $#id 0) exit\n"
 	"	@{\n"
 	"		rfork e\n"
-	"		rc /mnt/term/dev/jobs/$id/cmd </dev/null >/mnt/term/dev/jobs/$id/out >[2]/mnt/term/dev/jobs/$id/err\n"
-	"		echo -n $status >/mnt/term/dev/jobs/$id/status\n"
+	"		rc $j/$id/cmd </dev/null >$j/$id/out >[2]$j/$id/err\n"
+	"		echo -n $status >$j/$id/status\n"
 	"	} &\n"
 	"}\n";
 

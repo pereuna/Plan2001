@@ -89,17 +89,24 @@ Paluuarvot kuten `-c`:ssä; 2 myös, jos istuntoa ei ole tai se päättyy.
 Jokainen työ ajetaan omassa aliprosessissaan (`@{…} &`), joten työt voivat
 olla rinnakkain.
 
+Palvelimen puoli on `9pjobd` (`kern/9pjobd.c`): 9pterm kuljettaa sen
+lähteen (`jobs/src`, upotettu buildissa), ja istunnon alussa palvelin
+kääntää sen `$home/bin/$cputype`:iin, jos sitä ei ole tai lähde on
+muuttunut. Se pitää yhden tiedoston auki (`jobs/ctl`): luku antaa kokonaisen
+työn, ja tuloste ja status palaavat kirjoituksina samaan tiedostoon -
+työtä kohden ei avata tiedostoja. Jos käännös ei onnistu, käytetään
+rc-silmukkaa työtiedostojen yli.
+
 Mitattu (30.9.), `cat /dev/sysname`:
 
-| | pilvi | sillin VM |
+| | pilvi (TCP-RTT ~30 ms) | sillin VM |
 |---|---|---|
 | suora `-c` (tunnistautuu joka kerta) | 1,33 s | 0,23 s |
-| istunnon kautta | 0,50–0,56 s | 11–28 ms |
+| istunto, rc-silmukka | 0,50–0,56 s | 11–28 ms |
+| **istunto, 9pjobd** | **73–94 ms** | **8–15 ms** |
 
-Pilvessä aika menee 9P:n edestakaisiin matkoihin: työ avaa etäpäässä neljä
-tiedostoa ja käynnistää rc:n ja catin. Seuraavaksi: pieni apuohjelma
-palvelimelle, joka pitää yhden kanavan auki (työ ja tuloste samassa
-virrassa), jolloin työ maksaa noin yhden edestakaisen matkan.
+20 rinnakkaista komentoa (`sleep 1; echo job N`) samassa istunnossa:
+1,57 s, kaikki tulosteet oikeille kutsujille.
 
 ## Vaiheet
 

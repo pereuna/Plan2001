@@ -51,3 +51,8 @@ $(LIB): $(OFILES)
 
 devaudio-haiku.$O: devaudio-haiku.cpp
 	$(CXX) $(CFLAGS) $<
+
+# 9pterm: 9pjobd's source as a C string for devjobs.c (jobs/src)
+devjobs.$O: 9pjobd.h
+9pjobd.h: 9pjobd.c
+	sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$$/\\n"/' 9pjobd.c >9pjobd.h
