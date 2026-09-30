@@ -16,6 +16,11 @@
 #   apps                lib/app/APP/{image,namespace,policy}: an origin's app
 #                       (https://APP.MACHINE, docs/app-origins.md) and
 #                       rc/bin/apps; no rio (tabs are windows)
+#   Plan2001 system     as on the cloud server (docs/cloud.md): the
+#                       Plan2001 kernel and loader as a pair in 9fat
+#                       (build/amd64: tools/build.sh or tools/kbuild9p.rc),
+#                       glenda's profile from usr/glenda/lib/profile (no
+#                       rio: an rc prompt), riostart and rio gone
 #   tlssrv + webterm    the same on port 17443 as https/wss, serving the
 #                       page too from /sys/lib/monolith (--web DIR), with a
 #                       certificate from a development CA in the cache
@@ -103,7 +108,10 @@ webterm() {
 	# on another machine or network (the cloud, docs/cloud.md) /lib/ndb has
 	# no entry for the MAC and cpurc sets no address: DHCP
 	run9 -t 30 "grep -s ipconfig /cfg/cirno/cpustart || echo 'if(! grep u /net/ipselftab | grep -sv ''^(127.0.0.1|::1)'') ip/ipconfig -h \$sysname ether /net/ether0' >>/cfg/cirno/cpustart"
-	echo "vm-cpu: apps, no rio"
+	echo "vm-cpu: Plan2001 kernel and loader, profile, no rio"
+	run9 -t 60 "cp /tmp/profile /usr/glenda/lib/profile && rm -f /usr/glenda/bin/rc/riostart /amd64/bin/rio"
+	run9 -t 60 "9fs 9fat && cp /tmp/9pc64 /n/9fat/9pc64 && mkdir -p /n/9fat/efi/boot && cp /tmp/bootx64.efi /n/9fat/efi/boot/bootx64.efi && ls -l /n/9fat/9pc64 /n/9fat/efi/boot; unmount /n/9fat"
+	echo "vm-cpu: apps"
 	run9 -t 30 "rm -rf /rc/bin/app /lib/app && mkdir -p /lib/app && dircp /tmp/app /lib/app && chmod 775 /lib/app/* && chmod 664 /lib/app/*/* && chmod 775 /lib/app/*/image >[2]/dev/null; cp /tmp/apps /rc/bin/apps && chmod 775 /rc/bin/apps && rm -f /amd64/bin/rio"
 	o=
 	for x in ${WEBTERM_ORIGINS:-http://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:18080}; do o="$o -o $x"; done
@@ -125,7 +133,10 @@ webterm() {
 mkdir -p "$root/build"
 certs
 stage=$(mktemp -d)
-cp "$root/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/rc/bin/apps" "$root/sys/src/cmd/crsrv.c" "$root/sys/src/cmd/rcc.c" "$stage/"
+for f in "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi"; do
+	[ -s "$f" ] || { echo "vm-cpu: no $f (tools/build.sh)" >&2; exit 1; }
+done
+cp "$root/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/rc/bin/apps" "$root/sys/src/cmd/crsrv.c" "$root/sys/src/cmd/rcc.c" "$root/usr/glenda/lib/profile" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
 cp -r "$root/lib/app" "$stage/app"
 webfiles=
 if [ -n "$web" ]; then
@@ -140,9 +151,9 @@ fi
 scrub() { [ -f "$root/build/in.img" ] && dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none; true; }
 trap scrub EXIT
 rm -f "$root/build/in.img"
-(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c crsrv.c rcc.c chain.pem cpu.key plan2001-ca.crt apps app $webfiles)
+(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c crsrv.c rcc.c chain.pem cpu.key plan2001-ca.crt apps app profile 9pc64 bootx64.efi $webfiles)
 rm -rf "$stage"
-truncate -s 64M "$root/build/in.img"
+truncate -s '>64M' "$root/build/in.img"
 
 [ -f "$cache/base.qcow2" ] || { echo "vm-cpu: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
 if [ "$1" = --update ]; then

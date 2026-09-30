@@ -47,8 +47,12 @@ if(~ $#o 0){
 cp $o(1) $d/auxbin/kbdfs
 if(~ $3 syskbd)
 	cp /$objtype/bin/aux/kbdfs $d/auxbin/kbdfs
-# /tmp here makes files 0700: bootrc starts kbdfs only if test -x says so
-chmod 775 $d/auxbin/kbdfs
+# bootfs.paq takes the modes of what it is made from, the directory too
+# (bin/aux is this union, $d/auxbin first), and files made under /tmp
+# here are 0750: bootrc's test -x /bin/aux/kbdfs, made before the host
+# owner is set, then fails, no kbdfs starts, and a terminal's console
+# reads nothing but EOF
+chmod 775 $d/auxbin $d/auxbin/kbdfs
 bind -b $d/auxbin /$objtype/bin/aux
 
 echo '### kernel '^$kconf
@@ -71,6 +75,17 @@ paqfs -m $d/paq $kconf.bootfs.paq
 paqsum=`{md5sum <$d/paq/$objtype/bin/aux/kbdfs}
 kbdsum=`{md5sum <$d/auxbin/kbdfs}
 ls -l $d/paq/$objtype/bin/aux $d/paq/$objtype/bin/rc $d/paq/rc/bin/bootrc
+# bootrc runs kbdfs only if all may: else a terminal's console is dead
+for(f in $objtype/bin $objtype/bin/aux $objtype/bin/aux/kbdfs){
+	m=`{ls -ld $d/paq/$f | awk '{print $1}'}
+	if(! ~ $m *x){
+		unmount $d/paq
+		echo BOOTFS $f NOT OPEN TO ALL: $m
+		cd /
+		cleanup
+		exit bootfs-mode
+	}
+}
 unmount $d/paq
 echo kbdfs built $kbdsum in bootfs.paq $paqsum
 size $kernel
