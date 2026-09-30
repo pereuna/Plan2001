@@ -3,32 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CR · Plan2001</title>
+<title>Plan2001 Compute</title>
 <style>
-:root { --bg: #fdfdf8; --fg: #1d1d1b; --dim: #6b6b66; --line: #d8d8cf; --ok: #2e7d32; --bad: #b3261e; }
-@media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #e8e8e2; --dim: #9a9a93; --line: #34342f; --ok: #7bc47f; --bad: #f2867c; } }
-body { background: var(--bg); color: var(--fg); font: 15px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px; }
-h1 { font-size: 17px; margin: 0 0 4px; }
-p { margin: 0 0 12px; color: var(--dim); max-width: 60em; }
-#state { font-weight: bold; }
-#state.on { color: var(--ok); } #state.off { color: var(--bad); }
+:root { --bg: #000; --fg: #c8ffc8; --dim: #5f8f5f; --hi: #39ff14; --bad: #ff6b5b; --line: #1f3a1f; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; overflow: hidden; }
+canvas#rain { position: fixed; inset: 0; width: 100%; height: 100%; opacity: .35; }
+main { position: relative; max-width: 34em; margin: 12vh auto 0; padding: 20px 16px; background: rgba(0, 0, 0, .78); border: 1px solid var(--line); }
+h1 { font-size: 20px; letter-spacing: .2em; margin: 0 0 12px; color: var(--hi); }
+p { margin: 0 0 12px; color: var(--dim); }
+#state { font-weight: bold; letter-spacing: .05em; }
+#state.on { color: var(--hi); } #state.off { color: var(--bad); }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; margin: 12px 0; }
 dt { color: var(--dim); }
-pre { border-top: 1px solid var(--line); padding-top: 8px; white-space: pre-wrap; word-break: break-all; max-height: 50vh; overflow: auto; }
+label { display: block; margin: 12px 0; }
+input[type=range] { width: 60%; vertical-align: middle; accent-color: var(--hi); }
+button { font: inherit; color: var(--bg); background: var(--hi); border: 0; padding: 8px 20px; letter-spacing: .1em; cursor: pointer; }
+button.stop { background: var(--bad); }
+button:disabled { opacity: .4; cursor: default; }
+details { margin-top: 12px; color: var(--dim); }
+pre { white-space: pre-wrap; word-break: break-all; max-height: 30vh; overflow: auto; margin: 4px 0 0; }
 </style>
 </head>
 <body>
-<h1>Compute resource</h1>
-<p>This tab lends its CPU to the Plan2001 CPU server's compute pool
-(docs/cpu-server-design.md): it compiles C with 9front's 6c (WebAssembly)
-for the server's users.  Close the tab to leave the pool.</p>
-<div>state: <span id="state" class="off">connecting</span></div>
+<canvas id="rain"></canvas>
+<main>
+<h1>PLAN2001 COMPUTE</h1>
+<p>Share this computer's spare CPU time with the Plan2001 CPU server's
+shared compute pool.  Only public work is sent here (open-source builds
+first); it runs in this browser's sandbox (WebAssembly in web workers), and
+the server treats every result as unverified.  One tab per computer shares;
+close the tab or press STOP to leave the pool.</p>
+<div>state: <span id="state" class="off">not sharing</span></div>
+<label id="choose">CPU threads: <input id="threads" type="range" min="1"> <span id="tval"></span></label>
 <dl>
-<dt>workers</dt><dd id="workers">-</dd>
+<dt>sharing</dt><dd id="sharing">-</dd>
 <dt>jobs</dt><dd id="jobs">0</dd>
+<dt>shared time</dt><dd id="time">00:00:00</dd>
 <dt>busy</dt><dd id="busy">0</dd>
 </dl>
-<pre id="log"></pre>
+<button id="go">START SHARING</button>
+<details><summary>log</summary><pre id="log"></pre></details>
+</main>
 <script src="cr.js"></script>
 </body>
 </html>

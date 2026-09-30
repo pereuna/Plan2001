@@ -23,6 +23,8 @@
  * With -s the origin is the app (docs/app-origins.md): Host APP.MACHINE
  * names /lib/app/APP (else the app is term), whose policy says what its
  * WebSockets may open (rcpu: /rcpu, /resume, /567; cr: /17030) and whose
+ * processes may use the compute pool (compute: $computepool 1 for the
+ * app's namespace file, which mounts it on /compute), and whose
  * image the rcpu session runs, after its namespace file - webterm's own
  * script, not the client's, which is read and dropped.  A session keeps
  * its origin, and only that origin may resume it.  A process of the
@@ -66,7 +68,7 @@ static char appscript[] =
 	"	</dev/cons >/dev/cons >[2=1] aux/kbdfs -dq -m /mnt/term/dev\n"
 	"	bind -q /mnt/term/dev/cons /dev/cons\n"
 	"}\n"
-	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image'\n"
+	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s computepool=%d rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image'\n"
 	"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
 	"echo -n hangup >/proc/$pid/notepg\n";
 static char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -954,7 +956,8 @@ rcpu(char *hdr, char *app)
 		reply("500 Internal Server Error");
 	origin = header(hdr, "Origin");
 	origin = strdup(origin != nil ? origin : "");
-	script = smprint(appscript, app);
+	/* computepool: the app may use the pool (policy compute: a compute consumer) */
+	script = smprint(appscript, app, allowed(app, "compute"));
 	wsaccept(hdr);
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
 	case -1:
