@@ -17,6 +17,27 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
+
+/* the whole of n bytes, or -1: a stream socket may take less at a time */
+static int
+writefull(int fd, void *va, long n)
+{
+	char *p;
+	long m;
+
+	for(p = va; n > 0; p += m, n -= m){
+		m = write(fd, p, n);
+		if(m < 0 && errno == EINTR){
+			m = 0;
+			continue;
+		}
+		if(m <= 0)
+			return -1;
+	}
+	return 0;
+}
 
 static int
 readfull(int fd, void *va, long n, long deadline)
@@ -37,7 +58,12 @@ readfull(int fd, void *va, long n, long deadline)
 			if(poll(&pf, 1, ms) == 0)
 				return -2;
 		}
-		if((m = read(fd, p+t, n-t)) <= 0)
+		m = read(fd, p+t, n-t);
+		if(m < 0 && errno == EINTR){
+			m = 0;
+			continue;
+		}
+		if(m <= 0)
 			return -1;
 	}
 	return 0;
@@ -49,8 +75,8 @@ ninepclient(char *sock, int type, char *cmd, int secs, char **capture)
 	struct sockaddr_un sa;
 	unsigned char h[5];
 	unsigned long len;
-	long n, deadline;
-	char *buf;
+	long n, deadline, ncap;
+	char *buf, *cap;
 	int fd, r;
 
 	if(strlen(sock) >= sizeof sa.sun_path){
@@ -72,11 +98,14 @@ ninepclient(char *sock, int type, char *cmd, int secs, char **capture)
 	n = cmd != NULL ? strlen(cmd) : 0;
 	h[0] = type;
 	h[1] = n>>24; h[2] = n>>16; h[3] = n>>8; h[4] = n;
-	if(write(fd, h, 5) != 5 || (n > 0 && write(fd, cmd, n) != n)){
+	signal(SIGPIPE, SIG_IGN);	/* a session that goes: an error, not death */
+	if(writefull(fd, h, 5) < 0 || (n > 0 && writefull(fd, cmd, n) < 0)){
 		perror("9pterm: sending the command");
 		return 2;
 	}
 	deadline = secs > 0 ? time(0) + secs : 0;
+	cap = NULL;
+	ncap = 0;
 	for(;;){
 		if((r = readfull(fd, h, 5, deadline)) < 0)
 			break;
@@ -92,20 +121,31 @@ ninepclient(char *sock, int type, char *cmd, int secs, char **capture)
 		buf[len] = 0;
 		switch(h[0]){
 		case 'o':
-			if(capture != NULL){
-				*capture = buf;	/* the last frame: an MD5 line fits one */
-				buf = NULL;
+			if(capture != NULL){	/* all of stdout, however framed */
+				if((cap = realloc(cap, ncap + len + 1)) == NULL){
+					r = -1;
+					break;
+				}
+				memmove(cap + ncap, buf, len);
+				ncap += len;
+				cap[ncap] = 0;
 			}else
-				write(1, buf, len);
+				writefull(1, buf, len);
 			break;
 		case 'e':
-			write(2, buf, len);
+			writefull(2, buf, len);
 			break;
 		case 's':
+			if(capture != NULL)
+				*capture = cap;
 			if(len == 0)
 				return 0;
 			fprintf(stderr, "%s\n", buf);
 			return 1;
+		}
+		if(r < 0){
+			free(buf);
+			break;
 		}
 		free(buf);
 	}

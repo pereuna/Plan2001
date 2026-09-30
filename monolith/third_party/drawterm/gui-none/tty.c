@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <poll.h>
 
 typedef unsigned int Rune;
 
@@ -90,53 +91,96 @@ csi(unsigned char *p, int n)
 	return 0;
 }
 
+/*
+ * The input's state across reads: a UTF-8 sequence, or an escape
+ * sequence (ESC, then ESC [ or ESC O and its bytes up to the final one)
+ * may be split between reads.
+ */
+static Rune	ur;		/* UTF-8: the rune so far */
+static int	uneed;		/* its continuation bytes to come */
+static int	esc;		/* 0; 1: after ESC; 2: in ESC [ or ESC O */
+static unsigned char	seq[16];	/* the escape sequence's bytes after ESC [ */
+static int	nseq;
+
+static void
+plain(unsigned char c)
+{
+	switch(c){
+	case 0x7f:	key(Kbs); break;	/* the terminal's Backspace */
+	case 0x03:	key(Kdel); break;	/* ^C: Plan 9's interrupt */
+	case '\r':	key('\n'); break;
+	default:	key(c); break;
+	}
+}
+
+static void
+feed(unsigned char c)
+{
+	Rune r;
+
+	if(esc == 1){
+		if(c == '[' || c == 'O'){
+			esc = 2;
+			nseq = 0;
+			return;
+		}
+		esc = 0;
+		key(Kesc);	/* ESC then something else: both */
+	}else if(esc == 2){
+		if(nseq < (int)sizeof seq)
+			seq[nseq++] = c;
+		if(c >= 0x40 && c <= 0x7e){	/* the final byte */
+			esc = 0;
+			if((r = csi(seq, nseq)) != 0 && ninetermkeys)
+				key(r);
+		}else if(nseq == (int)sizeof seq)
+			esc = 0;	/* not a sequence we know: dropped */
+		return;
+	}
+	if(uneed > 0){
+		if((c & 0xC0) == 0x80){
+			ur = ur<<6 | (c & 0x3F);
+			if(--uneed == 0)
+				key(ur < 0x80 || ur > 0x10FFFF ? 0xFFFD : ur);
+			return;
+		}
+		uneed = 0;
+		key(0xFFFD);	/* cut short: the byte starts anew */
+	}
+	if(c == 0x1b){
+		esc = 1;
+		return;
+	}
+	if(c < 0x80){
+		plain(c);
+		return;
+	}
+	if(c < 0xC2 || c > 0xF4){	/* a stray continuation, an overlong or no start */
+		key(0xFFFD);
+		return;
+	}
+	uneed = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1;
+	ur = c & (0x3F >> uneed);
+}
+
 static void
 kbdproc(void *v)
 {
 	unsigned char b[512];
-	int n, i, j, need;
-	Rune r;
+	struct pollfd pf;
+	int n, i;
 
 	(void)v;
-	need = 0;
-	r = 0;
 	while((n = read(0, b, sizeof b)) > 0){
-		for(i = 0; i < n; i++){
-			unsigned char c = b[i];
-
-			if(need > 0){	/* UTF-8 continuation */
-				if((c & 0xC0) == 0x80){
-					r = r<<6 | (c & 0x3F);
-					if(--need == 0)
-						key(r);
-					continue;
-				}
-				need = 0;
-			}
-			if(c >= 0xC0){
-				need = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1;
-				r = c & (0x3F >> need);
-				continue;
-			}
-			if(c == 0x1b){
-				if(i+1 < n && (b[i+1] == '[' || b[i+1] == 'O')){
-					for(j = i+2; j < n && !(b[j] >= 0x40 && b[j] <= 0x7e); j++)
-						;
-					if(j < n){
-						if((r = csi(b+i+2, j-(i+2)+1)) != 0 && ninetermkeys)
-							key(r);
-						i = j;
-						continue;
-					}
-				}
+		for(i = 0; i < n; i++)
+			feed(b[i]);
+		/* ESC alone at the end: Esc, unless the rest of a sequence follows at once */
+		if(esc == 1){
+			pf.fd = 0;
+			pf.events = POLLIN;
+			if(poll(&pf, 1, 50) <= 0){
+				esc = 0;
 				key(Kesc);
-				continue;
-			}
-			switch(c){
-			case 0x7f:	key(Kbs); break;	/* the terminal's Backspace */
-			case 0x03:	key(Kdel); break;	/* ^C: Plan 9's interrupt */
-			case '\r':	key('\n'); break;
-			default:	key(c); break;
 			}
 		}
 	}
