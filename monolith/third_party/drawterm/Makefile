@@ -36,7 +36,7 @@ $(TARG): $(OFILES) $(LIBS)
 	$(CC) $(CFLAGS) $*.c
 
 clean:
-	rm -f *.o */*.o */*.a *.a drawterm drawterm.exe
+	rm -f *.o */*.o */*.a *.a drawterm drawterm.exe 9pterm
 
 libmachdep.a:
 	(cd posix-port; $(MAKE))

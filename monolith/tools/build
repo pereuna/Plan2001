@@ -3,6 +3,8 @@
 #   tools/build [wasm|native]   default wasm
 #     wasm:   build/wasm/drawterm.{js,wasm}  (Emscripten, gui-web)
 #     native: build/native/drawterm          (Linux, X11, the baseline)
+#     9pterm: build/9pterm/9pterm            (Linux, no graphics: drawterm as
+#             a text terminal, Make.9pterm, gui-none)
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 what=${1:-wasm}
@@ -20,5 +22,7 @@ native)	make CONF=linux GUI=x11 AUDIO=none -j"$(nproc)" \
 		'CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -ggdb -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -D_THREAD_SAFE -DPTHREAD -pthread -D_REENTRANT -O2' \
 		'LDADD=-lX11 -ggdb -lm -lrt' >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l drawterm ;;
-*)	echo "usage: tools/build [wasm|native]" >&2; exit 2 ;;
+9pterm)	make CONF=9pterm -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
+	ls -l 9pterm ;;
+*)	echo "usage: tools/build [wasm|native|9pterm]" >&2; exit 2 ;;
 esac

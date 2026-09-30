@@ -277,6 +277,10 @@ cpumain(int argc, char **argv)
 	user = getenv("USER");
 	host = getenv("cpu");
 	authserver = getenv("auth");
+#ifdef NINEPTERM
+	nogfx = 1;	/* 9pterm (Make.9pterm): a text terminal, always -G */
+	nokbd = 1;
+#endif
 
 	ARGBEGIN{
 	case '9':
