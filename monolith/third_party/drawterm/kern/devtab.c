@@ -19,6 +19,9 @@ extern Dev audiodevtab;
 extern Dev kbddevtab;
 extern Dev cmddevtab;
 extern Dev envdevtab;
+#ifdef NINEPTERM
+extern Dev jobsdevtab;
+#endif
 
 Dev *devtab[] = {
 	&rootdevtab,
@@ -36,6 +39,9 @@ Dev *devtab[] = {
 	&kbddevtab,
 	&cmddevtab,
 	&envdevtab,
+#ifdef NINEPTERM
+	&jobsdevtab,
+#endif
 	0
 };
 

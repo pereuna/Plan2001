@@ -72,6 +72,35 @@ paikallisesti lasketun summan, `get` paikallisesti etäpään summan.
 Paluuarvot kuten `-c`:ssä: 1 etäpään virheestä (esim. status `copy`,
 `checksum`), 2 paikallisesta.
 
+## Istunto AI:lle: tunnistaudu kerran
+
+```
+9pterm -h … -u glenda -P … -M ~/.cache/9pterm.sock &     # istunto: tunnistautuu kerran
+9pterm -S ~/.cache/9pterm.sock -T 20 -c 'komento'        # komento istunnon kautta
+```
+
+Istunto (`-M`) tunnistautuu kerran ja pitää rcpu-yhteyden; palvelin ajaa
+silmukkaa 9ptermin laitteen `#J` yli (`kern/devjobs.c`, palvelimelle
+`/mnt/term/dev/jobs`): `new` antaa seuraavan työn numeron, `N/cmd` on
+komento (rc-skripti), `N/out`, `N/err` ja `N/status` palaavat työn
+antajalle. Työt tulevat Unix-socketista (tila 600); asiakas (`-S`,
+`gui-none/jobclient.c`) ei tunnistaudu eikä käynnistä drawtermin kerneliä.
+Paluuarvot kuten `-c`:ssä; 2 myös, jos istuntoa ei ole tai se päättyy.
+Jokainen työ ajetaan omassa aliprosessissaan (`@{…} &`), joten työt voivat
+olla rinnakkain.
+
+Mitattu (30.9.), `cat /dev/sysname`:
+
+| | pilvi | sillin VM |
+|---|---|---|
+| suora `-c` (tunnistautuu joka kerta) | 1,33 s | 0,23 s |
+| istunnon kautta | 0,50–0,56 s | 11–28 ms |
+
+Pilvessä aika menee 9P:n edestakaisiin matkoihin: työ avaa etäpäässä neljä
+tiedostoa ja käynnistää rc:n ja catin. Seuraavaksi: pieni apuohjelma
+palvelimelle, joka pitää yhden kanavan auki (työ ja tuloste samassa
+virrassa), jolloin työ maksaa noin yhden edestakaisen matkan.
+
 ## Vaiheet
 
 | # | Vaihe | Tila |

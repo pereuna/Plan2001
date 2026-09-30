@@ -14,6 +14,7 @@ OFILES=\
 	devcons.$O\
 	devdraw.$O\
 	devenv.$O\
+	devjobs.$O\
 	devfs-$(OS).$O\
 	devip.$O\
 	devip-$(OS).$O\

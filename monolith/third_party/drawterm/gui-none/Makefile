@@ -5,6 +5,7 @@ LIB=libgui.a
 OFILES=\
 	none.$O\
 	tty.$O\
+	jobclient.$O\
 
 default: $(LIB)
 $(LIB): $(OFILES)

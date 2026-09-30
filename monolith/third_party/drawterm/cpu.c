@@ -149,6 +149,25 @@ static int waitsecs = 30, cmdsecs;
 static volatile int authed;
 static int interactive;	/* no -c and a terminal: kbdfs on the server edits lines */
 
+/*
+ * -M SOCKET: a session - authenticate once, and the server runs a loop
+ * over our /dev/jobs (kern/devjobs.c); commands come in through SOCKET.
+ * -S SOCKET -c CMD: a command through such a session (gui-none/jobclient.c).
+ */
+static char *mastersock, *clientsock;
+extern int jobslisten(char*);
+extern int ninepclient(char*, char*, int);
+static char jobloop[] =
+	"while(~ 1 1){\n"
+	"	id=`{cat /mnt/term/dev/jobs/new}\n"
+	"	if(~ $#id 0) exit\n"
+	"	@{\n"
+	"		rfork e\n"
+	"		rc /mnt/term/dev/jobs/$id/cmd </dev/null >/mnt/term/dev/jobs/$id/out >[2]/mnt/term/dev/jobs/$id/err\n"
+	"		echo -n $status >/mnt/term/dev/jobs/$id/status\n"
+	"	} &\n"
+	"}\n";
+
 extern void ninetermkbdstart(void);
 extern int ninetermkeys;
 
@@ -377,6 +396,13 @@ rcpu(char *host, char *cmd)
 	authed = 1;
 	if(interactive)
 		ninetermkbdstart();
+	if(mastersock != nil){
+		if(bind("#J", "/dev", MAFTER) < 0)
+			sysfatal("bind #J: %r");
+		if(jobslisten(mastersock) < 0)
+			sysfatal("session socket %s: %r", mastersock);
+		fprint(2, "9pterm: session ready: %s\n", mastersock);
+	}
 #endif
 
 	if(cmd == nil)
@@ -467,7 +493,9 @@ usage(void)
 {
 #ifdef NINEPTERM
 	fprint(2, "usage: %s [-OK] [-h host] [-u user] [-a authserver] [-P passfile] "
-		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ... | put local remote | get remote local]\n", argv0);
+		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ... | put local remote | get remote local]\n"
+		"       %s ... -M socket		a session\n"
+		"       %s -S socket [-T cmdsecs] -c cmd	a command through a session\n", argv0, argv0, argv0);
 	exits("usage");
 #endif
 	fprint(2, "usage: %s [-9GBO] "
@@ -571,6 +599,12 @@ cpumain(int argc, char **argv)
 	case 'K':
 		ninetermkeys = 1;
 		break;
+	case 'M':
+		mastersock = EARGF(usage());
+		break;
+	case 'S':
+		clientsock = EARGF(usage());
+		break;
 #endif
 	case 'x':
 		scalef = 1;
@@ -595,6 +629,17 @@ cpumain(int argc, char **argv)
 	if(argc != 0)
 		usage();
 #ifdef NINEPTERM
+	if(clientsock != nil){
+		if(cmd == nil)
+			sysfatal("-S needs -c");
+		exit(ninepclient(clientsock, cmd, cmdsecs));
+	}
+	if(mastersock != nil){
+		if(cmd != nil)
+			sysfatal("-M runs no -c");
+		cmd = jobloop;
+		cmdsecs = 0;
+	}
 	interactive = cmd == nil && isatty(0);
 	if(interactive)
 		nokbd = 0;	/* /dev/kbd for the server's kbdfs */
