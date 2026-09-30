@@ -1,16 +1,20 @@
 /*
  * #W - WireGuard in the kernel: a cryptographic IP interface.
  *
- *	#W/wgN/ctl	configuration, a command a line:
- *		private KEY		this interface's private key (base64)
+ *	#W/wgN/ctl	configuration, a command a line, each complete in
+ *			itself (no state kept between writes):
+ *		private KEY		this interface's private key (base64); a new
+ *					one ends every session made with the old
  *		listen PORT		UDP port, announced on /net/udp of the writer
- *		peer KEY		add (or select) the peer with this public key
- *		psk KEY			the selected peer's preshared key
- *		allowed ADDR/LEN	an address prefix the selected peer may use (v4 or v6)
- *		endpoint ADDR!PORT	where the selected peer is (it roams: the last
- *					authenticated packet sets it)
- *		keepalive SECS		persistent keepalive for the selected peer
+ *		peer KEY [psk KEY] [allowed ADDR/LEN]... [endpoint ADDR!PORT] [keepalive SECS]
+ *					add the peer with this public key, or change
+ *					it: psk (a new one ends its sessions); an
+ *					address prefix it may use, v4 or v6, owned by
+ *					one peer only; where it is (it roams: the last
+ *					authenticated packet sets it); persistent keepalive
  *		remove KEY		drop a peer
+ *		cookie always|auto	cookie replies to every handshake, or only
+ *					under load (auto, the default)
  *	#W/wgN/status	the interface and its peers, each with a stable id
  *
  * The IP stack sees it as the medium "wg":
@@ -21,9 +25,17 @@
  * (9P, namespaces) can use: one key, one id.
  *
  * The protocol is WireGuard's (Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s):
- * handshake initiation and response, transport data, keepalives, rekeying
- * by time.  Not yet: cookie replies (sent under load; received ones are
- * ignored), the rekey by message count (2^60).
+ * handshake initiation and response, cookie replies both ways, transport
+ * data, keepalives, rekeying by time.  Not yet: the rekey by message
+ * count (2^60).
+ *
+ * Outer packets (the UDP ones to peers) are not sent through the UDP
+ * conversation, which would route them like any other: they are made
+ * here and given to ipoput4/6 with a route that goes out of no wg
+ * interface (v4lookupskip, ip/iproute.c), so a tunnel may carry the
+ * default route while its own packets still leave by the way to the peer.
+ * One routed into a wg interface anyway (routes changed meanwhile) is
+ * known by where it came from, not by its ports: dropped, counted (loops).
  */
 #include "u.h"
 #include "../port/lib.h"
@@ -48,6 +60,8 @@ enum {
 	Keylen		= 32,
 	Taglen		= 16,
 	Udphdr		= 52,		/* /net/udp "headers": raddr laddr ifcaddr rport lport */
+	Hroom		= 128,		/* room for the outer headers */
+	Dsttag		= IPaddrlen+2,	/* an outer message's destination, until sent */
 	Udpproto	= 17,
 
 	Tinit		= 1,
@@ -56,7 +70,9 @@ enum {
 	Tdata		= 4,
 	Initlen		= 148,
 	Resplen		= 92,
+	Cookielen	= 64,
 	Datahdr		= 16,
+	Hsrate		= 20,		/* handshake messages a second before we are under load */
 
 	Wgmtu		= 1420,
 
@@ -66,6 +82,7 @@ enum {
 	Rekeyattempt	= 90*1000,
 	Rekeytimeout	= 5*1000,
 	Keepalivetime	= 10*1000,
+	Cookietime	= 120*1000,
 	Tick		= 250,
 };
 
@@ -133,6 +150,11 @@ struct Peer
 	uchar	ss[Keylen];	/* DH(our static, its static) */
 	uchar	ih[Keylen];	/* the handshake hash to start from: HASH(HASH(C0||ID)||pub) */
 	uchar	mac1key[Keylen];
+	uchar	ckey[Keylen];	/* HASH(LABEL_COOKIE||its pub): its cookie replies */
+	uchar	lastmac1[16];	/* of our last handshake message to it */
+	uchar	cookie[16];	/* from its cookie reply: our mac2 */
+	ulong	cookieborn;
+	int	havecookie;
 	Allowed	al[Nallowed];
 	int	nal;
 
@@ -167,12 +189,18 @@ struct Wg
 	uchar	pub[Keylen];
 	uchar	ih[Keylen];		/* HASH(HASH(C0||ID)||our pub) */
 	uchar	mac1key[Keylen];	/* HASH(LABEL_MAC1||our pub) */
+	uchar	ckey[Keylen];		/* HASH(LABEL_COOKIE||our pub): our cookie replies */
+	uchar	csecret[Keylen];	/* the cookies we give: MAC(csecret, addr||port) */
+	ulong	csecretborn;
+	int	csecretset;
+	ulong	hsin;			/* handshake messages in during second hssec */
+	long	hssec;
+	int	cookiealways;
 	int	port;
 	Chan	*uctl;
 	Chan	*udata;
 	int	timer;			/* timer kproc started */
 	Peer	peer[Npeer];
-	Peer	*sel;			/* the ctl's selected peer */
 	int	nextid;
 
 	Ipifc	*ifc;			/* bound as medium */
@@ -180,7 +208,11 @@ struct Wg
 
 	ulong	loops;
 	ulong	drops;
-	ulong	bad;
+	ulong	bad;		/* failed checks: a source address its peer may not use, ... */
+	ulong	replays;
+	ulong	noroute;
+	ulong	cookiesin;
+	ulong	cookiesout;
 };
 
 static Wg *wgs[Nwg];
@@ -192,6 +224,11 @@ static uchar nine[Keylen] = {9};
 static char construction[] = "Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
 static char identifier[] = "WireGuard v1 zx2c4 Jason@zx2c4.com";
 static char labelmac1[] = "mac1----";
+static char labelcookie[] = "cookie--";
+
+extern Route*	v4lookupskip(Fs*, uchar*, uchar*, Routehint*, Medium*);
+extern Route*	v6lookupskip(Fs*, uchar*, uchar*, Routehint*, Medium*);
+static Medium wgmedium;
 
 /*
  * crypto: WireGuard's HASH, MAC, HMAC, KDF, AEAD over libsec
@@ -247,6 +284,48 @@ static void
 mac16(uchar out[16], uchar key[Keylen], uchar *d, ulong n)
 {
 	mac_blake2s_128(d, n, key, Keylen, out, nil);
+}
+
+/* HASH(label || key) */
+static void
+labelhash(uchar out[Keylen], char *label, uchar key[Keylen])
+{
+	hash2(out, (uchar*)label, strlen(label), key, Keylen);
+}
+
+/* XChaCha20-Poly1305: HChaCha20 for the subkey, the nonce's last 8 bytes */
+static void
+xsetup(Chachastate *cs, uchar key[Keylen], uchar nonce[24])
+{
+	uchar sub[Keylen], iv[12];
+
+	hchacha(sub, key, Keylen, nonce, 20);
+	memset(iv, 0, 4);
+	memmove(iv+4, nonce+16, 8);
+	setupChachastate(cs, sub, Keylen, iv, 12, 20);
+	memset(sub, 0, sizeof sub);
+}
+
+static void
+xseal(uchar key[Keylen], uchar nonce[24], uchar *d, ulong n, uchar *aad, ulong naad)
+{
+	Chachastate cs;
+
+	xsetup(&cs, key, nonce);
+	ccpoly_encrypt(d, n, aad, naad, d+n, &cs);
+	memset(&cs, 0, sizeof cs);
+}
+
+static int
+xunseal(uchar key[Keylen], uchar nonce[24], uchar *d, ulong n, uchar *aad, ulong naad)
+{
+	Chachastate cs;
+	int r;
+
+	xsetup(&cs, key, nonce);
+	r = ccpoly_decrypt(d, n, aad, naad, d+n, &cs);
+	memset(&cs, 0, sizeof cs);
+	return r;
 }
 
 static void
@@ -452,6 +531,7 @@ peerkeys(Wg *w, Peer *p)
 	memmove(b, labelmac1, sizeof labelmac1 - 1);
 	memmove(b + sizeof labelmac1 - 1, p->pub, Keylen);
 	blake2s_256(b, sizeof b, p->mac1key, nil);
+	labelhash(p->ckey, labelcookie, p->pub);
 	if(w->havekey && dh(p->ss, w->priv, p->pub) < 0)
 		memset(p->ss, 0, Keylen);
 }
@@ -464,6 +544,17 @@ flushq(Peer *p)
 	p->nq = 0;
 }
 
+/* a key changed: its sessions, and what they were made with, go */
+static void
+peerreset(Peer *p)
+{
+	memset(&p->cur, 0, sizeof p->cur);
+	memset(&p->prev, 0, sizeof p->prev);
+	memset(&p->next, 0, sizeof p->next);
+	memset(&p->hs, 0, sizeof p->hs);
+	p->havecookie = 0;
+}
+
 static void
 peerclear(Peer *p)
 {
@@ -472,20 +563,153 @@ peerclear(Peer *p)
 }
 
 /*
- * the UDP transport: a message to a peer's endpoint, with /net/udp's headers
+ * the UDP transport: a message to addr!port, the destination in front of
+ * it until sendouter puts the UDP and IP headers there
  */
 static Block*
-udpblock(Wg *w, Peer *p, int n)
+rawblock(uchar *addr, int port, int n)
 {
 	Block *b;
 
-	b = allocb(Udphdr + n);
-	memset(b->wp, 0, Udphdr);
-	ipmove(b->wp, p->eaddr);
-	hnputs(b->wp + 3*IPaddrlen, p->eport);
-	hnputs(b->wp + 3*IPaddrlen + 2, w->port);
-	b->wp += Udphdr;
+	b = allocb(Hroom + Dsttag + n);
+	b->rp += Hroom;
+	b->wp = b->rp;
+	ipmove(b->wp, addr);
+	hnputs(b->wp + IPaddrlen, port);
+	b->wp += Dsttag;
 	return b;
+}
+
+static Block*
+udpblock(Wg *, Peer *p, int n)
+{
+	return rawblock(p->eaddr, p->eport, n);
+}
+
+/*
+ * the processes sending outer packets: a packet routed into a wg
+ * interface while its process is one of them is a tunnel's own
+ */
+static Lock outerlk;
+static Proc *outerp[64];
+
+static int
+outermark(int on)
+{
+	Proc **pp;
+
+	lock(&outerlk);
+	for(pp = outerp; pp < outerp+nelem(outerp); pp++)
+		if(on ? *pp == nil : *pp == up){
+			*pp = on ? up : nil;
+			unlock(&outerlk);
+			return 0;
+		}
+	unlock(&outerlk);
+	return -1;
+}
+
+static int
+isouter(void)
+{
+	Proc **pp;
+	int r;
+
+	r = 0;
+	lock(&outerlk);
+	for(pp = outerp; pp < outerp+nelem(outerp); pp++)
+		if(*pp == up)
+			r = 1;
+	unlock(&outerlk);
+	return r;
+}
+
+/* an outer message to its destination, by a route out of no wg interface */
+static void
+sendouter(Wg *w, Block *b)
+{
+	uchar dst[IPaddrlen], src[IPaddrlen], *h, *gate;
+	int dport, n, ok;
+	ushort csum;
+	Routehint rh;
+	Route *r;
+	Ipifc *ifc;
+	Fs *f;
+
+	ipmove(dst, b->rp);
+	dport = nhgets(b->rp + IPaddrlen);
+	b->rp += Dsttag;
+	n = BLEN(b);
+	if((f = w->f) == nil)
+		goto noroute;
+	memset(&rh, 0, sizeof rh);
+	if(isv4(dst)){
+		r = v4lookupskip(f, dst+IPv4off, IPnoaddr+IPv4off, &rh, &wgmedium);
+		if(r == nil || (ifc = r->ifc) == nil)
+			goto noroute;
+		gate = (r->type & (Rifc|Rbcast|Rmulti|Rv4)) == Rv4 ? r->v4.gate : dst+IPv4off;
+		memmove(src, v4prefix, IPv4off);
+		rlock(ifc);
+		ok = ipv4local(ifc, src+IPv4off, 0, gate);
+		runlock(ifc);
+		if(!ok)
+			goto noroute;
+		/* as udp.c's udpkick: the pseudo header first */
+		b = padblock(b, IP4HDR+8);
+		h = b->rp;
+		memset(h, 0, IP4HDR+8);
+		h[9] = Udpproto;
+		hnputs(h+10, n+8);
+		memmove(h+12, src+IPv4off, 4);
+		memmove(h+16, dst+IPv4off, 4);
+		hnputs(h+20, w->port);
+		hnputs(h+22, dport);
+		hnputs(h+24, n+8);
+		csum = ptclcsum(b, 8, n+8+12);
+		hnputs(h+26, csum == 0 ? 0xffff : csum);
+		h[0] = IP_VER4;
+		outermark(1);
+		if(!waserror()){
+			ipoput4(f, b, nil, MAXTTL, DFLTTOS, &rh);
+			poperror();
+		}
+		outermark(0);
+	}else{
+		r = v6lookupskip(f, dst, IPnoaddr, &rh, &wgmedium);
+		if(r == nil || (ifc = r->ifc) == nil)
+			goto noroute;
+		rlock(ifc);
+		ok = ipv6local(ifc, src, 0, dst);
+		runlock(ifc);
+		if(!ok)
+			goto noroute;
+		b = padblock(b, IP6HDR+8);
+		h = b->rp;
+		memset(h, 0, IP6HDR+8);
+		hnputl(h, n+8);
+		h[7] = Udpproto;
+		ipmove(h+8, src);
+		ipmove(h+24, dst);
+		hnputs(h+40, w->port);
+		hnputs(h+42, dport);
+		hnputs(h+44, n+8);
+		csum = ptclcsum(b, 0, n+8+IP6HDR);
+		hnputs(h+46, csum == 0 ? 0xffff : csum);
+		memset(h, 0, 8);
+		h[0] = IP_VER6;
+		hnputs(h+4, n+8);
+		h[6] = Udpproto;
+		outermark(1);
+		if(!waserror()){
+			ipoput6(f, b, nil, MAXTTL, DFLTTOS, &rh);
+			poperror();
+		}
+		outermark(0);
+	}
+	return;
+noroute:
+	w->noroute++;
+	freeb(b);
 }
 
 /* send a list made under the lock, the lock no longer held */
@@ -493,22 +717,11 @@ static void
 sendlist(Wg *w, Block *l)
 {
 	Block *b;
-	Chan *c;
 
-	c = w->udata;
 	while((b = l) != nil){
 		l = b->list;
 		b->list = nil;
-		if(c == nil){
-			freeb(b);
-			continue;
-		}
-		if(waserror()){
-			w->drops++;
-			continue;
-		}
-		devtab[c->type]->bwrite(c, b, 0);
-		poperror();
+		sendouter(w, b);
 	}
 }
 
@@ -517,6 +730,101 @@ addout(Block ***tail, Block *b)
 {
 	**tail = b;
 	*tail = &b->list;
+}
+
+/*
+ * cookies (WireGuard's DoS defence): under load a handshake message is
+ * answered only if its mac2 shows it came from where it says - else a
+ * cookie reply, the cookie sealed to the mac1 of the message
+ */
+
+/* mac1 is at m[off]: our mac2 after it, with its cookie if fresh */
+static void
+macs2(Peer *p, uchar *m, int off)
+{
+	memmove(p->lastmac1, m+off, 16);
+	if(p->havecookie && NOW - p->cookieborn < Cookietime)
+		mac_blake2s_128(m, off+16, p->cookie, 16, m+off+16, nil);
+	else
+		memset(m+off+16, 0, 16);
+}
+
+/* the cookie for the sender at hdr (/net/udp's headers) */
+static void
+cookiefor(Wg *w, uchar *hdr, uchar c[16])
+{
+	uchar a[IPaddrlen+2];
+
+	if(!w->csecretset || NOW - w->csecretborn >= Cookietime){
+		genrandom(w->csecret, Keylen);
+		w->csecretborn = NOW;
+		w->csecretset = 1;
+	}
+	ipmove(a, hdr);
+	memmove(a+IPaddrlen, hdr + 3*IPaddrlen, 2);
+	mac16(c, w->csecret, a, sizeof a);
+}
+
+/*
+ * a handshake message in, its mac1 at m[off]: 1 to go on with it; 0 to
+ * drop it, when it may have been answered with a cookie reply
+ */
+static int
+cookiecheck(Wg *w, uchar *hdr, uchar *m, int off, Block ***tail)
+{
+	uchar k[16], c[16], *r;
+	Block *b;
+
+	mac16(k, w->mac1key, m, off);
+	if(tsmemcmp(k, m+off, 16) != 0)
+		return 0;
+	if(seconds() != w->hssec){
+		w->hssec = seconds();
+		w->hsin = 0;
+	}
+	if(++w->hsin <= Hsrate && !w->cookiealways)
+		return 1;
+	cookiefor(w, hdr, c);
+	mac_blake2s_128(m, off+16, c, 16, k, nil);
+	if(tsmemcmp(k, m+off+16, 16) == 0)
+		return 1;
+	b = rawblock(hdr, nhgets(hdr + 3*IPaddrlen), Cookielen);
+	r = b->wp;
+	memset(r, 0, Cookielen);
+	r[0] = Tcookie;
+	memmove(r+4, m+4, 4);		/* the sender's index */
+	genrandom(r+8, 24);
+	memmove(r+32, c, 16);
+	xseal(w->ckey, r+8, r+32, 16, m+off, 16);
+	b->wp += Cookielen;
+	addout(tail, b);
+	w->cookiesout++;
+	return 0;
+}
+
+/* a cookie reply to our last handshake message to a peer */
+static void
+gotcookie(Wg *w, uchar *m)
+{
+	uchar c[16+Taglen];
+	u32int x;
+	Peer *p;
+
+	x = get32le(m+4);
+	for(p = w->peer; p < w->peer+Npeer; p++)
+		if(p->id != 0 && ((p->hs.state == Hssent && p->hs.lidx == x) || (p->next.valid && p->next.lidx == x)))
+			break;
+	if(p == w->peer+Npeer)
+		return;
+	memmove(c, m+32, 16+Taglen);
+	if(xunseal(p->ckey, m+8, c, 16, p->lastmac1, 16) < 0){
+		w->bad++;
+		return;
+	}
+	memmove(p->cookie, c, 16);
+	p->cookieborn = NOW;
+	p->havecookie = 1;
+	w->cookiesin++;
 }
 
 /*
@@ -561,6 +869,7 @@ mkinit(Wg *w, Peer *p)
 	seal(k, 0, m+88, 12, hs->h, Keylen);
 	mixhash(hs->h, m+88, 12+Taglen);
 	mac16(m+116, p->mac1key, m, 116);
+	macs2(p, m, 116);
 	b->wp += Initlen;
 	memset(k, 0, sizeof k);
 	memset(dhr, 0, sizeof dhr);
@@ -663,6 +972,7 @@ gotinit(Wg *w, uchar *hdr, uchar *m)
 	mixhash(h, r+44, Taglen);
 	put32le(r+4, newidx(w));
 	mac16(r+60, p->mac1key, r, 60);
+	macs2(p, r, 60);
 	b->wp += Resplen;
 	setkeys(&p->next, c, 0, get32le(r+4), get32le(m+4));
 	memset(epriv, 0, sizeof epriv);
@@ -819,8 +1129,12 @@ gotdata(Wg *w, Block *b, uchar *hdr, uchar *m, long n, Block ***tail)
 		if(k != nil)
 			break;
 	}
-	if(k == nil || NOW - k->born >= Rejectafter || !replayok(k, ctr))
+	if(k == nil || NOW - k->born >= Rejectafter)
 		return nil;
+	if(!replayok(k, ctr)){
+		w->replays++;
+		return nil;
+	}
 	len = n - Datahdr - Taglen;
 	if(unseal(k->recv, ctr, m+Datahdr, len, nil, 0) < 0)
 		return nil;
@@ -909,15 +1223,19 @@ wgreader(void *a)
 			w->bad++;
 		else switch(m[0]){
 		case Tinit:
-			if(n == Initlen && (r = gotinit(w, hdr, m)) != nil)
+			if(n == Initlen && cookiecheck(w, hdr, m, 116, &tail)
+			&& (r = gotinit(w, hdr, m)) != nil)
 				addout(&tail, r);
 			break;
 		case Tresp:
-			if(n == Resplen && (p = gotresp(w, hdr, m)) != nil)
+			if(n == Resplen && cookiecheck(w, hdr, m, 60, &tail)
+			&& (p = gotresp(w, hdr, m)) != nil)
 				drain(w, p, &tail, 1);
 			break;
 		case Tcookie:
-			break;	/* not yet: the handshake is tried again */
+			if(n == Cookielen)
+				gotcookie(w, m);
+			break;
 		case Tdata:
 			if(n >= Datahdr + Taglen)
 				in = gotdata(w, b, hdr, m, n, &tail);
@@ -939,7 +1257,10 @@ wgreader(void *a)
 			runlock(ifc);
 			continue;
 		}
-		ipiput4(w->f, ifc, in);
+		if((in->rp[0]>>4) == 6)
+			ipiput6(w->f, ifc, in);
+		else
+			ipiput4(w->f, ifc, in);
 		runlock(ifc);
 		poperror();
 	}
@@ -1049,24 +1370,6 @@ wgunbind(Ipifc *ifc)
 	qunlock(w);
 }
 
-/* an outer packet of our own: it must not go into the tunnel again */
-static int
-isours(Wg *w, uchar *m, int n)
-{
-	int hl;
-
-	if(w->port == 0)
-		return 0;
-	switch(m[0]>>4){
-	case 4:
-		hl = (m[0]&0xf)*4;
-		return n >= hl+4 && m[9] == Udpproto && nhgets(m+hl) == w->port;
-	case 6:
-		return n >= IP6HDR+4 && m[6] == Udpproto && nhgets(m+IP6HDR) == w->port;
-	}
-	return 0;
-}
-
 static void
 wgbwrite(Ipifc *ifc, Block *b, int, uchar*, Routehint*)
 {
@@ -1096,7 +1399,8 @@ wgbwrite(Ipifc *ifc, Block *b, int, uchar*, Routehint*)
 	default:
 		goto drop;
 	}
-	if(isours(w, b->rp, BLEN(b))){
+	if(isouter()){
+		/* a tunnel's own packet routed into a tunnel */
 		w->loops++;
 		goto drop;
 	}
@@ -1278,9 +1582,10 @@ wgstatus(Wg *w, char *buf, long len)
 	s = buf;
 	e = buf + len;
 	qlock(w);
-	s = seprint(s, e, "wg%d pub %s port %d ifc %s loops %lud drops %lud bad %lud\n",
+	s = seprint(s, e, "wg%d pub %s port %d ifc %s loops %lud drops %lud noroute %lud bad %lud replays %lud cookies in %lud out %lud%s\n",
 		w->n, w->havekey ? b64(kb, sizeof kb, w->pub) : "-", w->port,
-		w->ifc != nil ? w->ifc->dev : "-", w->loops, w->drops, w->bad);
+		w->ifc != nil ? w->ifc->dev : "-", w->loops, w->drops, w->noroute, w->bad,
+		w->replays, w->cookiesin, w->cookiesout, w->cookiealways ? " cookie always" : "");
 	for(p = w->peer; p < w->peer+Npeer; p++){
 		if(p->id == 0)
 			continue;
@@ -1334,7 +1639,20 @@ wgread(Chan *c, void *a, long n, vlong off)
 	error(Egreg);
 }
 
-/* ADDR/LEN, v4 or v6 */
+/* a decimal number in [lo, hi], or error */
+static long
+number(char *s, long lo, long hi, char *what)
+{
+	char *e;
+	long n;
+
+	n = strtol(s, &e, 10);
+	if(*s == 0 || *e != 0 || n < lo || n > hi)
+		error(what);
+	return n;
+}
+
+/* ADDR/LEN, v4 (LEN 0-32) or v6 (0-128) */
 static void
 parseprefix(Allowed *al, char *s)
 {
@@ -1346,11 +1664,10 @@ parseprefix(Allowed *al, char *s)
 	*l++ = 0;
 	if(parseip(al->ip, s) == -1)
 		error("allowed: bad address");
-	n = atoi(l);
 	if(isv4(al->ip))
-		n += 96;
-	if(n < 0 || n > 128)
-		error("allowed: bad length");
+		n = 96 + number(l, 0, 32, "allowed: an IPv4 prefix length is 0-32");
+	else
+		n = number(l, 0, 128, "allowed: an IPv6 prefix length is 0-128");
 	memset(al->mask, 0, IPaddrlen);
 	for(i = 0; i < n; i++)
 		al->mask[i/8] |= 0x80 >> (i%8);
@@ -1389,10 +1706,96 @@ wglisten(Wg *w, int port)
 	kproc("wgreader", wgreader, w);
 }
 
+/* peer KEY [psk KEY] [allowed ADDR/LEN]... [endpoint ADDR!PORT] [keepalive SECS] */
+static void
+wgpeer(Wg *w, char **f, int nf)
+{
+	uchar k[Keylen], psk[Keylen], eaddr[IPaddrlen];
+	Allowed al[Nallowed], *a;
+	Peer *p, *q;
+	int i, nal, eport, keepalive, setpsk;
+	char *port;
+
+	if(key64(k, f[1]) < 0)
+		error("peer: a base64 key of 32 bytes");
+	/* all of the line is checked before any of it is done */
+	nal = 0;
+	eport = -1;
+	keepalive = -1;
+	setpsk = 0;
+	for(i = 2; i < nf; i += 2){
+		if(i+1 >= nf)
+			error("peer: a value missing");
+		if(strcmp(f[i], "psk") == 0){
+			if(key64(psk, f[i+1]) < 0)
+				error("psk: a base64 key of 32 bytes");
+			setpsk = 1;
+		}else if(strcmp(f[i], "allowed") == 0){
+			if(nal >= Nallowed)
+				error("too many allowed prefixes");
+			parseprefix(&al[nal++], f[i+1]);
+		}else if(strcmp(f[i], "endpoint") == 0){
+			if((port = strchr(f[i+1], '!')) == nil)
+				error("endpoint: ADDR!PORT");
+			*port++ = 0;
+			if(parseip(eaddr, f[i+1]) == -1)
+				error("endpoint: bad address");
+			eport = number(port, 1, 65535, "endpoint: a port is 1-65535");
+		}else if(strcmp(f[i], "keepalive") == 0)
+			keepalive = number(f[i+1], 0, 65535, "keepalive: 0-65535 seconds");
+		else
+			error(Ebadctl);
+	}
+	p = peerbykey(w, k);
+	/* a prefix has one owner (cryptokey routing): another peer's is an error */
+	for(a = al; a < al+nal; a++)
+		for(q = w->peer; q < w->peer+Npeer; q++){
+			if(q->id == 0 || q == p)
+				continue;
+			for(i = 0; i < q->nal; i++)
+				if(q->al[i].len == a->len && ipcmp(q->al[i].ip, a->ip) == 0){
+					snprint(up->genbuf, sizeof up->genbuf, "allowed: that prefix is peer %d's", q->id);
+					error(up->genbuf);
+				}
+		}
+	if(p == nil){
+		for(p = w->peer; p < w->peer+Npeer; p++)
+			if(p->id == 0)
+				break;
+		if(p == w->peer+Npeer)
+			error("too many peers");
+		memset(p, 0, sizeof *p);
+		memmove(p->pub, k, Keylen);
+		p->id = w->nextid++;
+		peerkeys(w, p);
+	}
+	for(a = al; a < al+nal; a++){
+		for(i = 0; i < p->nal; i++)
+			if(p->al[i].len == a->len && ipcmp(p->al[i].ip, a->ip) == 0)
+				break;
+		if(i < p->nal)
+			continue;	/* has it already */
+		if(p->nal >= Nallowed)
+			error("too many allowed prefixes");
+		p->al[p->nal++] = *a;
+	}
+	if(setpsk && tsmemcmp(p->psk, psk, Keylen) != 0){
+		memmove(p->psk, psk, Keylen);
+		peerreset(p);
+	}
+	if(eport > 0){
+		ipmove(p->eaddr, eaddr);
+		p->eport = eport;
+	}
+	if(keepalive >= 0)
+		p->keepalive = keepalive;
+	memset(psk, 0, sizeof psk);
+}
+
 static void
 wgctl(Wg *w, char *line)
 {
-	char *f[4];
+	char *f[2+2*(Nallowed+4)];
 	int nf;
 	uchar k[Keylen];
 	Peer *p;
@@ -1403,6 +1806,8 @@ wgctl(Wg *w, char *line)
 	if(strcmp(f[0], "private") == 0 && nf == 2){
 		if(key64(k, f[1]) < 0)
 			error("private: a base64 key of 32 bytes");
+		if(w->havekey && tsmemcmp(w->priv, k, Keylen) == 0)
+			return;
 		memmove(w->priv, k, Keylen);
 		x25519(w->pub, w->priv, nine);
 		hash2(w->ih, h0, Keylen, w->pub, Keylen);
@@ -1413,69 +1818,38 @@ wgctl(Wg *w, char *line)
 			memmove(b + sizeof labelmac1 - 1, w->pub, Keylen);
 			blake2s_256(b, sizeof b, w->mac1key, nil);
 		}
+		labelhash(w->ckey, labelcookie, w->pub);
 		w->havekey = 1;
+		/* a new identity: nothing made with the old one goes on */
 		for(p = w->peer; p < w->peer+Npeer; p++)
-			if(p->id != 0)
+			if(p->id != 0){
+				peerreset(p);
 				peerkeys(w, p);
+			}
 		memset(k, 0, sizeof k);
 		return;
 	}
 	if(strcmp(f[0], "listen") == 0 && nf == 2){
-		wglisten(w, atoi(f[1]));
+		wglisten(w, number(f[1], 1, 65535, "listen: a port is 1-65535"));
 		return;
 	}
-	if(strcmp(f[0], "peer") == 0 && nf == 2){
-		if(key64(k, f[1]) < 0)
-			error("peer: a base64 key of 32 bytes");
-		if((p = peerbykey(w, k)) == nil){
-			for(p = w->peer; p < w->peer+Npeer; p++)
-				if(p->id == 0)
-					break;
-			if(p == w->peer+Npeer)
-				error("too many peers");
-			memset(p, 0, sizeof *p);
-			memmove(p->pub, k, Keylen);
-			p->id = w->nextid++;
-			peerkeys(w, p);
-		}
-		w->sel = p;
+	if(strcmp(f[0], "peer") == 0 && nf >= 2){
+		wgpeer(w, f, nf);
 		return;
 	}
 	if(strcmp(f[0], "remove") == 0 && nf == 2){
 		if(key64(k, f[1]) < 0 || (p = peerbykey(w, k)) == nil)
 			error("remove: no such peer");
-		if(w->sel == p)
-			w->sel = nil;
 		peerclear(p);
 		return;
 	}
-	if((p = w->sel) == nil)
-		error("no peer selected: peer KEY first");
-	if(strcmp(f[0], "psk") == 0 && nf == 2){
-		if(key64(p->psk, f[1]) < 0)
-			error("psk: a base64 key of 32 bytes");
-		return;
-	}
-	if(strcmp(f[0], "allowed") == 0 && nf == 2){
-		if(p->nal >= Nallowed)
-			error("too many allowed prefixes");
-		parseprefix(&p->al[p->nal], f[1]);
-		p->nal++;
-		return;
-	}
-	if(strcmp(f[0], "endpoint") == 0 && nf == 2){
-		char *port;
-
-		if((port = strchr(f[1], '!')) == nil)
-			error("endpoint: ADDR!PORT");
-		*port++ = 0;
-		if(parseip(p->eaddr, f[1]) == -1)
-			error("endpoint: bad address");
-		p->eport = atoi(port);
-		return;
-	}
-	if(strcmp(f[0], "keepalive") == 0 && nf == 2){
-		p->keepalive = atoi(f[1]);
+	if(strcmp(f[0], "cookie") == 0 && nf == 2){
+		if(strcmp(f[1], "always") == 0)
+			w->cookiealways = 1;
+		else if(strcmp(f[1], "auto") == 0)
+			w->cookiealways = 0;
+		else
+			error(Ebadctl);
 		return;
 	}
 	error(Ebadctl);
