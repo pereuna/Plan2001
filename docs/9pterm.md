@@ -19,15 +19,31 @@ Build-muoto repon drawtermiin (`monolith/third_party/drawterm`, pin
 Käyttö (sillin CPU-VM):
 
 ```
-PASS=… 9pterm -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -c 'cat /dev/sysname'
+9pterm -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -P ~/.cache/plan2001/cpu.pass -c 'cat /dev/sysname'
 ```
+
+Valitsimet (drawtermin lisäksi):
+
+| | |
+|---|---|
+| `-P tiedosto` | salasana tiedostosta (tai ympäristömuuttuja `PASS`); ei koskaan kaiuteta |
+| `-W s` | yhteyden ja tunnistautumisen aikaraja, oletus 30 |
+| `-T s` | komennon aikaraja, oletus ei rajaa |
+
+Paluuarvo: 0 = etäkomennon status tyhjä; 1 = status ei tyhjä (status
+stderr:iin, esim. `rc 608: oops`); 2 = paikallinen virhe (yhteys,
+tunnistautuminen, valitsimet); 124 = `-T` ylittyi.
+
+stdout on etäkomennon tuloste, stderr sen fd 2 (`/mnt/term/dev/stderr`,
+devconsin `NINEPTERM`-tiedosto) ja 9ptermin omat viestit. stdin menee
+komennolle, ja EOF päättää sen syötteen.
 
 ## Vaiheet
 
 | # | Vaihe | Tila |
 |---|---|---|
 | 1 | Build ilman GUI:ta; `-c` toimii | tehty 30.9.: `echo hi` 0,23 s, väärä salasana 0,1 s |
-| 2 | AI-ystävällinen `-c`: paluuarvo (tyhjä status 0, muu 1, status stderr:iin; nyt statuksen 1. merkin koodi, esim. 114), stderr erikseen (nyt stdoutissa), aikarajat (yhteys, tunnistautuminen, komento), `--pass-file`, EOF stdinissä | |
+| 2 | AI-ystävällinen `-c`: paluuarvot 0/1/2/124, stderr erikseen, aikarajat `-W` ja `-T`, `-P`, EOF stdinissä | tehty 30.9. (testattu sillin CPU-VM:ää vasten; natiivi drawterm kääntyy ennallaan) |
 | 3 | Interaktiivinen istunto: raw-tila, `/dev/kbd` palvelimen kbdfs:lle, rivieditori ja Delete | |
 | 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | |
 | 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa, tai WSS myöhemmin | |

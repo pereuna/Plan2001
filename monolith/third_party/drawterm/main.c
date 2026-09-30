@@ -63,8 +63,14 @@ main(int argc, char **argv)
 		panic("open0: %r");
 	if(open("/dev/cons", OWRITE) != 1)
 		panic("open1: %r");
+#ifdef NINEPTERM
+	/* 9pterm: our own messages to stderr, not into the output */
+	if(open("/dev/stderr", OWRITE) != 2)
+		panic("open2: %r");
+#else
 	if(open("/dev/cons", OWRITE) != 2)
 		panic("open2: %r");
+#endif
 
 	cpumain(argc, argv);
 	return 0;

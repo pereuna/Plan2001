@@ -11,6 +11,11 @@
 #include "args.h"
 #include "drawterm.h"
 
+#ifdef NINEPTERM
+/* 9pterm: this file's messages are diagnostics - stderr, not the output */
+#define print(...)	fprint(2, __VA_ARGS__)
+#endif
+
 #define MaxStr 128
 
 static void	usage(void);
@@ -133,6 +138,86 @@ startaan(char *host, int fd)
 	return aanclient(na, aanto);
 }
 
+#ifdef NINEPTERM
+/*
+ * 9pterm: exit 0 for the remote command's empty status, else 1 with the
+ * status on stderr; local failures exit 2 (libc/atexit.c), a timeout 124.
+ * -W secs: connecting and authenticating (default 30); -T secs: the
+ * command (default none); -P file: the password.
+ */
+static int waitsecs = 30, cmdsecs;
+static volatile int authed;
+
+extern void osmsleep(int);
+
+static void
+watchdog(void *v)
+{
+	vlong t0, t1;
+
+	USED(v);
+	t0 = nsec();
+	t1 = 0;
+	for(;;){
+		osmsleep(100);
+		if(!authed){
+			if(waitsecs > 0 && nsec() - t0 > (vlong)waitsecs*1000000000LL){
+				fprint(2, "9pterm: no connection in %d s\n", waitsecs);
+				exit(2);
+			}
+		}else if(cmdsecs > 0){
+			if(t1 == 0)
+				t1 = nsec();
+			if(nsec() - t1 > (vlong)cmdsecs*1000000000LL){
+				fprint(2, "9pterm: timeout: the command ran %d s\n", cmdsecs);
+				exit(124);
+			}
+		}
+	}
+}
+
+static char*
+readpassfile(char *file)
+{
+	char buf[256], *p, *path, *pwd;
+	int fd, n;
+
+	/* the local file system is /root here (devfs-posix) */
+	if(file[0] == '/')
+		path = smprint("/root%s", file);
+	else if((pwd = getenv("PWD")) != nil)
+		path = smprint("/root%s/%s", pwd, file);
+	else
+		path = smprint("/root/%s", file);
+	fd = open(path, OREAD);
+	free(path);
+	if(fd < 0)
+		sysfatal("password file %s: %r", file);
+	n = read(fd, buf, sizeof buf - 1);
+	close(fd);
+	if(n <= 0)
+		sysfatal("password file %s: empty", file);
+	buf[n] = 0;
+	if((p = strchr(buf, '\n')) != nil)
+		*p = 0;
+	p = estrdup(buf);
+	memset(buf, 0, sizeof buf);
+	return p;
+}
+
+static void
+rcpuexit(void)
+{
+	char *s = getenv("rstatus");
+
+	if(s == nil)
+		return;
+	if(*s == 0)
+		exit(0);
+	fprint(2, "%s\n", s);
+	exit(1);
+}
+#else
 static void
 rcpuexit(void)
 {
@@ -140,6 +225,7 @@ rcpuexit(void)
 	if(s != nil)
 		exit(*s);
 }
+#endif
 
 void
 rcpu(char *host, char *cmd)
@@ -154,6 +240,15 @@ rcpu(char *host, char *cmd)
 "</dev/cons >/dev/cons >[2=1] service=cpu %s\n"
 "echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
 "echo -n hangup >/proc/$pid/notepg\n";
+#ifdef NINEPTERM
+	/* a command's fd 2 to our stderr (devcons: /dev/stderr), not to cons */
+	static char cmdscript[] =
+"mount -nc /fd/0 /mnt/term || exit\n"
+"bind -q /mnt/term/dev/cons /dev/cons\n"
+"</dev/cons >/dev/cons >[2]/mnt/term/dev/stderr service=cpu %s\n"
+"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
+"echo -n hangup >/proc/$pid/notepg\n";
+#endif
 	int fd;
 
 	if((fd = dial(netmkaddr(host, "tcp", "rcpu"), nil, nil, nil)) < 0)
@@ -171,12 +266,19 @@ rcpu(char *host, char *cmd)
 		fd = p9authtls(fd);
 	}
 	memset(secstorebuf, 0, sizeof(secstorebuf));	/* forget secstore secrets */
+#ifdef NINEPTERM
+	authed = 1;
+#endif
 
 	if(cmd == nil)
 		cmd = smprint(script, "rc -li");
 	else {
 		char *run = smprint("rc -lc %q", cmd);
+#ifdef NINEPTERM
+		cmd = smprint(cmdscript, run);
+#else
 		cmd = smprint(script, run);
+#endif
 		free(run);
 	}
 	if(fprint(fd, "%7ld\n%s", strlen(cmd), cmd) < 0)
@@ -254,6 +356,11 @@ ncpu(char *host, char *cmd)
 void
 usage(void)
 {
+#ifdef NINEPTERM
+	fprint(2, "usage: %s [-O] [-h host] [-u user] [-a authserver] [-P passfile] "
+		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ...]\n", argv0);
+	exits("usage");
+#endif
 	fprint(2, "usage: %s [-9GBO] "
 		"[-h host] [-u user] [-a authserver] [-s secstore] "
 		"[-e 'crypt hash'] [-k keypattern] "
@@ -342,6 +449,17 @@ cpumain(int argc, char **argv)
 		 */
 		geometry = EARGF(usage());
 		break;
+#ifdef NINEPTERM
+	case 'W':
+		waitsecs = atoi(EARGF(usage()));
+		break;
+	case 'T':
+		cmdsecs = atoi(EARGF(usage()));
+		break;
+	case 'P':
+		pass = readpassfile(EARGF(usage()));
+		break;
+#endif
 	case 'x':
 		scalef = 1;
 		if((s = ARGF()) == nil)
@@ -364,8 +482,15 @@ cpumain(int argc, char **argv)
 		return;
 	}
 
+#ifdef NINEPTERM
+	if(pass == nil && (pass = getenv("PASS")) != nil)
+		remove("/env/PASS");
+	else
+		remove("/env/PASS");
+#else
 	if((pass = getenv("PASS")) != nil)
 		remove("/env/PASS");
+#endif
 
 	if(!nogfx)
 		guimain();
@@ -377,6 +502,10 @@ void
 cpubody(void)
 {
 	char *s;
+
+#ifdef NINEPTERM
+	kproc("watchdog", watchdog, nil);
+#endif
 
 	if(!nogfx){
 		if(bind("#i", "/dev", MBEFORE) < 0)
