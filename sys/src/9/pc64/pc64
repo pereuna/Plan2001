@@ -21,6 +21,7 @@ dev
 	ether		netif
 	bridge		log
 	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
 
 	draw		screen vga vgax vgasoft
 	mouse		mouse

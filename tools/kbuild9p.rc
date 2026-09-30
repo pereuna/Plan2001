@@ -1,0 +1,81 @@
+#!/bin/rc
+# Builds a target's kernel ON a Plan2001/9front CPU server through a
+# 9pterm session, the sources straight from the client's repo at
+# /mnt/term (no tar, no disk images): the same overlay as tools/build.rc.
+#   9pterm -S SOCK -T 900 -c 'rc /mnt/term/PATH/TO/Plan2001/tools/kbuild9p.rc /mnt/term/PATH/TO/Plan2001 [target [stockkbd]]'
+# The kernel lands in the repo's build/$target/ as $kernel.
+rfork en
+repo=$1
+if(~ $#repo 0){
+	echo usage: kbuild9p.rc REPO '[target]' >[1=2]
+	exit usage
+}
+target=$2
+if(~ $#target 0)
+	target=amd64
+. $repo/tools/targets/$target
+d=/tmp/kbuild9p.$pid
+rm -rf $d
+mkdir -p $d/9 $d/inc $d/auxbin $d/kbdfs
+fn cleanup { rm -rf $d }
+
+cp $repo/sys/include/bootinfo.h $d/inc/bootinfo.h
+bind -b $d/inc /sys/include
+
+echo '### overlay '^$"ksrc^' from '^$repo
+dircp /sys/src/9 $d/9
+for(x in $ksrc) if(test -d $repo/sys/src/9/$x) dircp $repo/sys/src/9/$x $d/9/$x
+for(f in `{ls $repo/sys/src/9/port})
+	for(x in $ksrc) if(! ~ $x port) rm -f $d/9/$x/`{basename $f}
+
+echo '### kbdfs'
+dircp /sys/src/cmd/aux/kbdfs $d/kbdfs
+# stockkbd: 9front's own kbdfs, from the repo's 9front subset (the
+# server's source may hold the line editor already)
+if(~ $3 stockkbd)
+	cp $repo/subset/9front/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
+if not
+	cp $repo/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
+@{ cd $d/kbdfs && rm -f *.[0-9ko] ?.out && mk >[2=1] } >$d/kbdfs.log
+o=`{ls -t $d/kbdfs/?.out >[2]/dev/null}
+if(~ $#o 0){
+	tail -20 $d/kbdfs.log
+	echo KBDFS BUILD FAILED
+	cleanup
+	exit kbdfs
+}
+cp $o(1) $d/auxbin/kbdfs
+if(~ $3 syskbd)
+	cp /$objtype/bin/aux/kbdfs $d/auxbin/kbdfs
+# /tmp here makes files 0700: bootrc starts kbdfs only if test -x says so
+chmod 775 $d/auxbin/kbdfs
+bind -b $d/auxbin /$objtype/bin/aux
+
+echo '### kernel '^$kconf
+bind -c $d/9 /sys/src/9
+cd /sys/src/9/$kdir
+time mk 'CONF='$kconf >$d/kernel.log >[2=1]
+st=$status
+mkdir -p $repo/build/$target
+cp $d/kernel.log $repo/build/$target/kernel9p.log
+if(! ~ $st '' || ! test -f $kernel){
+	grep -v '^(6c|6a|8c|8a|cc|ar|mk|cp|rm|echo|size) ' $d/kernel.log | tail -40
+	echo KERNEL BUILD FAILED
+	cd /
+	cleanup
+	exit kernel
+}
+# bootrc starts the kbdfs in bootfs.paq: it must be the one built here
+mkdir -p $d/paq
+paqfs -m $d/paq $kconf.bootfs.paq
+paqsum=`{md5sum <$d/paq/$objtype/bin/aux/kbdfs}
+kbdsum=`{md5sum <$d/auxbin/kbdfs}
+ls -l $d/paq/$objtype/bin/aux $d/paq/$objtype/bin/rc $d/paq/rc/bin/bootrc
+unmount $d/paq
+echo kbdfs built $kbdsum in bootfs.paq $paqsum
+size $kernel
+cp $kernel $repo/build/$target/$kernel
+md5sum $kernel
+cd /
+cleanup
+echo KBUILD-DONE
