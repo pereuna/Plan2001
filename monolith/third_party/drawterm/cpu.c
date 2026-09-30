@@ -654,9 +654,18 @@ cpubody(void)
 			sysfatal("user terminated input");
 
 	if(mountfactotum() < 0){
+#ifdef NINEPTERM
+		/*
+		 * 9pterm: secstore only when asked for (-s): the probe of the
+		 * auth server's secstore port waits out TCP's timeout where a
+		 * firewall drops it (the cloud)
+		 */
+		if(secstore != nil && havesecstore(secstore, user)){
+#else
 		if(secstore == nil)
 			secstore = "$auth";
 	 	if(havesecstore(secstore, user)){
+#endif
 			s = secstorefetch(secstore, user, pass);
 			if(s){
 				if(strlen(s) >= sizeof secstorebuf)

@@ -16,6 +16,18 @@ Build-muoto repon drawtermiin (`monolith/third_party/drawterm`, pin
 - `monolith/tools/build 9pterm` → `monolith/build/9pterm/9pterm`
   (riippuvuudet vain libc ja libm)
 
+Käyttö pilveen (rcpu 17019 ja auth 567 auki OCI:ssa):
+
+```
+9pterm -h cpu.plan2001.com -a 'tcp!cpu.plan2001.com!567' -u glenda -P ~/.cache/plan2001/cpu.pass -c 'cat /dev/sysname'
+```
+
+Yhteys: 9pterm hakee tiketit auth-palvelimelta (567, dp9ik: salasana ei
+kulje verkossa), todistaa niillä henkilöllisyytensä CPU-palvelimelle
+(17019) ja salaa yhteyden TLS:llä; sen sisällä palvelin ajaa komennon ja
+käyttää 9ptermin tiedostoja (`/dev/cons`, `/dev/stderr`, `/mnt/term/root`)
+9P:llä. Ei selainta, WebSocketia eikä webtermiä.
+
 Käyttö (sillin CPU-VM):
 
 ```
@@ -68,5 +80,5 @@ Paluuarvot kuten `-c`:ssä: 1 etäpään virheestä (esim. status `copy`,
 | 2 | AI-ystävällinen `-c`: paluuarvot 0/1/2/124, stderr erikseen, aikarajat `-W` ja `-T`, `-P`, EOF stdinissä | tehty 30.9. (testattu sillin CPU-VM:ää vasten; natiivi drawterm kääntyy ennallaan) |
 | 3 | Interaktiivinen istunto: raw-tila, `/dev/kbd` palvelimen kbdfs:lle, rivieditori ja Delete | tehty 30.9.: pty-testi - komento, Backspace, Ctrl-C keskeyttää `sleep 100`:n 0,03 s:ssa, `exit` → 0; `-K` kursorinäppäimille |
 | 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | tehty 30.9.: 5 Mt put 0,38 s, get 0,60 s, md5 sama; virheet 1/2, ei `.9ptmp`-jäänteitä |
-| 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa, tai WSS myöhemmin | |
-| 6 | Windows (`Make.win64` + gui-none) | |
+| 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa | tehty 30.9.: `-c` 1,3 s, put+get 5 Mt 17 s md5 sama, interaktiivinen istunto ja Ctrl-C toimivat. Korjaus: drawterm kokeilee aina secstorea (auth-palvelimen portti 5356), ja pilven palomuuri pudottaa paketit hiljaa, jolloin yhteys odotti TCP:n aikarajaan; 9pterm käyttää secstorea vain `-s`:llä |
+| 6 | Windows (`Make.win64` + gui-none) | vanhentunut (obsolete) toistaiseksi: ei tehdä nyt |
