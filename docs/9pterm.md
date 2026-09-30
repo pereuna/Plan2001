@@ -46,6 +46,20 @@ keskeytyksen kuten drawtermissa; paikallinen pääte on raw-tilassa
 **Ctrl-C → Delete eli keskeytys**, Enter → rivinvaihto, ^D → EOF.
 Putkella ilman `-c`:tä syöte menee rc:lle sellaisenaan.
 
+Tiedostot:
+
+```
+9pterm … put PAIKALLINEN ETÄ
+9pterm … get ETÄ PAIKALLINEN
+```
+
+Siirto kulkee 9ptermin nimiavaruuden kautta (`/mnt/term/root` on paikallinen
+levy), MD5 tarkistetaan, ja tiedosto nimetään lopulliseksi vasta, kun se
+on kokonainen ja täsmää (`NIMI.9ptmp` → `NIMI`): `put` tarkistaa etäpäässä
+paikallisesti lasketun summan, `get` paikallisesti etäpään summan.
+Paluuarvot kuten `-c`:ssä: 1 etäpään virheestä (esim. status `copy`,
+`checksum`), 2 paikallisesta.
+
 ## Vaiheet
 
 | # | Vaihe | Tila |
@@ -53,6 +67,6 @@ Putkella ilman `-c`:tä syöte menee rc:lle sellaisenaan.
 | 1 | Build ilman GUI:ta; `-c` toimii | tehty 30.9.: `echo hi` 0,23 s, väärä salasana 0,1 s |
 | 2 | AI-ystävällinen `-c`: paluuarvot 0/1/2/124, stderr erikseen, aikarajat `-W` ja `-T`, `-P`, EOF stdinissä | tehty 30.9. (testattu sillin CPU-VM:ää vasten; natiivi drawterm kääntyy ennallaan) |
 | 3 | Interaktiivinen istunto: raw-tila, `/dev/kbd` palvelimen kbdfs:lle, rivieditori ja Delete | tehty 30.9.: pty-testi - komento, Backspace, Ctrl-C keskeyttää `sleep 100`:n 0,03 s:ssa, `exit` → 0; `-K` kursorinäppäimille |
-| 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | |
+| 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | tehty 30.9.: 5 Mt put 0,38 s, get 0,60 s, md5 sama; virheet 1/2, ei `.9ptmp`-jäänteitä |
 | 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa, tai WSS myöhemmin | |
 | 6 | Windows (`Make.win64` + gui-none) | |
