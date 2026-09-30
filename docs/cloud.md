@@ -66,8 +66,10 @@ sellaisenaan, ja mitä Plan2001:n pitää siksi olla.
     mutta ilman levyä (kohta 8). Ubuntu on poissa, joten uutta kuvaa ei voi
     kirjoittaa samalla tavalla: tarvitaan käynnistyslevyn vaihto Ubuntuun
     (OCI) ja uusi siirto.
-7. **Pääsynvalvonta:** Plan2001:ssä ei ole WireGuardia; pilvessä suoja on
-   pilven palomuuri (security list) ja TLS. Laskentapoolia ei avata
+7. **Pääsynvalvonta:** pilvessä suoja on pilven palomuuri (security list)
+   ja TLS. (Plan2001:n ytimessä on nyt WireGuard, `#W`,
+   `docs/wireguard.md`, mutta pilvipalvelimen ydin on vielä 29.9.:n,
+   ilman sitä.) Laskentapoolia ei avata
    julkisesti ennen CR:ien tunnistautumista (`docs/app-origins.md`, kohta 11).
 
 ## Mitä Plan2001:n pitää olla
@@ -161,3 +163,37 @@ vastaa omasta vyöhykkeestään ja hakee varmenteensa itse:
 Kesken: varmenteen uusiminen ennen 28.12.2026 (`acmed` ajastettuna,
 esim. `cron`), ja nämä asetukset osaksi asennusta (nyt tehty käsin
 palvelimella, kirjattu tähän).
+
+## Paikallinen CPU-palvelin (cirno) ja pilvi samaan tasoon (30.9.)
+
+`tools/vm-cpu` tekee paikallisesta CPU-palvelimesta (cpu.qcow2) saman
+järjestelmän kuin pilvessä. Tätä ennen cirnossa oli vielä 9frontin
+asentama ydin ja loader, ja kummassakin koneessa oli 9frontin glenda-profiili,
+joka käynnisti terminaalissa `rio -i riostart`:n (rio itse oli jo poistettu).
+
+`vm-cpu` (sekä luonti että `--update`) tekee nyt nämä:
+- kopioi Plan2001:n ytimen ja loaderin parina 9fat:iin
+  (`9pc64`, `efi/boot/bootx64.efi`); ne tulevat `build/amd64`:sta
+  (`tools/build.sh` tai `tools/kbuild9p.rc`);
+- asentaa glenda-profiilin repon `usr/glenda/lib/profile`:sta, jossa ei
+  ole rio:ta: terminaalissa on rc-kehote, ja ikkunat tulevat
+  Monolithin kautta;
+- poistaa `riostart`:in ja `rio`:n.
+
+Pilveen tehtiin 30.9. sama profiilin vaihto 9pterm-istunnolla (vanha
+tallessa `profile.9front`) ja `riostart` poistettiin. Pilven ydin on
+yhä 29.9.:n.
+
+Vain pilvessä, tarkoituksella:
+- `cpurc`: `ndb/dns -rsL`, oma vyöhyke;
+- `tcp443` ja Let's Encryptin varmenne;
+- `crsrv -k` (avaintunnistus);
+- `plan9.ini`:n `sd00`;
+- `cpustart`:issa varmenteen avain factotumiin.
+
+Paikallisessa koneessa on kehitys-CA ja portit 17443/17080.
+
+base.qcow2 (build-VM) on 9frontin koskematon asennus ja cpu.qcow2:n
+taustakuva, joten siihen ei kosketa. Sen 9front-profiili yrittää
+terminaalissa rio:ta, mikä näkyy vain, kun base käynnistetään
+terminaalina (build-VM, testit).

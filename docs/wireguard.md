@@ -198,18 +198,29 @@ tarvita:
 Koko pc64-ydin kääntyy cirnossa noin 7 sekunnissa, ja tulos kirjoitetaan
 suoraan tiedostoon `build/amd64/9pc64`.
 
-### Avoin havainto: terminaalitila sarjakonsolilla
+### Ratkaistu: terminaalin konsoli kbuild9p-ytimellä (30.9.)
 
-Kun `service=terminal` ja käytössä on pelkkä sarjakonsoli (ei näyttöä),
-kbuild9p:llä käännetyn ytimen rc saa konsolilta heti EOF:n, ja init
-käynnistää sen yhä uudelleen. Tämä näkyi, kun base.qcow2 käynnistettiin
-testiytimellä.
+Kun `service=terminal` ja käytössä oli pelkkä sarjakonsoli, kbuild9p:llä
+käännetyn ytimen rc sai konsolilta heti EOF:n (`init: rc exit status:
+false` silmukassa).
 
-- 26.9. `build.sh`:lla käännetty ydin toimi samassa tilanteessa.
-- Saman 26.9. lähteen kbuild9p-käännös ei toiminut, joten syy on
-  käännösympäristössä, ei lähteessä.
-- bootfs.paq:n kbdfs on oikea ja suoritettava, ja
-  boot-lähteet ovat samat.
-- CPU-palvelintila toimii.
+**Syy:** bootfs.paq ottaa tiedostojen ja hakemistojen tilat siitä, mistä
+se tehdään. `amd64/bin/aux` on union, jonka ensimmäinen osa on kbuild9p:n
+oma `$d/auxbin`. Se oli `/tmp`:ssä, ja cpu-istunnon `/tmp` antaa uusille
+tiedostoille tilan 0750 (glenda). bootrc:n `test -x /bin/aux/kbdfs`
+tehdään ennen kuin isäntäomistaja on asetettu, joten se epäonnistui:
+kbdfs ei käynnistynyt, `/srv/cons` puuttui ja `/dev/cons` oli ytimen
+oma `#c`, joka antaa pelkän EOF:n. build.rc tekee saman hakemiston
+kotihakemistoon (0775), joten sen ydin toimi.
 
-Selvittämättä. Siksi wgtest käyttää CPU-palvelintilaa.
+**Näin syy löytyi:**
+1. Sama lähde käännettiin build.rc:llä erillisessä base-VM:ssä, ja
+   tulos toimi, joten syy oli käännösympäristössä.
+2. Ytimien koodi ja data olivat samat bootfs.paq:ta lukuun ottamatta.
+3. Kaatuvan käynnistyksen profiilissa kirjoitettu diagnostiikkaloki
+   (luettu toimivalla ytimellä samalta levyltä) näytti, ettei kbdfs ollut
+   käynnissä.
+
+**Korjaus:** `chmod 775 $d/auxbin $d/auxbin/kbdfs`. Lisäksi kbuild9p
+kaatuu nyt, jos bootfs:n `bin`, `bin/aux` tai `kbdfs` ei ole kaikkien
+suoritettavissa.
