@@ -74,6 +74,8 @@ Joka kerta:
 ```
 tools/build.sh           # kääntää 9pc64 + bootx64.efi -> build/amd64/
 tools/test-qemu.sh       # käynnistää tuloksen QEMU:ssa, PASS/FAIL sarjalokista
+9pterm -S SOCK -T 900 -c 'rc /mnt/term$PWD/tools/kbuild9p.rc /mnt/term$PWD'   # ydin CPU-palvelimella 9pterm-istunnolla (~7 s)
+tools/wgtest.sh          # WireGuard (#W) Linuxin wg:tä vastaan, docs/wireguard.md
 ```
 
 **Kohteet:** jokainen työkalu ottaa `TARGET`-muuttujan (oletus `amd64`). Kohteet
