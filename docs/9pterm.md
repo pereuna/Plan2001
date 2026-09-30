@@ -160,3 +160,18 @@ Havainnot:
   suhteessa.
 - Yksi yhdistetty vertailukomento jäi kerran kiinni (ei toistunut);
   AI:n komennoissa aina `-T`.
+
+## Katselmointi ja korjaukset (30.9.)
+
+Ulkoisen katselmoinnin löydökset istuntotilasta ja niiden korjaukset:
+
+| Löydös | Korjaus | Testi |
+|---|---|---|
+| Socketin `write`/`send` voi kirjoittaa osan: kehystys hajoaa kuormassa | `sendfull`/`writefull` molempiin suuntiin, EINTR huomioitu; asiakas ohittaa SIGPIPEn | 5 Mt:n tuloste istunnon kautta, md5 sama |
+| Job-rakenteet eivät vapaudu: pitkä istunto vuotaa | viitelaskuri (lista, vahti, jokainen käyttö); lisäksi drawtermin kproc-säikeet irrotetaan (`pthread_detach`, NINEPTERM), koska kukaan ei liitä niitä - tämä oli varsinainen vuoto (~8 kt/työ) | 4 000 työtä: RSS 3,2 → 3,7 Mt (ennen 3,9 → 37 Mt), säikeitä 6 |
+| `jobs/ctl` ei kanna 9P-viestiä suurempaa komentoa | tietue luetaan tarvittaessa usealla lukukerralla, ja `9pjobd` lukee otsakkeen ja komennon `readn`:llä; kirjoitettujen kehysten palat kootaan | 129 kt:n komento (ennen raja ~8 kt) |
+| Plan 9:n `exec` ottaa ~64 kt argumentteja | yli 32 kt:n komento rc:lle väliaikaistiedostona (poistetaan työn jälkeen) | 94 kt ja 129 kt oikein, ei jäänteitä |
+| ESC-sekvenssi rikkoutuu lukurajalla; UTF-8 hyväksyy virheellisiä tavuja | pysyvä tilakone (ESC, CSI, UTF-8); yksinäinen ESC odottaa 50 ms; virheellinen tavu → U+FFFD | pty: `ESC [` + `D` eri lukukerroilla, `ä` kahdessa osassa, 0xFF |
+| `get` poisti vanhan tiedoston ennen uuden nimeämistä | vanha → `NIMI.9pold`, uusi → `NIMI`, vanha pois vasta sitten; epäonnistuessa vanha takaisin (drawtermin rename ei korvaa) | `get` olemassa olevan päälle, ei jäänteitä |
+| `-S get` otti talteen vain viimeisen tulostekehyksen | kaikki kehykset kootaan | |
+| (oma) vahti ja `endjob` sulkivat saman socketin: numero voi mennä uudelle yhteydelle | vain vahti sulkee; `endjob` tekee `shutdown`in | |

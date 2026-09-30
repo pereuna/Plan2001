@@ -317,8 +317,9 @@ xfercmd(char *op, char *a, char *b)
 static int
 getfinish(char *want)
 {
-	char *tmp, *got, *name;
-	Dir d;
+	char *tmp, *got, *name, *old;
+	int hadold;
+	Dir d, *od;
 
 	tmp = smprint("%s.9ptmp", getlocal);
 	if(want == nil)
@@ -329,15 +330,39 @@ getfinish(char *want)
 		fprint(2, "9pterm: get: checksum mismatch\n");
 		return -1;
 	}
-	remove(getlocal);
+	/*
+	 * a rename here does not replace (devfs-posix: Eexist), so an old
+	 * file becomes NAME.9pold first and is removed only once the new one
+	 * has its name - and has it back if that fails: never lost
+	 */
 	name = strrchr(getlocal, '/') + 1;
+	old = smprint("%s.9pold", getlocal);
+	remove(old);
 	memset(&d, ~0, sizeof d);	/* nulldir: change nothing but the name */
-	d.name = name;
 	d.uid = d.gid = d.muid = "";
+	hadold = 0;
+	if((od = dirstat(getlocal)) != nil){
+		free(od);
+		d.name = strrchr(old, '/') + 1;
+		if(dirwstat(getlocal, &d) < 0){
+			fprint(2, "9pterm: get: %s: %r\n", getlocal);
+			remove(tmp);
+			return -1;
+		}
+		hadold = 1;
+	}
+	d.name = name;
 	if(dirwstat(tmp, &d) < 0){
 		fprint(2, "9pterm: get: rename %s: %r\n", tmp);
+		if(hadold){
+			d.name = name;
+			dirwstat(old, &d);
+		}
+		remove(tmp);
 		return -1;
 	}
+	if(hadold)
+		remove(old);
 	return 0;
 }
 

@@ -5,7 +5,8 @@
  * /dev/jobs/ctl): a read gives a job, and the job's output and status go
  * back as writes to it - no file to open per job.
  *
- *	read:	'J' id[4] len[4] command		(one job, an rc command)
+ *	read:	'J' id[4] len[4] command		(one job, an rc command; the record
+ *						may take more than one read)
  *		'K' id[4] pid[4]			(kill the job: its client went away)
  *	write:	'o'|'e'|'s' id[4] len[4] data	(stdout, stderr, status)
  *		'p' id[4] 4 pid[4]		(the job's process: its note group)
@@ -18,6 +19,7 @@
 enum {
 	Hdr	= 9,
 	Maxcmd	= 1024*1024,
+	Maxarg	= 32*1024,	/* a longer command goes to rc as a file: exec takes ~64 kB of arguments */
 	Iosize	= 8000,
 };
 
@@ -63,14 +65,23 @@ relay(int fd, int type, int id)
 void
 job(int id, char *cmd)
 {
-	int out[2], err[2], rcpid, n, null;
+	int out[2], err[2], rcpid, n, null, fd;
 	uchar pidbuf[4];
-	char *status;
+	char *status, *file;
 	Waitmsg *w;
 
 	if(pipe(out) < 0 || pipe(err) < 0){
 		frame('s', id, "9pjobd: pipe", 12);
 		exits(nil);
+	}
+	file = nil;
+	if(strlen(cmd) > Maxarg){
+		file = smprint("/tmp/9pjob.%d.%d", getpid(), id);
+		if((fd = create(file, OWRITE, 0600)) < 0 || write(fd, cmd, strlen(cmd)) != strlen(cmd)){
+			frame('s', id, "9pjobd: temporary file", 22);
+			exits(nil);
+		}
+		close(fd);
 	}
 	switch(rcpid = rfork(RFPROC|RFFDG|RFNOTEG|RFENVG)){
 	case -1:
@@ -87,7 +98,10 @@ job(int id, char *cmd)
 		close(out[1]);
 		close(err[0]);
 		close(err[1]);
-		execl("/bin/rc", "rc", "-c", cmd, nil);
+		if(file != nil)
+			execl("/bin/rc", "rc", file, nil);
+		else
+			execl("/bin/rc", "rc", "-c", cmd, nil);
 		exits("exec rc");
 	}
 	close(out[1]);
@@ -111,6 +125,8 @@ job(int id, char *cmd)
 		}
 		free(w);
 	}
+	if(file != nil)
+		remove(file);
 	frame('s', id, status, strlen(status));
 	exits(nil);
 }
@@ -118,9 +134,9 @@ job(int id, char *cmd)
 void
 main(int argc, char **argv)
 {
-	static uchar buf[Hdr+Maxcmd+1];
-	long n, len;
-	int id;
+	uchar h[Hdr];
+	char *cmd;
+	ulong id, len;
 
 	if(argc != 2){
 		fprint(2, "usage: 9pjobd ctl\n");
@@ -128,24 +144,26 @@ main(int argc, char **argv)
 	}
 	if((ctl = open(argv[1], ORDWR)) < 0)
 		sysfatal("%s: %r", argv[1]);
+	/* a record may take more than one read (9P's message size): readn */
 	for(;;){
-		n = read(ctl, buf, sizeof buf - 1);
-		if(n <= 0)
+		if(readn(ctl, h, Hdr) != Hdr)
 			exits(nil);
-		if(n == Hdr && buf[0] == 'K'){
-			postnote(PNGROUP, get32(buf+5), "kill");
+		id = get32(h+1);
+		len = get32(h+5);
+		if(h[0] == 'K'){
+			postnote(PNGROUP, len, "kill");
 			continue;
 		}
-		if(n < Hdr || buf[0] != 'J')
-			continue;
-		id = get32(buf+1);
-		len = get32(buf+5);
-		if(len != n-Hdr)
-			continue;
-		buf[n] = 0;
+		if(h[0] != 'J' || len > Maxcmd)
+			sysfatal("bad record %c %lud", h[0], len);
+		cmd = malloc(len+1);
+		if(cmd == nil || readn(ctl, cmd, len) != len)
+			exits(nil);
+		cmd[len] = 0;
 		switch(rfork(RFPROC|RFFDG|RFNOWAIT|RFNOTEG)){
 		case 0:
-			job(id, (char*)buf+Hdr);
+			job(id, cmd);
 		}
+		free(cmd);
 	}
 }

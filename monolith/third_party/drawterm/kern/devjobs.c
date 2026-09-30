@@ -9,9 +9,11 @@
  *	jobs/N/out	written: to the client's stdout
  *	jobs/N/err	written: to the client's stderr
  *	jobs/N/status	written: the command's status; the job ends
- *	jobs/ctl	the jobs in one file, for 9pjobd (kern/9pjobd.c): a read
- *			gives a job ('J' id len command), writes return its
- *			output and status ('o'|'e'|'s' id len data)
+ *	jobs/ctl	the jobs in one file, for 9pjobd (kern/9pjobd.c): reads
+ *			give records ('J' id len command, 'K' id pid),
+ *			writes return frames ('o'|'e'|'s'|'p' id len data);
+ *			both may take more than one 9P message: a record is
+ *			read in pieces, a frame's pieces are gathered
  *	jobs/src	9pjobd's source, which the session compiles
  *
  * Socket frames, both ways: a type byte, a 4-byte big-endian length, data.
@@ -21,6 +23,10 @@
  * the job killed: 9pjobd tells each job's process ('p' frame) and gets
  * 'K' id pid to kill its note group.  -I secs: the session ends when no
  * job has run for secs.
+ *
+ * A Job is counted (ref): the list holds one, the client's watcher one,
+ * and each use by a chan one; it is freed at the last.  The watcher alone
+ * closes the client's socket, so its number is not reused under it.
  */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -32,6 +38,8 @@
 #include "dat.h"
 #include "fns.h"
 #include "error.h"
+
+#include <errno.h>
 
 #undef listen
 #undef accept
@@ -74,8 +82,19 @@ struct Job {
 	int	rpid;		/* its process on the server (9pjobd's 'p') */
 	int	killwant;	/* its client went away */
 	int	killsent;
+	int	ref;
 	QLock	wlk;		/* frames to fd */
 	Job	*next;
+};
+
+/* a ctl chan's record being read and frame being gathered */
+typedef struct Ctl Ctl;
+struct Ctl {
+	uchar	*rec;
+	long	nrec;
+	long	roff;
+	uchar	*w;
+	long	nw;
 };
 
 static Lock jl;		/* jobs, npending */
@@ -89,6 +108,7 @@ static char *sockpath;
 static char *sessdesc;
 static long sesssince;
 
+/* the job numbered id, counted: putjob when done */
 static Job*
 lookjob(int id)
 {
@@ -96,10 +116,45 @@ lookjob(int id)
 
 	lock(&jl);
 	for(j = jobs; j != nil; j = j->next)
-		if(j->id == id)
+		if(j->id == id){
+			j->ref++;
 			break;
+		}
 	unlock(&jl);
 	return j;
+}
+
+static void
+putjob(Job *j)
+{
+	int r;
+
+	lock(&jl);
+	r = --j->ref;
+	unlock(&jl);
+	if(r == 0){
+		free(j->cmd);
+		free(j);
+	}
+}
+
+/* the whole of n bytes, or -1: a stream socket may take less at a time */
+static int
+sendfull(int fd, void *va, long n)
+{
+	char *p;
+	long m;
+
+	for(p = va; n > 0; p += m, n -= m){
+		m = send(fd, p, n, MSG_NOSIGNAL);	/* no SIGPIPE when the client has gone */
+		if(m < 0 && errno == EINTR){
+			m = 0;
+			continue;
+		}
+		if(m <= 0)
+			return -1;
+	}
+	return 0;
 }
 
 static void
@@ -121,20 +176,23 @@ frame(Job *j, int type, void *data, long n)
 	put32(h+1, n);
 	qlock(&j->wlk);
 	r = 0;
-	/* no SIGPIPE when the client has gone */
-	if(j->fd < 0 || send(j->fd, h, 5, MSG_NOSIGNAL) != 5
-	|| (n > 0 && send(j->fd, data, n, MSG_NOSIGNAL) != n))
+	if(j->fd < 0 || sendfull(j->fd, h, 5) < 0 || (n > 0 && sendfull(j->fd, data, n) < 0))
 		r = -1;
 	qunlock(&j->wlk);
 	return r;
 }
 
+/* the job is over: off the list; the watcher closes the socket and lets it go */
 static void
 endjob(Job *j)
 {
 	Job **l;
 
 	lock(&jl);
+	if(j->ended){
+		unlock(&jl);
+		return;
+	}
 	j->ended = 1;
 	for(l = &jobs; *l != nil; l = &(*l)->next)
 		if(*l == j){
@@ -145,10 +203,9 @@ endjob(Job *j)
 	unlock(&jl);
 	qlock(&j->wlk);
 	if(j->fd >= 0)
-		close(j->fd);
-	j->fd = -1;
+		shutdown(j->fd, SHUT_RDWR);	/* wakes the watcher */
 	qunlock(&j->wlk);
-	/* j is not freed: a chan may still name it; its number is not reused */
+	putjob(j);	/* the list's */
 }
 
 static int
@@ -251,19 +308,40 @@ jobsopen(Chan *c, int omode)
 {
 	int k;
 
+	Job *j;
+
 	k = KIND(c->qid.path);
-	if(k >= Qcmd && lookjob(JID(c->qid.path)) == nil)
-		error(Enonexist);
+	if(k >= Qcmd){
+		if((j = lookjob(JID(c->qid.path))) == nil)
+			error(Enonexist);
+		putjob(j);
+	}
 	c = devopen(c, omode, 0, 0, jobsgen);
 	c->aux = nil;
+	if(k == Qctl)
+		c->aux = mallocz(sizeof(Ctl), 1);
 	return c;
 }
 
 static void
 jobsclose(Chan *c)
 {
-	if(KIND(c->qid.path) == Qnew && (c->flag & COPEN))
+	Ctl *x;
+
+	if((c->flag & COPEN) == 0)
+		return;
+	switch(KIND(c->qid.path)){
+	case Qnew:
 		free(c->aux);
+		break;
+	case Qctl:
+		if((x = c->aux) != nil){
+			free(x->rec);
+			free(x->w);
+			free(x);
+		}
+		break;
+	}
 }
 
 static int
@@ -316,6 +394,8 @@ takework(int *kill)
 					*kill = 0;
 			}
 		}
+		if(j != nil)
+			j->ref++;
 		unlock(&jl);
 		if(dead != nil)
 			endjob(dead);
@@ -330,13 +410,39 @@ takejob(void)
 	return takework(nil);
 }
 
+/* the next record for 9pjobd: 'K' id pid or 'J' id len command */
+static void
+ctlrecord(Ctl *x)
+{
+	Job *j;
+	int kill;
+
+	j = takework(&kill);
+	if(kill){
+		x->nrec = 9;
+		x->rec = malloc(9);
+		x->rec[0] = 'K';
+		put32(x->rec+1, j->id);
+		put32(x->rec+5, j->rpid);
+	}else{
+		x->nrec = 9 + j->ncmd;
+		x->rec = malloc(x->nrec);
+		x->rec[0] = 'J';
+		put32(x->rec+1, j->id);
+		put32(x->rec+5, j->ncmd);
+		memmove(x->rec+9, j->cmd, j->ncmd);
+	}
+	x->roff = 0;
+	putjob(j);
+}
+
 static long
 jobsread(Chan *c, void *va, long n, vlong off)
 {
 	Job *j;
+	Ctl *x;
 	char buf[32];
 	long m;
-	int kill;
 
 	switch(KIND(c->qid.path)){
 	case Qroot:
@@ -347,53 +453,70 @@ jobsread(Chan *c, void *va, long n, vlong off)
 		if(off == 0 && c->aux == nil){
 			j = takejob();
 			snprint(buf, sizeof buf, "%d\n", j->id);
+			putjob(j);
 			c->aux = strdup(buf);
 		}
 		return readstr(off, va, n, c->aux != nil ? c->aux : "");
 	case Qsrc:
 		return readstr(off, va, n, jobdsrc);
 	case Qctl:
-		j = takework(&kill);
-		if(kill){
-			((uchar*)va)[0] = 'K';
-			put32((uchar*)va+1, j->id);
-			put32((uchar*)va+5, j->rpid);
-			return 9;
+		/* a record, in as many reads as it takes; never two in one */
+		x = c->aux;
+		if(x->rec == nil)
+			ctlrecord(x);
+		m = x->nrec - x->roff;
+		if(m > n)
+			m = n;
+		memmove(va, x->rec + x->roff, m);
+		x->roff += m;
+		if(x->roff == x->nrec){
+			free(x->rec);
+			x->rec = nil;
 		}
-		if(n < 9 + j->ncmd)
-			error("ctl: read buffer too small for the job");
-		((uchar*)va)[0] = 'J';
-		put32((uchar*)va+1, j->id);
-		put32((uchar*)va+5, j->ncmd);
-		memmove((uchar*)va+9, j->cmd, j->ncmd);
-		return 9 + j->ncmd;
+		return m;
 	case Qcmd:
 		if((j = lookjob(JID(c->qid.path))) == nil)
 			error(Enonexist);
-		if(off >= j->ncmd)
-			return 0;
-		m = j->ncmd - off;
-		if(m > n)
-			m = n;
-		memmove(va, j->cmd + off, m);
+		m = 0;
+		if(off < j->ncmd){
+			m = j->ncmd - off;
+			if(m > n)
+				m = n;
+			memmove(va, j->cmd + off, m);
+		}
+		putjob(j);
 		return m;
 	}
 	return 0;
 }
 
-/* 9pjobd's frames: 'o'|'e'|'s' id[4] len[4] data, one or more */
+enum {
+	Maxframe	= 64*1024,	/* 9pjobd's are 9+8000 */
+};
+
+/* 9pjobd's frames: 'o'|'e'|'s'|'p' id[4] len[4] data; a frame's pieces are gathered */
 static long
-ctlwrite(void *va, long n)
+ctlwrite(Ctl *x, void *va, long n)
 {
 	uchar *p, *e;
 	ulong id, len;
+	long m;
 	Job *j;
 
-	for(p = va, e = p + n; e - p >= 9; p += 9 + len){
+	if(x->nw + n > Maxframe + 9)
+		error("ctl: frame too big");
+	x->w = realloc(x->w, x->nw + n);
+	memmove(x->w + x->nw, va, n);
+	x->nw += n;
+	for(p = x->w, e = p + x->nw; e - p >= 9; p += 9 + len){
 		id = p[1]<<24 | p[2]<<16 | p[3]<<8 | p[4];
 		len = p[5]<<24 | p[6]<<16 | p[7]<<8 | p[8];
+		if(len > Maxframe){
+			x->nw = 0;
+			error("ctl: bad frame");
+		}
 		if(len > e - p - 9)
-			error("ctl: short frame");
+			break;	/* the rest comes in the next write */
 		if((j = lookjob(id)) == nil)
 			continue;
 		switch(p[0]){
@@ -416,7 +539,11 @@ ctlwrite(void *va, long n)
 			endjob(j);
 			break;
 		}
+		putjob(j);
 	}
+	m = e - p;	/* an unfinished frame, kept */
+	memmove(x->w, p, m);
+	x->nw = m;
 	return n;
 }
 
@@ -429,15 +556,18 @@ jobswrite(Chan *c, void *va, long n, vlong off)
 	USED(off);
 	k = KIND(c->qid.path);
 	if(k == Qctl)
-		return ctlwrite(va, n);
+		return ctlwrite(c->aux, va, n);
 	if(k != Qout && k != Qerr && k != Qstatus)
 		error(Eperm);
 	if((j = lookjob(JID(c->qid.path))) == nil)
 		error(Enonexist);
-	if(frame(j, k == Qout ? 'o' : k == Qerr ? 'e' : 's', va, n) < 0 && k != Qstatus)
+	if(frame(j, k == Qout ? 'o' : k == Qerr ? 'e' : 's', va, n) < 0 && k != Qstatus){
+		putjob(j);
 		error("the client went away");
+	}
 	if(k == Qstatus)
 		endjob(j);
+	putjob(j);
 	return n;
 }
 
@@ -473,9 +603,15 @@ sockreadn(int fd, void *va, long n)
 	long m, t;
 
 	p = va;
-	for(t = 0; t < n; t += m)
-		if((m = read(fd, p+t, n-t)) <= 0)
+	for(t = 0; t < n; t += m){
+		m = read(fd, p+t, n-t);
+		if(m < 0 && errno == EINTR){
+			m = 0;
+			continue;
+		}
+		if(m <= 0)
 			return -1;
+	}
 	return 0;
 }
 
@@ -485,10 +621,15 @@ watchproc(void *v)
 {
 	Job *j;
 	char c;
+	long m;
 
 	j = v;
-	while(recv(j->fd, &c, 1, 0) > 0)
-		;
+	for(;;){
+		m = recv(j->fd, &c, 1, 0);
+		if(m > 0 || (m < 0 && errno == EINTR))
+			continue;
+		break;	/* the client went, or endjob shut the socket */
+	}
 	lock(&jl);
 	if(!j->ended && !j->killwant){
 		j->killwant = 1;
@@ -497,6 +638,11 @@ watchproc(void *v)
 	}
 	unlock(&jl);
 	wakeup(&newr);
+	qlock(&j->wlk);
+	close(j->fd);	/* only here: its number is not reused while in use */
+	j->fd = -1;
+	qunlock(&j->wlk);
+	putjob(j);	/* the watcher's */
 }
 
 static void
@@ -508,11 +654,11 @@ reply(int fd, char *text)
 	n = strlen(text);
 	h[0] = 'o';
 	put32(h+1, n);
-	send(fd, h, 5, MSG_NOSIGNAL);
-	send(fd, text, n, MSG_NOSIGNAL);
+	if(sendfull(fd, h, 5) < 0 || sendfull(fd, text, n) < 0)
+		return;
 	h[0] = 's';
 	put32(h+1, 0);
-	send(fd, h, 5, MSG_NOSIGNAL);
+	sendfull(fd, h, 5);
 }
 
 static void
@@ -608,6 +754,7 @@ acceptproc(void *v)
 		j->cmd[len] = 0;
 		j->ncmd = len;
 		j->fd = fd;
+		j->ref = 2;	/* the list's and the watcher's */
 		lock(&jl);
 		j->id = nextid++;
 		j->next = jobs;

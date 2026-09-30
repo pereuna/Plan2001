@@ -130,6 +130,11 @@ osproc(Proc *p)
 		oserrstr();
 		panic("osproc: %r");
 	}
+#ifdef NINEPTERM
+	/* nobody joins a kproc: detached, its thread is freed when it ends
+	   (9pterm's session starts one per job) */
+	pthread_detach(pid);
+#endif
 	sched_yield();
 }
 
