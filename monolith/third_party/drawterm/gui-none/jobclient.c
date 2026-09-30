@@ -3,7 +3,10 @@
  * kern/devjobs.c) - no authentication, no kernel: the command to the
  * socket, its stdout, stderr and status back.  Exit 0 for an empty
  * status, 1 otherwise (the status on stderr), 2 when the session cannot
- * be reached or ends, 124 after secs (0: no limit).  System headers only.
+ * be reached or ends, 124 after secs (0: no limit): the session kills the
+ * command when we go.  capture: the command's stdout into *capture, not
+ * to ours (get's MD5).  type 'Q' or 'X' instead of 'C': the session's
+ * state, or its end.  System headers only.
  */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -41,7 +44,7 @@ readfull(int fd, void *va, long n, long deadline)
 }
 
 int
-ninepclient(char *sock, char *cmd, int secs)
+ninepclient(char *sock, int type, char *cmd, int secs, char **capture)
 {
 	struct sockaddr_un sa;
 	unsigned char h[5];
@@ -66,10 +69,10 @@ ninepclient(char *sock, char *cmd, int secs)
 		perror("");
 		return 2;
 	}
-	n = strlen(cmd);
-	h[0] = 'C';
+	n = cmd != NULL ? strlen(cmd) : 0;
+	h[0] = type;
 	h[1] = n>>24; h[2] = n>>16; h[3] = n>>8; h[4] = n;
-	if(write(fd, h, 5) != 5 || write(fd, cmd, n) != n){
+	if(write(fd, h, 5) != 5 || (n > 0 && write(fd, cmd, n) != n)){
 		perror("9pterm: sending the command");
 		return 2;
 	}
@@ -89,7 +92,11 @@ ninepclient(char *sock, char *cmd, int secs)
 		buf[len] = 0;
 		switch(h[0]){
 		case 'o':
-			write(1, buf, len);
+			if(capture != NULL){
+				*capture = buf;	/* the last frame: an MD5 line fits one */
+				buf = NULL;
+			}else
+				write(1, buf, len);
 			break;
 		case 'e':
 			write(2, buf, len);

@@ -6,7 +6,9 @@
  * back as writes to it - no file to open per job.
  *
  *	read:	'J' id[4] len[4] command		(one job, an rc command)
+ *		'K' id[4] pid[4]			(kill the job: its client went away)
  *	write:	'o'|'e'|'s' id[4] len[4] data	(stdout, stderr, status)
+ *		'p' id[4] 4 pid[4]		(the job's process: its note group)
  *
  * Each job runs in its own process and note group: rc -c, stdin /dev/null.
  */
@@ -62,6 +64,7 @@ void
 job(int id, char *cmd)
 {
 	int out[2], err[2], rcpid, n, null;
+	uchar pidbuf[4];
 	char *status;
 	Waitmsg *w;
 
@@ -89,6 +92,8 @@ job(int id, char *cmd)
 	}
 	close(out[1]);
 	close(err[1]);
+	put32(pidbuf, rcpid);
+	frame('p', id, pidbuf, 4);
 	switch(rfork(RFPROC|RFFDG)){
 	case 0:
 		close(out[0]);
@@ -127,6 +132,10 @@ main(int argc, char **argv)
 		n = read(ctl, buf, sizeof buf - 1);
 		if(n <= 0)
 			exits(nil);
+		if(n == Hdr && buf[0] == 'K'){
+			postnote(PNGROUP, get32(buf+5), "kill");
+			continue;
+		}
 		if(n < Hdr || buf[0] != 'J')
 			continue;
 		id = get32(buf+1);

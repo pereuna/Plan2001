@@ -75,9 +75,22 @@ Paluuarvot kuten `-c`:ssä: 1 etäpään virheestä (esim. status `copy`,
 ## Istunto AI:lle: tunnistaudu kerran
 
 ```
-9pterm -h … -u glenda -P … -M ~/.cache/9pterm.sock &     # istunto: tunnistautuu kerran
-9pterm -S ~/.cache/9pterm.sock -T 20 -c 'komento'        # komento istunnon kautta
+9pterm -h … -u glenda -P … [-I s] -M ~/.cache/9pterm.sock &   # istunto: tunnistautuu kerran
+9pterm -S ~/.cache/9pterm.sock -T 20 -c 'komento'              # komento istunnon kautta
+9pterm -S ~/.cache/9pterm.sock put PAIKALLINEN ETÄ             # tiedostot kuten ilman -S:ää
+9pterm -S ~/.cache/9pterm.sock get ETÄ PAIKALLINEN
+9pterm -S ~/.cache/9pterm.sock -Q                              # istunnon tila
+9pterm -S ~/.cache/9pterm.sock -X                              # istunnon loppu
 ```
+
+- `-T s` tai asiakkaan kuolema (SIGTERM, ^C) tappaa etäkomennon koko
+  note-ryhmän: istunto huomaa asiakkaan lähdön, ja 9pjobd saa `K`-pyynnön
+  (se kertoo jokaisen työn prosessin `p`-kehyksellä). Mitattu: `sleep` poissa
+  palvelimelta alle 0,2 s:ssa. (rc-silmukassa ei keskeytystä.)
+- `-I s`: istunto päättyy, kun yhtään työtä ei ole ollut s sekuntiin; käynnissä
+  oleva työ pitää sen hengissä. Socket poistetaan istunnon päättyessä.
+- `-Q`: istunnon kone ja käyttäjä, socket, ikä, töitä käynnissä / tehty,
+  tyhjäkäynti.
 
 Istunto (`-M`) tunnistautuu kerran ja pitää rcpu-yhteyden; palvelin ajaa
 silmukkaa 9ptermin laitteen `#J` yli (`kern/devjobs.c`, palvelimelle
@@ -103,7 +116,7 @@ Mitattu (30.9.), `cat /dev/sysname`:
 |---|---|---|
 | suora `-c` (tunnistautuu joka kerta) | 1,33 s | 0,23 s |
 | istunto, rc-silmukka | 0,50–0,56 s | 11–28 ms |
-| **istunto, 9pjobd** | **73–94 ms** | **8–15 ms** |
+| **istunto, 9pjobd** | **73–112 ms** | **8–15 ms** |
 
 20 rinnakkaista komentoa (`sleep 1; echo job N`) samassa istunnossa:
 1,57 s, kaikki tulosteet oikeille kutsujille.
@@ -118,3 +131,7 @@ Mitattu (30.9.), `cat /dev/sysname`:
 | 4 | Tiedostot: `put`/`get` (`/mnt/term/root`), tarkistussumma | tehty 30.9.: 5 Mt put 0,38 s, get 0,60 s, md5 sama; virheet 1/2, ei `.9ptmp`-jäänteitä |
 | 5 | Pilvi: rcpu 17019 ja auth 567 OCI:ssa | tehty 30.9.: `-c` 1,3 s, put+get 5 Mt 17 s md5 sama, interaktiivinen istunto ja Ctrl-C toimivat. Korjaus: drawterm kokeilee aina secstorea (auth-palvelimen portti 5356), ja pilven palomuuri pudottaa paketit hiljaa, jolloin yhteys odotti TCP:n aikarajaan; 9pterm käyttää secstorea vain `-s`:llä |
 | 6 | Windows (`Make.win64` + gui-none) | vanhentunut (obsolete) toistaiseksi: ei tehdä nyt |
+| 7 | Istunto AI:lle (`-M`/`-S`), 9pjobd | tehty 30.9.: pilveen 73–112 ms/komento (1,33 s ilman), 20 rinnakkaista komentoa oikein |
+| 8 | Istunnon keskeytys (`-T`, asiakkaan kuolema) | tehty 30.9.: etäkomento tapetaan alle 0,2 s:ssa |
+| 9 | `put`/`get` istunnon kautta | tehty 30.9.: 5 Mt pilveen ja takaisin 14 s, md5 sama; sillin VM:ään 0,69 s |
+| 10 | Elinkaari: `-I`, `-Q`, `-X`, socketin poisto | tehty 30.9. |

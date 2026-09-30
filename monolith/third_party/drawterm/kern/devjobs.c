@@ -15,8 +15,12 @@
  *	jobs/src	9pjobd's source, which the session compiles
  *
  * Socket frames, both ways: a type byte, a 4-byte big-endian length, data.
- *	client:	C command
+ *	client:	C command, Q (the session's state), X (end the session)
  *	9pterm:	o stdout, e stderr, s status (last)
+ * A client that goes away before its job has ended (9pterm -S -T, ^C) has
+ * the job killed: 9pjobd tells each job's process ('p' frame) and gets
+ * 'K' id pid to kill its note group.  -I secs: the session ends when no
+ * job has run for secs.
  */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -32,6 +36,7 @@
 #undef listen
 #undef accept
 #undef bind
+#undef atexit
 
 #ifdef NINEPTERM
 
@@ -65,6 +70,10 @@ struct Job {
 	long	ncmd;
 	int	fd;		/* the client's socket */
 	int	given;		/* its number has been read from new */
+	int	ended;
+	int	rpid;		/* its process on the server (9pjobd's 'p') */
+	int	killwant;	/* its client went away */
+	int	killsent;
 	QLock	wlk;		/* frames to fd */
 	Job	*next;
 };
@@ -72,8 +81,13 @@ struct Job {
 static Lock jl;		/* jobs, npending */
 static Job *jobs;
 static int npending;
+static int nkill;		/* jobs to kill (killwant, rpid, not killsent) */
 static int nextid = 1;
 static Rendez newr;
+static long lastact;		/* a job began or ended (-I) */
+static char *sockpath;
+static char *sessdesc;
+static long sesssince;
 
 static Job*
 lookjob(int id)
@@ -107,7 +121,9 @@ frame(Job *j, int type, void *data, long n)
 	put32(h+1, n);
 	qlock(&j->wlk);
 	r = 0;
-	if(j->fd < 0 || write(j->fd, h, 5) != 5 || (n > 0 && write(j->fd, data, n) != n))
+	/* no SIGPIPE when the client has gone */
+	if(j->fd < 0 || send(j->fd, h, 5, MSG_NOSIGNAL) != 5
+	|| (n > 0 && send(j->fd, data, n, MSG_NOSIGNAL) != n))
 		r = -1;
 	qunlock(&j->wlk);
 	return r;
@@ -119,11 +135,13 @@ endjob(Job *j)
 	Job **l;
 
 	lock(&jl);
+	j->ended = 1;
 	for(l = &jobs; *l != nil; l = &(*l)->next)
 		if(*l == j){
 			*l = j->next;
 			break;
 		}
+	lastact = time(0);
 	unlock(&jl);
 	qlock(&j->wlk);
 	if(j->fd >= 0)
@@ -255,26 +273,61 @@ havepending(void *v)
 	return npending > 0;
 }
 
-/* the next job not yet given out, waiting for one */
-static Job*
-takejob(void)
+static int
+havework(void *v)
 {
-	Job *j;
+	USED(v);
+	return npending > 0 || nkill > 0;
+}
+
+/*
+ * The next job not yet given out, waiting for one; with kills, a job to
+ * kill first (*kill set).  A job whose client has gone is not given out.
+ */
+static Job*
+takework(int *kill)
+{
+	Job *j, *dead;
 
 	for(;;){
-		sleep(&newr, havepending, nil);
+		sleep(&newr, kill != nil ? havework : havepending, nil);
+		dead = nil;
 		lock(&jl);
-		for(j = jobs; j != nil; j = j->next)
-			if(!j->given)
-				break;
-		if(j != nil){
-			j->given = 1;
-			npending--;
+		j = nil;
+		if(kill != nil && nkill > 0)
+			for(j = jobs; j != nil; j = j->next)
+				if(j->killwant && j->rpid && !j->killsent){
+					j->killsent = 1;
+					nkill--;
+					*kill = 1;
+					break;
+				}
+		if(j == nil){
+			for(j = jobs; j != nil; j = j->next)
+				if(!j->given)
+					break;
+			if(j != nil){
+				j->given = 1;
+				npending--;
+				if(j->killwant){
+					dead = j;
+					j = nil;
+				}else if(kill != nil)
+					*kill = 0;
+			}
 		}
 		unlock(&jl);
+		if(dead != nil)
+			endjob(dead);
 		if(j != nil)
 			return j;
 	}
+}
+
+static Job*
+takejob(void)
+{
+	return takework(nil);
 }
 
 static long
@@ -283,6 +336,7 @@ jobsread(Chan *c, void *va, long n, vlong off)
 	Job *j;
 	char buf[32];
 	long m;
+	int kill;
 
 	switch(KIND(c->qid.path)){
 	case Qroot:
@@ -299,7 +353,13 @@ jobsread(Chan *c, void *va, long n, vlong off)
 	case Qsrc:
 		return readstr(off, va, n, jobdsrc);
 	case Qctl:
-		j = takejob();
+		j = takework(&kill);
+		if(kill){
+			((uchar*)va)[0] = 'K';
+			put32((uchar*)va+1, j->id);
+			put32((uchar*)va+5, j->rpid);
+			return 9;
+		}
 		if(n < 9 + j->ncmd)
 			error("ctl: read buffer too small for the job");
 		((uchar*)va)[0] = 'J';
@@ -337,6 +397,16 @@ ctlwrite(void *va, long n)
 		if((j = lookjob(id)) == nil)
 			continue;
 		switch(p[0]){
+		case 'p':	/* the job's process, to kill it by */
+			if(len >= 4){
+				lock(&jl);
+				j->rpid = p[9]<<24 | p[10]<<16 | p[11]<<8 | p[12];
+				if(j->killwant && !j->killsent)
+					nkill++;
+				unlock(&jl);
+				wakeup(&newr);
+			}
+			break;
 		case 'o':
 		case 'e':
 			frame(j, p[0], p+9, len);
@@ -409,6 +479,86 @@ sockreadn(int fd, void *va, long n)
 	return 0;
 }
 
+/* a job's client: when it goes before the job ends, the job is killed */
+static void
+watchproc(void *v)
+{
+	Job *j;
+	char c;
+
+	j = v;
+	while(recv(j->fd, &c, 1, 0) > 0)
+		;
+	lock(&jl);
+	if(!j->ended && !j->killwant){
+		j->killwant = 1;
+		if(j->rpid)
+			nkill++;
+	}
+	unlock(&jl);
+	wakeup(&newr);
+}
+
+static void
+reply(int fd, char *text)
+{
+	uchar h[5];
+	long n;
+
+	n = strlen(text);
+	h[0] = 'o';
+	put32(h+1, n);
+	send(fd, h, 5, MSG_NOSIGNAL);
+	send(fd, text, n, MSG_NOSIGNAL);
+	h[0] = 's';
+	put32(h+1, 0);
+	send(fd, h, 5, MSG_NOSIGNAL);
+}
+
+static void
+sessionstate(int fd)
+{
+	char buf[512];
+	Job *j;
+	int nj;
+
+	lock(&jl);
+	nj = 0;
+	for(j = jobs; j != nil; j = j->next)
+		nj++;
+	snprint(buf, sizeof buf, "session %s\nsocket %s\nup %lds\njobs %d running, %d done\nidle %lds\n",
+		sessdesc != nil ? sessdesc : "?", sockpath, time(0) - sesssince,
+		nj, nextid - 1 - nj, nj > 0 ? 0 : time(0) - lastact);
+	unlock(&jl);
+	reply(fd, buf);
+}
+
+static void
+sessionend(void)
+{
+	if(sockpath != nil)
+		unlink(sockpath);
+}
+
+static void
+idleproc(void *v)
+{
+	long idle;
+	int busy;
+
+	idle = (long)(uintptr)v;
+	for(;;){
+		osmsleep(1000);
+		lock(&jl);
+		busy = jobs != nil;
+		unlock(&jl);
+		if(!busy && time(0) - lastact > idle){
+			fprint(2, "9pterm: session idle %lds: ending\n", idle);
+			exit(0);
+		}
+	}
+}
+
 static void
 acceptproc(void *v)
 {
@@ -421,7 +571,22 @@ acceptproc(void *v)
 	for(;;){
 		if((fd = accept(lfd, nil, nil)) < 0)
 			continue;
-		if(sockreadn(fd, h, 5) < 0 || h[0] != 'C'){
+		if(sockreadn(fd, h, 5) < 0){
+			close(fd);
+			continue;
+		}
+		if(h[0] == 'Q'){
+			sessionstate(fd);
+			close(fd);
+			continue;
+		}
+		if(h[0] == 'X'){
+			reply(fd, "session ending\n");
+			close(fd);
+			fprint(2, "9pterm: session ended by -X\n");
+			exit(0);
+		}
+		if(h[0] != 'C'){
 			close(fd);
 			continue;
 		}
@@ -448,14 +613,20 @@ acceptproc(void *v)
 		j->next = jobs;
 		jobs = j;
 		npending++;
+		lastact = time(0);
 		unlock(&jl);
+		kproc("jobwatch", watchproc, j);
 		wakeup(&newr);
 	}
 }
 
-/* 9pterm -M: the socket, once the session is up (cpu.c); -1 on failure */
+/*
+ * 9pterm -M: the socket, once the session is up (cpu.c), described by
+ * desc; the session ends after idle seconds without a job (0: never).
+ * -1 on failure.
+ */
 int
-jobslisten(char *path)
+jobslisten(char *path, int idle, char *desc)
 {
 	struct sockaddr_un sa;
 	int fd;
@@ -474,7 +645,13 @@ jobslisten(char *path)
 		return -1;
 	}
 	chmod(path, 0600);
+	sockpath = strdup(path);
+	sessdesc = strdup(desc);
+	sesssince = lastact = time(0);
+	atexit(sessionend);	/* the system's: the socket goes with the process */
 	kproc("jobs", acceptproc, (void*)(uintptr)fd);
+	if(idle > 0)
+		kproc("idle", idleproc, (void*)(uintptr)idle);
 	return 0;
 }
 
