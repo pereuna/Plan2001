@@ -32,6 +32,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 
 #include "u.h"
 #include "lib.h"
@@ -90,6 +91,8 @@ struct Job {
 /* a ctl chan's record being read and frame being gathered */
 typedef struct Ctl Ctl;
 struct Ctl {
+	QLock	rlk;		/* rec, roff: one reader */
+	Lock	wl;		/* w, nw: 9pjobd's job procs write at once */
 	uchar	*rec;
 	long	nrec;
 	long	roff;
@@ -103,6 +106,7 @@ static int npending;
 static int nkill;		/* jobs to kill (killwant, rpid, not killsent) */
 static int nextid = 1;
 static Rendez newr;
+static QLock takelk;	/* one sleeper on newr: a second would be lost */
 static long lastact;		/* a job began or ended (-I) */
 static char *sockpath;
 static char *sessdesc;
@@ -194,6 +198,10 @@ endjob(Job *j)
 		return;
 	}
 	j->ended = 1;
+	if(j->killwant && j->rpid && !j->killsent){
+		j->killsent = 1;	/* a kill no longer wanted: else nkill stays and takework spins */
+		nkill--;
+	}
 	for(l = &jobs; *l != nil; l = &(*l)->next)
 		if(*l == j){
 			*l = j->next;
@@ -367,6 +375,12 @@ takework(int *kill)
 {
 	Job *j, *dead;
 
+	if(!canqlock(&takelk))
+		error("jobs: already being read");
+	if(waserror()){
+		qunlock(&takelk);
+		nexterror();
+	}
 	for(;;){
 		sleep(&newr, kill != nil ? havework : havepending, nil);
 		dead = nil;
@@ -399,8 +413,11 @@ takework(int *kill)
 		unlock(&jl);
 		if(dead != nil)
 			endjob(dead);
-		if(j != nil)
+		if(j != nil){
+			poperror();
+			qunlock(&takelk);
 			return j;
+		}
 	}
 }
 
@@ -462,8 +479,15 @@ jobsread(Chan *c, void *va, long n, vlong off)
 	case Qctl:
 		/* a record, in as many reads as it takes; never two in one */
 		x = c->aux;
+		if(!canqlock(&x->rlk))
+			error("ctl: already being read");
+		if(waserror()){
+			qunlock(&x->rlk);
+			nexterror();
+		}
 		if(x->rec == nil)
 			ctlrecord(x);
+		poperror();
 		m = x->nrec - x->roff;
 		if(m > n)
 			m = n;
@@ -473,6 +497,7 @@ jobsread(Chan *c, void *va, long n, vlong off)
 			free(x->rec);
 			x->rec = nil;
 		}
+		qunlock(&x->rlk);
 		return m;
 	case Qcmd:
 		if((j = lookjob(JID(c->qid.path))) == nil)
@@ -498,25 +523,47 @@ enum {
 static long
 ctlwrite(Ctl *x, void *va, long n)
 {
-	uchar *p, *e;
+	uchar *p, *e, *buf;
 	ulong id, len;
 	long m;
 	Job *j;
 
-	if(x->nw + n > Maxframe + 9)
+	/*
+	 * 9pjobd's job processes write at once, each a whole frame in one
+	 * write (9+8000 bytes, within one 9P message): the lock keeps the
+	 * gathering whole; the frames, taken out, are sent to the clients
+	 * outside it, so one slow client does not hold up the others.
+	 */
+	lock(&x->wl);
+	if(x->nw + n > Maxframe + 9){
+		unlock(&x->wl);
 		error("ctl: frame too big");
+	}
 	x->w = realloc(x->w, x->nw + n);
 	memmove(x->w + x->nw, va, n);
 	x->nw += n;
 	for(p = x->w, e = p + x->nw; e - p >= 9; p += 9 + len){
-		id = p[1]<<24 | p[2]<<16 | p[3]<<8 | p[4];
 		len = p[5]<<24 | p[6]<<16 | p[7]<<8 | p[8];
 		if(len > Maxframe){
 			x->nw = 0;
+			unlock(&x->wl);
 			error("ctl: bad frame");
 		}
 		if(len > e - p - 9)
 			break;	/* the rest comes in the next write */
+	}
+	m = p - x->w;	/* whole frames */
+	buf = nil;
+	if(m > 0){
+		buf = malloc(m);
+		memmove(buf, x->w, m);
+		memmove(x->w, p, e - p);	/* an unfinished frame, kept */
+		x->nw = e - p;
+	}
+	unlock(&x->wl);
+	for(p = buf, e = p + m; p < e; p += 9 + len){
+		id = p[1]<<24 | p[2]<<16 | p[3]<<8 | p[4];
+		len = p[5]<<24 | p[6]<<16 | p[7]<<8 | p[8];
 		if((j = lookjob(id)) == nil)
 			continue;
 		switch(p[0]){
@@ -541,9 +588,7 @@ ctlwrite(Ctl *x, void *va, long n)
 		}
 		putjob(j);
 	}
-	m = e - p;	/* an unfinished frame, kept */
-	memmove(x->w, p, m);
-	x->nw = m;
+	free(buf);
 	return n;
 }
 
@@ -697,11 +742,13 @@ idleproc(void *v)
 		osmsleep(1000);
 		lock(&jl);
 		busy = jobs != nil;
-		unlock(&jl);
 		if(!busy && time(0) - lastact > idle){
+			/* jl held: no job comes in now; the socket goes before the exit */
+			sessionend();
 			fprint(2, "9pterm: session idle %lds: ending\n", idle);
 			exit(0);
 		}
+		unlock(&jl);
 	}
 }
 
@@ -711,12 +758,17 @@ acceptproc(void *v)
 	int lfd, fd;
 	uchar h[5];
 	ulong len;
-	Job *j;
+	Job *j, **l;
+	struct timeval tv;
 
 	lfd = (int)(uintptr)v;
 	for(;;){
 		if((fd = accept(lfd, nil, nil)) < 0)
 			continue;
+		/* a client slow with its request does not hold up the others for long */
+		tv.tv_sec = 10;
+		tv.tv_usec = 0;
+		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 		if(sockreadn(fd, h, 5) < 0){
 			close(fd);
 			continue;
@@ -749,6 +801,8 @@ acceptproc(void *v)
 			free(j);
 			continue;
 		}
+		tv.tv_sec = 0;	/* the watcher waits as long as the job runs */
+		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 		if(len == 0 || j->cmd[len-1] != '\n')
 			j->cmd[len++] = '\n';	/* rc wants the script's last line ended */
 		j->cmd[len] = 0;
@@ -757,8 +811,9 @@ acceptproc(void *v)
 		j->ref = 2;	/* the list's and the watcher's */
 		lock(&jl);
 		j->id = nextid++;
-		j->next = jobs;
-		jobs = j;
+		for(l = &jobs; *l != nil; l = &(*l)->next)
+			;
+		*l = j;	/* at the end: jobs are given out oldest first */
 		npending++;
 		lastact = time(0);
 		unlock(&jl);

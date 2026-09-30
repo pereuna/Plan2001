@@ -175,3 +175,29 @@ Ulkoisen katselmoinnin löydökset istuntotilasta ja niiden korjaukset:
 | `get` poisti vanhan tiedoston ennen uuden nimeämistä | vanha → `NIMI.9pold`, uusi → `NIMI`, vanha pois vasta sitten; epäonnistuessa vanha takaisin (drawtermin rename ei korvaa) | `get` olemassa olevan päälle, ei jäänteitä |
 | `-S get` otti talteen vain viimeisen tulostekehyksen | kaikki kehykset kootaan | |
 | (oma) vahti ja `endjob` sulkivat saman socketin: numero voi mennä uudelle yhteydelle | vain vahti sulkee; `endjob` tekee `shutdown`in | |
+
+### Kilpatilanteet (race condition -tarkistus, 30.9.)
+
+Jaettu tila `kern/devjobs.c`:ssä: työlista ja viitelaskurit (`jl`),
+laskurit `npending`/`nkill` ja herätys `newr`, työn socket (`wlk`),
+ctl-kanavan luku- ja kokoamistila (`Ctl`) sekä `9pjobd`:n työprosessit,
+jotka kirjoittavat samaan ctl-tiedostoon yhtä aikaa.
+
+| Löydös | Seuraus | Korjaus | Testi |
+|---|---|---|---|
+| Työ, jonka tappo odottaa (`nkill` laskettu), päättyy `s`-kehyksellään ennen kuin tappo luetaan | `nkill` ei koskaan laske: `9pjobd`:n ctl-luku pyörii 100 % CPU:lla | `endjob` kuittaa odottavan tapon (`killsent`, `nkill--`) | 200 asiakasta katkaistaan 5-45 ms:n kohdalla: 0 % CPU jälkeenpäin |
+| `9pjobd`:n työprosessit kirjoittavat samaan ctl-fidiin yhtä aikaa (useita exportfs-säikeitä) | kokoamispuskurin `realloc`/`memmove` rinnakkain: kehykset sekaisin, muistivirhe | `Ctl`:ssä lukko kokoamiselle; valmiit kehykset otetaan ulos ja lähetetään asiakkaille lukon ulkopuolella (hidas asiakas ei pysäytä muita). `9pjobd` kirjoittaa kehyksen aina yhdellä writellä (9+8000 t, mahtuu 9P-viestiin), joten palat eivät lomitu | 20 rinnakkaista 2 Mt:n satunnaistulostetta: kaikki md5:t samat |
+| Kaksi lukijaa (`ctl`/`new`) nukkuu samassa `newr`:ssä | drawtermin `sleep` korvaa ensimmäisen: herätys katoaa | yksi lukija kerrallaan (`takelk`, `canqlock`); toinen saa virheen `jobs: already being read`; saman ctl-kanavan toinen lukija samoin | `read /mnt/term/dev/jobs/ctl` istunnon aikana: virhe, istunto jatkaa |
+| Uusi työ listan alkuun | kuormassa uusin annetaan ensin, vanhin voi nääntyä | lisäys listan loppuun (FIFO) | |
+| `acceptproc` lukee pyynnön yhdellä säikeellä | hiljainen asiakas pysäyttää kaikki uudet yhteydet | pyynnön luvulle 10 s aikaraja (`SO_RCVTIMEO`), nollataan ennen vahtia | hiljainen yhteys auki: seuraava komento 9,9 s:ssa (ennen: jumissa) |
+| `-I`: tyhjäksi todettu istunto lopetetaan lukon ulkopuolella | juuri tullut työ katkeaa | socket poistetaan ja prosessi päättyy `jl`:n alla | `-I 3`: päättyy, socket poistettu |
+
+Jäljelle jäävät, pienet:
+- Tappo pid:llä: rc on jo päättynyt, mutta `s` ei ole vielä perillä,
+  ja `K` voisi osua uudelleenkäytettyyn pid:iin. Plan 9 jakaa pid:t
+  kasvavina, joten ikkuna on käytännössä olematon.
+- `lastact`/`npending` luetaan ehtofunktioissa ilman lukkoa. Tämä on
+  Plan 9:n sleep/wakeup-mallin mukaista: ehto tarkistetaan uudelleen
+  `r->lk`:n alla.
+- Saman `new`-kanavan kaksi samanaikaista lukua voisi ottaa kaksi työtä.
+  Vain rc-varasilmukka lukee `new`:tä, yksi kerrallaan.
