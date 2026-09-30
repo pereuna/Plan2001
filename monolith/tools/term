@@ -2,6 +2,8 @@
 """A command on a Plan2001 CPU server through its term app, from here.
 
   tools/term HOST 'rc command'      e.g. tools/term term.cpu.plan2001.com 'ls /lib/app'
+  tools/term HOST --put FILE PATH    FILE from here to PATH there (typed as
+                                     base64, decoded by auth/pemdecode)
 
 For a server with no other way in (the cloud, docs/cloud.md): headless
 Chromium opens https://HOST/ (the term app, drawterm in the page), logs in
@@ -33,10 +35,27 @@ finally:
 Cdp, wait = ta.Cdp, ta.wait
 
 
+def typer(cdp, text, ms):
+	cdp.call('Runtime.evaluate', awaitPromise=True, expression=
+		f'(async () => {{ for (const c of {json.dumps(text)}) {{ const r = c.codePointAt(0); '
+		f'window.monolith.push({Evkey}, r, 1, 0); window.monolith.push({Evkey}, r, 0, 0); '
+		f'await new Promise(t => setTimeout(t, {ms})); }} }})()')
+
+
 def main():
-	if len(sys.argv) != 3:
-		raise SystemExit('usage: tools/term HOST command')
-	host, cmd = sys.argv[1], sys.argv[2]
+	put = None
+	if len(sys.argv) == 5 and sys.argv[2] == '--put':
+		host, src, dst = sys.argv[1], sys.argv[3], sys.argv[4]
+		data = open(src, 'rb').read()
+		b64 = base64.b64encode(data).decode()
+		put = '-----BEGIN PLAN2001 FILE-----\n' + '\n'.join(b64[i:i+64] for i in range(0, len(b64), 64)) + '\n-----END PLAN2001 FILE-----\n'
+		import hashlib
+		cmd = f"auth/pemdecode 'PLAN2001 FILE' /tmp/put-{os.getpid()}.pem >{dst} && rm /tmp/put-{os.getpid()}.pem && md5sum {dst}"
+		want = hashlib.md5(data).hexdigest()
+	elif len(sys.argv) == 3:
+		host, cmd = sys.argv[1], sys.argv[2]
+	else:
+		raise SystemExit('usage: tools/term HOST command | HOST --put FILE PATH')
 	ctx = ssl.create_default_context()	# the system's CAs (Let's Encrypt) and the development CA
 	ctx.load_verify_locations(os.path.join(cache, 'ca/ca.pem'))
 	nonce = secrets.token_hex(12)
@@ -59,6 +78,14 @@ def main():
 		cdp.call('Page.navigate', url=f'https://{host}/#pass={password}')
 		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 120, "the term's console")
 		time.sleep(6)
+		if put is not None:
+			# the file as PEM into a file there: cat from the console, ^D
+			typer(cdp, f"cat >/tmp/put-{os.getpid()}.pem\n", 30)
+			time.sleep(1)
+			typer(cdp, put, int(os.environ.get('TERM_TYPEMS', '8')))
+			time.sleep(1)
+			typer(cdp, '\x04', 30)
+			time.sleep(2)
 		# a syntax error must reach the output too: rc -c in a subshell
 		q = "'" + cmd.replace("'", "''") + "'"
 		line = f"rc -c {q} >{out} >[2=1]; echo '#status' $status >>{out}\n"
@@ -86,6 +113,8 @@ def main():
 		lines = text.rstrip('\n').split('\n')
 		st = lines[-1].split(None, 1)[1] if len(lines[-1].split()) > 1 else ''
 		sys.stdout.write('\n'.join(lines[:-1]) + ('\n' if len(lines) > 1 else ''))
+		if put is not None and want not in text:
+			raise SystemExit(f'term: {dst} is not what was sent (md5 {want})')
 		sys.exit(0 if st.strip() == '' else 1)
 	finally:
 		chrome.terminate()

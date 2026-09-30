@@ -2,8 +2,9 @@
  * rcc - 6c in the compute pool (crsrv, docs/cpu-server-design.md):
  * rcc [6c options] file.c ... compiles each file on a compute resource
  * and writes its object as 6c would, whole or not at all (NAME.tmp, then
- * renamed).  The job carries the source and the headers of its own
- * directory, the current one and the -I ones; the CR has /sys/include and
+ * renamed).  The job carries the source, the headers of its own
+ * directory, the current one and the -I ones, and whatever its
+ * #include "..." lines reach elsewhere; the CR has /sys/include and
  * /$objtype/include from crsrv, and compiles in a directory of the same
  * name as this one, so the object is the same as 6c's here.  With no
  * CR in /compute - the pool as the process's namespace has it (its app's
@@ -20,6 +21,8 @@ static char *incs[16];	/* -I */
 static int nincs;
 static char *outname;	/* -o */
 static char *objtype;
+
+static char*	absolute(char*, char*);
 
 static void
 put32(uchar *p, ulong v)
@@ -79,6 +82,85 @@ readfile(char *name, long *np)
 	return b;
 }
 
+/* names seen once: the files in the body, the files whose includes are followed */
+typedef struct Seen Seen;
+struct Seen {
+	char	*name[2048];
+	int	n;
+};
+static Seen sent, scanned;
+
+static int
+seen(Seen *s, char *name)
+{
+	int i;
+
+	for(i = 0; i < s->n; i++)
+		if(strcmp(s->name[i], name) == 0)
+			return 1;
+	if(s->n < nelem(s->name))
+		s->name[s->n++] = strdup(name);
+	return 0;
+}
+
+/*
+ * what #include "name" in text reaches, found as 6c looks for it: in the
+ * source's directory, the current one, the -I ones; and so on from there.
+ * (Headers of other directories: the kernel's "../port/lib.h".)
+ */
+static void
+addincludes(uchar **b, long *n, char *cwd, char *srcdir, uchar *text, long len)
+{
+	char *p, *e, *q, *nm, *f, *dirs[2+nelem(incs)];
+	uchar *data;
+	long dlen;
+	int i, nd;
+
+	nd = 0;
+	dirs[nd++] = srcdir;
+	dirs[nd++] = cwd;
+	for(i = 0; i < nincs; i++)
+		dirs[nd++] = absolute(cwd, incs[i]);
+	for(p = (char*)text, e = (char*)text + len; p < e; p = q + 1){
+		if((q = memchr(p, '\n', e - p)) == nil)
+			q = e;
+		while(p < q && (*p == ' ' || *p == '\t'))
+			p++;
+		if(p >= q || *p != '#')
+			continue;
+		p++;
+		while(p < q && (*p == ' ' || *p == '\t'))
+			p++;
+		if(q - p < 8 || strncmp(p, "include", 7) != 0)
+			continue;
+		p += 7;
+		while(p < q && (*p == ' ' || *p == '\t'))
+			p++;
+		if(p >= q || *p != '"')
+			continue;
+		nm = ++p;
+		while(p < q && *p != '"')
+			p++;
+		if(p >= q)
+			continue;
+		nm = smprint("%.*s", (int)(p - nm), nm);
+		for(i = 0; i < nd; i++){
+			f = nm[0] == '/' ? strdup(nm) : cleanname(smprint("%s/%s", dirs[i], nm));
+			if((data = readfile(f, &dlen)) != nil){
+				if(!seen(&sent, f))
+					addfile(b, n, f, data, dlen);
+				if(!seen(&scanned, f))
+					addincludes(b, n, cwd, srcdir, data, dlen);
+				free(data);
+				free(f);
+				break;
+			}
+			free(f);
+		}
+		free(nm);
+	}
+}
+
 /* the *.h files of dir (absolute) into the body, once each */
 static char *added[256];
 static int nadded;
@@ -107,7 +189,8 @@ addheaders(uchar **b, long *n, char *dir)
 			continue;
 		p = smprint("%s/%s", dir, d[i].name);
 		if((data = readfile(p, &len)) != nil){
-			addfile(b, n, p, data, len);
+			if(!seen(&sent, p))
+				addfile(b, n, p, data, len);
 			free(data);
 		}
 		free(p);
@@ -189,8 +272,10 @@ job(char *cwd, char *src)
 		fprint(2, "rcc: %s: %r\n", src);
 		return -1;
 	}
+	sent.n = scanned.n = 0;
+	seen(&sent, name);
+	seen(&scanned, name);
 	addfile(&b, &n, name, data, len);
-	free(data);
 	dir = strdup(name);
 	*strrchr(dir, '/') = 0;
 	nadded = 0;
@@ -198,6 +283,8 @@ job(char *cwd, char *src)
 	addheaders(&b, &n, cwd);
 	for(i = 0; i < nincs; i++)
 		addheaders(&b, &n, absolute(cwd, incs[i]));
+	addincludes(&b, &n, cwd, dir, data, len);
+	free(data);
 
 	l = strlen(hdr);
 	msg = erealloc(nil, 4 + l + n);
