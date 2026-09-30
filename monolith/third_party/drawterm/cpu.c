@@ -149,6 +149,39 @@ static int waitsecs = 30, cmdsecs;
 static volatile int authed;
 static int interactive;	/* no -c and a terminal: kbdfs on the server edits lines */
 
+/*
+ * -M SOCKET: a session - authenticate once, and the server runs a loop
+ * over our /dev/jobs (kern/devjobs.c); commands come in through SOCKET.
+ * -S SOCKET -c CMD: a command through such a session (gui-none/jobclient.c).
+ */
+static char *mastersock, *clientsock;
+extern int jobslisten(char*, int, char*);
+extern int ninepclient(char*, int, char*, int, char**);
+static int idlesecs, sessq, sessx;
+static char jobloop[] =
+	/* 9pjobd (kern/9pjobd.c, our jobs/src), compiled here when new or changed */
+	"j=/mnt/term/dev/jobs\n"
+	"b=$home/bin/$cputype/9pjobd\n"
+	"s=$home/lib/9pjobd.c\n"
+	"if(! test -x $b || ! cmp -s $j/src $s){\n"
+	"	O=`{sed -n 's/^O=//p' /$cputype/mkfile}\n"
+	"	mkdir -p $home/bin/$cputype $home/lib\n"
+	"	rm -f $s\n"	/* cp keeps src's mode, 0444: the next cp could not replace it */
+	"	cp $j/src $s\n"
+	"	@{ cd /tmp && $O^c -o 9pjobd.$pid.$O $s && $O^l -o $b 9pjobd.$pid.$O; rm -f 9pjobd.$pid.$O } >[2=1] || rm -f $b\n"
+	"}\n"
+	"if(test -x $b) exec $b $j/ctl\n"
+	/* else a job per rc process over the job files */
+	"while(~ 1 1){\n"
+	"	id=`{cat $j/new}\n"
+	"	if(~ $#id 0) exit\n"
+	"	@{\n"
+	"		rfork e\n"
+	"		rc $j/$id/cmd </dev/null >$j/$id/out >[2]$j/$id/err\n"
+	"		echo -n $status >$j/$id/status\n"
+	"	} &\n"
+	"}\n";
+
 extern void ninetermkbdstart(void);
 extern int ninetermkeys;
 
@@ -280,15 +313,16 @@ xfercmd(char *op, char *a, char *b)
 		a, tmp, a);
 }
 
-/* get: check the file that came against the server's MD5, then name it */
+/* get: check the file that came against the server's MD5 (nil: from /env), then name it */
 static int
-getfinish(void)
+getfinish(char *want)
 {
-	char *want, *tmp, *got, *name;
+	char *tmp, *got, *name;
 	Dir d;
 
 	tmp = smprint("%s.9ptmp", getlocal);
-	want = getenv("9pgetmd5");
+	if(want == nil)
+		want = getenv("9pgetmd5");
 	got = md5file(tmp);
 	if(want == nil || got == nil || strcmp(want, got) != 0){
 		remove(tmp);
@@ -307,6 +341,39 @@ getfinish(void)
 	return 0;
 }
 
+/*
+ * put and get through a session (-S): the same commands and checks; the
+ * session's namespace has this machine's files at /mnt/term/root too.
+ * get's MD5 comes back as the command's output.
+ */
+static int
+sessxfer(char *op, char *a, char *b)
+{
+	char *cmd, *out, *p;
+	int r;
+
+	out = nil;
+	if(strcmp(op, "put") == 0)
+		return ninepclient(clientsock, 'C', xfercmd(op, a, b), cmdsecs, nil);
+	getlocal = localpath(b);
+	cmd = smprint("cp %q %q || exit copy\n"
+		"m=`{md5sum %q}\n"
+		"echo $m(1)\n",
+		a, smprint("/mnt/term%s.9ptmp", getlocal), a);
+	r = ninepclient(clientsock, 'C', cmd, cmdsecs, &out);
+	if(r != 0){
+		remove(smprint("%s.9ptmp", getlocal));
+		return r;
+	}
+	if(out == nil){
+		fprint(2, "9pterm: get: no checksum from the server\n");
+		return 1;
+	}
+	if((p = strchr(out, '\n')) != nil)
+		*p = 0;
+	return getfinish(out) < 0 ? 1 : 0;
+}
+
 static void
 rcpuexit(void)
 {
@@ -315,7 +382,7 @@ rcpuexit(void)
 	if(s == nil)
 		return;
 	if(*s == 0){
-		if(getlocal != nil && getfinish() < 0)
+		if(getlocal != nil && getfinish(nil) < 0)
 			exit(1);
 		exit(0);
 	}
@@ -377,6 +444,13 @@ rcpu(char *host, char *cmd)
 	authed = 1;
 	if(interactive)
 		ninetermkbdstart();
+	if(mastersock != nil){
+		if(bind("#J", "/dev", MAFTER) < 0)
+			sysfatal("bind #J: %r");
+		if(jobslisten(mastersock, idlesecs, smprint("%s %s", host, user)) < 0)
+			sysfatal("session socket %s: %r", mastersock);
+		fprint(2, "9pterm: session ready: %s\n", mastersock);
+	}
 #endif
 
 	if(cmd == nil)
@@ -467,7 +541,9 @@ usage(void)
 {
 #ifdef NINEPTERM
 	fprint(2, "usage: %s [-OK] [-h host] [-u user] [-a authserver] [-P passfile] "
-		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ... | put local remote | get remote local]\n", argv0);
+		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ... | put local remote | get remote local]\n"
+		"       %s ... [-I idlesecs] -M socket	a session\n"
+		"       %s -S socket [-T cmdsecs] -c cmd | put local remote | get remote local | -Q | -X\n", argv0, argv0, argv0);
 	exits("usage");
 #endif
 	fprint(2, "usage: %s [-9GBO] "
@@ -571,6 +647,21 @@ cpumain(int argc, char **argv)
 	case 'K':
 		ninetermkeys = 1;
 		break;
+	case 'M':
+		mastersock = EARGF(usage());
+		break;
+	case 'S':
+		clientsock = EARGF(usage());
+		break;
+	case 'I':
+		idlesecs = atoi(EARGF(usage()));
+		break;
+	case 'Q':
+		sessq = 1;
+		break;
+	case 'X':
+		sessx = 1;
+		break;
 #endif
 	case 'x':
 		scalef = 1;
@@ -587,7 +678,11 @@ cpumain(int argc, char **argv)
 	}ARGEND;
 
 #ifdef NINEPTERM
+	if(clientsock != nil && (sessq || sessx))
+		exit(ninepclient(clientsock, sessq ? 'Q' : 'X', nil, 10, nil));
 	if(argc == 3 && cmd == nil && (strcmp(argv[0], "put") == 0 || strcmp(argv[0], "get") == 0)){
+		if(clientsock != nil)
+			exit(sessxfer(argv[0], argv[1], argv[2]));
 		cmd = xfercmd(argv[0], argv[1], argv[2]);
 		argc = 0;
 	}
@@ -595,6 +690,17 @@ cpumain(int argc, char **argv)
 	if(argc != 0)
 		usage();
 #ifdef NINEPTERM
+	if(clientsock != nil){
+		if(cmd == nil)
+			sysfatal("-S needs -c, put, get, -Q or -X");
+		exit(ninepclient(clientsock, 'C', cmd, cmdsecs, nil));
+	}
+	if(mastersock != nil){
+		if(cmd != nil)
+			sysfatal("-M runs no -c");
+		cmd = jobloop;
+		cmdsecs = 0;
+	}
 	interactive = cmd == nil && isatty(0);
 	if(interactive)
 		nokbd = 0;	/* /dev/kbd for the server's kbdfs */
