@@ -1,7 +1,8 @@
 // A compute resource (CR) in a browser tab (docs/cpu-server-design.md): the
 // compute origin's page (compute.MACHINE: policy cr, docs/app-origins.md).
-// Sharing is the user's choice: nothing is offered before START SHARING,
-// and STOP (or closing the tab) leaves the pool.
+// Sharing is the user's choice: nothing is offered before "share spare
+// compute", and stop (or closing the tab) leaves the pool.  The page is
+// dull on purpose: black, a clock, "CR available" and a breathing dot.
 //
 // Two levels of scheduling: the CPU server (crsrv) gives this CR jobs, as
 // many at once as its credits say; which web worker runs a job is decided
@@ -36,12 +37,20 @@ function log(t) {
 	l.textContent = (new Date().toISOString().slice(11, 19) + ' ' + t + '\n' + l.textContent).slice(0, 20000);
 	console.log('cr: ' + t);
 }
-function state(t, on) { $('state').textContent = t; $('state').className = on ? 'on' : 'off'; }
+// the page is meant to be dull: a clock, one line, one breathing dot
+function state(t, on) { $('state').textContent = t; $('dot').className = on ? 'on' : ''; }
 
 $('threads').max = Math.max(1, hc);
 $('threads').value = nworkers;
 $('tval').textContent = `${nworkers} / ${hc}`;
 $('threads').oninput = () => { nworkers = +$('threads').value; $('tval').textContent = `${nworkers} / ${hc}`; };
+function stats() {
+	if (!sharing) { $('sharing').textContent = $('jobs').textContent = $('time').textContent = ''; return; }
+	const t = Math.floor((shared + (since ? Date.now() - since : 0)) / 1000);
+	$('sharing').textContent = `${nworkers} threads ·`;
+	$('jobs').textContent = `${ndone} jobs ·`;
+	$('time').textContent = [t / 3600, t / 60 % 60, t % 60].map(x => String(Math.floor(x)).padStart(2, '0')).join(':');
+}
 
 function msg(hdr, body) {
 	const h = enc.encode(hdr + '\n');
@@ -69,7 +78,7 @@ function bundle(files) {
 let wasm = null, include = null;
 const workers = [], waiting = [];
 function credits() { return nworkers + Math.max(1, Math.ceil(nworkers / 4)); }	// a little queue: no worker waits on the network
-function busy() { $('busy').textContent = `${workers.filter(x => x.busy).length} / ${workers.length}`; }
+function busy() {}
 function work(w) {
 	if (waiting.length === 0 || !include) { w.busy = false; busy(); return; }
 	w.busy = true;
@@ -88,7 +97,6 @@ function startworkers() {
 			if (r.ok) files.push([r.out, r.obj]);
 			send(msg(`result\t${r.id}\t${r.ok ? 'ok' : 'fail'}`, bundle(files)));
 			ndone++;
-			$('jobs').textContent = ndone;
 			log(`job ${r.id} ${r.ok ? 'ok' : 'failed'} ${r.src} (${r.ms} ms)`);
 			work(w);
 		};
@@ -144,7 +152,7 @@ function connect() {
 	buf = new Uint8Array(0);
 	ws.onopen = () => {
 		send(msg(`hello\t${key}\tbrowser-cpu\twasm\t${nworkers}\t-\t${credits()}`));
-		state('COMPUTE SHARING ACTIVE', true);
+		state('CR available', true);
 		since = Date.now();
 		log(`connected: ${nworkers} workers, ${credits()} credits`);
 	};
@@ -153,7 +161,7 @@ function connect() {
 		if (since) { shared += Date.now() - since; since = 0; }
 		stopworkers();	// the server gives their jobs to another CR
 		if (!sharing) return;
-		state('disconnected, retrying', false);
+		state('reconnecting', false);
 		log('disconnected');
 		setTimeout(connect, 3000);
 	};
@@ -161,9 +169,8 @@ function connect() {
 
 function begin() {
 	sharing = true;
-	$('go').textContent = 'STOP'; $('go').className = 'stop'; $('go').disabled = false;
-	$('threads').disabled = true;
-	$('sharing').textContent = `${nworkers} / ${hc} CPU threads`;
+	$('go').textContent = 'stop'; $('go').disabled = false;
+	$('choose').style.visibility = 'hidden';
 	(wasm ? Promise.resolve() : fetch('6c.wasm').then(r => { if (!r.ok) throw r.status; return r.arrayBuffer(); }).then(b => { wasm = b; }))
 		.then(connect)
 		.catch(e => { state('no 6c.wasm: ' + e, false); stop(); });
@@ -175,7 +182,7 @@ function start() {
 	pending = true;
 	$('go').disabled = true;
 	if (navigator.locks && !q.has('nolock')) {
-		state('another tab of this browser is sharing; waiting', false);
+		state('another tab shares; waiting', false);
 		navigator.locks.request('plan2001-cr', () => new Promise(r => { release = r; pending = false; begin(); }));
 	} else {
 		release = () => {};
@@ -187,40 +194,20 @@ function stop() {
 	sharing = false;
 	if (ws) { ws.onclose(); ws.onclose = null; ws.close(); ws = null; }
 	if (release) { release(); release = null; }
-	$('go').textContent = 'START SHARING'; $('go').className = ''; $('go').disabled = false;
-	$('threads').disabled = false;
-	$('sharing').textContent = '-';
-	state('not sharing', false);
+	$('go').textContent = 'share spare compute'; $('go').disabled = false;
+	$('choose').style.visibility = '';
+	state('CR off', false);
 	log('stopped');
 }
 $('go').onclick = () => sharing ? stop() : start();
-setInterval(() => {
-	const t = Math.floor((shared + (since ? Date.now() - since : 0)) / 1000);
-	$('time').textContent = [t / 3600, t / 60 % 60, t % 60].map(x => String(Math.floor(x)).padStart(2, '0')).join(':');
-}, 1000);
-
-// the screen: falling characters while sharing
-const cv = $('rain'), g = cv.getContext('2d');
-let cols = [];
-function size() {
-	cv.width = innerWidth; cv.height = innerHeight;
-	cols = Array.from({ length: Math.ceil(innerWidth / 14) }, () => Math.random() * innerHeight / 16);
+// the clock, and the few numbers under it
+function tick() {
+	const d = new Date();
+	$('clock').textContent = [d.getHours(), d.getMinutes(), d.getSeconds()].map(x => String(x).padStart(2, '0')).join(':');
+	stats();
 }
-addEventListener('resize', size);
-size();
-const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ0123456789ABCDEF∑∫λπ';
-setInterval(() => {
-	if (!sharing) return;
-	g.fillStyle = 'rgba(0,0,0,0.08)';
-	g.fillRect(0, 0, cv.width, cv.height);
-	g.fillStyle = '#39ff14';
-	g.font = '14px monospace';
-	for (let i = 0; i < cols.length; i++) {
-		g.fillText(glyphs[Math.floor(Math.random() * glyphs.length)], i * 14, cols[i] * 16);
-		if (cols[i] * 16 > cv.height && Math.random() > 0.975) cols[i] = 0;
-		cols[i]++;
-	}
-}, 60);
+tick();
+setInterval(tick, 1000);
 
 if (q.has('autostart')) start();
 window.cr = { get done() { return ndone; }, get workers() { return nworkers; }, get sharing() { return sharing; }, start, stop };
