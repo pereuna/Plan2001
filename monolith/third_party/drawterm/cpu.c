@@ -11,6 +11,11 @@
 #include "args.h"
 #include "drawterm.h"
 
+#ifdef NINEPTERM
+/* 9pterm: this file's messages are diagnostics - stderr, not the output */
+#define print(...)	fprint(2, __VA_ARGS__)
+#endif
+
 #define MaxStr 128
 
 static void	usage(void);
@@ -133,6 +138,193 @@ startaan(char *host, int fd)
 	return aanclient(na, aanto);
 }
 
+#ifdef NINEPTERM
+/*
+ * 9pterm: exit 0 for the remote command's empty status, else 1 with the
+ * status on stderr; local failures exit 2 (libc/atexit.c), a timeout 124.
+ * -W secs: connecting and authenticating (default 30); -T secs: the
+ * command (default none); -P file: the password.
+ */
+static int waitsecs = 30, cmdsecs;
+static volatile int authed;
+static int interactive;	/* no -c and a terminal: kbdfs on the server edits lines */
+
+extern void ninetermkbdstart(void);
+extern int ninetermkeys;
+
+extern void osmsleep(int);
+
+static void
+watchdog(void *v)
+{
+	vlong t0, t1;
+
+	USED(v);
+	t0 = nsec();
+	t1 = 0;
+	for(;;){
+		osmsleep(100);
+		if(!authed){
+			if(waitsecs > 0 && nsec() - t0 > (vlong)waitsecs*1000000000LL){
+				fprint(2, "9pterm: no connection in %d s\n", waitsecs);
+				exit(2);
+			}
+		}else if(cmdsecs > 0){
+			if(t1 == 0)
+				t1 = nsec();
+			if(nsec() - t1 > (vlong)cmdsecs*1000000000LL){
+				fprint(2, "9pterm: timeout: the command ran %d s\n", cmdsecs);
+				exit(124);
+			}
+		}
+	}
+}
+
+static char*
+readpassfile(char *file)
+{
+	char buf[256], *p, *path, *pwd;
+	int fd, n;
+
+	/* the local file system is /root here (devfs-posix) */
+	if(file[0] == '/')
+		path = smprint("/root%s", file);
+	else if((pwd = getenv("PWD")) != nil)
+		path = smprint("/root%s/%s", pwd, file);
+	else
+		path = smprint("/root/%s", file);
+	fd = open(path, OREAD);
+	free(path);
+	if(fd < 0)
+		sysfatal("password file %s: %r", file);
+	n = read(fd, buf, sizeof buf - 1);
+	close(fd);
+	if(n <= 0)
+		sysfatal("password file %s: empty", file);
+	buf[n] = 0;
+	if((p = strchr(buf, '\n')) != nil)
+		*p = 0;
+	p = estrdup(buf);
+	memset(buf, 0, sizeof buf);
+	return p;
+}
+
+/*
+ * put LOCAL REMOTE, get REMOTE LOCAL: a file each way through our
+ * namespace on the server (/mnt/term/root, the local file system),
+ * checked with MD5 and named only once it is whole: a temporary name
+ * (NAME.9ptmp), renamed at the end.
+ */
+static char *getlocal;	/* get: the local file, as here (/root/...) */
+
+/* a local file name as here (/root/...), from the command line's */
+static char*
+localpath(char *file)
+{
+	char *pwd;
+
+	if(file[0] == '/')
+		return cleanname(smprint("/root%s", file));
+	if((pwd = getenv("PWD")) != nil)
+		return cleanname(smprint("/root%s/%s", pwd, file));
+	return cleanname(smprint("/root/%s", file));
+}
+
+/* the MD5 of a file here, in hex; nil if it cannot be read */
+static char*
+md5file(char *path)
+{
+	uchar buf[8192], d[MD5dlen];
+	DigestState *s;
+	char *h;
+	int fd, n, i;
+
+	if((fd = open(path, OREAD)) < 0)
+		return nil;
+	s = nil;
+	while((n = read(fd, buf, sizeof buf)) > 0)
+		s = md5(buf, n, nil, s);
+	close(fd);
+	if(n < 0)
+		return nil;
+	md5(nil, 0, d, s);
+	h = malloc(2*MD5dlen+1);
+	for(i = 0; i < MD5dlen; i++)
+		sprint(h+2*i, "%.2ux", d[i]);
+	return h;
+}
+
+static char*
+xfercmd(char *op, char *a, char *b)
+{
+	char *l, *sum, *tmp;
+
+	if(strcmp(op, "put") == 0){
+		l = localpath(a);
+		if((sum = md5file(l)) == nil)
+			sysfatal("put: %s: %r", a);
+		tmp = smprint("%s.9ptmp", b);
+		return smprint("cp %q %q || exit copy\n"
+			"m=`{md5sum %q}\n"
+			"if(~ $m(1) %s){ rm -f %q; mv %q %q }\n"
+			"if not { rm -f %q; echo 9pterm: put: checksum mismatch >[1=2]; exit checksum }\n",
+			smprint("/mnt/term%s", l), tmp, tmp, sum, b, tmp, b, tmp);
+	}
+	/* get */
+	l = localpath(b);
+	getlocal = l;
+	tmp = smprint("/mnt/term%s.9ptmp", l);
+	return smprint("cp %q %q || exit copy\n"
+		"m=`{md5sum %q}\n"
+		"echo -n $m(1) >/mnt/term/env/9pgetmd5\n",
+		a, tmp, a);
+}
+
+/* get: check the file that came against the server's MD5, then name it */
+static int
+getfinish(void)
+{
+	char *want, *tmp, *got, *name;
+	Dir d;
+
+	tmp = smprint("%s.9ptmp", getlocal);
+	want = getenv("9pgetmd5");
+	got = md5file(tmp);
+	if(want == nil || got == nil || strcmp(want, got) != 0){
+		remove(tmp);
+		fprint(2, "9pterm: get: checksum mismatch\n");
+		return -1;
+	}
+	remove(getlocal);
+	name = strrchr(getlocal, '/') + 1;
+	memset(&d, ~0, sizeof d);	/* nulldir: change nothing but the name */
+	d.name = name;
+	d.uid = d.gid = d.muid = "";
+	if(dirwstat(tmp, &d) < 0){
+		fprint(2, "9pterm: get: rename %s: %r\n", tmp);
+		return -1;
+	}
+	return 0;
+}
+
+static void
+rcpuexit(void)
+{
+	char *s = getenv("rstatus");
+
+	if(s == nil)
+		return;
+	if(*s == 0){
+		if(getlocal != nil && getfinish() < 0)
+			exit(1);
+		exit(0);
+	}
+	if(getlocal != nil)
+		remove(smprint("%s.9ptmp", getlocal));
+	fprint(2, "%s\n", s);
+	exit(1);
+}
+#else
 static void
 rcpuexit(void)
 {
@@ -140,6 +332,7 @@ rcpuexit(void)
 	if(s != nil)
 		exit(*s);
 }
+#endif
 
 void
 rcpu(char *host, char *cmd)
@@ -154,6 +347,15 @@ rcpu(char *host, char *cmd)
 "</dev/cons >/dev/cons >[2=1] service=cpu %s\n"
 "echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
 "echo -n hangup >/proc/$pid/notepg\n";
+#ifdef NINEPTERM
+	/* a command's fd 2 to our stderr (devcons: /dev/stderr), not to cons */
+	static char cmdscript[] =
+"mount -nc /fd/0 /mnt/term || exit\n"
+"bind -q /mnt/term/dev/cons /dev/cons\n"
+"</dev/cons >/dev/cons >[2]/mnt/term/dev/stderr service=cpu %s\n"
+"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
+"echo -n hangup >/proc/$pid/notepg\n";
+#endif
 	int fd;
 
 	if((fd = dial(netmkaddr(host, "tcp", "rcpu"), nil, nil, nil)) < 0)
@@ -171,12 +373,21 @@ rcpu(char *host, char *cmd)
 		fd = p9authtls(fd);
 	}
 	memset(secstorebuf, 0, sizeof(secstorebuf));	/* forget secstore secrets */
+#ifdef NINEPTERM
+	authed = 1;
+	if(interactive)
+		ninetermkbdstart();
+#endif
 
 	if(cmd == nil)
 		cmd = smprint(script, "rc -li");
 	else {
 		char *run = smprint("rc -lc %q", cmd);
+#ifdef NINEPTERM
+		cmd = smprint(cmdscript, run);
+#else
 		cmd = smprint(script, run);
+#endif
 		free(run);
 	}
 	if(fprint(fd, "%7ld\n%s", strlen(cmd), cmd) < 0)
@@ -254,6 +465,11 @@ ncpu(char *host, char *cmd)
 void
 usage(void)
 {
+#ifdef NINEPTERM
+	fprint(2, "usage: %s [-OK] [-h host] [-u user] [-a authserver] [-P passfile] "
+		"[-W connsecs] [-T cmdsecs] [-k keypattern] [-r root] [-c cmd ... | put local remote | get remote local]\n", argv0);
+	exits("usage");
+#endif
 	fprint(2, "usage: %s [-9GBO] "
 		"[-h host] [-u user] [-a authserver] [-s secstore] "
 		"[-e 'crypt hash'] [-k keypattern] "
@@ -277,6 +493,10 @@ cpumain(int argc, char **argv)
 	user = getenv("USER");
 	host = getenv("cpu");
 	authserver = getenv("auth");
+#ifdef NINEPTERM
+	nogfx = 1;	/* 9pterm (Make.9pterm): a text terminal, always -G */
+	nokbd = 1;
+#endif
 
 	ARGBEGIN{
 	case '9':
@@ -338,6 +558,20 @@ cpumain(int argc, char **argv)
 		 */
 		geometry = EARGF(usage());
 		break;
+#ifdef NINEPTERM
+	case 'W':
+		waitsecs = atoi(EARGF(usage()));
+		break;
+	case 'T':
+		cmdsecs = atoi(EARGF(usage()));
+		break;
+	case 'P':
+		pass = readpassfile(EARGF(usage()));
+		break;
+	case 'K':
+		ninetermkeys = 1;
+		break;
+#endif
 	case 'x':
 		scalef = 1;
 		if((s = ARGF()) == nil)
@@ -352,16 +586,34 @@ cpumain(int argc, char **argv)
 		usage();
 	}ARGEND;
 
+#ifdef NINEPTERM
+	if(argc == 3 && cmd == nil && (strcmp(argv[0], "put") == 0 || strcmp(argv[0], "get") == 0)){
+		cmd = xfercmd(argv[0], argv[1], argv[2]);
+		argc = 0;
+	}
+#endif
 	if(argc != 0)
 		usage();
+#ifdef NINEPTERM
+	interactive = cmd == nil && isatty(0);
+	if(interactive)
+		nokbd = 0;	/* /dev/kbd for the server's kbdfs */
+#endif
 
 	if(nineflag){
 		exportfs(lfdfd(0), lfdfd(1));
 		return;
 	}
 
+#ifdef NINEPTERM
+	if(pass == nil && (pass = getenv("PASS")) != nil)
+		remove("/env/PASS");
+	else
+		remove("/env/PASS");
+#else
 	if((pass = getenv("PASS")) != nil)
 		remove("/env/PASS");
+#endif
 
 	if(!nogfx)
 		guimain();
@@ -373,6 +625,10 @@ void
 cpubody(void)
 {
 	char *s;
+
+#ifdef NINEPTERM
+	kproc("watchdog", watchdog, nil);
+#endif
 
 	if(!nogfx){
 		if(bind("#i", "/dev", MBEFORE) < 0)
@@ -398,9 +654,18 @@ cpubody(void)
 			sysfatal("user terminated input");
 
 	if(mountfactotum() < 0){
+#ifdef NINEPTERM
+		/*
+		 * 9pterm: secstore only when asked for (-s): the probe of the
+		 * auth server's secstore port waits out TCP's timeout where a
+		 * firewall drops it (the cloud)
+		 */
+		if(secstore != nil && havesecstore(secstore, user)){
+#else
 		if(secstore == nil)
 			secstore = "$auth";
 	 	if(havesecstore(secstore, user)){
+#endif
 			s = secstorefetch(secstore, user, pass);
 			if(s){
 				if(strlen(s) >= sizeof secstorebuf)

@@ -357,6 +357,9 @@ enum{
 	Qreboot,
 	Qshowfile,
 	Qsnarf,
+#ifdef NINEPTERM
+	Qstderr,	/* 9pterm: the remote command's fd 2, to ours */
+#endif
 	Qsysname,
 	Qsysstat,
 	Qtime,
@@ -384,6 +387,9 @@ static Dirtab consdir[]={
 	"reboot",	{Qreboot},	0,		0664,
 	"showfile",	{Qshowfile},	0,	0220,
 	"snarf",	{Qsnarf},		0,		0666,
+#ifdef NINEPTERM
+	"stderr",	{Qstderr},	0,		0220,
+#endif
 	"sysname",	{Qsysname},	0,		0664,
 	"sysstat",	{Qsysstat},	0,		0666,
 	"time",		{Qtime},	NUMSIZE+3*VLNUMSIZE,	0664,
@@ -522,10 +528,16 @@ consclose(Chan *c)
 	}
 }
 
+#ifdef NINEPTERM
+extern int ninetermkbd;	/* 9pterm interactive: fd 0 is the keyboard's (gui-none/tty.c) */
+#else
+#define ninetermkbd 0
+#endif
+
 static int
 qreadcons(Queue *q, char *buf, int n)
 {
-	if(screenputs==0 && !qcanread(q))
+	if(screenputs==0 && !qcanread(q) && !ninetermkbd)
 		return read(0, buf, n);
 	return qread(q, buf, n);
 }
@@ -712,6 +724,13 @@ conswrite(Chan *c, void *va, long n, vlong off)
 		}
 		break;
 
+#ifdef NINEPTERM
+	case Qstderr:
+		if(write(2, a, n) != n)
+			error(Eio);
+		break;
+
+#endif
 	case Qconsctl:
 		if(n >= sizeof(buf))
 			n = sizeof(buf)-1;

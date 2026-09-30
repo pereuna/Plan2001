@@ -41,6 +41,10 @@ exits(char *s)
 			onex[i].f = 0;
 			(*f)();
 		}
+#ifdef NINEPTERM
+	exit(s && *s ? 2 : 0);	/* 9pterm: a local failure; 1 is the remote command's */
+#else
 	exit(s && *s);
+#endif
 }
 

@@ -1,0 +1,17 @@
+# 9pterm: drawterm as a text terminal - no graphics (gui-none), no audio,
+# -G always (cpu.c: NINEPTERM); Linux
+PTHREAD=-pthread
+AR=ar
+AS=as
+RANLIB=ranlib
+CC=cc
+CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -ggdb -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -D_THREAD_SAFE -DPTHREAD $(PTHREAD) -D_REENTRANT -DNINEPTERM -O2
+O=o
+OS=posix
+GUI=none
+LDADD=-ggdb -lm -lrt
+LDFLAGS=$(PTHREAD)
+TARG=9pterm
+AUDIO=none
+
+all: default
