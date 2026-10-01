@@ -33,6 +33,7 @@ static	long	bssend;
 static	long	npages;
 static	Sym*	setjmpsym;
 static	long	asbase;
+static	long	tzone;
 static	Sym*	entrysym;
 static	void	unwindgraph(void);
 static	char*	synths[] = { "_trap", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
@@ -237,6 +238,9 @@ layout(void)
 	a = rnd(a, 8);
 	asbase = a;	/* the saved frames, for fork */
 	a += ASAREA;
+	a = rnd(a, 16);
+	tzone = a;	/* rfork(RFMEM) procs' stacks and saved frames */
+	a += NTSLOT*(TSTACK+TASAREA);
 	bssend = rnd(a, 8);
 	defsym("edata", dataend);
 	defsym("end", bssend);
@@ -697,7 +701,8 @@ framerec(void)
 		recoff[i] = o;
 		o += w[k];
 	}
-	recsize = rnd(o, 8);
+	/* then the number of i32 locals and the size: the kernel walks them (rfork RFMEM) */
+	recsize = rnd(o + 8, 8);
 }
 
 static void
@@ -722,6 +727,14 @@ saveframe(int blk)
 		op(store[localclass(i)]);
 		memarg(al[localclass(i)], recoff[i]);
 	}
+	op2(0x23, GASPTR);
+	iconst(locbase[Kv]);
+	op(0x36);
+	memarg(2, recsize-8);
+	op2(0x23, GASPTR);
+	iconst(recsize);
+	op(0x36);
+	memarg(2, recsize-4);
 	op2(0x23, GASPTR);
 	iconst(recsize);
 	op(0x6a);
@@ -1217,8 +1230,8 @@ asmb(void)
 	buleb(&b, 2);
 	section(&out, 13, &b);
 
-	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret */
-	buleb(&b, 8);
+	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase tzone tslot ntslot */
+	buleb(&b, 13);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
@@ -1227,13 +1240,27 @@ asmb(void)
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, asbase); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, asbase); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, tzone); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, TSTACK+TASAREA); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, NTSLOT); bput1(&b, 0x0b);
 	section(&out, 6, &b);
 
 	/*
 	 * exports: the kernel puts argc and argv below sp, then calls _start;
 	 * fork: asstate, asptr, asret
 	 */
-	buleb(&b, 6);
+	buleb(&b, 11);
+	{
+		static char *cn[] = { "stacktop", "asbase", "tzone", "tslot", "ntslot" };
+
+		for(i = 0; i < 5; i++) {
+			bstr(&b, cn[i]);
+			bput1(&b, 0x03);
+			buleb(&b, GASRET+1+i);
+		}
+	}
 	bstr(&b, "asstate");
 	bput1(&b, 0x03);
 	buleb(&b, GSTATE);

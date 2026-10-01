@@ -2,16 +2,23 @@
  * Plan2001 wasm32 processes (3c, 3l; docs/wasm32.md) under drawterm's
  * kernel in the browser: docs/architecture.md, step A.  A process is a
  * kproc - a Worker - that runs the program's module; its one import,
- * plan9.syscall(number, args), comes here as h3syscall and becomes
- * drawterm's sys* calls.  The program's memory is its own: what a call
- * reads or writes there goes through h3in and h3out (copyin, copyout),
- * which the platform (host3js.c, JavaScript) does, as DMA.
+ * plan9.syscall(number, args), comes here and becomes drawterm's sys*
+ * calls.  The program's memory is its own: what a call reads or writes
+ * there goes through h3in and h3out (copyin, copyout), which the
+ * platform (host3js.c, JavaScript) does, as DMA.
  *
  * fork: 3l made the program's stack unwindable; the platform unwinds it
  * into the program's memory, which comes here as a copy for the child -
  * a new kproc - and both rewind.  exec: a program from the name space
- * (#! too).  The page loads build/wasm32/root into #U (/root/wasm32root,
- * bound on / and /bin); ?wasm=host3&prog=NAME&arg=... runs /bin/NAME.
+ * (#! too).  rfork(RFMEM): the procs of one memory take turns on its
+ * Worker, as on a uniprocessor - the platform switches by unwinding one
+ * and rewinding another - and their system calls run on a helper kproc
+ * each, so one blocked does not stop the others.  A system call is
+ * prep (its arguments copied in, on the Worker), doreq (the kernel's
+ * part, on the Worker or a helper) and fin (its results copied out).
+ *
+ * The page loads build/wasm32/root into #U (/root/wasm32root, bound on /
+ * and /bin); ?wasm=host3&prog=NAME&arg=... runs /bin/NAME.
  */
 #include	"u.h"
 #include	"lib.h"
@@ -25,6 +32,8 @@ extern	char*	getenv(const char*);
 extern	void	guimain(void);
 extern	long	_sysfd2path(int, char*, uint);
 
+typedef struct H3 H3;
+
 /* the platform (host3js.c) */
 extern	int	h3in(void*, ulong, int);
 extern	int	h3out(ulong, void*, int);
@@ -32,25 +41,9 @@ extern	int	h3strlen(ulong, int);
 extern	int	h3brk(ulong);
 extern	void	h3stop(int);
 extern	void	h3unwind(int);
-extern	int	h3run(int, uchar*, int, int, char**, uchar*, int, ulong, vlong*, vlong*, int*, char*, int);
+extern	int	h3run(H3*, int, uchar*, int, int, char**, uchar*, int, ulong, ulong, ulong, vlong*, int*, char*, int);
 extern	void	h3log(char*, int, char*);
 extern	void	h3trace(char*);
-
-static	int	h3debug;
-
-static void
-dbg(char *fmt, ...)
-{
-	char buf[256];
-	va_list arg;
-
-	if(!h3debug)
-		return;
-	va_start(arg, fmt);
-	vseprint(buf, buf+sizeof buf, fmt, arg);
-	va_end(arg);
-	h3trace(buf);
-}
 
 /* 9front's /sys/src/libc/9syscall/sys.h */
 enum {
@@ -93,13 +86,41 @@ struct Img
 	long	n;
 };
 
-typedef struct H3 H3;
+/* one system call: its arguments here, in our memory */
+typedef struct Req Req;
+struct Req
+{
+	int	n;
+	ulong	v[6];
+	char	*s;
+	char	*s2;
+	uchar	*buf;	/* to or from the program */
+	long	nbuf;
+	ulong	ubuf;	/* where in the program: copied there if out */
+	int	out;
+	int	fd[2];
+	vlong	r;
+	char	err[ERRMAX];
+};
+
+/*
+ * a proc: a process's first, and each rfork(RFMEM) one of its memory
+ */
 struct H3
 {
+	/* host3js.c reads these: first, in this order */
+	vlong	ret;	/* its system call's result */
 	int	pid;
+	int	done;	/* its helper finished the call */
+
+	H3	*proc;	/* the first of its memory: the process */
 	H3	*parent;
 	int	nowait;
+	int	ended;
 	char	*name;
+	char	*prog;	/* the first process's: what the page ran */
+	char	err[ERRMAX];
+	char	exitmsg[ERRMAX];
 
 	/* children's ends, for await */
 	Lock	lk;
@@ -108,7 +129,14 @@ struct H3
 	int	nwait;
 	int	nchild;
 
-	/* the program, and how h3run starts it next */
+	/* its helper kproc */
+	int	helper;
+	Rendez	hr;
+	Req	*req;
+	int	pending;
+	int	quit;
+
+	/* the process's: the program, and how h3run starts it next */
 	Img	*img;
 	int	argc;
 	char	**argv;
@@ -116,19 +144,45 @@ struct H3
 	uchar	*snap;
 	long	nsnap;
 	ulong	asptr;
+	ulong	asbase;
+	ulong	stacktop;
 	vlong	asret;
-
 	Img	*eimg;	/* exec's */
 	int	eargc;
 	char	**eargv;
-	char	exitmsg[ERRMAX];
+	Lock	dlk;	/* helpers' ends */
+	Rendez	dr;
+	int	ndone;
 };
 
-/* each process a thread of its own */
-static	__thread	H3	*h3;
-static	__thread	vlong	h3ret;
 static	Lock	pidlock;
 static	int	pids;
+static	int	h3debug;
+
+static void
+dbg(char *fmt, ...)
+{
+	char buf[256];
+	va_list arg;
+
+	if(!h3debug)
+		return;
+	va_start(arg, fmt);
+	vseprint(buf, buf+sizeof buf, fmt, arg);
+	va_end(arg);
+	h3trace(buf);
+}
+
+static int
+newpid(void)
+{
+	int p;
+
+	lock(&pidlock);
+	p = ++pids;
+	unlock(&pidlock);
+	return p;
+}
 
 static void
 freeargv(int argc, char **argv)
@@ -249,13 +303,6 @@ ustr(ulong u)
 	return s;
 }
 
-static vlong
-bad(void)
-{
-	werrstr("bad address in system call");
-	return -1;
-}
-
 static long
 fd2path(int fd, char *buf, uint nbuf)
 {
@@ -270,15 +317,6 @@ fd2path(int fd, char *buf, uint nbuf)
 	return r;
 }
 
-static int
-havewait(void *v)
-{
-	H3 *p;
-
-	p = v;
-	return p->nwait > 0 || p->nchild == 0;
-}
-
 /* a child's end, for its parent's await: 'pid utime stime rtime msg' */
 static void
 h3end(H3 *p)
@@ -286,6 +324,10 @@ h3end(H3 *p)
 	H3 *q;
 	char *w;
 
+	if(p->ended)
+		return;
+	p->ended = 1;
+	dbg("%d %s ends '%s'", p->pid, p->name, p->exitmsg);
 	q = p->parent;
 	if(q == nil || p->nowait)
 		return;
@@ -300,14 +342,21 @@ h3end(H3 *p)
 	wakeup(&q->r);
 }
 
-static long
-h3await(ulong u, long n)
+static int
+havewait(void *v)
 {
 	H3 *p;
+
+	p = v;
+	return p->nwait > 0 || p->nchild == 0;
+}
+
+static vlong
+h3await(H3 *p, Req *q)
+{
 	char *w;
 	long m;
 
-	p = h3;
 	for(;;) {
 		lock(&p->lk);
 		if(p->nwait > 0)
@@ -325,30 +374,168 @@ h3await(ulong u, long n)
 	p->nwait--;
 	unlock(&p->lk);
 	m = strlen(w);
-	if(m > n)
-		m = n;
-	if(h3out(u, w, m) < 0) {
-		free(w);
-		return bad();
-	}
+	if(m > q->nbuf)
+		m = q->nbuf;
+	memmove(q->buf, w, m);
 	free(w);
 	return m;
+}
+
+/*
+ * prep: a call's arguments, strings and buffers copied in; -1 if they are
+ * not in the program's memory
+ */
+static int
+needbuf(Req *q, ulong u, long n, int in)
+{
+	if(n < 0)
+		return -1;
+	q->buf = mallocz(n+1, 1);
+	q->nbuf = n;
+	q->ubuf = u;
+	q->out = !in;
+	if(in && h3in(q->buf, u, n) < 0)
+		return -1;
+	return 0;
+}
+
+static int
+needstr(char **s, ulong u)
+{
+	*s = ustr(u);
+	return *s == nil ? -1 : 0;
+}
+
+static int
+prep(Req *q, int n, ulong a)
+{
+	ulong *v;
+
+	q->n = n;
+	v = q->v;
+	if(h3in(v, a, sizeof q->v) < 0)
+		return -1;
+	switch(n) {
+	case OPEN:
+	case CREATE:
+	case CHDIR:
+	case REMOVE:
+		return needstr(&q->s, v[0]);
+	case BIND:
+		return needstr(&q->s, v[0]) < 0 || needstr(&q->s2, v[1]) < 0 ? -1 : 0;
+	case MOUNT:
+		q->s2 = ustr(v[4]);
+		return needstr(&q->s, v[2]);
+	case UNMOUNT:
+		q->s = ustr(v[0]);
+		return needstr(&q->s2, v[1]);
+	case PREAD:
+	case FSTAT:
+	case FD2PATH:
+		return needbuf(q, v[1], v[2], 0);
+	case STAT:
+		return needstr(&q->s, v[0]) < 0 ? -1 : needbuf(q, v[1], v[2], 0);
+	case PWRITE:
+	case FWSTAT:
+		return needbuf(q, v[1], v[2], 1);
+	case WSTAT:
+		return needstr(&q->s, v[0]) < 0 ? -1 : needbuf(q, v[1], v[2], 1);
+	case AWAIT:
+		return needbuf(q, v[0], v[1], 0);
+	case PIPE:
+		return needbuf(q, v[0], 2*sizeof(int), 0);
+	}
+	return 0;
+}
+
+/* the kernel's part: on the program's Worker, or its proc's helper */
+static void
+doreq(H3 *c, Req *q)
+{
+	ulong *v;
+	vlong off;
+
+	v = q->v;
+	off = (uvlong)v[3] | (uvlong)v[4]<<32;
+	switch(q->n) {
+	default:
+		werrstr("system call %d not here (wasm32)", q->n);
+		q->r = -1;
+		break;
+	case OPEN:	q->r = sysopen(q->s, v[1]); break;
+	case CREATE:	q->r = syscreate(q->s, v[1], v[2]); break;
+	case CLOSE:	q->r = sysclose(v[0]); break;
+	case DUP:	q->r = sysdup(v[0], v[1]); break;
+	case PREAD:	q->r = syspread(v[0], q->buf, q->nbuf, off); break;
+	case PWRITE:	q->r = syspwrite(v[0], q->buf, q->nbuf, off); break;
+	case SEEK:	q->r = sysseek(v[0], (uvlong)v[1] | (uvlong)v[2]<<32, v[3]); break;
+	case FSTAT:	q->r = sysfstat(v[0], q->buf, q->nbuf); break;
+	case STAT:	q->r = sysstat(q->s, q->buf, q->nbuf); break;
+	case FWSTAT:	q->r = sysfwstat(v[0], q->buf, q->nbuf); break;
+	case WSTAT:	q->r = syswstat(q->s, q->buf, q->nbuf); break;
+	case BIND:	q->r = sysbind(q->s, q->s2, v[2]); break;
+	case MOUNT:	q->r = sysmount(v[0], v[1], q->s, v[3], q->s2); break;
+	case UNMOUNT:	q->r = sysunmount(q->s, q->s2); break;
+	case CHDIR:	q->r = syschdir(q->s); break;
+	case REMOVE:	q->r = sysremove(q->s); break;
+	case AWAIT:	q->r = h3await(c, q); break;
+	case PIPE:
+		q->r = syspipe(q->fd);
+		if(q->r >= 0)
+			memmove(q->buf, q->fd, sizeof q->fd);
+		break;
+	case FD2PATH:
+		q->r = fd2path(v[0], (char*)q->buf, q->nbuf);
+		break;
+	case SLEEP:
+		if((long)v[0] > 0)
+			osmsleep(v[0]);
+		q->r = 0;
+		break;
+	}
+	if(q->r < 0)
+		strecpy(q->err, q->err+ERRMAX, up->syserrstr);
+}
+
+/* fin: the results copied out, the error kept as the proc's errstr */
+static void
+fin(H3 *c, Req *q)
+{
+	long n;
+
+	if(q->r >= 0 && q->out) {
+		n = q->nbuf;
+		if(q->n == PREAD || q->n == FSTAT || q->n == STAT || q->n == AWAIT)
+			n = q->r;
+		else if(q->n == FD2PATH)
+			n = strlen((char*)q->buf)+1;
+		if(n > 0 && h3out(q->ubuf, q->buf, n) < 0) {
+			q->r = -1;
+			strecpy(q->err, q->err+ERRMAX, "bad address in system call");
+		}
+	}
+	if(q->r < 0)
+		strecpy(c->err, c->err+ERRMAX, q->err);
+	c->ret = q->r;
+	free(q->s);
+	free(q->s2);
+	free(q->buf);
+	free(q);
 }
 
 static void	h3proc(void*);
 
 /* fork: p unwound, snap its memory (ours now, malloc'd) */
 static H3*
-h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr)
+h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr, ulong asbase, ulong stacktop)
 {
 	H3 *c;
 	Fgrp *f;
 	Rgrp *rg;
 
 	c = mallocz(sizeof *c, 1);
-	lock(&pidlock);
-	c->pid = ++pids;
-	unlock(&pidlock);
+	c->pid = newpid();
+	c->proc = c;
 	c->parent = p;
 	c->nowait = (flags & RFNOWAIT) != 0;
 	c->name = strdup(p->name);
@@ -358,6 +545,8 @@ h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr)
 	c->snap = snap;
 	c->nsnap = nsnap;
 	c->asptr = asptr;
+	c->asbase = asbase;
+	c->stacktop = stacktop;
 	c->asret = 0;
 	if(!c->nowait) {
 		lock(&p->lk);
@@ -386,59 +575,59 @@ h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr)
 }
 
 static vlong
-h3exec(ulong uname, ulong uargv)
+h3exec(H3 *c, ulong uname, ulong uargv)
 {
 	char *name, **argv;
 	ulong a;
 	int argc;
 	Img *img;
 
-	if((name = ustr(uname)) == nil)
-		return bad();
+	if(c->proc != c || c->helper) {
+		werrstr("exec from an rfork(RFMEM) proc: not yet on wasm32");
+		return -1;
+	}
+	if((name = ustr(uname)) == nil) {
+		werrstr("bad address in system call");
+		return -1;
+	}
 	argv = mallocz(Maxargs*sizeof(char*), 1);
 	for(argc = 0; argc < Maxargs-1; argc++) {
-		if(h3in(&a, uargv + 4*argc, 4) < 0) {
+		if(h3in(&a, uargv + 4*argc, 4) < 0 || a != 0 && (argv[argc] = ustr(a)) == nil) {
 			freeargv(argc, argv);
 			free(name);
-			return bad();
+			werrstr("bad address in system call");
+			return -1;
 		}
 		if(a == 0)
 			break;
-		if((argv[argc] = ustr(a)) == nil) {
-			freeargv(argc, argv);
-			free(name);
-			return bad();
-		}
 	}
 	img = h3load(name, &argc, &argv, 0);
-	dbg("%d %s exec %s: %s", h3->pid, h3->name, name, img != nil ? "ok" : "failed");
+	dbg("%d %s exec %s: %s", c->pid, c->name, name, img != nil ? "ok" : "failed");
 	free(name);
 	if(img == nil) {
 		freeargv(argc, argv);
 		return -1;
 	}
-	h3->eimg = img;
-	h3->eargc = argc;
-	h3->eargv = argv;
+	c->eimg = img;
+	c->eargc = argc;
+	c->eargv = argv;
 	h3stop(Stopexec);
 	return 0;
 }
 
+/* rfork without RFPROC: the calling proc's groups */
 static vlong
-h3rfork(int flags)
+h3rfork(H3 *c, int flags)
 {
 	Fgrp *f;
 	Rgrp *rg;
 
-	if(flags & RFMEM) {
-		werrstr("rfork RFMEM not yet on wasm32");
-		return -1;
-	}
 	if(flags & RFPROC) {
-		/* the stack unwinds; h3proc makes the child */
+		/* the stack unwinds; the platform makes the child (RFMEM) or h3proc does */
 		h3unwind(flags);
 		return 0;
 	}
+	USED(c);
 	if(flags & (RFFDG|RFCFDG)) {
 		f = up->fgrp;
 		up->fgrp = dupfgrp((flags & RFFDG) ? f : nil);
@@ -453,250 +642,280 @@ h3rfork(int flags)
 	return 0;
 }
 
-static vlong
-h3sys(int n, ulong a)
+/* calls the program's Worker does itself, even with helpers */
+static int
+local(int n)
 {
-	ulong v[6];
-	char *s, *s2, *e;
-	uchar *buf;
-	int fd[2];
-	vlong r, off;
-
-	if(h3in(v, a, sizeof v) < 0)
-		return bad();
-	s = s2 = nil;
-	buf = nil;
-	r = -1;
 	switch(n) {
-	default:
-		werrstr("system call %d not here (wasm32)", n);
-		break;
-
 	case EXITS:
-		s = ustr(v[0]);
-		dbg("%d %s exits '%s'", h3->pid, h3->name, s != nil ? s : "");
-		strecpy(h3->exitmsg, h3->exitmsg+sizeof h3->exitmsg, s != nil ? s : "");
-		h3stop(Stopexit);
-		r = 0;
-		break;
-
 	case EXEC:
-		r = h3exec(v[0], v[1]);
-		break;
-
 	case RFORK:
-		r = h3rfork(v[0]);
-		break;
-
-	case AWAIT:
-		dbg("%d %s await (%d children)", h3->pid, h3->name, h3->nchild);
-		r = h3await(v[0], v[1]);
-		dbg("%d %s await: %lld", h3->pid, h3->name, r);
-		break;
-
-	case OPEN:
-		if((s = ustr(v[0])) == nil)
-			return bad();
-		r = sysopen(s, v[1]);
-		break;
-
-	case CREATE:
-		if((s = ustr(v[0])) == nil)
-			return bad();
-		r = syscreate(s, v[1], v[2]);
-		break;
-
-	case CLOSE:
-		r = sysclose(v[0]);
-		break;
-
-	case DUP:
-		r = sysdup(v[0], v[1]);
-		break;
-
-	case PREAD:
-		if((long)v[2] < 0)
-			return bad();
-		buf = smalloc(v[2]+1);
-		off = (uvlong)v[3] | (uvlong)v[4]<<32;
-		r = syspread(v[0], buf, v[2], off);
-		if(r > 0 && h3out(v[1], buf, r) < 0)
-			r = bad();
-		break;
-
-	case PWRITE:
-		if((long)v[2] < 0)
-			return bad();
-		buf = smalloc(v[2]+1);
-		if(h3in(buf, v[1], v[2]) < 0) {
-			r = bad();
-			break;
-		}
-		off = (uvlong)v[3] | (uvlong)v[4]<<32;
-		r = syspwrite(v[0], buf, v[2], off);
-		break;
-
-	case SEEK:
-		off = (uvlong)v[1] | (uvlong)v[2]<<32;
-		r = sysseek(v[0], off, v[3]);
-		break;
-
-	case FSTAT:
-	case STAT:
-		if((long)v[2] < 0)
-			return bad();
-		buf = smalloc(v[2]+1);
-		if(n == FSTAT)
-			r = sysfstat(v[0], buf, v[2]);
-		else {
-			if((s = ustr(v[0])) == nil)
-				return bad();
-			r = sysstat(s, buf, v[2]);
-		}
-		if(r > 0 && h3out(v[1], buf, r) < 0)
-			r = bad();
-		break;
-
-	case FWSTAT:
-	case WSTAT:
-		if((long)v[2] < 0)
-			return bad();
-		buf = smalloc(v[2]+1);
-		if(h3in(buf, v[1], v[2]) < 0) {
-			r = bad();
-			break;
-		}
-		if(n == FWSTAT)
-			r = sysfwstat(v[0], buf, v[2]);
-		else {
-			if((s = ustr(v[0])) == nil)
-				return bad();
-			r = syswstat(s, buf, v[2]);
-		}
-		break;
-
-	case BIND:
-		s = ustr(v[0]);
-		s2 = ustr(v[1]);
-		if(s == nil || s2 == nil)
-			return bad();
-		r = sysbind(s, s2, v[2]);
-		break;
-
-	case MOUNT:
-		s = ustr(v[2]);
-		s2 = ustr(v[4]);
-		if(s == nil)
-			return bad();
-		r = sysmount(v[0], v[1], s, v[3], s2);
-		break;
-
-	case UNMOUNT:
-		s = ustr(v[0]);
-		s2 = ustr(v[1]);
-		if(s2 == nil)
-			return bad();
-		r = sysunmount(s, s2);
-		break;
-
-	case CHDIR:
-		if((s = ustr(v[0])) == nil)
-			return bad();
-		r = syschdir(s);
-		break;
-
-	case REMOVE:
-		if((s = ustr(v[0])) == nil)
-			return bad();
-		r = sysremove(s);
-		break;
-
-	case PIPE:
-		r = syspipe(fd);
-		if(r >= 0 && h3out(v[0], fd, sizeof fd) < 0)
-			r = bad();
-		break;
-
-	case FD2PATH:
-		if((long)v[2] <= 0)
-			return bad();
-		buf = smalloc(v[2]+1);
-		r = fd2path(v[0], (char*)buf, v[2]);
-		if(r >= 0 && h3out(v[1], buf, strlen((char*)buf)+1) < 0)
-			r = bad();
-		break;
-
-	case ERRSTR:
-		/* swap the program's buffer and ours */
-		if((long)v[1] <= 0)
-			return bad();
-		if(v[1] > ERRMAX)
-			v[1] = ERRMAX;
-		buf = smalloc(v[1]+1);
-		if(h3in(buf, v[0], v[1]) < 0)
-			return bad();
-		buf[v[1]-1] = 0;
-		e = up->syserrstr;
-		if(h3out(v[0], e, strlen(e)+1) < 0)
-			return bad();
-		strecpy(e, e+ERRMAX, (char*)buf);
-		r = 0;
-		break;
-
 	case BRK_:
-		r = h3brk(v[0]);
-		if(r < 0)
-			werrstr("no memory");
-		break;
-
-	case SLEEP:
-		if((long)v[0] > 0)
-			osmsleep(v[0]);
-		r = 0;
-		break;
-
+	case ERRSTR:
 	case _NSEC:
-		r = nsec();
-		break;
-
 	case ALARM:
 	case NOTIFY:
 	case NOTED:
-		r = 0;
+		return 1;
+	}
+	return 0;
+}
+
+static void
+dolocal(H3 *c, Req *q)
+{
+	ulong *v;
+	char *s, buf[ERRMAX];
+
+	v = q->v;
+	q->r = 0;
+	switch(q->n) {
+	case EXITS:
+		s = ustr(v[0]);
+		strecpy(c->exitmsg, c->exitmsg+sizeof c->exitmsg, s != nil ? s : "");
+		dbg("%d %s exits '%s'", c->pid, c->name, c->exitmsg);
+		free(s);
+		h3stop(Stopexit);
+		break;
+	case EXEC:
+		q->r = h3exec(c, v[0], v[1]);
+		break;
+	case RFORK:
+		q->r = h3rfork(c, v[0]);
+		break;
+	case BRK_:
+		q->r = h3brk(v[0]);
+		if(q->r < 0)
+			werrstr("no memory");
+		break;
+	case ERRSTR:
+		/* swap the program's buffer and its proc's errstr */
+		if((long)v[1] <= 0) {
+			q->r = -1;
+			werrstr("bad errstr buffer");
+			break;
+		}
+		if(v[1] > ERRMAX)
+			v[1] = ERRMAX;
+		if(h3in(buf, v[0], v[1]) < 0 || h3out(v[0], c->err, strlen(c->err)+1) < 0) {
+			q->r = -1;
+			werrstr("bad address in system call");
+			break;
+		}
+		buf[v[1]-1] = 0;
+		strecpy(c->err, c->err+ERRMAX, buf);
+		break;
+	case _NSEC:
+		q->r = nsec();
 		break;
 	}
-	free(s);
-	free(s2);
-	free(buf);
-	return r;
+	if(q->r < 0)
+		strecpy(q->err, q->err+ERRMAX, up->syserrstr);
+}
+
+static void
+trace(H3 *c, Req *q, char *when)
+{
+	if(h3debug > 2 || h3debug > 1 && *when == '=')
+		dbg("%d %s sys %d (%lux %lux %lux %lux) %s %lld%s%s", c->pid, c->name, q->n,
+			q->v[0], q->v[1], q->v[2], q->v[3], when, q->r,
+			q->r < 0 && *when == '=' ? " " : "", q->r < 0 && *when == '=' ? q->err : "");
+}
+
+/*
+ * a system call, all of it here: one proc in the memory
+ */
+void
+h3sys1(H3 *c, int n, ulong a)
+{
+	Req *q;
+
+	q = mallocz(sizeof *q, 1);
+	if(prep(q, n, a) < 0) {
+		q->r = -1;
+		strecpy(q->err, q->err+ERRMAX, "bad address in system call");
+	} else if(local(n))
+		dolocal(c, q);
+	else {
+		trace(c, q, "...");
+		doreq(c, q);
+	}
+	trace(c, q, "=");
+	fin(c, q);
+}
+
+/*
+ * procs taking turns: a call that is not local goes to c's helper; 1 if
+ * it is pending there (h3finish when c->done)
+ */
+static int
+havereq(void *v)
+{
+	H3 *c;
+
+	c = v;
+	return c->pending || c->quit;
+}
+
+static void
+h3helper(void *v)
+{
+	H3 *c, *p;
+	Req *q;
+
+	c = v;
+	p = c->proc;
+	for(;;) {
+		ksleep(&c->hr, havereq, c);
+		if(c->quit)
+			break;
+		q = c->req;
+		c->pending = 0;
+		trace(c, q, "...");
+		doreq(c, q);
+		__atomic_store_n(&c->done, 1, __ATOMIC_SEQ_CST);
+		lock(&p->dlk);
+		p->ndone++;
+		unlock(&p->dlk);
+		wakeup(&p->dr);
+	}
+	if(up->fgrp != nil) {
+		closefgrp(up->fgrp);
+		up->fgrp = nil;
+	}
+}
+
+/* c's helper, from the program's Worker; flags for an rfork(RFMEM) child's */
+static void
+mkhelper(H3 *c, int flags)
+{
+	Fgrp *f;
+	Rgrp *rg;
+
+	if(c->helper)
+		return;
+	c->helper = 1;
+	f = up->fgrp;
+	rg = up->rgrp;
+	if(flags & RFFDG)
+		up->fgrp = dupfgrp(f);
+	else if(flags & RFCFDG)
+		up->fgrp = dupfgrp(nil);
+	if(flags & RFREND)
+		up->rgrp = newrgrp();
+	kproc(c->name, h3helper, c);
+	if(up->fgrp != f) {
+		closefgrp(up->fgrp);
+		up->fgrp = f;
+	}
+	if(up->rgrp != rg) {
+		closergrp(up->rgrp);
+		up->rgrp = rg;
+	}
 }
 
 void
-h3syscall(int n, ulong a)
+h3mkhelper(H3 *c)
 {
-	ulong v[4];
+	mkhelper(c, 0);
+}
 
-	if(h3debug > 2 && h3in(v, a, sizeof v) == 0)
-		dbg("%d %s sys %d (%lux %lux %lux %lux) ...", h3->pid, h3->name, n, v[0], v[1], v[2], v[3]);
-	h3ret = h3sys(n, a);
-	if(h3debug > 1 && n != EXITS && h3in(v, a, sizeof v) == 0)
-		dbg("%d %s sys %d (%lux %lux %lux %lux) = %lld%s%s", h3->pid, h3->name, n,
-			v[0], v[1], v[2], v[3], h3ret, h3ret < 0 ? " " : "", h3ret < 0 ? up->syserrstr : "");
+int
+h3start(H3 *c, int n, ulong a)
+{
+	Req *q;
+
+	q = mallocz(sizeof *q, 1);
+	if(prep(q, n, a) < 0) {
+		q->r = -1;
+		strecpy(q->err, q->err+ERRMAX, "bad address in system call");
+	} else if(local(n))
+		dolocal(c, q);
+	else {
+		mkhelper(c, 0);
+		c->req = q;
+		c->done = 0;
+		c->pending = 1;
+		wakeup(&c->hr);
+		return 1;
+	}
+	trace(c, q, "=");
+	fin(c, q);
+	return 0;
+}
+
+void
+h3finish(H3 *c)
+{
+	trace(c, c->req, "=");
+	fin(c, c->req);
+	c->req = nil;
+	c->done = 0;
+}
+
+static int
+havedone(void *v)
+{
+	H3 *p;
+
+	p = v;
+	return p->ndone > 0;
+}
+
+/* until a helper of p's memory finishes */
+void
+h3waitdone(H3 *p)
+{
+	ksleep(&p->dr, havedone, p);
+	lock(&p->dlk);
+	p->ndone = 0;
+	unlock(&p->dlk);
+}
+
+/* rfork(RFMEM|RFPROC): a proc for the child, sharing parent's memory */
+H3*
+h3newco(H3 *parent, int flags)
+{
+	H3 *c;
+
+	c = mallocz(sizeof *c, 1);
+	c->pid = newpid();
+	c->proc = parent->proc;
+	c->parent = parent;
+	c->nowait = (flags & RFNOWAIT) != 0;
+	c->name = strdup(parent->name);
+	if(!c->nowait) {
+		lock(&parent->lk);
+		parent->nchild++;
+		unlock(&parent->lk);
+	}
+	mkhelper(parent, 0);
+	mkhelper(c, flags);
+	dbg("%d %s rfork RFMEM %#x: child %d", parent->pid, parent->name, flags, c->pid);
+	return c;
+}
+
+/* an rfork(RFMEM) proc's end; not the process's */
+void
+h3coend(H3 *c)
+{
+	h3end(c);
+	c->quit = 1;
+	wakeup(&c->hr);
 }
 
 static void
 h3proc(void *v)
 {
 	H3 *p, *c;
-	int r, out[5];
+	int r, out[8];
 	char msg[ERRMAX];
 
 	p = v;
-	h3 = p;
 	for(;;) {
 		msg[0] = 0;
-		r = h3run(p->mode, p->img->p, p->img->n, p->argc, p->argv,
-			p->snap, p->nsnap, p->asptr, &p->asret, &h3ret, out, msg, sizeof msg);
+		r = h3run(p, p->mode, p->img->p, p->img->n, p->argc, p->argv,
+			p->snap, p->nsnap, p->asptr, p->asbase, p->stacktop, &p->asret, out, msg, sizeof msg);
 		free(p->snap);
 		p->snap = nil;
 		if(r < 0) {
@@ -705,7 +924,8 @@ h3proc(void *v)
 			break;
 		}
 		if(out[0] == Hforked) {
-			c = h3child(p, out[1], (uchar*)(uintptr)out[2], out[3], out[4]);
+			/* out[5]: the proc that forked (an rfork(RFMEM) one perhaps), 6, 7 its stack's */
+			c = h3child((H3*)(uintptr)out[5], out[1], (uchar*)(uintptr)out[2], out[3], out[4], out[6], out[7]);
 			dbg("%d %s fork %#x: child %d, %d bytes", p->pid, p->name, out[1], c->pid, out[3]);
 			p->asret = c->pid;
 			p->mode = Hgoon;
@@ -718,14 +938,17 @@ h3proc(void *v)
 			p->argc = p->eargc;
 			p->argv = p->eargv;
 			p->eimg = nil;
-			free(p->name);
+			if(p->name != p->prog)
+				free(p->name);
 			p->name = strdup(p->argc > 0 ? p->argv[0] : "?");
 			p->mode = Hnew;
 			continue;
 		}
 		break;
 	}
-	dbg("%d %s ends '%s'", p->pid, p->name, p->exitmsg);
+	if(p->parent == nil)
+		h3log(p->prog, p->exitmsg[0] != 0, p->exitmsg);
+	h3end(p);
 	/* as pexit: its files closed (the ends of its pipes), its groups let go */
 	if(up->fgrp != nil) {
 		closefgrp(up->fgrp);
@@ -735,9 +958,6 @@ h3proc(void *v)
 		closergrp(up->rgrp);
 		up->rgrp = nil;
 	}
-	if(p->parent == nil)
-		h3log(p->name, p->exitmsg[0] != 0, p->exitmsg);
-	h3end(p);
 	imgfree(p->img);
 }
 
@@ -762,8 +982,10 @@ cpubody(void)
 	if(getenv("WASM32DEBUG") != nil)
 		h3debug = atoi(getenv("WASM32DEBUG"));
 	p = mallocz(sizeof *p, 1);
-	p->pid = ++pids;
+	p->pid = newpid();
+	p->proc = p;
 	p->name = strdup(prog);
+	p->prog = p->name;
 	/* arguments: WASM32ARGV, separated by \x1f */
 	p->argv = mallocz(Maxargs*sizeof(char*), 1);
 	p->argv[p->argc++] = strdup(prog);
