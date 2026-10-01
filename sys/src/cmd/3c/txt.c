@@ -782,11 +782,19 @@ regopt(Prog *p)
 	USED(p);
 }
 
+/*
+ * extern register: the first two words or pointers (the kernel's m and
+ * up, dat.h) are registers 2 and 3 - 3l's per-instance globals, so each
+ * Worker (a CPU) has its own; in the same order in every file, as 6c's
+ */
 long
 exreg(Type *t)
 {
-	USED(t);
-	return 0;
+	static int n;
+
+	if(t == T || !typechlp[t->etype] || n >= 2)
+		return 0;
+	return MKREG(NREGEXT + n++, Kw);
 }
 
 schar	ewidth[NTYPE] =

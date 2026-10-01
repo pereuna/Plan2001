@@ -387,6 +387,22 @@ regidx(long r)
 	return locbase[k] + n - NREGFIRST;
 }
 
+static int
+isext(long r)
+{
+	return RNUM(r) >= NREGEXT && RNUM(r) < NREGEXT+2;
+}
+
+/* a register's value: a local, or extern register's global */
+static void
+getreg(long r)
+{
+	if(isext(r))
+		op2(0x23, GEXT + RNUM(r) - NREGEXT);
+	else
+		local(0, regidx(r));
+}
+
 static long
 symaddr(Sym *s)
 {
@@ -466,7 +482,7 @@ pushaddr(Adr *a)
 		op(0x6a);
 		break;
 	case D_OREG:
-		local(0, regidx(a->reg));
+		getreg(a->reg);
 		iconst(a->offset);
 		op(0x6a);
 		break;
@@ -488,7 +504,7 @@ push(Adr *a, int k)
 		if(RNUM(a->reg) == NREGRET)
 			op2(0x23, GRET + RCLASS(a->reg));
 		else
-			local(0, regidx(a->reg));
+			getreg(a->reg);
 		break;
 	case D_CONST:
 		switch(k) {
@@ -536,6 +552,8 @@ setreg(Adr *a, int k)
 		diag("%s: register class %ld, not %d", cursym->name, RCLASS(a->reg), k);
 	if(RNUM(a->reg) == NREGRET)
 		op2(0x24, GRET + RCLASS(a->reg));
+	else if(isext(a->reg))
+		op2(0x24, GEXT + RNUM(a->reg) - NREGEXT);
 	else
 		local(1, regidx(a->reg));
 }
@@ -579,7 +597,7 @@ memaddr(Adr *a)
 		local(0, 0);
 		return a->offset;
 	case D_OREG:
-		local(0, regidx(a->reg));
+		getreg(a->reg);
 		if(a->offset < 0 || a->offset > 0x7fffffff) {
 			iconst(a->offset);
 			op(0x6a);
@@ -1363,8 +1381,8 @@ asmb(void)
 	buleb(&b, 2);
 	section(&out, 13, &b);
 
-	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase perproc perprocsize; preempt */
-	buleb(&b, 13);
+	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase perproc perprocsize; preempt; ext0 ext1 */
+	buleb(&b, 15);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
@@ -1383,6 +1401,8 @@ asmb(void)
 		bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, pp->type == SDATA || pp->type == SBSS ? pp->size : 0); bput1(&b, 0x0b);
 	}
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0x3fffffff); bput1(&b, 0x0b);	/* preempt: the platform sets it */
+	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);	/* extern register 2 */
+	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);	/* extern register 3 */
 	section(&out, 6, &b);
 
 	/*

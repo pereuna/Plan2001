@@ -108,6 +108,7 @@ enum
 
 	ASAREA	= 256*1024,	/* the saved frames */
 	GPREEMPT = GASRET+5,	/* back edges until _yield (after stacktop asbase perproc perprocsize) */
+	GEXT	= GPREEMPT+1,	/* 2: extern register (3c), each instance's own: the kernel's m, up */
 
 	APREEMPT = ALAST+1,	/* 3l's own: GPREEMPT--, and on to targ while it is > 0 */
 };
