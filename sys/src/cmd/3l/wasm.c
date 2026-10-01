@@ -32,7 +32,9 @@ static	long	dataend;
 static	long	bssend;
 static	long	npages;
 static	Sym*	setjmpsym;
+static	long	asbase;
 static	Sym*	entrysym;
+static	void	unwindgraph(void);
 static	char*	synths[] = { "_trap", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
 
 void
@@ -125,6 +127,56 @@ defsym(char *name, long v)
 	return s;
 }
 
+/*
+ * fork: a process's stack is unwound into memory and rewound in the
+ * parent and in the child (docs/wasm32.md).  What can be on the stack
+ * then: a function that calls _trap, calls through a pointer, or calls
+ * one that can be
+ */
+static int
+unwindcall(Prog *p)
+{
+	Sym *s;
+
+	if(p->as != ACALL)
+		return 0;
+	if(p->to.type != D_EXTERN && p->to.type != D_STATIC)
+		return 1;
+	s = p->to.sym;
+	if(s->type == STEXT)
+		return s->unwind;
+	return s->type == SSYNTH && strcmp(s->name, "_trap") == 0;
+}
+
+static void
+unwindgraph(void)
+{
+	int i, change, n;
+	Prog *p;
+	Sym *s;
+
+	do {
+		change = 0;
+		for(i = 0; i < nfuncs; i++) {
+			s = funcs[i];
+			if(s->type != STEXT || s->unwind)
+				continue;
+			for(p = s->text->link; p != nil; p = p->link)
+				if(unwindcall(p)) {
+					s->unwind = 1;
+					change = 1;
+					break;
+				}
+		}
+	} while(change);
+	if(debug['v']) {
+		n = 0;
+		for(i = 0; i < nfuncs; i++)
+			n += funcs[i]->unwind;
+		fprint(2, "3l: %d of %d functions can be unwound\n", n, nfuncs);
+	}
+}
+
 void
 layout(void)
 {
@@ -159,6 +211,7 @@ layout(void)
 	entrysym = lookup(entry, 0);
 	if(entrysym->type != STEXT)
 		diag("entry %s not defined", entry);
+	unwindgraph();
 
 	/* data, then bss */
 	stacktop = rnd(GUARD + stacksize, 16);
@@ -181,6 +234,9 @@ layout(void)
 		s->value = a;
 		a += s->size;
 	}
+	a = rnd(a, 8);
+	asbase = a;	/* the saved frames, for fork */
+	a += ASAREA;
 	bssend = rnd(a, 8);
 	defsym("edata", dataend);
 	defsym("end", bssend);
@@ -205,6 +261,10 @@ static	int	nloc[NK];
 static	int	nblk;
 static	int	hasloop;
 static	int	sjlj;		/* calls setjmp: in a try, longjmp's catch */
+static	int	unwind;		/* this function can be unwound (fork) */
+static	long	recsize;	/* its saved frame */
+static	long	recoff[4+1024];	/* where each local is in it */
+static	int	nlocals;
 static	Sym*	cursym;
 
 static void
@@ -602,6 +662,100 @@ branch(Prog *p, int cond)
 		op(0x0b);
 }
 
+/*
+ * a frame saved: the block of the call (it is called again when
+ * rewound), then every local; locals by class as declared
+ */
+static int
+localclass(int i)
+{
+	if(i < locbase[Kv])
+		return Kw;
+	if(i < locbase[Kf])
+		return Kv;
+	if(i < locbase[Kd])
+		return Kf;
+	return Kd;
+}
+
+static void
+framerec(void)
+{
+	long o;
+	int i, k;
+	static int w[NK] = { 4, 8, 4, 8 };
+
+	nlocals = locbase[Kd] + nloc[Kd];
+	if(nlocals > nelem(recoff)) {
+		diag("%s: too many registers to save", cursym->name);
+		nlocals = nelem(recoff);
+	}
+	o = 4;
+	for(i = 0; i < nlocals; i++) {
+		k = localclass(i);
+		o = rnd(o, w[k]);
+		recoff[i] = o;
+		o += w[k];
+	}
+	recsize = rnd(o, 8);
+}
+
+static void
+saveframe(int blk)
+{
+	int i;
+	static uchar store[NK] = { 0x36, 0x37, 0x38, 0x39 };
+	static uchar al[NK] = { 2, 3, 2, 3 };
+
+	/* if unwinding: push this frame, return */
+	op2(0x23, GSTATE);
+	iconst(1);
+	op(0x46);
+	op2(0x04, 0x40);
+	op2(0x23, GASPTR);
+	iconst(blk);
+	op(0x36);
+	memarg(2, 0);
+	for(i = 0; i < nlocals; i++) {
+		op2(0x23, GASPTR);
+		local(0, i);
+		op(store[localclass(i)]);
+		memarg(al[localclass(i)], recoff[i]);
+	}
+	op2(0x23, GASPTR);
+	iconst(recsize);
+	op(0x6a);
+	op2(0x24, GASPTR);
+	op(0x0f);
+	op(0x0b);
+}
+
+static void
+restoreframe(void)
+{
+	int i;
+	static uchar load[NK] = { 0x28, 0x29, 0x2a, 0x2b };
+	static uchar al[NK] = { 2, 3, 2, 3 };
+
+	/* pop this frame; on to its call's block */
+	op2(0x23, GASPTR);
+	iconst(recsize);
+	op(0x6b);
+	op2(0x24, GASPTR);
+	for(i = 0; i < nlocals; i++) {
+		op2(0x23, GASPTR);
+		op(load[localclass(i)]);
+		memarg(al[localclass(i)], recoff[i]);
+		local(1, i);
+	}
+	op2(0x23, GASPTR);
+	op(0x28);
+	memarg(2, 0);
+	local(1, 1);
+	local(0, 0);
+	op2(0x24, GSP);
+}
+
 static void
 eprog(Prog *p)
 {
@@ -702,11 +856,15 @@ eprog(Prog *p)
 				break;
 			}
 			op2(0x10, s->fn);
+			if(unwind && unwindcall(p))
+				saveframe(p->blk);
 			break;
 		}
 		push(&p->to, Kw);
 		op2(0x11, 0);	/* call_indirect type 0 */
 		buleb(&code, 0);	/* table 0 */
+		if(unwind)
+			saveframe(p->blk);
 		break;
 
 	case ARET:
@@ -771,10 +929,26 @@ synth(Sym *s, Buf *b)
 
 	n = s->name;
 	if(strcmp(n, "_trap") == 0) {
-		/* _trap(n, args): plan9.syscall(n, args), the result in RET */
+		/*
+		 * _trap(n, args): plan9.syscall(n, args), the result in RET;
+		 * rewound (fork), the result is asret and the rewinding ends
+		 */
 		buleb(b, 1);
 		buleb(b, 1);
 		bput1(b, I64);
+		op2(0x23, GSTATE);
+		iconst(2);
+		op(0x46);
+		op2(0x04, 0x40);
+		iconst(0);
+		op2(0x24, GSTATE);
+		op2(0x23, GASRET);
+		op2(0x24, GRET+Kv);
+		op2(0x23, GASRET);
+		op(0xa7);
+		op2(0x24, GRET+Kw);
+		op(0x0f);
+		op(0x0b);
 		argw(0);
 		argw(1);
 		op2(0x10, 0);
@@ -841,6 +1015,7 @@ function(Sym *s, Buf *b)
 	nblk = 0;
 	hasloop = 0;
 	sjlj = 0;
+	unwind = s->unwind;
 	for(p = s->text->link; p != nil; p = p->link) {
 		scanreg(&p->from);
 		scanreg(&p->from2);
@@ -851,6 +1026,12 @@ function(Sym *s, Buf *b)
 			p->link->leader = 1;
 		if(p->as == ACALL && p->to.sym != nil && p->to.sym->type == SINLINE) {
 			sjlj = 1;
+			if(p->link != nil)
+				p->link->leader = 1;
+		}
+		if(unwind && unwindcall(p)) {
+			/* called again when rewound: a block of its own */
+			p->leader = 1;
 			if(p->link != nil)
 				p->link->leader = 1;
 		}
@@ -865,7 +1046,7 @@ function(Sym *s, Buf *b)
 	for(p = s->text->link; p != nil; p = p->link)
 		if(p->targ != nil && p->targ->blk <= p->blk)
 			hasloop = 1;
-	if(sjlj)
+	if(sjlj || unwind)
 		hasloop = 1;
 
 	/* locals: SP, the block, longjmp's buf and value, then the registers by class */
@@ -889,8 +1070,18 @@ function(Sym *s, Buf *b)
 	locbase[Kv] = 4 + nloc[Kw];
 	locbase[Kf] = locbase[Kv] + nloc[Kv];
 	locbase[Kd] = locbase[Kf] + nloc[Kf];
+	if(unwind)
+		framerec();
 
-	/* SP */
+	/* SP; or, rewinding, the saved frame */
+	if(unwind) {
+		op2(0x23, GSTATE);
+		iconst(2);
+		op(0x46);
+		op2(0x04, 0x40);
+		restoreframe();
+		op(0x05);	/* else */
+	}
 	op2(0x23, GSP);
 	if(frame) {
 		iconst(frame);
@@ -899,8 +1090,10 @@ function(Sym *s, Buf *b)
 		op2(0x24, GSP);
 	} else
 		local(1, 0);
+	if(unwind)
+		op(0x0b);
 
-	if(nblk > 1 || sjlj) {
+	if(nblk > 1 || sjlj || unwind) {
 		if(hasloop)
 			op2(0x03, 0x40);	/* loop */
 		if(sjlj)
@@ -954,7 +1147,7 @@ function(Sym *s, Buf *b)
 		op2(0x09, 0);		/* rethrow */
 		op(0x0b);		/* end try */
 	}
-	if((nblk > 1 || sjlj) && hasloop)
+	if((nblk > 1 || sjlj || unwind) && hasloop)
 		op(0x0b);
 	op(0x0b);
 	bputn(b, code.p, code.n);
@@ -1024,17 +1217,32 @@ asmb(void)
 	buleb(&b, 2);
 	section(&out, 13, &b);
 
-	/* globals: SP, RET.w RET.v RET.f RET.d */
-	buleb(&b, 5);
+	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret */
+	buleb(&b, 8);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, F32); bput1(&b, 1); bput1(&b, 0x43); bputn(&b, "\0\0\0\0", 4); bput1(&b, 0x0b);
 	bput1(&b, F64); bput1(&b, 1); bput1(&b, 0x44); bputn(&b, "\0\0\0\0\0\0\0\0", 8); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
+	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, asbase); bput1(&b, 0x0b);
+	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
 	section(&out, 6, &b);
 
-	/* exports: the kernel puts argc and argv below sp, then calls _start */
-	buleb(&b, 3);
+	/*
+	 * exports: the kernel puts argc and argv below sp, then calls _start;
+	 * fork: asstate, asptr, asret
+	 */
+	buleb(&b, 6);
+	bstr(&b, "asstate");
+	bput1(&b, 0x03);
+	buleb(&b, GSTATE);
+	bstr(&b, "asptr");
+	bput1(&b, 0x03);
+	buleb(&b, GASPTR);
+	bstr(&b, "asret");
+	bput1(&b, 0x03);
+	buleb(&b, GASRET);
 	bstr(&b, "memory");
 	bput1(&b, 0x02);
 	buleb(&b, 0);

@@ -85,6 +85,31 @@ throw, rethrow), jotka toimivat kaikissa nykyselaimissa ja Node 20:ssä.
 tekemiä funktioita WebAssemblyn atomic-käskyillä (xchg, add, sub, cmpxchg,
 fence), kun ohjelma käyttää niitä eikä määrittele niitä itse.
 
+## fork: pinon purku ja uudelleenrakennus (3l)
+
+WebAssemblyssa käynnissä olevaa suoritusta ei voi kloonata, joten 3l tekee
+pinon tallennettavaksi asyncifyn tapaan (päätös 1.10.2026: tämä tapa ja
+optimointi myöhemmin):
+
+- Kutsugraafista: funktio voi olla pinossa forkin aikana, jos se kutsuu
+  `_trap`:ia, kutsuu osoittimen kautta tai kutsuu tällaista funktiota.
+  Vain nämä muunnetaan (libc-hellossa 156/229 funktiota).
+- Muunnetussa funktiossa jokainen tällainen kutsu on oma peruslohkonsa.
+  Kutsun jälkeen: jos `asstate` on 1 (purku), funktio tallentaa
+  lohkonumeron ja kaikki paikallismuuttujansa tallennuspinoon (`asptr`,
+  256 kt bss:n jälkeen) ja palaa.
+- Funktion alussa: jos `asstate` on 2 (palautus), funktio ottaa
+  tallennuksensa pinosta, asettaa SP:n ja hyppää br_tablen kautta
+  kutsulohkoon, joka kutsuu kutsuttavaa uudelleen.
+- `_trap` päättää palautuksen: se asettaa tilaksi 0 ja palauttaa
+  `asret`-arvon.
+
+Fork: ydin asettaa `asstate`:ksi 1, ja pino purkautuu `_start`iin asti.
+Ydin kopioi muistin lapselle, ja molemmat kutsuvat `_start`ia uudelleen
+tilassa 2. Vanhemman `asret` on lapsen pid, lapsen 0. Hinta: muunnetut
+ohjelmat kasvavat noin 1,4–2-kertaisiksi (3c.wasm 447 kt -> 723 kt), ja
+muunnetut kutsut ovat hitaampia.
+
 ## Prosessi
 
 Yksi 3l:n tuottama moduuli on yksi prosessi, jolla on oma muisti eli oma
@@ -112,6 +137,7 @@ parametreikseen, joten `&arg0` on argv, samoin kuin Plan 9:ssä.
 | t1, t2 | ilman libc:tä; tuloste sama kuin gcc:n samasta lähteestä: rekursio, switch, funktio-osoittimet, structien palautus ja välitys arvona, vlong, double, bittikentät, unionit, goto, staattiset muuttujat, Plan 9:n varargs, sekatyyppiset `op=`-sijoitukset |
 | t3 | MOVit (3l:n emov): jokainen leveys ladattuna ja tallennettuna, etumerkki- ja nollalaajennus, tallennuksen katkaisu, siirtymät osoittimen kautta (myös yli 2^16 ja negatiiviset), tasaamattomat osoitteet, rekisteristä rekisteriin kaventaminen, structien kopiot; tuloste sama kuin gcc:n |
 | t4 | setjmp ja longjmp (WebAssemblyn poikkeukset): syvältä takaisin, longjmp(.., 0) antaa 1, 20 000 longjmp:ia ilman pinon vuotoa, ytimen waserror/nexterror-pino, rekisterit säilyvät; atomics (_tas, ainc, adec, cas) |
+| libc/fork | fork rekursion pohjalta: rekisterit, pino ja keko säilyvät, lapsen ja vanhemman muistit erillään, sisäkkäinen fork, wait ja exits-viestit (run3.mjs: lapsi on worker-säie, await odottaa Atomics.waitilla) |
 | libc/hello | 9frontin libc: print-muotoilut, smprint, malloc, qsort, strtol, atof, sqrt, pow, tokenize, rune-funktiot, cleanname |
 | libc/sysabi | järjestelmäkutsujen ABI: jokainen argumentti siellä, mistä ydin sen lukee, myös vlongit (pread, pwrite, seek); odotettu tuloste kirjoitettu käsin kutsujen merkityksestä |
 | self | 3c.wasm kääntää 3c:n omat 25 lähdettä samoiksi tavuiksi kuin natiivi 3c, ja 3l.wasm linkittää ne samaksi 3c.wasm:ksi (447 kt) |
