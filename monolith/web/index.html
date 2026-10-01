@@ -241,6 +241,11 @@ window.Module = {
 	preRun: [m => {
 		if (pass) m.ENV.PASS = pass;
 		m.ENV.USER = user;
+		// ?wasm=host3&prog=NAME: a wasm32 program (3c, 3l) on drawterm's kernel
+		if (/^[a-z0-9_-]+$/.test(q.get('prog') || '')) {
+			m.ENV.WASM32PROG = q.get('prog');
+			m.ENV.WASM32BIN = new URL('w3/', location.href).href;	// the Workers' own URLs are blobs
+		}
 		// from Plan2001's webterm over https: its wss on the same origin;
 		// from tools/serve: its relay on the next port
 		m.ENV.MONOLITH_WS = q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`

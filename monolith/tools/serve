@@ -23,6 +23,10 @@ ln -sfn "$root"/web/* "$site/"
 ln -sfn "$root/build/wasm/drawterm.js" "$root/build/wasm/drawterm.wasm" "$site/"
 # Plan 9 programs on drawterm's kernel (tools/build wasm-NAME): ?wasm=NAME
 for f in "$root"/build/wasm-*/*.js "$root"/build/wasm-*/*.wasm; do [ -e "$f" ] && ln -sfn "$f" "$site/"; done
+# Plan2001 wasm32 processes (3c, 3l) on drawterm's kernel: ?wasm=host3&prog=NAME
+for f in "$root"/build/host3/host3.js "$root"/build/host3/host3.wasm; do [ -e "$f" ] && ln -sfn "$f" "$site/"; done
+mkdir -p "$root/build/wasm32/bin"
+ln -sfn "$root/build/wasm32/bin" "$site/w3"
 
 cd "$site"
 pids=

@@ -5,6 +5,8 @@
 #     native: build/native/drawterm          (Linux, X11, the baseline)
 #     wasm-APP: build/wasm-APP/APP.{js,wasm} (9front's 9apps/APP.c on drawterm's
 #             kernel in the browser, wasmapp/)
+#     host3:  build/host3/host3.{js,wasm} (Plan2001 wasm32 processes, 3c and
+#             3l's, on drawterm's kernel: wasm32host/, ?wasm=host3&prog=NAME)
 #     9pterm: build/9pterm/9pterm            (Linux, no graphics: drawterm as
 #             a text terminal, Make.9pterm, gui-none)
 set -e
@@ -36,8 +38,15 @@ wasm-*)	# a Plan 9 program on drawterm's kernel in the browser (wasmapp/):
 	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	make -f wasmapp/wasmapp.mk CONF=emscripten APP=$app -j"$(nproc)" $app.js >app.log 2>&1 || { grep -i -B2 -A3 "error" app.log | head -40; exit 1; }
 	ls -l $app.js $app.wasm ;;
+host3)	# Plan2001 wasm32 processes on drawterm's kernel (wasm32host/):
+	# ?wasm=host3&prog=NAME runs build/wasm32/bin/NAME.wasm
+	rm -rf "$out/wasm32host"
+	cp -rp "$root/wasm32host" "$out/"
+	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
+	make -f wasm32host/host3.mk CONF=emscripten host3.js >host3.log 2>&1 || { grep -i -B2 -A3 "error" host3.log | head -40; exit 1; }
+	ls -l host3.js host3.wasm ;;
 9pterm)	make CONF=9pterm -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l 9pterm ;;
-*)	echo "usage: tools/build [wasm|native|9pterm]" >&2; exit 2 ;;
+*)	echo "usage: tools/build [wasm|native|9pterm|host3|wasm-APP]" >&2; exit 2 ;;
 esac
 touch "$out/.built"
