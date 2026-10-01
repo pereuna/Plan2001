@@ -232,3 +232,8 @@ Katselmoinnin neljä kohtaa ja rasitustesti (Plan2001 ja Monolith, haarat
 - `tools/test-apps`: term-välilehti (komento, myös `--drop` ja `--mobile`),
   clock-välilehti piirtää, `apps` VM:n sarjakonsolissa näkee molemmat
   `attached` ja suljetun clockin `detached`. PASS kaikilla kolmella.
+
+## Plan 9 -ohjelmat selaimessa ilman palvelinta (1.10.)
+
+9frontin clock WebAssemblyna drawtermin ytimellä, yksi libdraw (9frontin), ja
+clang.wasm-testi (kääntäjä selaimessa): docs/wasm-apps.md.
