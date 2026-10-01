@@ -35,6 +35,13 @@ for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc 
 		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1
 	fi
 done
+# graphical programs: 9front's, unchanged
+mkdir -p "$out/o/cmd/clock"
+if ! (cd "$root/third_party/9apps" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" clock.c) >"$out/o/cmd/clock.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/clock" "$out/o/cmd/clock.3" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/clock.err" 2>&1; then
+	echo "build-bin3: clock:"; head -5 "$out/o/cmd/clock.err"; fail=1
+fi
+
 # 3c's tests that run in the browser (tools/test-wasmapp host3)
 for t in libc/hello draw/dclock; do
 	n=$(basename $t)

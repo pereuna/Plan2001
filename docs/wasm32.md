@@ -179,6 +179,11 @@ kuin DMA:lla.
     ?wasm=host3&prog=rc&arg=-c&arg=...          rc /bin:stä; &debug=1..3 jäljittää
     PROG=rc ARGS='["-c", "echo a b c | wc"]' tools/test-wasmapp host3   PASS
     PROG=hello / PROG=dclock DRAWS=1 tools/test-wasmapp host3            PASS
+    PROG=clock DRAWS=1 RUNS=1 tools/test-wasmapp host3                   PASS
+
+9frontin muuttamaton clock.c toimii: sen event-kirjasto käynnistää ajastimen,
+hiiren ja näppäimistön apuprosessit `rfork(RFPROC)`:lla eikä RFMEM:llä,
+joten ne ovat tavallisia forkattuja prosesseja, jotka puhuvat putken kautta.
 
 ## Kesken
 
@@ -188,9 +193,11 @@ Suunnitelma ja vaiheet A–D: docs/architecture.md.
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- rfork(RFMEM) ja libthread: jaettu muisti (3l: tuotu jaettu muisti,
-  passiiviset datasegmentit) ja lapselle oma pino; sitten event.c:n
-  apuprosessit (alkuperäinen clock.c) ja libthread.
+- rfork(RFMEM) ja libthread (rio, acme ...): saman muistin procit
+  korutiineina prosessin Workerissa (vaihto purulla ja palautuksella),
+  järjestelmäkutsut proc-kohtaisilla apu-kprocceilla; lapselle pinon kopio
+  säiealueelle, tallennetut SP:t ja pino-osoitteilta näyttävät i32-arvot
+  siirretään (päätös 1.10.: vaihtoehto 1). Ks. docs/architecture.md.
 - RFNAMEG (nimiavaruuden kopio: pgrpcpy puuttuu drawtermista), RFENVG,
   notes.
 - exec: wasm32-moduulin tunnistus ja käynnistys ytimen tavallisena
