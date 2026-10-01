@@ -100,6 +100,9 @@ ja 3c.wasm Nodessa 0,3 sekunnissa.
 
 ## Kesken
 
+Suunnitelma ja vaiheet A–D: docs/architecture.md.
+
+
 - Ydin: wasm32-prosessit drawtermin ytimen alle selaimessa niin, että
   `plan9.syscall` on drawtermin sysopen, sysread ja niin edelleen. Prosessi
   on oma Workerinsa jaetulla muistilla, ja järjestelmäkutsu odottaa
