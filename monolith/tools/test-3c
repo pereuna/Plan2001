@@ -1,0 +1,33 @@
+#!/bin/bash
+# 3c and 3l (Plan2001's WebAssembly compiler and loader,
+# ../sys/src/cmd/3c, 3l): each test (../sys/src/cmd/3c/test/t*.c, no
+# libc: _trap is the system call) compiled, linked, run by
+# tools/run3.mjs, its output the same as gcc's for the same source.
+#   tools/test-3c [NAME...]     default all
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+td=$(cd "$root/../sys/src/cmd/3c/test" && pwd)
+out=$root/build/test-3c
+mkdir -p "$out"
+"$root/tools/build-cc" native 3c >/dev/null
+"$root/tools/build-cc" native 3l >/dev/null
+cc3=$root/build/cc-native/3c
+l3=$root/build/cc-native/3l
+tests=("$@")
+[ ${#tests[@]} -gt 0 ] || tests=($(cd "$td" && ls t*.c | sed 's/\.c$//'))
+bad=0
+for t in "${tests[@]}"; do
+	if ! (cd "$td" && "$cc3" -o "$out/$t.3" "$t.c") >"$out/$t.err" 2>&1 ||
+	   ! "$l3" -o "$out/$t.wasm" "$out/$t.3" >>"$out/$t.err" 2>&1; then
+		echo "test-3c: $t: FAIL (build)"; head -10 "$out/$t.err"; bad=1; continue
+	fi
+	gcc -w -fwrapv -fno-strict-aliasing -o "$out/$t.gcc" "$td/$t.c" "$td/gccshim.c"
+	"$out/$t.gcc" >"$out/$t.want" 2>&1 || true
+	node "$root/tools/run3.mjs" "$out/$t.wasm" >"$out/$t.got" 2>&1 || true
+	if cmp -s "$out/$t.want" "$out/$t.got"; then
+		echo "test-3c: $t: ok ($(wc -l <"$out/$t.got") lines, $(stat -c %s "$out/$t.wasm") bytes)"
+	else
+		echo "test-3c: $t: FAIL"; diff "$out/$t.want" "$out/$t.got" | head -20; bad=1
+	fi
+done
+[ $bad = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
