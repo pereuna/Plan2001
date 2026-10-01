@@ -6,6 +6,9 @@ ja poistaa BIOS-ajan legacy-koodi, joka ei ole enää tarpeen puhtaalla UEFI-kon
 
 Tilanne ja suunnitelma: **`docs/status.md`**. Lue se ensin.
 
+Kerrokset (arkkitehtuuri, alusta, rooli, ohjelmat) ja wasm32:n suunta:
+**`docs/architecture.md`**.
+
 AI-etäkäytön, 9P:n, 2001P:n ja drawtermin suunnittelukeskustelu ja
 Codex CLI:n jatkomuistio: [docs/ai/2026-09-30](ai/2026-09-30/README.md).
 
