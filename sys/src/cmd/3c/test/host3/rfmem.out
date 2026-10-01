@@ -1,0 +1,4 @@
+child got 'msg0', child-local
+child got 'msg1', child-local
+child got 'msg2', child-local
+parent: shared 33 heap C parent-frame, child said 'child done'

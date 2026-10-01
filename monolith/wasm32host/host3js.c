@@ -334,6 +334,38 @@ h3log(const char *prog, int bad, const char *msg)
 		prog, bad, msg);
 }
 
+/*
+ * #t/eia0 (devuart3.c): the page's side.  Out: to the page, where
+ * window.monolith.eia0out() reads it.  In: the page's eia0in(text)
+ * puts it in the kernel's ring (r, w, b[8192]).
+ */
+void
+eiaplatform(void *ring)
+{
+	MAIN_THREAD_EM_ASM({ ((ring) => {	/* in parentheses: a macro's argument */
+		const N = 8192;
+		globalThis.h3eia0out = '';
+		globalThis.h3eia0in = (s) => {
+			const b = new TextEncoder().encode(s), i32 = new Int32Array(wasmMemory.buffer), u8 = new Uint8Array(wasmMemory.buffer);
+			let w = Atomics.load(i32, (ring + 4) >> 2);
+			for (const c of b) {
+				if (w - Atomics.load(i32, ring >> 2) >= N) break;	/* full: the rest is lost */
+				u8[ring + 8 + (w % N)] = c;
+				w++;
+			}
+			Atomics.store(i32, (ring + 4) >> 2, w);
+		};
+	})($0); }, ring);
+}
+
+void
+eiaout(void *p, int n)
+{
+	MAIN_THREAD_EM_ASM({ ((p, n) => {
+		globalThis.h3eia0out += new TextDecoder().decode(new Uint8Array(wasmMemory.buffer).slice(p, p + n));
+	})($0, $1); }, p, n);
+}
+
 /* the scheduler's tracing (?debug=4): every Worker */
 EM_JS(void, h3jdebug, (void), {
 	globalThis.h3jdebug = 1;

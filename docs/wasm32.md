@@ -195,6 +195,18 @@ RFMEM-procista ei vielä toimi.
 
     tools/test-host3        selaintestit: hello, dclock, fork, rfmem, threads, rc, clock
 
+Sarjaportti #t/eia0 (monolith/wasm32host/devuart3.c) on wasm32-alustan
+ensimmäinen ajuri: tavuputki sivulle. Ytimen osa on Dev, jossa ovat eia0,
+eia0ctl ja eia0status. Alustan osa (host3js.c) kirjoittaa sivulle
+(`window.monolith.eia0out()`) ja ottaa sivulta vastaan
+(`window.monolith.eia0in(teksti)`) ytimen rengaspuskurin kautta.
+`?console=eia0` antaa ohjelmille konsoliksi sarjaportin ruudun sijaan.
+Testit lukevat ja kirjoittavat tekstiä kuten koneen sarjakonsolia
+(`SERIAL=1 [SEND=...] [EXPECT=tiedosto] tools/test-wasmapp host3`), myös
+interaktiivista rc:tä. Kuvakaappaus jää piirtäville ohjelmille. Mukana on
+myös #d (devdup, 9frontin), josta rcmain lukee `#d/0`:n. Alustan osa
+siirtyy sellaisenaan `sys/src/9/wasm32`:een.
+
 Procikohtainen data: Plan 9:ssä `_tos` (getpid) ja privallocin taulukko
 ovat jokaisen prosessin omia samassa virtuaaliosoitteessa. wasm32:n libc
 kokoaa ne `_perproc`-alueeseen. 3l vie alueen osoitteen ja koon, ja

@@ -981,6 +981,16 @@ cpubody(void)
 		panic("bind #i: %r");
 	if(bind("#m", "/dev", MBEFORE) < 0)
 		panic("bind #m: %r");
+	/* ?console=eia0: the programs' 0, 1, 2 the serial port, not the screen */
+	if((a = getenv("WASM32CONSOLE")) != nil && strcmp(a, "eia0") == 0) {
+		n = sysopen("#t/eia0", ORDWR);
+		if(n < 0)
+			panic("open #t/eia0: %r");
+		sysdup(n, 0);
+		sysdup(n, 1);
+		sysdup(n, 2);
+		sysclose(n);
+	}
 	/* the page's root: build/wasm32/root */
 	bind("/root/wasm32root", "/", MAFTER);
 	bind("/root/wasm32root/bin", "/bin", MAFTER);

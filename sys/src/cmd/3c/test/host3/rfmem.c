@@ -22,7 +22,7 @@ child(int fd, int n)
 			break;
 		buf[r] = 0;
 		shared += 10;
-		print("child got '%s', shared %d, %s\n", buf, shared, local);
+		print("child got '%s', %s\n", buf, local);	/* shared now: as it happens */
 	}
 	heap[0] = 'C';
 	exits("child done");
