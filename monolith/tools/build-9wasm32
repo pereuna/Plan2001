@@ -1,0 +1,34 @@
+#!/bin/bash
+# Plan2001's wasm32 kernel (../sys/src/9/wasm32, docs/architecture.md
+# phase C): its C by 3c, linked by 3l -k with wasm32's libc ->
+# build/wasm32/kernel/9wasm32.wasm; the page kernel.html and platform.js
+# boot it (tools/serve).
+#   tools/build-9wasm32
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+P=$(cd "$root/.." && pwd)
+k=$P/sys/src/9/wasm32
+out=$root/build/wasm32/kernel
+cc3=$root/build/cc-native/3c
+l3=$root/build/cc-native/3l
+"$root/tools/build-cc" native 3c >/dev/null
+"$root/tools/build-cc" native 3l >/dev/null
+[ -s "$root/build/wasm32/lib/libc.a" ] || "$root/tools/build-libc3" >/dev/null
+mkdir -p "$out/o"
+rm -f "$out"/o/*.3
+port=$P/subset/9front/sys/src/9/port
+# port/'s "../port/x.h": found through -I$port; wasm32's mem.h, dat.h, fns.h first
+INC="-I$P/wasm32/include -I$k -I$port -I$P/subset/9front/sys/include"
+# 9front's port/ that wasm32 uses (proc.c is wasm32's own)
+PORT="alloc xalloc allocb chan dev pgrp qio qlock taslock parse portclock tod print alarm auth mul64fract sysfile
+	devroot devcons devuart devpipe devenv devdup devsrv devmnt"
+fail=0
+for s in "$k"/*.c $(for f in $PORT; do echo "$port/$f.c"; done); do
+	o=$out/o/$(basename "$(dirname "$s")")-$(basename "${s%.c}").3
+	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+		echo "build-9wasm32: $s:"; head -5 "$o.err"; fail=1
+	fi
+done
+[ $fail = 0 ] || exit 1
+"$l3" -k -v -E main -o "$out/9wasm32.wasm" "$out"/o/*.3 "$root/build/wasm32/lib/libc.a" 2>&1 | grep -v '^3l: [0-9]* preemption'
+ls -l "$out/9wasm32.wasm"

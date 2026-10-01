@@ -11,6 +11,9 @@ the screen goes to build/wasmapp-NAME.png.
                                            it exits ok (HOST3-EXIT) and drew;
                                            RUNS=1: it goes on (clock), PASS
                                            if it is still running and drew
+  PAGE=kernel.html SERIAL=1 EXPECT=FILE tools/test-wasmapp kernel
+                                           Plan2001's wasm32 kernel (sys/src/9/wasm32):
+                                           until it halts (KERNEL-HALT), its eia0
   SERIAL=1 [SEND='["line\n", ...]'] [SENDFILE=F] [EXPECT=FILE]
                                            its console #t/eia0, the platform's
                                            serial port: text, not pixels; SEND
@@ -133,7 +136,10 @@ def main():
 			except Exception:
 				time.sleep(0.2)
 		prog = os.environ.get('PROG')
+		page = os.environ.get('PAGE')
 		url = f'http://127.0.0.1:{HTTP}/?wasm={name}' + (f'&prog={prog}' if prog else '')
+		if page:
+			url = f'http://127.0.0.1:{HTTP}/{page}?x=1'
 		for a in json.loads(os.environ.get('ARGS', '[]')):	# ARGS='["-c", "echo hi"]'
 			url += '&arg=' + urllib.parse.quote(a, safe='')
 		if os.environ.get('DEBUG'):
@@ -146,6 +152,34 @@ def main():
 		cdp = Cdp(t['webSocketDebuggerUrl'])
 		cdp.call('Page.enable')
 		cdp.call('Runtime.enable')
+		if page:
+			end = time.time() + 60
+			while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
+				try:
+					cdp.js('1')
+				except RuntimeError:
+					pass
+				time.sleep(0.2)
+			try:
+				got = base64.b64decode(cdp.js('window.monolith ? window.monolith.eia0b64() : ""') or '')
+			except RuntimeError:
+				got = b''
+			open(os.path.join(root, f'build/wasmapp-{name}.txt'), 'wb').write(got)
+			open(os.path.join(root, f'build/wasmapp-{name}.log'), 'w').write('\n'.join(cdp.log) + '\n')
+			halt = [l for l in cdp.log if l.startswith('KERNEL-HALT')]
+			print(f'test-wasmapp: {name}: {halt or "did not halt"}')
+			want = open(os.environ['EXPECT'], 'rb').read() if os.environ.get('EXPECT') else None
+			# EXPECTTAIL=1: what it says from the file's first line on (what comes before varies)
+			if want is not None and os.environ.get('EXPECTTAIL'):
+				i = got.find(want.split(b'\n')[0])
+				got = got[i:] if i >= 0 else got
+			if want is not None and got != want:
+				sys.stdout.write(got.decode(errors='backslashreplace'))
+				raise SystemExit(f'FAIL: {name}: its eia0 is not {os.environ["EXPECT"]} (build/wasmapp-{name}.txt)')
+			if not halt or 'platform:' in halt[0]:
+				raise SystemExit(f'FAIL: {name}: {halt or "did not halt"} (build/wasmapp-{name}.log)')
+			print(f'PASS: {name}, Plan2001\'s wasm32 kernel, in the browser')
+			return
 		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, 'the first flush')
 		time.sleep(secs)
 		label = prog or name

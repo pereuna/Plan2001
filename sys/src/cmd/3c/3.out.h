@@ -34,6 +34,7 @@ enum
 {
 	NREGRET	= 0,	/* the return value: 3l's globals, one per class */
 	NREGSP	= 1,	/* the stack pointer, a global; in a function its local */
+	NREGEXT	= 2,	/* 2, 3: extern register (the kernel's m, up): globals, each Worker's own */
 	NREGFIRST	= 4,	/* the first allocatable n */
 
 	REGSP	= (NREGSP<<2)|Kw,

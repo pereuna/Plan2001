@@ -31,6 +31,10 @@ ln -sfn "$root/build/wasm32/bin" "$site/w3"
 mkdir -p "$root/build/wasm32/root"; touch "$root/build/wasm32/root.txt"
 ln -sfn "$root/build/wasm32/root" "$site/w3root"
 ln -sfn "$root/build/wasm32/root.txt" "$site/w3root.txt"
+# Plan2001's wasm32 kernel (tools/build-9wasm32): kernel.html boots it
+mkdir -p "$root/build/wasm32/kernel"
+ln -sfn "$root/build/wasm32/kernel/9wasm32.wasm" "$site/9wasm32.wasm"
+ln -sfn "$root/../sys/src/9/wasm32/platform.js" "$site/platform.js"
 
 cd "$site"
 pids=

@@ -140,3 +140,62 @@ Toteutuksen kannalta seuraavat kohdat ratkaisevat, miten sinne päästään.
 | B | 3c/3l: poikkeukset (setjmp, waserror), atomics, rfork(RFMEM) eli säikeet samassa muistissa, libthread | libthreadia käyttävä ohjelma toimii |
 | C | wasm32-ydin: 9frontin port/ ja `sys/src/9/wasm32` (alusta, ajurit) 3c:llä käännettynä, JavaScript vain alustaliimana | ydin käynnistää rc:n selaimessa ilman drawtermia |
 | D | Boot ABI wasm32/selaimelle, terminal- ja cpu-roolit | Monolith, drawterm ja webterm poistettu |
+
+## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
+
+Nimiavaruus on Plan 9:n tapaan prosessiryhmän, ei originin eikä koneen.
+Ydin ylläpitää nimiavaruuksia (Pgrp), ja prosessit perivät, kopioivat tai
+rakentavat ne (`rfork(RFNAMEG)`, `newns`). wasm32 ei muuta tätä. Se
+määrittelee vain, mikä selaimessa on kone.
+
+| Selain | Plan2001 |
+|---|---|
+| origin | kone eli ydin ja käyttöjärjestelmä: identiteetti (factotum), pysyvä tallennus (OPFS koneen levynä), luottamusraja |
+| välilehti | ikkuna: oma prosessiryhmä ja nimiavaruus, johon on liitetty välilehden omat laitteet (näyttö, näppäimistö, hiiri) kuten rio antaa ikkunalleen /dev/draw:n ja /dev/cons:n |
+| sovellus | prosessi tai prosessiryhmä koneessa |
+| CPU-, tiedosto- ja auth-palvelimet | 9P:n kautta (rcpu, mount, import /net), WebSocket 9P:n kuljettimena |
+
+Käyttäjän terminaali on yksi origin, jonka välilehdet ovat saman koneen
+ikkunoita. Sovelluskohtaiset originit ovat edelleen mahdollisia omina
+koneinaan, esimerkiksi epäluotetulle sovellukselle, joka ei saa nähdä
+käyttäjän avaimia.
+
+Selain sallii muistin jakamisen (SharedArrayBuffer) välilehden Workerien
+kesken mutta ei välilehtien välillä. Siksi:
+
+1. Ensin kone on välilehti: jokainen välilehti käynnistää oman ytimensä.
+   Tämä riittää vaiheelle C.
+2. Myöhemmin kone on origin: ydin on yhdessä paikassa (ensimmäinen
+   välilehti tai SharedWorker), ja muut saman originin välilehdet
+   liittyvät siihen ikkunoina kanavan yli. Näytön, konsolin ja hiiren
+   protokolla kulkee kanavaa pitkin, kuten Plan 9:ssä näyttö on laite,
+   johon liitytään protokollalla. Varmistettava ensin: muistin jakaminen
+   ja sisäkkäiset Workerit SharedWorkerissa cross-origin-eristettynä.
+
+## Vaihe C: wasm32-ydin (päätös 1.10.2026: procit Workereina)
+
+Ydin on 9frontin `port/` ja `sys/src/9/wasm32`, käännettynä 3c:llä
+yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
+
+- Jokainen ytimen proc on oma Workerinsa. Worker on yksi suoritin, ja sen
+  SP ja muut globaalit ovat suorittimen rekisterejä. `sleep`/`wakeup` ovat
+  `Atomics.wait`- ja `Atomics.notify`-kutsuja, joten ydin ei vaihda
+  pinoa. 9frontin `proc.c`:n ajastinosa korvataan; drawtermin malli.
+- `waserror`/`nexterror`: setlabel ja gotolabel ovat 3l:n setjmp ja
+  longjmp (WebAssemblyn poikkeukset).
+- Käyttäjäprosesseilla on oma muisti kuten host3:ssa. Järjestelmäkutsun
+  reunalla argumentit kopioidaan ytimeen ja tulokset takaisin, joten
+  laitteet saavat aina ytimen osoittimia. `sysexec`, `sysrfork`, brk ja
+  notes tehdään wasm32:lle omina versioinaan. Fork, RFMEM, preemptio ja
+  kontekstit siirtyvät host3:sta.
+- Alusta (JavaScript) on firmware: muisti, Workerit, odotus ja herätys,
+  aika, sarjaportti, näyttö, syöte. Ydin kutsuu sitä kuten mitä tahansa
+  C-funktiota: 3l tekee ytimen määrittelemättömistä funktioista tuonteja
+  (`platform`), ja argumentit ovat muistissa kuten wasm32:n
+  kutsukonventiossa.
+
+| | Sisältö | Valmis kun |
+|---|---|---|
+| C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
+| C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia |
+| C3 | fork, exec, RFMEM, preemptio, kontekstit, notes; devdraw ja hiiri alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |
