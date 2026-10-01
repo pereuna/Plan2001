@@ -87,6 +87,8 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 				a >>>= 0;
 				if (n >= 100 && n <= 103)
 					return ctxcall(c, n, a);
+				if (n == 105)
+					return yieldcall(c);
 				if (!h.multi) {
 					_h3sys1(c.ptr, n, a);
 					if (h.stop) throw Stop;
@@ -143,6 +145,22 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			return -1n;
 		};
 		var ctxcall = globalThis.h3ctxcall;
+		/*
+		 * preemption (3l's _yield, call 105): after QUANTUM branches back; if
+		 * the proc has had its slice and another can go, it unwinds here
+		 */
+		const QUANTUM = 20000, SLICE = 10;
+		globalThis.h3yieldcall = (c) => {
+			x.preempt.value = h.multi ? QUANTUM : 0x3fffffff;
+			if (!h.multi || performance.now() - h.slice < SLICE) return 0n;
+			const i32 = new Int32Array(wasmMemory.buffer);
+			if (!h.cos.some((q) => q !== c && (q.state == 'ready' || q.state == 'blocked' && Atomics.load(i32, (q.ptr + 12) >> 2))))
+				return 0n;
+			h.preempt = 1;
+			x.asstate.value = 1;
+			return 0n;
+		};
+		var yieldcall = globalThis.h3yieldcall;
 		/*
 		 * A context's region: its stack [.., top) and saved frames [base, asptr).
 		 * rfork(RFMEM) procs share them at the same addresses, as Plan 9's
@@ -253,7 +271,10 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			h.stop = 0;
 			h.fork = 0;
 			h.block = 0;
+			h.preempt = 0;
 			h.ctxswitch = undefined;
+			h.slice = performance.now();
+			x.preempt.value = h.multi ? QUANTUM : 0x3fffffff;
 			try {
 				entry();
 			} catch (e) {
@@ -296,6 +317,11 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			} else if (h.block && !h.stop) {
 				h.ctxs[c.cx].asptr = x.asptr.value;
 				c.state = 'blocked';
+			} else if (h.preempt && !h.stop) {
+				/* its slice is up: another goes, it is ready again */
+				h.ctxs[c.cx].asptr = x.asptr.value;
+				c.state = 'ready';
+				c.ret = 0n;
 			} else {
 				/* exits, or main returned */
 				if (!h.multi) { o(0, 0); return 0; }

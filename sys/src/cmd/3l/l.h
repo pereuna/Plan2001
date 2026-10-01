@@ -106,6 +106,9 @@ enum
 	GASRET,		/* what the rewound _trap returns */
 
 	ASAREA	= 256*1024,	/* the saved frames */
+	GPREEMPT = GASRET+5,	/* back edges until _yield (after stacktop asbase perproc perprocsize) */
+
+	APREEMPT = ALAST+1,	/* 3l's own: GPREEMPT--, and on to targ while it is > 0 */
 };
 
 EXTERN	Sym*	hash[NHASH];

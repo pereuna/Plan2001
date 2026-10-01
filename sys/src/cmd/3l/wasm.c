@@ -35,7 +35,7 @@ static	Sym*	setjmpsym;
 static	long	asbase;
 static	Sym*	entrysym;
 static	void	unwindgraph(void);
-static	char*	synths[] = { "_trap", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
+static	char*	synths[] = { "_trap", "_yield", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
 
 void
 bput1(Buf *b, int c)
@@ -145,7 +145,59 @@ unwindcall(Prog *p)
 	s = p->to.sym;
 	if(s->type == STEXT)
 		return s->unwind;
-	return s->type == SSYNTH && strcmp(s->name, "_trap") == 0;
+	return s->type == SSYNTH && (strcmp(s->name, "_trap") == 0 || strcmp(s->name, "_yield") == 0);
+}
+
+/*
+ * preemption: rfork(RFMEM) procs take turns on one Worker, and one that
+ * only computes would keep the others out.  Before each branch back
+ * (a loop): GPREEMPT--, and when it reaches 0 a call of _yield, a block of
+ * its own, so that the platform can unwind the proc there and let
+ * another go (host3js.c).  A function with a loop becomes unwindable.
+ */
+static void
+preemptpoints(void)
+{
+	Sym *s, *ys;
+	Prog *p, *q, *prev, *q1, *q2;
+	int n, i, nloop;
+
+	ys = lookup("_yield", 0);
+	nloop = 0;
+	for(s = allsym; s != nil; s = s->next) {
+		if(s->type != STEXT)
+			continue;
+		/* program order: a branch to an earlier one goes back */
+		n = 0;
+		for(p = s->text->link; p != nil; p = p->link)
+			p->blk = n++;
+		prev = s->text;
+		for(p = s->text->link; p != nil; prev = p, p = p->link) {
+			if(p->targ == nil || p->targ->blk > p->blk || p->as == APREEMPT)
+				continue;
+			q1 = emalloc(sizeof *q1);
+			q1->as = APREEMPT;
+			q1->lineno = p->lineno;
+			q1->targ = p;
+			q1->to.type = D_BRANCH;
+			q2 = emalloc(sizeof *q2);
+			q2->as = ACALL;
+			q2->lineno = p->lineno;
+			q2->to.type = D_EXTERN;
+			q2->to.sym = ys;
+			q1->link = q2;
+			q2->link = p;
+			prev->link = q1;
+			q1->blk = q2->blk = p->blk;
+			nloop++;
+		}
+		USED(q);
+		USED(i);
+	}
+	if(nloop > 0)
+		ys->ref = 1;
+	if(debug['v'])
+		fprint(2, "3l: %d preemption points\n", nloop);
 }
 
 static void
@@ -185,6 +237,7 @@ layout(void)
 	int n, i;
 
 	applydata();
+	preemptpoints();
 
 	/* functions: defined ones, then _trap if wanted */
 	/* made here when used and not defined: _trap, longjmp, the atomics */
@@ -827,6 +880,19 @@ eprog(Prog *p)
 		branch(p, 0);
 		break;
 
+	case APREEMPT:
+		/* GPREEMPT--; on (past the _yield) while it is above 0 */
+		op2(0x23, GPREEMPT);
+		iconst(1);
+		op(0x6b);
+		op2(0x22, 2);		/* local.tee: a scratch i32 */
+		op2(0x24, GPREEMPT);
+		local(0, 2);
+		iconst(0);
+		op(0x4a);		/* i32.gt_s */
+		branch(p, 1);
+		break;
+
 	case ABNZ:
 	case ABZ:
 		push(&p->from, Kw);
@@ -910,7 +976,7 @@ scanreg(Adr *a)
 static int
 isbranch(int as)
 {
-	return as == AJMP || as == ABNZ || as == ABZ || as == ARET;
+	return as == AJMP || as == ABNZ || as == ABZ || as == ARET || as == APREEMPT;
 }
 
 /*
@@ -966,6 +1032,21 @@ synth(Sym *s, Buf *b)
 		local(0, 0);
 		op(0xa7);
 		op2(0x24, GRET+Kw);
+	} else if(strcmp(n, "_yield") == 0) {
+		/* a preemption point: the platform may unwind here; rewound, it ends the rewinding */
+		buleb(b, 0);
+		op2(0x23, GSTATE);
+		iconst(2);
+		op(0x46);
+		op2(0x04, 0x40);
+		iconst(0);
+		op2(0x24, GSTATE);
+		op(0x0f);
+		op(0x0b);
+		iconst(105);
+		iconst(0);
+		op2(0x10, 0);
+		op(0x1a);		/* drop */
 	} else {
 		buleb(b, 0);
 		if(strcmp(n, "longjmp") == 0) {
@@ -1226,8 +1307,8 @@ asmb(void)
 	buleb(&b, 2);
 	section(&out, 13, &b);
 
-	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase perproc perprocsize */
-	buleb(&b, 12);
+	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase perproc perprocsize; preempt */
+	buleb(&b, 13);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
@@ -1245,13 +1326,17 @@ asmb(void)
 		bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, pp->type == SDATA || pp->type == SBSS ? pp->value : 0); bput1(&b, 0x0b);
 		bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, pp->type == SDATA || pp->type == SBSS ? pp->size : 0); bput1(&b, 0x0b);
 	}
+	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0x3fffffff); bput1(&b, 0x0b);	/* preempt: the platform sets it */
 	section(&out, 6, &b);
 
 	/*
 	 * exports: the kernel puts argc and argv below sp, then calls _start;
 	 * fork: asstate, asptr, asret
 	 */
-	buleb(&b, 11);
+	buleb(&b, 12);
+	bstr(&b, "preempt");	/* back edges until _yield */
+	bput1(&b, 0x03);
+	buleb(&b, GPREEMPT);
 	bstr(&b, "perproc");	/* libc's per-proc region (_perproc): the kernel swaps it (rfork RFMEM) */
 	bput1(&b, 0x03);
 	buleb(&b, GASRET+3);

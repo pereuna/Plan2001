@@ -24,6 +24,7 @@ t dclock DRAWS=1
 t fork SERIAL=1 EXPECT=$x/fork.out
 t rfmem SERIAL=1 EXPECT=$x/rfmem.out
 t threads SERIAL=1 EXPECT=$x/threads.out
+t preempt SERIAL=1 EXPECT=$x/preempt.out
 t bytes SERIAL=1 EXPECT=$x/bytes.out SENDFILE=$x/bytes.in
 t rc SERIAL=1 EXPECT=$x/rc.out ARGS='["-c", "echo a b c | wc; ls /bin/rc /bin/echo; for(i in 1 2) echo $i; x=`{echo one two}; echo $#x; cat /rc/lib/rcmain | wc -l"]'
 t rc SERIAL=1 EXPECT=$x/rci.out ARGS='["-i"]' SEND='["echo hello over eia0\n", "echo a b c | wc\n", "ls /bin/rc /bin/echo\n", "x=(1 2 3); echo $#x\n", "exit\n"]'
