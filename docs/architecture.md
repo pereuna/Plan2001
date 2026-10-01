@@ -136,7 +136,7 @@ Toteutuksen kannalta seuraavat kohdat ratkaisevat, miten sinne päästään.
 
 | Vaihe | Sisältö | Valmis kun |
 |---|---|---|
-| A | 3c/3l-prosessit drawtermin ytimen alla: prosessi on Worker, syscall on drawtermin sysopen, sysread jne., copyin ja copyout alustassa | 3c:llä käännetty clock ja rc toimivat selaimessa |
+| A | 3c/3l-prosessit drawtermin ytimen alla: prosessi on Worker, syscall on drawtermin sysopen, sysread jne., copyin ja copyout alustassa | 3c:llä käännetty clock ja rc toimivat selaimessa (1.10.: rc, fork, exec, putket ja wait toimivat; clock odottaa RFMEM:iä) |
 | B | 3c/3l: poikkeukset (setjmp, waserror), atomics, rfork(RFMEM) eli säikeet samassa muistissa, libthread | libthreadia käyttävä ohjelma toimii |
 | C | wasm32-ydin: 9frontin port/ ja `sys/src/9/wasm32` (alusta, ajurit) 3c:llä käännettynä, JavaScript vain alustaliimana | ydin käynnistää rc:n selaimessa ilman drawtermia |
 | D | Boot ABI wasm32/selaimelle, terminal- ja cpu-roolit | Monolith, drawterm ja webterm poistettu |

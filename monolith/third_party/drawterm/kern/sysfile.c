@@ -207,6 +207,7 @@ _sysfd2path(int fd, char *buf, uint nbuf)
 	uint len;
 
 	c = fdtochan(fd, -1, 0, 1);
+	len = nbuf;	/* was used unset */
 	snprint(buf, len, "%s", chanpath(c));
 	cclose(c);
 	return 0;

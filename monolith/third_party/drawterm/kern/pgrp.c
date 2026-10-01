@@ -186,6 +186,12 @@ closefgrp(Fgrp *f)
 	if(f == nil || decref(&f->ref))
 		return;
 
+	/* the files too, as 9front's: a pipe's other end sees its end */
+	for(i = 0; i <= f->maxfd; i++)
+		if((c = f->fd[i]) != nil) {
+			f->fd[i] = nil;
+			cclose(c);
+		}
 	free(f->flag);
 	free(f->fd);
 	free(f);

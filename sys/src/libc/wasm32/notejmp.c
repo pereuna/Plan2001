@@ -2,8 +2,12 @@
 #include <libc.h>
 #include <ureg.h>
 
+/*
+ * wasm32: setjmp and longjmp are 3l's (WebAssembly exceptions);
+ * _tas, ainc, adec, cas, casp, casl and coherence its atomics
+ */
 void
-notejmp(void*, jmp_buf, int)
+notejmp(void*, jmp_buf j, int ret)
 {
-	exits("notejmp: not on wasm32 yet");
+	longjmp(j, ret);
 }

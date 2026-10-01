@@ -5,6 +5,10 @@ time; PASS when the canvas is not one colour and is not drawterm's own
 console window (its grey title bar, which the program draws over);
 the screen goes to build/wasmapp-NAME.png.
   tools/test-wasmapp [NAME [SECONDS]]     (default clock, 8)
+  PROG=P [ARGS='["a", ...]'] tools/test-wasmapp host3
+                                           a wasm32 program (3c, 3l) on drawterm's
+                                           kernel: ?wasm=host3&prog=P, PASS when
+                                           it exits ok (HOST3-EXIT) and drew
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
@@ -119,7 +123,12 @@ def main():
 				break
 			except Exception:
 				time.sleep(0.2)
-		url = f'http://127.0.0.1:{HTTP}/?wasm={name}'
+		prog = os.environ.get('PROG')
+		url = f'http://127.0.0.1:{HTTP}/?wasm={name}' + (f'&prog={prog}' if prog else '')
+		for a in json.loads(os.environ.get('ARGS', '[]')):	# ARGS='["-c", "echo hi"]'
+			url += '&arg=' + urllib.parse.quote(a, safe='')
+		if os.environ.get('DEBUG'):
+			url += '&debug=' + os.environ['DEBUG']
 		t = json.loads(urllib.request.urlopen(urllib.request.Request(
 			f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT')).read())
 		cdp = Cdp(t['webSocketDebuggerUrl'])
@@ -127,13 +136,30 @@ def main():
 		cdp.call('Runtime.enable')
 		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, 'the first flush')
 		time.sleep(secs)
+		label = prog or name
+		if prog:
+			end = time.time() + 60
+			while time.time() < end and not any(l.startswith('HOST3-EXIT ') for l in cdp.log):
+				try:
+					cdp.js('1')
+				except RuntimeError:
+					pass
+				time.sleep(0.3)
 		png = base64.b64decode(cdp.call('Page.captureScreenshot', format='png')['data'])
-		out = os.path.join(root, f'build/wasmapp-{name}.png')
+		out = os.path.join(root, f'build/wasmapp-{label}.png')
 		open(out, 'wb').write(png)
 		n, console = cdp.js(SIG)
 		fl = cdp.js('window.monolith.flushes')
-		open(os.path.join(root, f'build/wasmapp-{name}.log'), 'w').write('\n'.join(cdp.log) + '\n')
-		print(f'test-wasmapp: {name}: {fl} flushes, {n} colours, {out}')
+		open(os.path.join(root, f'build/wasmapp-{label}.log'), 'w').write('\n'.join(cdp.log) + '\n')
+		print(f'test-wasmapp: {label}: {fl} flushes, {n} colours, {out}')
+		if prog:
+			ex = [l for l in cdp.log if l.startswith('HOST3-EXIT ')]
+			if ex != [f'HOST3-EXIT {prog} ok']:
+				raise SystemExit(f'FAIL: {prog}: {ex or "did not exit"} (build/wasmapp-{label}.log)')
+			if os.environ.get('DRAWS') and (n < 2 or console):
+				raise SystemExit(f'FAIL: {prog} drew nothing (build/wasmapp-{label}.log)')
+			print(f'PASS: {prog}, a wasm32 program (3c, 3l), ran in the browser on drawterm\'s kernel')
+			return
 		if n < 2 or console:
 			raise SystemExit(f'FAIL: {name} drew nothing (build/wasmapp-{name}.log)')
 		print(f'PASS: {name} drew in the browser on drawterm\'s kernel, no server')

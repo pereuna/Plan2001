@@ -52,7 +52,8 @@ enum
 	STEXT,
 	SDATA,
 	SBSS,
-	SSYNTH,		/* made here: _trap */
+	SSYNTH,		/* made here: _trap, longjmp, the atomics */
+	SINLINE,	/* made in place at each call: setjmp */
 };
 
 struct	Rel	/* in data: the address of sym+add, or its function pointer */
@@ -74,6 +75,7 @@ struct	Sym
 	long	value;		/* data: its address */
 	int	fn;		/* text: function index */
 	int	tab;		/* text: its pointer (table index) */
+	int	unwind;		/* text: can be unwound and rewound (fork) */
 	Prog*	text;		/* the TEXT */
 	uchar*	data;
 	Rel*	rel;
@@ -99,6 +101,11 @@ enum
 	/* globals */
 	GSP	= 0,
 	GRET,		/* GRET+k: RET of class k */
+	GSTATE	= GRET+NK,	/* unwinding 1, rewinding 2 (fork) */
+	GASPTR,		/* the top of the saved frames */
+	GASRET,		/* what the rewound _trap returns */
+
+	ASAREA	= 256*1024,	/* the saved frames */
 };
 
 EXTERN	Sym*	hash[NHASH];

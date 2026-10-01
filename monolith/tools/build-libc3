@@ -3,7 +3,9 @@
 # ../subset/9front/sys/src/libc, Plan2001's ../sys/src/libc/wasm32 for
 # what 386 has in assembler, compiled by 3c (tools/build-cc native 3c)
 # with ../wasm32/include and 9front's /sys/include.
-#   tools/build-libc3     build/wasm32/lib/libc.a
+#   tools/build-libc3     build/wasm32/lib/libc.a, libdraw.a (9front's
+#                         libdraw: the parts with libthread compile, for
+#                         later)
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 P=$(cd "$root/.." && pwd)
@@ -36,3 +38,18 @@ done
 rm -f "$out/lib/libc.a"
 ar rcD "$out/lib/libc.a" "$out"/o/libc/*.3
 echo "build-libc3: $out/lib/libc.a ($(ls "$out"/o/libc/*.3 | wc -l) objects)"
+
+# libdraw
+mkdir -p "$out/o/libdraw"
+rm -f "$out/o/libdraw/"*.3
+for s in "$P"/subset/9front/sys/src/libdraw/*.c; do
+	case $(basename "$s") in test.c|warptest.c) continue ;; esac
+	o=$out/o/libdraw/$(basename "${s%.c}").3
+	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+		echo "build-libc3: $s:"; head -5 "$o.err"; fail=1
+	fi
+done
+[ $fail = 0 ] || exit 1
+rm -f "$out/lib/libdraw.a"
+ar rcD "$out/lib/libdraw.a" "$out"/o/libdraw/*.3
+echo "build-libc3: $out/lib/libdraw.a ($(ls "$out"/o/libdraw/*.3 | wc -l) objects)"

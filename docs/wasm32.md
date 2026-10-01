@@ -68,6 +68,48 @@ paikallismuuttujaan 1 ja palaa silmukan alkuun, jossa `br_table` valitsee
 lohkon. Silmukka syntyy vain funktioihin, joissa on hyppyjä taaksepäin.
 Myöhemmin varsinainen stackifier voi poistaa br_table-kierroksen.
 
+## setjmp, longjmp ja atomics (3l)
+
+`setjmp` tehdään kutsukohtaan: jmp_buf[0] saa kehyksen SP:n ja
+jmp_buf[1] kutsun jälkeisen peruslohkon numeron, tulos on 0. `longjmp(buf,
+v)` heittää WebAssembly-poikkeuksen (tag 0, (buf, v)). Funktio, joka kutsuu
+setjmp:ia, on try-lohkossa. Sen catch tarkistaa, onko buf[0] sen oma SP.
+Jos on, catch palauttaa globaalin SP:n (välistä purettujen kehysten
+epilogit jäivät ajamatta), asettaa tuloksen (v, tai 1 jos v on 0) ja
+palaa silmukan br_tablen kautta buf[1]:n lohkoon. Muuten se heittää
+poikkeuksen eteenpäin (rethrow). Paikallismuuttujat säilyvät, koska ollaan
+samassa funktiokutsussa. Käytössä ovat legacy-poikkeuskäskyt (try, catch,
+throw, rethrow), jotka toimivat kaikissa nykyselaimissa ja Node 20:ssä.
+
+`_tas`, `ainc`, `adec`, `cas`, `casp`, `casl` ja `coherence` ovat 3l:n
+tekemiä funktioita WebAssemblyn atomic-käskyillä (xchg, add, sub, cmpxchg,
+fence), kun ohjelma käyttää niitä eikä määrittele niitä itse.
+
+## fork: pinon purku ja uudelleenrakennus (3l)
+
+WebAssemblyssa käynnissä olevaa suoritusta ei voi kloonata, joten 3l tekee
+pinon tallennettavaksi asyncifyn tapaan (päätös 1.10.2026: tämä tapa ja
+optimointi myöhemmin):
+
+- Kutsugraafista: funktio voi olla pinossa forkin aikana, jos se kutsuu
+  `_trap`:ia, kutsuu osoittimen kautta tai kutsuu tällaista funktiota.
+  Vain nämä muunnetaan (libc-hellossa 156/229 funktiota).
+- Muunnetussa funktiossa jokainen tällainen kutsu on oma peruslohkonsa.
+  Kutsun jälkeen: jos `asstate` on 1 (purku), funktio tallentaa
+  lohkonumeron ja kaikki paikallismuuttujansa tallennuspinoon (`asptr`,
+  256 kt bss:n jälkeen) ja palaa.
+- Funktion alussa: jos `asstate` on 2 (palautus), funktio ottaa
+  tallennuksensa pinosta, asettaa SP:n ja hyppää br_tablen kautta
+  kutsulohkoon, joka kutsuu kutsuttavaa uudelleen.
+- `_trap` päättää palautuksen: se asettaa tilaksi 0 ja palauttaa
+  `asret`-arvon.
+
+Fork: ydin asettaa `asstate`:ksi 1, ja pino purkautuu `_start`iin asti.
+Ydin kopioi muistin lapselle, ja molemmat kutsuvat `_start`ia uudelleen
+tilassa 2. Vanhemman `asret` on lapsen pid, lapsen 0. Hinta: muunnetut
+ohjelmat kasvavat noin 1,4–2-kertaisiksi (3c.wasm 447 kt -> 723 kt), ja
+muunnetut kutsut ovat hitaampia.
+
 ## Prosessi
 
 Yksi 3l:n tuottama moduuli on yksi prosessi, jolla on oma muisti eli oma
@@ -94,6 +136,8 @@ parametreikseen, joten `&arg0` on argv, samoin kuin Plan 9:ssä.
 |---|---|
 | t1, t2 | ilman libc:tä; tuloste sama kuin gcc:n samasta lähteestä: rekursio, switch, funktio-osoittimet, structien palautus ja välitys arvona, vlong, double, bittikentät, unionit, goto, staattiset muuttujat, Plan 9:n varargs, sekatyyppiset `op=`-sijoitukset |
 | t3 | MOVit (3l:n emov): jokainen leveys ladattuna ja tallennettuna, etumerkki- ja nollalaajennus, tallennuksen katkaisu, siirtymät osoittimen kautta (myös yli 2^16 ja negatiiviset), tasaamattomat osoitteet, rekisteristä rekisteriin kaventaminen, structien kopiot; tuloste sama kuin gcc:n |
+| t4 | setjmp ja longjmp (WebAssemblyn poikkeukset): syvältä takaisin, longjmp(.., 0) antaa 1, 20 000 longjmp:ia ilman pinon vuotoa, ytimen waserror/nexterror-pino, rekisterit säilyvät; atomics (_tas, ainc, adec, cas) |
+| libc/fork | fork rekursion pohjalta: rekisterit, pino ja keko säilyvät, lapsen ja vanhemman muistit erillään, sisäkkäinen fork, wait ja exits-viestit (run3.mjs: lapsi on worker-säie, await odottaa Atomics.waitilla) |
 | libc/hello | 9frontin libc: print-muotoilut, smprint, malloc, qsort, strtol, atof, sqrt, pow, tokenize, rune-funktiot, cleanname |
 | libc/sysabi | järjestelmäkutsujen ABI: jokainen argumentti siellä, mistä ydin sen lukee, myös vlongit (pread, pwrite, seek); odotettu tuloste kirjoitettu käsin kutsujen merkityksestä |
 | self | 3c.wasm kääntää 3c:n omat 25 lähdettä samoiksi tavuiksi kuin natiivi 3c, ja 3l.wasm linkittää ne samaksi 3c.wasm:ksi (447 kt) |
@@ -108,22 +152,47 @@ yacc-jäsennin, makroprosessori, tyyppijärjestelmä ja 3c:n backend
 kääntyvät 3c:llä ja tuottavat saman tuloksen. Natiivi 3c kääntää t1.c:n
 ja 3c.wasm Nodessa 0,3 sekunnissa.
 
+## Selaimessa drawtermin ytimen alla (vaihe A, 1.10.2026)
+
+`monolith/wasm32host`: wasm32-ohjelma on prosessi drawtermin ytimen alla.
+Prosessi on kproc eli Worker, joka ajaa ohjelman moduulia.
+`plan9.syscall` tulee host3.c:hen, joka kutsuu drawtermin sys*-funktioita.
+Ohjelman muistiin päästään vain host3js.c:n copyin- ja copyout-kutsuilla,
+kuin DMA:lla.
+
+- fork (rfork RFPROC): pino puretaan (3l), muisti kopioidaan ytimen
+  kekoon, lapsi on uusi kproc, ja molemmat rakentavat pinon uudelleen.
+  RFFDG/RFCFDG kopioivat tai tyhjentävät tiedostokuvaajat, RFREND
+  rendezvous-ryhmän. RFNAMEG ja RFENVG jakavat vielä nimiavaruuden ja
+  ympäristön, ja RFMEM puuttuu.
+- exec ytimen nimiavaruudesta: WebAssembly-moduuli tai `#!`-skripti.
+- await/wait: lapsen exits-viesti Plan 9:n muodossa.
+- Prosessin päättyessä sen tiedostot suljetaan, jotta putken toinen pää
+  näkee lopun (drawtermin closefgrp ei sulkenut kanavia; korjattu).
+- Juuri: `tools/build-bin3` kääntää 9frontin rc:n ja komennot (cat, ls,
+  wc, date, cp, mv, rm, mkdir, sort, xd ...) ja kokoaa `build/wasm32/root`
+  -hakemiston (bin/, rc/lib/rcmain). Sivu lataa sen #U:hun, ja host3
+  liittää sen polkuihin / ja /bin. `/env/timezone` tulee selaimen
+  aikavyöhykkeestä.
+
+    monolith/tools/build host3 && monolith/tools/build-bin3
+    ?wasm=host3&prog=rc&arg=-c&arg=...          rc /bin:stä; &debug=1..3 jäljittää
+    PROG=rc ARGS='["-c", "echo a b c | wc"]' tools/test-wasmapp host3   PASS
+    PROG=hello / PROG=dclock DRAWS=1 tools/test-wasmapp host3            PASS
+
 ## Kesken
 
 Suunnitelma ja vaiheet A–D: docs/architecture.md.
 
 
-- Ydin: wasm32-prosessit drawtermin ytimen alle selaimessa niin, että
-  `plan9.syscall` on drawtermin sysopen, sysread ja niin edelleen. Prosessi
-  on oma Workerinsa jaetulla muistilla, ja järjestelmäkutsu odottaa
-  ytimen vastausta `Atomics.wait`:lla.
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- setjmp ja longjmp: WebAssemblyn poikkeuksilla (nyt longjmp lopettaa
-  prosessin).
-- `_tas` ja atom eivät ole atomisia: riittää yhdelle säikeelle, ei
-  rfork(RFMEM):lle eikä libthreadille.
+- rfork(RFMEM) ja libthread: jaettu muisti (3l: tuotu jaettu muisti,
+  passiiviset datasegmentit) ja lapselle oma pino; sitten event.c:n
+  apuprosessit (alkuperäinen clock.c) ja libthread.
+- RFNAMEG (nimiavaruuden kopio: pgrpcpy puuttuu drawtermista), RFENVG,
+  notes.
 - exec: wasm32-moduulin tunnistus ja käynnistys ytimen tavallisena
   exec-polkuna (nyt run3.mjs käynnistää moduulin itse).
 - 3a: assembleri samalle käskykannalle (nyt stub).
