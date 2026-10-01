@@ -13,6 +13,8 @@ const PAGES = 1024, MAXPAGES = 16384;	// 64 MB to start; 3l -k's maximum
 
 // exec's: the program's frames unwind to platuser's loop, which starts the next
 const EXEC = { exec: true };
+// noted's: the program's notify handler's frames unwind to its caller (unote)
+const NOTED = { noted: true };
 
 // a kernel function, fn(words...), from JS on this Worker: below the kernel's SP
 function kcall(env, fn, ...w) {
@@ -28,7 +30,41 @@ function kcall(env, fn, ...w) {
 function usys(env, fn, n, a) {
 	kcall(env, fn, n, a);
 	if (env.exec) throw EXEC;
-	return env.x.retv.value;
+	if (env.noted) { env.noted = false; throw NOTED; }
+	const r = env.x.retv.value;
+	if (n === 105) env.user.x.preempt.value = 0x3fffffff;	/* the browser preempts */
+	if (env.note) unote(env);
+	return r;
+}
+
+// a note (trap.c, platnote): the program's handler(ureg, msg) below its SP,
+// until noted (NOTED), it returns, or it jumps out (notejmp)
+function unote(env) {
+	const nt = env.note, u = env.user, x = u.x, sp = x.sp.value;
+	env.note = null;
+	const b = new Uint8Array(u.mem.buffer), d = new DataView(u.mem.buffer);
+	let top = sp - 64 - (nt.msg.length + 1);
+	b.set(nt.msg, top);
+	b[top + nt.msg.length] = 0;
+	const msg = top;
+	top = (top - 8) & ~7;
+	const ureg = top;
+	d.setUint32(ureg, 0, true);	/* pc: wasm32 has none to give */
+	d.setUint32(ureg + 4, sp, true);
+	top -= 16;
+	d.setUint32(top, ureg, true);
+	d.setUint32(top + 4, msg, true);
+	x.sp.value = top;
+	try {
+		x.table.get(nt.handler)();
+	} catch (e) {
+		if (e !== NOTED) {
+			kcall(env, nt.done);
+			throw e;
+		}
+	}
+	x.sp.value = sp;
+	kcall(env, nt.done);
 }
 
 // env.exec: the program to start - { module, args, argc } from exec,
@@ -85,7 +121,7 @@ function runuser(env, fn) {
 				kcall(env, f.ready, f.p);
 				env.forkimage = null;
 				u.x.asstate.value = 2;
-				u.x.asret.value = BigInt(f.pid);
+				u.x.asret.value = env.x.retw.value < 0 ? -1n : BigInt(f.pid);
 			}
 		} catch (e) {
 			if (e !== EXEC) throw e;
@@ -106,8 +142,15 @@ function imports(env) {
 		platnewproc: () => {
 			const user = env.forkimage;
 			env.forkimage = null;
-			env.post({ spawn: { fn: arg(0), arg: arg(1), sp: arg(2), user } }, user ? [user.snap.buffer] : []);
+			env.post({ spawn: { fn: arg(0), arg: arg(1), sp: arg(2), up: arg(3), user } }, user ? [user.snap.buffer] : []);
 		},
+		platnote: () => {
+			const k = new Uint8Array(env.mem.buffer);
+			let e = arg(1);
+			while (k[e]) e++;
+			env.note = { handler: arg(0), msg: k.slice(arg(1), e), done: arg(2) };
+		},
+		platnoted: () => { env.noted = true; },
 		platwait: () => {
 			const r = Atomics.wait(i32(), arg(0) >> 2, iarg(1), iarg(2) < 0 ? Infinity : iarg(2));
 			env.x.retw.value = r === 'ok' ? 0 : r === 'timed-out' ? 1 : 2;
@@ -183,7 +226,8 @@ function imports(env) {
 
 // on a Worker: the kernel, and what this CPU runs
 function cpu({ module, mem, role, fn, arg, sp, boot, user }) {
-	const env = { mem, x: null, post: (m, t) => postMessage(m, t ?? []), user: null, exec: null, fork: null, forkimage: null, boot };
+	const env = { mem, x: null, post: (m, t) => postMessage(m, t ?? []), user: null, exec: null, fork: null, forkimage: null,
+		note: null, noted: false, boot };
 	if (user) env.exec = user;	/* a fork's child */
 	try {
 		const inst = new WebAssembly.Instance(module, imports(env));
@@ -214,15 +258,36 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 	self.onmessage = (e) => cpu(e.data);
 
 // on the page: the machine
-// front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's) }
+// front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's),
+//	failfork (a test's: the nth fork's child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
 	const mem = new WebAssembly.Memory({ initial: PAGES, maximum: MAXPAGES, shared: true });
 	const eia = [];
 	let ring = 0;		/* #t/eia0's input: the kernel's ring */
 	const me = import.meta.url;
+	// a proc's Worker the page could not make: -1 in its word (procspawn waits on it)
+	const failed = (job, why) => {
+		console.log('KLOG platform: no Worker for a proc: ' + why);
+		if (!job.up) return false;
+		const i32 = new Int32Array(mem.buffer);
+		if (Atomics.compareExchange(i32, job.up >> 2, 0, -1) !== 0) return false;
+		Atomics.notify(i32, job.up >> 2);
+		return true;
+	};
+	let forks = 0;
 	const spawn = (job) => {
-		const w = new Worker(me, { type: 'module' });
+		if (job.user && ++forks === front.failfork) {	/* a test's: this fork's child gets no Worker */
+			failed(job, 'failfork ' + forks);
+			return;
+		}
+		let w;
+		try {
+			w = new Worker(me, { type: 'module' });
+		} catch (e) {
+			if (!failed(job, e)) console.log('KERNEL-HALT platform: worker: ' + e);
+			return;
+		}
 		w.onmessage = (e) => {
 			const m = e.data;
 			if (m.eia) { eia.push(m.eia); front.eia?.(m.eia); }
@@ -231,7 +296,7 @@ export async function boot(url, front = {}) {
 			if (m.ring !== undefined) ring = m.ring;
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
-		w.onerror = (e) => console.log('KERNEL-HALT platform: worker: ' + e.message);
+		w.onerror = (e) => { if (!failed(job, e.message)) console.log('KERNEL-HALT platform: worker: ' + e.message); };
 		w.postMessage(job, job.user ? [job.user.snap.buffer] : []);
 	};
 	window.monolith = {

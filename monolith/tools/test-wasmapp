@@ -139,7 +139,7 @@ def main():
 		page = os.environ.get('PAGE')
 		url = f'http://127.0.0.1:{HTTP}/?wasm={name}' + (f'&prog={prog}' if prog else '')
 		if page:
-			url = f'http://127.0.0.1:{HTTP}/{page}?x=1'
+			url = f'http://127.0.0.1:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
 		for a in json.loads(os.environ.get('ARGS', '[]')):	# ARGS='["-c", "echo hi"]'
 			url += '&arg=' + urllib.parse.quote(a, safe='')
 		if os.environ.get('DEBUG'):

@@ -104,7 +104,12 @@ inituser(void)
 	kcall(sysopen, "/dev/eia0", OREAD);
 	kcall(sysopen, "/dev/eia0", OWRITE);
 	kcall(sysopen, "/dev/eia0", OWRITE);
+	ksetenv("cputype", "wasm32", 0);
+	ksetenv("objtype", "wasm32", 0);
+	ksetenv("terminal", "wasm32 browser", 0);
+	ksetenv("service", "terminal", 0);
 	poperror();
+	kproc("alarm", alarmkproc, 0);
 	initp = up;
 	touser(argv, argc);
 }
@@ -135,6 +140,7 @@ initproc(void*)
 	up->fgrp = dupfgrp(nil);
 	up->egrp = smalloc(sizeof(Egrp));
 	up->egrp->ref = 1;
+	up->rgrp = newrgrp();
 	c = namec("#/", Atodir, 0, 0);
 	up->slash = c;
 	incref(c);

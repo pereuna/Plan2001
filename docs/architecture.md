@@ -226,7 +226,16 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   päättyy. Kuolema on kaksivaiheinen: Proc ja sen KSTACK (samaa lohkoa)
   ovat vapaita, mutta `newproc` antaa ne uudelle procille vasta, kun
   alusta on asettanut `workergone`-sanan eli Worker on poistunut ytimestä.
-  Notesit, RFMEM ja kontekstit tulevat C3:ssa.
+  Proc saa Workerinsa kuitattuna (`procspawn`): ready odottaa, kunnes
+  Worker on käynnistynyt tai sivu on kertonut, ettei sitä syntynyt. Fork
+  ilman Workeria perutaan (`procunmake`), ja vanhempi saa -1:n ja virheen.
+- Notes (C3a): järjestelmäkutsun palatessa `popnote` antaa noten, ja alusta
+  kutsuu ohjelman notify-käsittelijää (ureg, msg) sen pinossa. `noted(NCONT)`
+  palaa kutsun jälkeen, `notejmp` hyppää ulos (alusta kertoo ytimelle, että
+  käsittely päättyi) ja NDFLT tai puuttuva käsittelijä lopettaa procin.
+  Odotus keskeytyy 9frontin tapaan (`interrupted`). Alarm-kproc kuten
+  pc64:ssä. Rendezvous on 9frontin. 3l:n preemptiokohta (kutsu 105) on
+  notesien tarkistuspaikka; selain preemptoi Workerit.
 - Juuri `#R` (`devrootfs.c`): sivun käynnistyksessä antamat tiedostot
   (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
   `#t`:n `/dev`iin sekä `#e`:n ja `#s`:n paikoilleen, avaa `#t/eia0`:n
@@ -236,11 +245,12 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   kysytään ensin, jokaisella merkkijonolla on oltava 0 alueen sisällä, ja
   polussa ei saa olla alussa /:ta, tyhjää elementtiä eikä . tai ..
   Testit: `tools/test-9wasm32` (c2a, echo, yli 4096 tavun argumentti, fork,
-  2000 forkia exitin, chdirin, execin ja waitin kanssa, rc -c ja
-  interaktiivinen rc).
+  2000 forkia exitin, chdirin, execin ja waitin kanssa, rc -c,
+  interaktiivinen rc, notes ja rendezvous sekä fork, jonka lapselle sivu ei
+  tee Workeria: `?failfork=N`).
 
 | | Sisältö | Valmis kun |
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
 | C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
-| C3 | notes, RFMEM, rendezvous, libthread ja kontekstit, preemptio, kbdfs; devdraw, hiiri ja näppäimistö alustan ajureina; Workerin luonnin kuittaus (fork ei jää odottamaan Workeria, jota ei syntynyt) | clock ja testisarja; drawterm poistuu selainpuolelta |
+| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b: RFMEM, libthread ja kontekstit; C3c: kbdfs; devdraw, hiiri ja näppäimistö alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |

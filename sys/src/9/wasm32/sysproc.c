@@ -224,6 +224,21 @@ abortion(void)
 }
 
 /*
+ * the platform's, when the parent has unwound and its memory is the
+ * child's: the child's Worker, or the fork undone (-1, the error)
+ */
+static int
+forkready(Proc *p)
+{
+	if(procspawn(p) < 0){
+		procunmake(p);
+		kstrcpy(up->syserrstr, "fork: the page could not make a Worker", ERRMAX);
+		return -1;
+	}
+	return 0;
+}
+
+/*
  * rfork(RFPROC): 9front's, less segments.  The child is made here, its
  * pid the result; the platform then unwinds the program, copies its
  * memory for the child and readies it (platfork), and both rewind - the
@@ -318,7 +333,7 @@ forkproc(ulong flag)
 		unlock(&up->exl);
 	}
 	procpriority(p, up->basepri, up->fixedpri);
-	platfork(p, ready, pid);
+	platfork(p, forkready, pid);
 	return pid;
 }
 
@@ -476,7 +491,7 @@ sysbrk_(va_list list)
 	return 0;
 }
 
-/* notes are not delivered to a program yet (C3): its handler is kept */
+/* the program's handler: a function in its table */
 uintptr
 sysnotify(va_list list)
 {
@@ -484,10 +499,76 @@ sysnotify(va_list list)
 	return 0;
 }
 
+/*
+ * noted, from the program's notify handler (platform.js calls it with
+ * the note when a system call returns, trap.c): NCONT and NRSTR go back
+ * to where the program was; NDFLT is the note's default, the end
+ */
 uintptr
-sysnoted(va_list)
+sysnoted(va_list list)
 {
-	error("noted: no notes on wasm32 yet");
+	int arg;
+
+	arg = va_arg(list, int);
+	if(!up->notified)
+		error(Egreg);
+	switch(arg){
+	case NCONT:
+	case NRSTR:
+		up->notified = 0;
+		platnoted();
+		return 0;
+	case NSAVE:
+		error("noted NSAVE: not on wasm32");
+	}
+	if(up->lastnote->flag == NDebug)
+		pprint("suicide: %s\n", up->lastnote->msg);
+	pexit(up->lastnote->msg, up->lastnote->flag != NDebug);
+}
+
+uintptr
+sysrendezvous(va_list list)
+{
+	uintptr tag, val, new;
+	Proc *p, **l;
+
+	tag = va_arg(list, uintptr);
+	new = va_arg(list, uintptr);
+	l = &REND(up->rgrp, tag);
+
+	lock(up->rgrp);
+	for(p = *l; p != nil; p = p->rendhash) {
+		if(p->rendtag == tag) {
+			*l = p->rendhash;
+			val = p->rendval;
+			p->rendval = new;
+			unlock(up->rgrp);
+
+			ready(p);
+
+			return val;
+		}
+		l = &p->rendhash;
+	}
+
+	/* going to sleep here */
+	up->rendtag = tag;
+	up->rendval = new;
+	up->rendhash = *l;
+	*l = up;
+	up->state = Rendezvous;
+	unlock(up->rgrp);
+
+	sched();
+
+	return up->rendval;
+}
+
+/* 3l's preemption point (call 105): the browser preempts; notes are looked at */
+uintptr
+sysyield(va_list)
+{
+	return 0;
 }
 
 /* wasm32's seek and nsec give their vlong as the result */

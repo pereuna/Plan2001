@@ -89,6 +89,8 @@ procstart(void *v)
 	up = p;
 	m->proc = p;
 	p->state = Running;
+	p->workerup = 1;
+	platwake(&p->workerup, 1);
 	if(setlabel(&m->sched)){
 		/* Moribund (pexit): the proc is free, its Worker ends */
 		mmurelease(up);
@@ -132,21 +134,82 @@ sched(void)
 	up->state = Running;
 }
 
+/*
+ * a New proc's Worker, its stack the KSTACK below it (newproc): -1 if
+ * the page could not make one (the proc is still New)
+ */
+int
+procspawn(Proc *p)
+{
+	long st;
+
+	if(p->mach == nil){
+		p->mach = mallocz(sizeof(Mach), 1);
+		if(p->mach == nil)
+			panic("procspawn: no Mach");
+	}
+	p->mach->machno = 0;
+	p->state = Ready;
+	p->workergone = 0;
+	p->workerup = 0;
+	coherence();
+	platnewproc((void(*)(void*))procstart, p, p, &p->workerup);
+	while((st = p->workerup) == 0)
+		platwait(&p->workerup, 0, -1);
+	if(st < 0){
+		p->state = New;
+		p->workergone = 1;
+		return -1;
+	}
+	return 0;
+}
+
+/* a proc that never ran (procspawn failed): undone, its parent told */
+void
+procunmake(Proc *p)
+{
+	Proc *pp;
+
+	if((pp = p->parent) != nil){
+		lock(&pp->exl);
+		pp->nchild--;
+		unlock(&pp->exl);
+		p->parent = nil;
+	}
+	if(p->fgrp != nil){
+		closefgrp(p->fgrp);
+		p->fgrp = nil;
+	}
+	if(p->pgrp != nil){
+		closepgrp(p->pgrp);
+		p->pgrp = nil;
+	}
+	if(p->rgrp != nil){
+		closergrp(p->rgrp);
+		p->rgrp = nil;
+	}
+	if(p->egrp != nil){
+		closeegrp(p->egrp);
+		p->egrp = nil;
+	}
+	if(p->dot != nil){
+		cclose(p->dot);
+		p->dot = nil;
+	}
+	pidfree(p);
+	lock(&procalloc);
+	p->state = Dead;
+	p->qnext = procalloc.free;
+	procalloc.free = p;
+	unlock(&procalloc);
+}
+
 void
 ready(Proc *p)
 {
 	if(p->state == New){
-		/* a Worker of its own, its stack the KSTACK below it (newproc) */
-		if(p->mach == nil){
-			p->mach = mallocz(sizeof(Mach), 1);
-			if(p->mach == nil)
-				panic("ready: no Mach");
-		}
-		p->mach->machno = 0;
-		p->state = Ready;
-		p->workergone = 0;
-		coherence();
-		platnewproc((void(*)(void*))procstart, p, p);
+		if(procspawn(p) < 0)
+			panic("ready: no Worker for %s", p->text);
 		return;
 	}
 	p->state = Ready;

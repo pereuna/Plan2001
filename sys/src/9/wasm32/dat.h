@@ -74,6 +74,7 @@ struct Conf
 struct PMMU
 {
 	long	workergone;	/* 1: no Worker is on its KSTACK any more (proc.c, platform.js) */
+	long	workerup;	/* its Worker: 0 coming, 1 running, -1 the page could not make it */
 };
 
 #define	inittxtflush(p)

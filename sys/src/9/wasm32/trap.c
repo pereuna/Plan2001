@@ -29,6 +29,7 @@
  */
 enum
 {
+	YIELD	= 105,	/* 3l's preemption point */
 	Nwords	= 8,
 	Nbufs	= 4,
 	Maxbuf	= 16*1024*1024,
@@ -40,7 +41,7 @@ Syscall	sysbind, syschdir, sysclose, sysdup, sysalarm, sysexec, sysexits,
 	sysfauth, sysopen, syssleep, sysrfork, syspipe, syscreate, sysfd2path,
 	sysbrk_, sysremove, sysnotify, sysnoted, sysunmount, sysfversion,
 	syserrstr, sysstat, sysfstat, syswstat, sysfwstat, sysmount, sysawait,
-	syspread, syspwrite;
+	syspread, syspwrite, sysrendezvous, sysyield;
 vlong	sysseekv(va_list);
 vlong	sysnsecv(va_list);
 
@@ -85,6 +86,8 @@ static Sys systab[] =
 [PREAD]		syspread, nil, "iwv",
 [PWRITE]	syspwrite, nil, "irv",
 [_NSEC]		nil, sysnsecv, "",
+[RENDEZVOUS]	sysrendezvous, nil, "ii",
+[YIELD]		sysyield, nil, "",
 };
 
 typedef struct Call Call;
@@ -207,6 +210,34 @@ unmarshal(Call *c, vlong r)
 	}
 }
 
+/* the program's handler is done: noted, or it jumped out (notejmp) */
+static void
+notedone(void)
+{
+	up->notified = 0;
+}
+
+/*
+ * a note for the program, when its call returns: its handler gets it
+ * (platform.js); popnote ends the proc if it has none or is in it
+ */
+static void
+usernote(void)
+{
+	char *msg;
+
+	if(up->nnote == 0)
+		return;
+	qlock(&up->debug);
+	msg = popnote(nil);
+	if(msg == nil){
+		qunlock(&up->debug);
+		return;
+	}
+	platnote(up->notify, msg, notedone);
+	qunlock(&up->debug);
+}
+
 /*
  * the program's call (platform.js calls it on the proc's Worker, in
  * the kernel's instance): -1 and the proc's syserrstr on an error
@@ -253,5 +284,6 @@ syscall(int n, ulong a)
 		up->nerrlab = nerrlab;
 	}
 	up->insyscall = 0;
+	usernote();
 	return r;
 }

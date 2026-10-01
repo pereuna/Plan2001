@@ -4,7 +4,7 @@
  */
 void	eiaout(void*, int);		/* #t/eia0: bytes to the page */
 void	eiaring(void*);			/* and from it: the page writes into this ring (uartwasm32.c) */
-void	platnewproc(void (*)(void*), void*, void*);	/* fn(arg) on a Worker of its own, its stack's top */
+void	platnewproc(void (*)(void*), void*, void*, long*);	/* fn(arg) on a Worker of its own, its stack's top; -1 in the word if the page can not make it */
 int	platwait(long*, long, long);	/* Atomics.wait(addr, val, ms; -1 for ever): 0 woken, 1 timed out, 2 not val */
 int	platwake(long*, int);		/* Atomics.notify(addr, n) */
 vlong	platnsec(void);			/* nanoseconds since 1970 */
@@ -19,6 +19,8 @@ int	platcopyin(void*, ulong, long);	/* from the program's memory: -1 not there *
 int	platcopyout(ulong, void*, long);	/* to it */
 long	platustrlen(ulong, long);		/* a string's length there, at most the second; -1 none */
 int	platbrk(ulong);			/* its memory to the address at least: -1 can not */
-void	platfork(Proc*, void (*)(Proc*), ulong);	/* it unwinds, its memory the child's, ready(child), both rewind (pid, 0) */
+void	platfork(Proc*, int (*)(Proc*), ulong);	/* it unwinds, its memory the child's, the function readies the child (-1: none), both rewind (pid or -1, 0) */
+void	platnote(void*, char*, void (*)(void));	/* the program's notify handler gets the note when the call returns; the function when it is done */
+void	platnoted(void);		/* noted(NCONT): back out of the handler */
 long	platbootfs(void*, long);	/* the files the page gave: its size, the archive into the buffer */
 long	platbootargs(void*, long);	/* what init runs, argv's strings each with its 0: its size, and into the buffer */

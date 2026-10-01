@@ -28,3 +28,5 @@ _Noreturn void	touser(char**, int);
 uintptr	sysbind(va_list);
 uintptr	sysopen(va_list);
 extern Proc	*initp;
+int	procspawn(Proc*);
+void	procunmake(Proc*);
