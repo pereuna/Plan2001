@@ -1,0 +1,32 @@
+#!/bin/rc
+# tools/cloud-image's check of the booted image, as admin over the
+# WireGuard tunnel: who and where, the port guard, the pool, the services
+rfork e
+fn fail { echo CHECK FAILED: $*; exit $1 }
+~ `{cat /dev/user} admin || fail user
+~ `{cat /dev/hostowner} admin || fail hostowner
+~ `{cat /dev/sysname} cpu-amd64-poc1 || fail sysname
+echo user admin, host owner admin, cpu-amd64-poc1
+
+# the port guard: the internet refused, WireGuard let in
+mkdir -p /tmp/cloudcheck
+echo -n '1.2.3.4!40000' >/tmp/cloudcheck/remote
+if(@{ . /rc/bin/localonly /tmp/cloudcheck })
+	fail an internet address got through localonly
+echo -n '10.201.0.2!40000' >/tmp/cloudcheck/remote
+@{ . /rc/bin/localonly /tmp/cloudcheck } || fail a WireGuard address was refused
+grep -s localonly /rc/bin/service/tcp17443 || fail 17443 is public
+echo localonly: internet refused, WireGuard in, 17443 local only
+
+# services (17443 listens, but localonly lets only the local network in)
+for(p in 53 443 567 17019 17030 17443)
+	netstat -n | grep -s 'Listen +'^$p^' ' || fail no listener on $p
+echo listening: 53 443 567 17019 17030 17443
+ls -l /srv/compute | grep -s '^--rw-rw-rw-' || fail /srv/compute not open to users
+mount -c /srv/compute /n/cloudcheck && cat /n/cloudcheck/status && unmount /n/cloudcheck
+grep -s 'wg0 pub' '#W/wg0/status' || fail no wg0
+for(f in /usr/admin/bin/rc/riostart /usr/glenda/bin/rc/riostart /amd64/bin/rio)
+	test -e $f && fail $f is there
+echo no rio
+rm -rf /tmp/cloudcheck
+echo CHECK-DONE

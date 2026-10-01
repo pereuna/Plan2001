@@ -197,3 +197,128 @@ base.qcow2 (build-VM) on 9frontin koskematon asennus ja cpu.qcow2:n
 taustakuva, joten siihen ei kosketa. Sen 9front-profiili yrittää
 terminaalissa rio:ta, mikä näkyy vain, kun base käynnistetään
 terminaalina (build-VM, testit).
+
+## Uusi pilvi-image: cpu-amd64-poc1 (1.10.)
+
+Vanhan pilvipalvelimen auth meni sekaisin, kun salasanaa yritettiin
+vaihtaa käsin. `changeuser` kysyy olemassa olevalta käyttäjältä ensin
+"assign new Plan 9 password?", ja väärä vastaus jättää keyfs:ään vanhan
+salasanan, vaikka nvram (`wrkey`) saa uuden. Palvelimelle ei saa enää
+tehdä käsityötä, joten image tehdään kokonaan skriptillä.
+
+**Nimet:**
+- **Palvelu** on `cpu.plan2001.com` (sovellukset `APP.cpu.plan2001.com`).
+  Se on osoite, ei kone.
+- **Kone** on `cpu-amd64-poc1`: rooli, arkkitehtuuri ja vaihe. Paikallinen
+  on `cpu-amd64-dev1`. Nimi tulee plan9.ini:n `sysname=`-rivistä, ei
+  imagesta tai MAC-osoitteesta (`/rc/bin/cpurc.local`).
+- **Hostowner** on `admin`, ja tavallinen käyttäjä on `glenda`. Konsolin
+  kehote on `cpu-amd64-poc1#`.
+
+**Tekeminen:** `tools/cloud-image` tuottaa tiedoston
+`build/oci/cpu-amd64-poc1.qcow2`. Se ajetaan QEMU:ssa pilven raudalla
+(`tools/vm --oci`) pohjasta `build/oci/cpu-oci.qcow2`. Mitään ei
+kirjoiteta käsin:
+- **Salaisuudet** (salasanat ja WireGuard-avaimet) syntyvät
+  hakemistoon `~/.cache/plan2001/cloud`, eivät repoon.
+- **Konsolilla** `tools/9run` hoitaa:
+  - käyttäjän `admin` ja ryhmät cwfs:ään;
+  - `changeuser`:n käyttäjille `admin` ja `glenda` (dialogi
+    `tools/cloud/changeuser.dialog.in`, joka kattaa kaikki
+    kysymysvariantit);
+  - `convkeys`:in, joka purkaa salauksen nvramin vanhalla avaimella;
+  - `wrkey`:n, joka kirjoittaa nvramiin `admin`/`plan2001`;
+  - skriptin `tools/cloud/rename.rc`.
+- **Glendana** `tools/cloud/handover.rc`: glendan aiemmin asentamat
+  järjestelmätiedostot siirtyvät admin-ryhmälle.
+- **Adminina** 9pterm-istunnossa `tools/cloud/setup.rc`:
+  - Plan2001:n ydin (`#W`) ja loader;
+  - profiilit ilman rio:ta;
+  - compute-pino (`cpu-live`);
+  - DNS-vyöhyke;
+  - TLS ja sen uusinta;
+  - porttien vartija;
+  - WireGuard.
+- **Lopuksi** image käynnistetään ja tarkistetaan: `tools/cloud/check.rc`
+  ja `monolith/tools/test-apps`. Sen jälkeen syntyy pakattu qcow2.
+
+**Mikä on julkista:**
+
+| Portti | Mitä | Kenelle |
+|---|---|---|
+| 443 | https/wss (webterm, sovellukset), Let's Encrypt | kaikille |
+| 53 tcp/udp | `ndb/dns -rsL`, oma vyöhyke | kaikille (rekursio vain paikalliselle verkolle) |
+| 51820 udp | WireGuard, ylläpitotunneli | vain avaimella |
+| 567, 17019, 17020, 17080, 17443 | auth, rcpu, exportfs, webterm ilman TLS:ää, https kehitys-CA:n varmenteella | vain paikallinen verkko ja WireGuard (`/rc/bin/localonly`, hylkäykset lokiin `/sys/log/localonly`) |
+
+**Ylläpito:**
+- `tools/cloud/wg-admin up` nostaa tällä koneella rajapinnan `wgp2001`
+  (10.201.0.2 ↔ 10.201.0.1).
+- Sen jälkeen `9pterm -h 10.201.0.1 -a 'tcp!10.201.0.1!567' -u admin
+  -P ~/.cache/plan2001/cloud/admin.pass`.
+- `tools/cpu-live SOCK` toimii saman tunnelin yli.
+- Vanhaa 9p-skriptiä, joka käyttää julkisia portteja ja tiedostoa
+  `cpu.pass`, ei enää tarvita.
+
+**Varmenne:**
+- `/rc/bin/certrenew` hakee Let's Encrypt -varmenteen
+  `*.cpu.plan2001.com` DNS-haasteella oman ndb/dns:n kautta minuutti
+  käynnistyksen jälkeen ja sitten vuorokauden välein. Se uusii varmenteen,
+  kun se on yli 60 päivää vanha, ja kirjoittaa lokiin
+  `/sys/log/certrenew`.
+- Siihen asti `tcp443` käyttää kehitys-CA:n varmennetta.
+- TLS-avain ja ACME-tili syntyvät palvelimella, joten niitä ei tarvitse
+  siirtää.
+
+**Tuonti Oracle Cloudiin:**
+1. Lataa `build/oci/cpu-amd64-poc1.qcow2` Object Storageen.
+2. Compute → Custom images → Import: QCOW2, paravirtualisoitu, UEFI.
+3. Vaihda instanssin käynnistyslevy tähän imageen. Julkinen IP säilyy.
+4. Security list:
+   - auki TCP 443, TCP/UDP 53 ja UDP 51820;
+   - kiinni 567, 17019 ja 17443, sillä palvelin ei niitä internetistä
+     hyväksy muutenkaan.
+
+## Käyttöönotto pilvessä (1.10.)
+
+Imagen tuonti ei onnistunut Oraclessa:
+- boot volumen vaihto vaatii, että imagen käyttöjärjestelmätieto on sama
+  kuin instanssilla (Ubuntu);
+- UEFI-firmwaren valinta muuttaa tiedon arvoksi "Custom".
+
+Image kirjoitettiin siksi Ubuntun käynnistyslevylle ssh:n yli:
+`gzip -1 -n | ssh … 'gunzip | sudo dd of=/dev/sda'`.
+
+Käynnissä olevan järjestelmän oman levyn ylikirjoittaminen on arpapeliä:
+Ubuntun `sudo dd` kaatui segmentointivirheeseen, kun sen omat sivut
+jäivät levyllä `dd`:n alle. Pakotettu uudelleenkäynnistys toi kuitenkin
+uuden imagen esiin ehjänä. Kone haki heti oman Let's Encrypt
+-varmenteensa (`*.cpu.plan2001.com`, voimassa 30.12.2026 asti).
+
+**Jatkossa ei Ubuntua eikä tuontia:**
+- **`tools/cloud/kernel`** asentaa `build/amd64`:n ytimen ja loaderin
+  tunnelin yli 9fat:iin ja käynnistää koneen uudelleen. Uudelleenkäynnistys
+  tehdään koneen sisältä, joten se ei näy Oraclen konsolissa.
+- **`tools/cloud/reimage IMAGE`** vaihtaa koko levyn käynnistysympäristössä
+  (`aux/reimage`). Image kirjoitetaan ensin levyn jälkimmäiselle
+  puoliskolle, tarkistetaan (SHA-256 ja koko) ja vasta sitten kopioidaan
+  vanhan päälle. OCI:n levy on 50 Gt, joten 20 Gt:n image mahtuu
+  kahdesti. Tätä ei ole vielä kokeiltu.
+
+**Löytyneet viat:**
+- **WireGuardin vastaus ei lähtenyt** (`noroute`). 9frontin DHCP antaa
+  oletusreitin lähdekohtaisena, ja ulompien pakettien reittihaku
+  (`v4lookupskip`) kysyi ilman lähdettä. Korjaus: lähdekohtainen reitti
+  kelpaa, ja lähde otetaan sen alueelta. Paikallisessa testissä vika ei
+  näkynyt, koska vastapää oli samassa aliverkossa.
+- **`cpu-live` jätti crsrv:n pois päältä**, kun yksi sen säikeistä oli
+  ehtinyt poistua ennen tappoa (rc:n uudelleenohjausvirhe).
+
+**Ytimen kehitys poolissa:**
+- `kbuild9p.rc REPO amd64 pool` kääntää ytimen CPU-palvelimella
+  `CC=rcc`:llä.
+- Pilvessä 171 käännöstä meni selainten CR:ille, joista 165 teki yksi
+  23 workerin selain. mk kesti 13 s, ja koko kbuild9p (lähteet
+  `/mnt/term`in kautta tunnelista) 43 s.
+- Edellytys: `/sys/include/bootinfo.h` palvelimella, koska crsrv antaa
+  CR:ille järjestelmän otsakkeet.

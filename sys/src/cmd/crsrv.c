@@ -884,6 +884,7 @@ void
 threadmain(int argc, char **argv)
 {
 	char *addr, *srvname, *objtype, *d, *p;
+	Dir nd;
 
 	addr = "tcp!*!17030";
 	srvname = "compute";
@@ -926,5 +927,13 @@ threadmain(int argc, char **argv)
 	statusfile = createfile(tree->root, "status", "crsrv", 0444, nil);
 	proccreate(listenproc, addr, 32*1024);
 	threadpostsrv(&fs, srvname);
+	/* for every user's sessions, not only the host owner's that runs
+	 * it: who may use the pool is the app's policy (compute) */
+	d = smprint("/srv/%s", srvname);
+	nulldir(&nd);
+	nd.mode = 0666;
+	if(dirwstat(d, &nd) < 0)
+		fprint(2, "crsrv: %s: %r\n", d);
+	free(d);
 	threadexits(nil);
 }

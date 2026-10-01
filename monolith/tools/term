@@ -18,7 +18,7 @@ import base64, json, os, secrets, ssl, subprocess, sys, tempfile, time, urllib.p
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(root, 'tools'))
 cache = os.environ.get('PLAN2001_CACHE', os.path.expanduser('~/.cache/plan2001'))
-password = open(os.path.join(cache, 'cpu.pass')).read().strip()
+password = open(os.environ.get('PASSFILE') or os.path.join(cache, 'cpu.pass')).read().strip()	# PASSFILE: another machine's (tools/cloud)
 DEVTOOLS = 19226
 Evkey = 2
 
@@ -75,7 +75,7 @@ def main():
 				time.sleep(0.2)
 		cdp = Cdp(page['webSocketDebuggerUrl'])
 		cdp.call('Page.enable')
-		cdp.call('Page.navigate', url=f'https://{host}/#pass={password}')
+		cdp.call('Page.navigate', url=f'https://{host}/' + (f"?user={os.environ['TERMUSER']}" if os.environ.get('TERMUSER') else '') + f'#pass={password}')	# TERMUSER: another user than glenda
 		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 120, "the term's console")
 		time.sleep(6)
 		if put is not None:

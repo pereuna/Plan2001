@@ -25,10 +25,10 @@ fn fail { echo CPU-LIVE FAILED: $*; rm -rf $t; exit $1 }
 if(want pages){
 	for(f in cr.html cr.js cr-worker.js){
 		cp $repo/monolith/web/$f /sys/lib/monolith/$f || fail pages
-		chmod 644 /sys/lib/monolith/$f
+		chmod 664 /sys/lib/monolith/$f	# the host owner's group keeps them up to date
 		if(test -e /sys/lib/monolith/$f.gz){
 			gzip -9 -c /sys/lib/monolith/$f >/sys/lib/monolith/$f.gz || fail gzip
-			chmod 644 /sys/lib/monolith/$f.gz
+			chmod 664 /sys/lib/monolith/$f.gz
 		}
 	}
 	echo pages: cr.html cr.js cr-worker.js
@@ -57,7 +57,7 @@ if(want crsrv){
 	if(~ $#args 0)
 		args=crsrv
 	for(p in `{ps | awk '$NF == "crsrv" {print $2}'})
-		echo kill >/proc/$p/notepg >[2]/dev/null
+		{ echo kill >/proc/$p/notepg } >[2]/dev/null	# a thread may be gone already
 	for(i in 1 2 3 4 5 6 7 8 9 10)
 		if(test -e /srv/compute)
 			sleep 0.5

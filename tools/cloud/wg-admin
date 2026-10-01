@@ -1,0 +1,26 @@
+#!/bin/bash
+# The administrators' WireGuard tunnel to the Plan2001 cloud CPU server
+# (tools/cloud/setup.rc: 10.201.0.1 there, 10.201.0.2 here), on this Linux
+# machine with sudo: interface wgp2001, keys in ~/.cache/plan2001/cloud.
+#   tools/cloud/wg-admin up [HOST:PORT]   default 82.70.55.84:51820
+#   tools/cloud/wg-admin down
+# Then 9pterm reaches the server's auth and rcpu, which take no one from
+# the internet: 9pterm -h 10.201.0.1 -a 'tcp!10.201.0.1!567' -u admin ...
+set -e
+sec=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cloud
+case $1 in
+up)
+	ep=${2:-82.70.55.84:51820}
+	sudo ip link del wgp2001 2>/dev/null || true
+	sudo ip link add wgp2001 type wireguard
+	sudo wg set wgp2001 private-key "$sec/wg-admin.key" \
+		peer "$(cat "$sec/wg-cloud.pub")" endpoint "$ep" allowed-ips 10.201.0.1/32 persistent-keepalive 25
+	sudo ip addr add 10.201.0.2/24 dev wgp2001
+	sudo ip link set wgp2001 up mtu 1420
+	echo "wg-admin: wgp2001 up, 10.201.0.2 -> 10.201.0.1 at $ep" ;;
+down)
+	sudo ip link del wgp2001 2>/dev/null || true
+	echo "wg-admin: wgp2001 down" ;;
+*)
+	echo "usage: tools/cloud/wg-admin up [HOST:PORT] | down" >&2; exit 2 ;;
+esac

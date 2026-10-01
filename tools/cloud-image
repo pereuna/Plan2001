@@ -1,0 +1,122 @@
+#!/bin/bash
+# The Plan2001 cloud CPU server's image (docs/cloud.md): cpu-amd64-poc1,
+# made in QEMU with the cloud's hardware (tools/vm --oci) from the OCI
+# base image, ready to import into Oracle Cloud.  Nothing is typed by
+# hand and nothing on the server is only there: the image comes from this
+# repo and ~/.cache/plan2001/cloud (passwords, WireGuard keys; made here
+# if missing), and the server makes its own TLS keys and certificate.
+#
+#   tools/cloud-image            -> build/oci/cpu-amd64-poc1.qcow2
+#   PUBLIC=IP                    the server's public address (DNS), default 82.70.55.84
+#   BASE=FILE                    the base, default build/oci/cpu-oci.qcow2 (a
+#                                9front CPU server on the OCI disk layout, 29.9)
+#
+# What it does, on the console (tools/9run: dialogs and --script, every
+# failure in build/vm/9run.log) and then as admin through 9pterm:
+#   admin the host owner (cwfs user, keyfs, /adm/keys re-encrypted, nvram),
+#   new random passwords for admin and glenda, the machine named by
+#   plan9.ini (tools/cloud/rename.rc), glenda's system files handed to
+#   admin (handover.rc), then tools/cloud/setup.rc: Plan2001 kernel and
+#   loader, profiles without rio, the compute pool, DNS, TLS and its
+#   renewal, auth/rcpu/exportfs only from the local network and WireGuard,
+#   the administrators' WireGuard tunnel (tools/cloud/wg-admin).
+# Then it boots the result and checks it: logins, the tunnel, the port
+# guard, https, the browser apps (monolith/tools/test-apps).
+#
+# The local CPU server VM (tools/vm) is stopped: one VM at a time.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+sec=$cache/cloud
+base=${BASE:-$root/build/oci/cpu-oci.qcow2}
+img=$root/build/oci/cloud.qcow2
+out=$root/build/oci/cpu-amd64-poc1.qcow2
+public=${PUBLIC:-82.70.55.84}
+T=$root/monolith/build/9pterm/9pterm
+sock=$HOME/.cache/9pterm-poc1.sock
+run9() { "$here/9run" "$@"; }
+say() { echo "cloud-image: $*"; }
+die() { echo "cloud-image: FAILED: $*" >&2; exit 1; }
+for f in "$base" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$T"; do
+	[ -s "$f" ] || die "no $f"
+done
+
+# secrets, here only
+mkdir -p "$sec"; chmod 700 "$sec"
+for u in admin glenda; do
+	[ -s "$sec/$u.pass" ] || (umask 077; tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 >"$sec/$u.pass")
+done
+for k in wg-cloud wg-admin; do
+	[ -s "$sec/$k.key" ] || (umask 077; wg genkey >"$sec/$k.key")
+	wg pubkey <"$sec/$k.key" >"$sec/$k.pub"
+done
+
+dialog() {	# dialog FILE.in USER [COMMAND]: changeuser-style, PASS replaced
+	local p; p=$(cat "$sec/$2.pass")
+	sed "s/PASS/$p/" "$1" | run9 -t 120 ${3:+-s "$3"} --dialog - >/dev/null || die "dialog $1 $3"
+}
+boot() {	# boot PROMPT
+	"$here/vm" stop >/dev/null 2>&1 || true
+	"$here/vm" start --disk "$img" --net --oci
+	printf '%s \t!done\n' "$1" | run9 -t 300 --dialog - >/dev/null || die "no $1 prompt"
+}
+halt() {
+	printf '%s\n' "!now done halting	!done" | run9 -t 90 -s fshalt --dialog - >/dev/null || die fshalt
+	"$here/vm" stop >/dev/null 2>&1 || true
+}
+session() {	# session USER: a 9pterm session at $sock
+	rm -f "$sock"
+	setsid "$T" -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u "$1" -P "$sec/$1.pass" -W 20 -M "$sock" >/dev/null 2>&1 &
+	for i in $(seq 40); do
+		[ -S "$sock" ] && "$T" -S "$sock" -Q >/dev/null 2>&1 && return 0
+		sleep 1
+	done
+	die "no session as $1"
+}
+
+say "base $base"
+cp --sparse=always "$base" "$img"
+boot 'cirno#'
+
+say "admin, the host owner: fs user, keys, nvram"
+for c in 'newuser admin' 'newuser sys +admin' 'newuser adm +admin' 'newuser glenda +admin' 'newuser admin +glenda'; do
+	run9 -t 30 "echo $c >>/srv/cwfs.cmd" >/dev/null || die "cwfs $c"
+done
+sleep 2
+dialog "$here/cloud/changeuser.dialog.in" admin 'auth/changeuser admin'
+dialog "$here/cloud/changeuser.dialog.in" glenda 'auth/changeuser glenda'
+p=$(cat "$sec/admin.pass")
+printf '%s\n' "[Pp]assword.*: *	$p" "[a-z0-9-]+# 	!done" | run9 -t 120 -s 'auth/convkeys /adm/keys' --dialog - >/dev/null || die convkeys
+printf '%s\n' "authid.*: *	admin" "authdom.*: *	plan2001" "secstore key.*: *	''" "confirm password: *	$p" "password: *	$p" "enable legacy p9sk1.*: *	''" "[a-z0-9-]+# 	!done" |
+	run9 -t 120 -s 'auth/wrkey' --dialog - >/dev/null || die wrkey
+run9 -t 120 --script "$here/cloud/rename.rc" | grep -q RENAME-DONE || die rename
+halt
+
+say "the new name and owner"
+boot 'cpu-amd64-poc1#'
+run9 -t 30 'mkdir -p /usr/admin/tmp /usr/admin/lib /usr/admin/bin/rc /usr/admin/bin/amd64' >/dev/null || die "admin home"
+"$T" -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -P "$sec/glenda.pass" -W 20 -T 300 \
+	-c "rc /mnt/term$here/cloud/handover.rc" | grep -q HANDOVER-DONE || die handover
+session admin
+"$here/rcparse" "$sock" "$here/cloud/setup.rc" "$here/cpu-live.rc" "$here/cloud/check.rc" "$here/cloud/handover.rc" >/dev/null || die "a script does not parse (tools/rcparse)"
+"$T" -S "$sock" -T 900 -c "rc /mnt/term$here/cloud/setup.rc /mnt/term$root /mnt/term$sec $public" | tee "$root/build/oci/setup.log" |
+	grep -q SETUP-DONE || die "setup (build/oci/setup.log)"
+"$T" -S "$sock" -X >/dev/null 2>&1 || true
+halt
+
+say "check"
+boot 'cpu-amd64-poc1#'
+"$here/cloud/wg-admin" up 127.0.0.1:51820 >/dev/null
+trap '"$here/cloud/wg-admin" down >/dev/null 2>&1 || true' EXIT
+sleep 3
+"$T" -h 10.201.0.1 -a 'tcp!10.201.0.1!567' -u admin -P "$sec/admin.pass" -W 20 -T 60 \
+	-c "rc /mnt/term$here/cloud/check.rc" | tee "$root/build/oci/check.log" | grep -q CHECK-DONE || die "check (build/oci/check.log)"
+curl -sk https://127.0.0.1:17443/cr.html | grep -q 'CR off' || die https
+PASSFILE="$sec/glenda.pass" "$root/monolith/tools/test-apps" >"$root/build/oci/test-apps.log" 2>&1 || die "browser apps (build/oci/test-apps.log)"
+"$here/cloud/wg-admin" down >/dev/null
+halt
+
+say "the image for Oracle Cloud"
+qemu-img convert -c -O qcow2 "$img" "$out"
+ls -l "$out"
+say "done: $out (docs/cloud.md: importing it)"

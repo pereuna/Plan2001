@@ -2,7 +2,9 @@
 # Builds a target's kernel ON a Plan2001/9front CPU server through a
 # 9pterm session, the sources straight from the client's repo at
 # /mnt/term (no tar, no disk images): the same overlay as tools/build.rc.
-#   9pterm -S SOCK -T 900 -c 'rc /mnt/term/PATH/TO/Plan2001/tools/kbuild9p.rc /mnt/term/PATH/TO/Plan2001 [target [stockkbd]]'
+#   9pterm -S SOCK -T 900 -c 'rc /mnt/term/PATH/TO/Plan2001/tools/kbuild9p.rc /mnt/term/PATH/TO/Plan2001 [target [stockkbd|syskbd] [pool]]'
+# pool: the compiles go to the compute pool (rcc: the browsers' CRs,
+# docs/cpu-server-design.md) when it has CRs, else here
 # The kernel lands in the repo's build/$target/ as $kernel.
 rfork en
 repo=$1
@@ -47,6 +49,16 @@ if(~ $#o 0){
 cp $o(1) $d/auxbin/kbdfs
 if(~ $3 syskbd)
 	cp /$objtype/bin/aux/kbdfs $d/auxbin/kbdfs
+# aux/reimage: the boot environment rewrites the disk from the network
+# (sys/src/9/boot/reimage.rc, devsd.proto)
+if(test -e $repo/sys/src/cmd/aux/reimage.c){
+	@{ cd $d/auxbin && cp $repo/sys/src/cmd/aux/reimage.c . && 6c -FTVw reimage.c && 6l -o reimage reimage.6 && rm -f reimage.c reimage.6 } || {
+		echo REIMAGE BUILD FAILED
+		cleanup
+		exit reimage
+	}
+	chmod 775 $d/auxbin/reimage
+}
 # bootfs.paq takes the modes of what it is made from, the directory too
 # (bin/aux is this union, $d/auxbin first), and files made under /tmp
 # here are 0750: bootrc's test -x /bin/aux/kbdfs, made before the host
@@ -56,9 +68,21 @@ chmod 775 $d/auxbin $d/auxbin/kbdfs
 bind -b $d/auxbin /$objtype/bin/aux
 
 echo '### kernel '^$kconf
+mkargs=()
+if(~ pool $*(3-)){
+	test -e /compute/status || mount -c /srv/compute /compute >[2]/dev/null
+	crs=`{awk '{print $2}' /compute/status >[2]/dev/null}
+	if(! ~ $#crs 0 && ! ~ $crs 0){
+		mkargs=('CC=rcc')
+		NPROC=64
+		echo pool: $crs CRs
+	}
+	if not
+		echo pool: no CRs, compiling here
+}
 bind -c $d/9 /sys/src/9
 cd /sys/src/9/$kdir
-time mk 'CONF='$kconf >$d/kernel.log >[2=1]
+time mk 'CONF='$kconf $mkargs >$d/kernel.log >[2=1]
 st=$status
 mkdir -p $repo/build/$target
 cp $d/kernel.log $repo/build/$target/kernel9p.log

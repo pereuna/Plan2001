@@ -1,0 +1,20 @@
+#!/bin/bash
+# Parse rc scripts on a Plan2001 machine, through a 9pterm session, without
+# running them: each is wrapped as the body of a function that is only
+# defined (9front's rc has no -n).  Exit 0 if all parse.
+#   tools/rcparse SOCK FILE...
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+sock=$1; shift
+# a command, not -Q: the session answers -Q itself even when its server is gone
+"$root/monolith/build/9pterm/9pterm" -S "$sock" -T 15 -c "echo ok" >/dev/null 2>&1 || { echo "rcparse: no working session at $sock" >&2; exit 2; }
+st=0
+for f in "$@"; do
+	p=$(cd "$(dirname "$f")" && pwd)/$(basename "$f")
+	if "$root/monolith/build/9pterm/9pterm" -S "$sock" -T 30 \
+		-c "{echo 'fn __rcparse {'; cat /mnt/term$p; echo '}'} >/tmp/rcparse.rc && rc /tmp/rcparse.rc"; then
+		echo "parses: $f"
+	else
+		echo "DOES NOT PARSE: $f"; st=1
+	fi
+done
+exit $st
