@@ -234,6 +234,13 @@ unwindgraph(void)
 	}
 }
 
+/* -k: the platform's functions are plat*, eia*: anything else undefined is a missing function */
+static int
+platformname(char *n)
+{
+	return strncmp(n, "plat", 4) == 0 || strncmp(n, "eia", 3) == 0;
+}
+
 void
 layout(void)
 {
@@ -269,7 +276,7 @@ layout(void)
 				continue;
 			for(p = f->text->link; p != nil; p = p->link)
 				if(p->as == ACALL && (p->to.type == D_EXTERN || p->to.type == D_STATIC) &&
-				   p->to.sym->type == SNONE) {
+				   p->to.sym->type == SNONE && platformname(p->to.sym->name)) {
 					p->to.sym->type = SIMPORT;
 					n++;
 				}

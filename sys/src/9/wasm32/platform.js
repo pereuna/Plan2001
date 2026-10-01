@@ -3,7 +3,7 @@
 // shared, one for all its Workers - and the functions of platform.h, which
 // it calls as any C function: their arguments are in memory at SP, results
 // go back in RET (wasm32's calling convention).  Each Worker is a CPU: the
-// first runs main, each newproc another (a kproc).  The page (kernel.html)
+// first runs main, each platnewproc another (a kproc).  The page (kernel.html)
 // is the machine's front: it makes the Workers and is #t/eia0's other end.
 //
 //   import { boot } from './platform.js'; boot('9wasm32.wasm', { eia(bytes), halt(why) })
@@ -20,15 +20,21 @@ function imports(env) {
 	const str = (p) => { const b = new Uint8Array(env.mem.buffer); let e = p; while (b[e]) e++; return new TextDecoder().decode(b.slice(p, e)); };
 	const fns = {
 		eiaout: () => env.post({ eia: new Uint8Array(env.mem.buffer).slice(arg(0), arg(0) + iarg(1)) }),
-		eiain: () => { env.x.retw.value = 0; },	// C2: the page's ring
-		newproc: () => env.post({ spawn: { fn: arg(0), arg: arg(1), sp: arg(2) } }),
-		pwait: () => {
+		eiaring: () => env.post({ ring: arg(0) }),	// uartwasm32.c's: r, w, b[8192]
+		platnewproc: () => env.post({ spawn: { fn: arg(0), arg: arg(1), sp: arg(2) } }),
+		platwait: () => {
 			const r = Atomics.wait(i32(), arg(0) >> 2, iarg(1), iarg(2) < 0 ? Infinity : iarg(2));
 			env.x.retw.value = r === 'ok' ? 0 : r === 'timed-out' ? 1 : 2;
 		},
-		pwake: () => { env.x.retw.value = Atomics.notify(i32(), arg(0) >> 2, iarg(1)); },
-		pnsec: () => { env.x.retv.value = BigInt(Math.round(performance.timeOrigin * 1e6 + performance.now() * 1e6)); },
-		phalt: () => env.post({ halt: arg(0) ? str(arg(0)) : '' }),
+		platwake: () => { env.x.retw.value = Atomics.notify(i32(), arg(0) >> 2, iarg(1)); },
+		platnsec: () => { env.x.retv.value = BigInt(Math.round(performance.timeOrigin * 1e6 + performance.now() * 1e6)); },
+		platrandom: () => {
+			const b = new Uint8Array(iarg(1));	/* getRandomValues takes no shared memory */
+			for (let o = 0; o < b.length; o += 65536) crypto.getRandomValues(b.subarray(o, Math.min(o + 65536, b.length)));
+			new Uint8Array(env.mem.buffer).set(b, arg(0));
+		},
+		platlog: () => env.post({ log: str(arg(0)) }),
+		plathalt: () => env.post({ halt: arg(0) ? str(arg(0)) : '' }),
 	};
 	// a function the kernel wants and the platform has not: say which
 	const platform = new Proxy(fns, { get: (o, k) => k === 'memory' ? env.mem : o[k] ?? (() => { throw new Error('platform: ' + String(k) + ' not here'); }) });
@@ -63,6 +69,7 @@ export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
 	const mem = new WebAssembly.Memory({ initial: PAGES, maximum: MAXPAGES, shared: true });
 	const eia = [];
+	let ring = 0;		/* #t/eia0's input: the kernel's ring */
 	const me = import.meta.url;
 	const spawn = (job) => {
 		const w = new Worker(me, { type: 'module' });
@@ -70,6 +77,8 @@ export async function boot(url, front = {}) {
 			const m = e.data;
 			if (m.eia) { eia.push(m.eia); front.eia?.(m.eia); }
 			if (m.spawn) spawn({ module, mem, role: 'proc', ...m.spawn });
+			if (m.log !== undefined) console.log('KLOG ' + m.log);
+			if (m.ring !== undefined) ring = m.ring;
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
 		w.onerror = (e) => console.log('KERNEL-HALT platform: worker: ' + e.message);
@@ -79,7 +88,22 @@ export async function boot(url, front = {}) {
 		eia0bytes: () => { const b = new Uint8Array(eia.reduce((n, c) => n + c.length, 0)); let o = 0; for (const c of eia) { b.set(c, o); o += c.length; } return b; },
 		eia0out: () => new TextDecoder().decode(window.monolith.eia0bytes()),
 		eia0b64: () => { let s = ''; for (const c of window.monolith.eia0bytes()) s += String.fromCharCode(c); return btoa(s); },
-		eia0in: () => -1,	// C2
+		eia0in: (x) => {
+			if (!ring) return -1;
+			const b = typeof x === 'string' ? new TextEncoder().encode(x) : new Uint8Array(x);
+			const i32 = new Int32Array(mem.buffer), u8 = new Uint8Array(mem.buffer), N = 8192;
+			let w = Atomics.load(i32, (ring + 4) >> 2), n = 0;
+			for (const c of b) {
+				if (w - Atomics.load(i32, ring >> 2) >= N) break;
+				u8[ring + 8 + (w % N)] = c;
+				w++;
+				n++;
+			}
+			Atomics.store(i32, (ring + 4) >> 2, w);
+			Atomics.notify(i32, (ring + 4) >> 2);
+			return n;
+		},
+		eia0inb64: (b) => window.monolith.eia0in(Uint8Array.from(atob(b), (c) => c.charCodeAt(0))),
 	};
 	spawn({ module, mem, role: 'boot' });
 }

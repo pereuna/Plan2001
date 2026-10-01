@@ -26,6 +26,17 @@ for d in port 9sys fmt; do
 	done
 done
 srcs+=("$P"/sys/src/libc/wasm32/*.c)
+# the system calls: one file each, as Plan 9's 9syscall makes them (a
+# program, or the kernel, gets only those it calls): _trap(n, &first)
+sc=$out/o/9syscall
+rm -rf "$sc"; mkdir -p "$sc"
+sed '/^#define._X[123]/d; s/#define[ 	]*\([A-Z0-9_]*\)[ 	]*\([0-9]*\).*/\1 \2/' "$lib/9syscall/sys.h" | grep -v '^$' |
+while read N n; do
+	i=$(echo $N | tr A-Z a-z)
+	case $i in exits|nsec) i=_$i ;; esac
+	printf 'typedef long long vlong;\nextern vlong _trap(int, void*);\n\nvlong\n%s(void *a)\n{\n\treturn _trap(%s, &a);\n}\n' "$i" "$n" >"$sc/$i.c"
+done
+srcs+=("$sc"/*.c)
 fail=0
 for s in "${srcs[@]}"; do
 	d=$(basename "$(dirname "$s")")

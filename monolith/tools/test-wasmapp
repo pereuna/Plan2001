@@ -168,7 +168,12 @@ def main():
 			open(os.path.join(root, f'build/wasmapp-{name}.log'), 'w').write('\n'.join(cdp.log) + '\n')
 			halt = [l for l in cdp.log if l.startswith('KERNEL-HALT')]
 			print(f'test-wasmapp: {name}: {halt or "did not halt"}')
-			if os.environ.get('EXPECT') and got != open(os.environ['EXPECT'], 'rb').read():
+			want = open(os.environ['EXPECT'], 'rb').read() if os.environ.get('EXPECT') else None
+			# EXPECTTAIL=1: what it says from the file's first line on (what comes before varies)
+			if want is not None and os.environ.get('EXPECTTAIL'):
+				i = got.find(want.split(b'\n')[0])
+				got = got[i:] if i >= 0 else got
+			if want is not None and got != want:
 				sys.stdout.write(got.decode(errors='backslashreplace'))
 				raise SystemExit(f'FAIL: {name}: its eia0 is not {os.environ["EXPECT"]} (build/wasmapp-{name}.txt)')
 			if not halt or 'platform:' in halt[0]:
