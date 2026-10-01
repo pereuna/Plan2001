@@ -153,6 +153,23 @@ def main():
 		cdp.call('Page.enable')
 		cdp.call('Runtime.enable')
 		if page:
+			# SEND: typed into #t/eia0 when it has settled (an interactive rc)
+			sends = json.loads(os.environ.get('SEND', '[]'))
+			if sends:
+				wait(cdp, 'window.monolith && window.monolith.eia0in("") >= 0', 60, 'eia0')
+			for line in sends:
+				last, since, end = None, time.time(), time.time() + 30
+				while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
+					try:
+						o = cdp.js('window.monolith.eia0b64()')
+					except RuntimeError:
+						o = None
+					if o != last:
+						last, since = o, time.time()
+					elif o is not None and time.time() - since > 0.6:
+						break
+					time.sleep(0.1)
+				cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
 			end = time.time() + 60
 			while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
 				try:

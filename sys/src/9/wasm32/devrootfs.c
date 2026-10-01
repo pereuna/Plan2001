@@ -1,0 +1,245 @@
+#include	"u.h"
+#include	"../port/lib.h"
+#include	"mem.h"
+#include	"dat.h"
+#include	"fns.h"
+#include	"../port/error.h"
+
+/*
+ * #R: the machine's root files, read-only - what the page gave at boot
+ * (platform.js, platbootfs: build/wasm32/root, tools/build-bin3).  The
+ * archive is, for each file, its path (a/b/c) and a 0, its length in
+ * four bytes, little-endian, and its bytes; its directories are made
+ * from the paths, and the mount points init binds to besides.
+ */
+
+typedef struct Ent Ent;
+struct Ent
+{
+	char	*name;
+	int	parent;
+	int	child;		/* its first; -1 none */
+	int	sibling;
+	int	dir;
+	uchar	*data;
+	ulong	len;
+};
+
+static	Ent	*ents;
+static	int	nents;
+static	int	aents;
+
+static char *mounts[] = { "dev", "env", "srv", "mnt", "n", "tmp", "proc", "fd" };
+
+static int
+newent(char *name, int parent, int dir)
+{
+	Ent *e;
+
+	if(nents == aents){
+		aents = aents ? 2*aents : 64;
+		ents = realloc(ents, aents*sizeof(Ent));
+		if(ents == nil)
+			panic("rootfs: no memory");
+	}
+	e = &ents[nents];
+	e->name = name;
+	e->parent = parent;
+	e->child = -1;
+	e->sibling = -1;
+	e->dir = dir;
+	e->data = nil;
+	e->len = 0;
+	if(parent >= 0){
+		/* at the end: ls shows the archive's order */
+		if(ents[parent].child < 0)
+			ents[parent].child = nents;
+		else{
+			int i;
+
+			for(i = ents[parent].child; ents[i].sibling >= 0; i = ents[i].sibling)
+				;
+			ents[i].sibling = nents;
+		}
+	}
+	return nents++;
+}
+
+static int
+lookup(int d, char *name)
+{
+	int i;
+
+	for(i = ents[d].child; i >= 0; i = ents[i].sibling)
+		if(strcmp(ents[i].name, name) == 0)
+			return i;
+	return -1;
+}
+
+/* path's directories, made as needed: the last element's parent */
+static int
+mkdirs(char *path, char **last)
+{
+	char *p, *q, *s;
+	int d, i;
+
+	d = 0;
+	for(p = path; (q = strchr(p, '/')) != nil; p = q+1){
+		s = malloc(q-p+1);
+		if(s == nil)
+			panic("rootfs: no memory");
+		memmove(s, p, q-p);
+		s[q-p] = 0;
+		if((i = lookup(d, s)) >= 0){
+			free(s);
+			d = i;
+		}else
+			d = newent(s, d, 1);
+	}
+	*last = p;
+	return d;
+}
+
+static void
+rootfsreset(void)
+{
+	uchar *a, *p, *e;
+	char *name, *last;
+	ulong len;
+	long n;
+	int d, i;
+
+	newent("/", -1, 1);
+	ents[0].parent = 0;
+	n = platbootfs(nil, 0);
+	if(n > 0){
+		a = xalloc(n);
+		if(a == nil)
+			panic("rootfs: %ld bytes", n);
+		platbootfs(a, n);
+		for(p = a, e = a+n; p < e; p += len){
+			name = (char*)p;
+			p += strlen(name)+1;
+			if(p+4 > e)
+				panic("rootfs: archive");
+			len = p[0] | p[1]<<8 | p[2]<<16 | (ulong)p[3]<<24;
+			p += 4;
+			if(p+len > e)
+				panic("rootfs: archive: %s", name);
+			d = mkdirs(name, &last);
+			i = newent(last, d, 0);
+			ents[i].data = p;
+			ents[i].len = len;
+		}
+	}
+	for(i = 0; i < nelem(mounts); i++)
+		if(lookup(0, mounts[i]) < 0)
+			newent(mounts[i], 0, 1);
+}
+
+static void
+entdir(Chan *c, int i, char *name, Dir *dp)
+{
+	Qid q;
+
+	mkqid(&q, i, 0, ents[i].dir ? QTDIR : QTFILE);
+	devdir(c, q, name, ents[i].len, eve, ents[i].dir ? DMDIR|0555 : 0555, dp);
+}
+
+static int
+rootfsgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
+{
+	int d, i;
+
+	d = c->qid.path;
+	if(s == DEVDOTDOT){
+		entdir(c, ents[d].parent, ents[d].parent == 0 ? "#R" : ents[ents[d].parent].name, dp);
+		return 1;
+	}
+	for(i = ents[d].child; i >= 0 && s > 0; i = ents[i].sibling)
+		s--;
+	if(i < 0)
+		return -1;
+	entdir(c, i, ents[i].name, dp);
+	return 1;
+}
+
+static Chan*
+rootfsattach(char *spec)
+{
+	return devattach('R', spec);
+}
+
+static Walkqid*
+rootfswalk(Chan *c, Chan *nc, char **name, int nname)
+{
+	return devwalk(c, nc, name, nname, nil, 0, rootfsgen);
+}
+
+static int
+rootfsstat(Chan *c, uchar *db, int n)
+{
+	Dir d;
+	int i;
+
+	i = c->qid.path;
+	entdir(c, i, i == 0 ? "#R" : ents[i].name, &d);
+	n = convD2M(&d, db, n);
+	if(n == 0)
+		error(Ebadarg);
+	return n;
+}
+
+static Chan*
+rootfsopen(Chan *c, int omode)
+{
+	return devopen(c, omode, nil, 0, rootfsgen);
+}
+
+static void
+rootfsclose(Chan*)
+{
+}
+
+static long
+rootfsread(Chan *c, void *a, long n, vlong off)
+{
+	Ent *e;
+
+	if(c->qid.type & QTDIR)
+		return devdirread(c, a, n, nil, 0, rootfsgen);
+	e = &ents[c->qid.path];
+	if(off < 0 || off >= e->len)
+		return 0;
+	if(off+n > e->len)
+		n = e->len - off;
+	memmove(a, e->data+off, n);
+	return n;
+}
+
+static long
+rootfswrite(Chan*, void*, long, vlong)
+{
+	error(Eperm);
+}
+
+Dev rootfsdevtab = {
+	'R',
+	"rootfs",
+
+	rootfsreset,
+	devinit,
+	devshutdown,
+	rootfsattach,
+	rootfswalk,
+	rootfsstat,
+	rootfsopen,
+	devcreate,
+	rootfsclose,
+	rootfsread,
+	devbread,
+	rootfswrite,
+	devbwrite,
+	devremove,
+	devwstat,
+};

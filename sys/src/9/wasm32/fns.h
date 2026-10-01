@@ -23,3 +23,8 @@ void	mmuinit(void);
 _Noreturn void	clockinit(void);
 int	userureg(Ureg*);
 char*	getconf(char*);
+vlong	syscall(int, ulong);
+_Noreturn void	touser(char**, int);
+uintptr	sysbind(va_list);
+uintptr	sysopen(va_list);
+extern Proc	*initp;
