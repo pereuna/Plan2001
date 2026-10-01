@@ -29,7 +29,6 @@ typedef struct Queue	Queue;
 typedef struct Ref	Ref;
 typedef struct Rendez	Rendez;
 typedef struct Rgrp	Rgrp;
-typedef struct RWLock	RWLock;
 typedef struct Waitq	Waitq;
 typedef struct Walkqid	Walkqid;
 typedef struct Kmesg	Kmesg;
@@ -64,14 +63,6 @@ struct Rendez
 {
 	Lock lk;
 	Proc	*p;
-};
-
-struct RWLock	/* changed from kernel */
-{
-	int	readers;
-	Lock	lk;
-	QLock	x;
-	QLock	k;
 };
 
 struct Talarm

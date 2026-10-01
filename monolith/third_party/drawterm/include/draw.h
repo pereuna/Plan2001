@@ -1,3 +1,4 @@
+
 typedef struct	Cachefont Cachefont;
 typedef struct	Cacheinfo Cacheinfo;
 typedef struct	Cachesubf Cachesubf;
@@ -12,6 +13,7 @@ typedef struct	RGB RGB;
 typedef struct	Screen Screen;
 typedef struct	Subfont Subfont;
 typedef struct	Warp Warp;
+
 
 extern	int	Rfmt(Fmt*);
 extern	int	Pfmt(Fmt*);
@@ -178,7 +180,8 @@ struct Screen
 struct Display
 {
 	QLock		qlock;
-	int		locking;	/*program is using lockdisplay */
+	RWLock		usrlock;	/* for getwindow(2) and the globals */
+	int		locking;	/* ignored (kept for backwards compatibility) */
 	int		dirno;
 	int		fd;
 	int		reffd;
@@ -327,6 +330,11 @@ struct Font
 #define	Dy(r)	((r).max.y-(r).min.y)
 
 /*
+ * One of a kind
+ */
+extern int		mousescrollsize(int);
+
+/*
  * Image management
  */
 extern Image*	_allocimage(Image*, Display*, Rectangle, ulong, int, ulong, int, int);
@@ -440,6 +448,7 @@ extern Point	_string(Image*, Point, Image*, Point, Font*, char*, Rune*, int, Rec
 extern Point	stringsubfont(Image*, Point, Image*, Subfont*, char*);
 extern int		bezier(Image*, Point, Point, Point, Point, int, int, int, Image*, Point);
 extern int		bezierop(Image*, Point, Point, Point, Point, int, int, int, Image*, Point, Drawop);
+extern int		bezierpts(Point, Point, Point, Point, Point**);
 extern int		bezspline(Image*, Point*, int, int, int, int, Image*, Point);
 extern int		bezsplineop(Image*, Point*, int, int, int, int, Image*, Point, Drawop);
 extern int		bezsplinepts(Point*, int, Point**);
@@ -458,7 +467,10 @@ extern void	fillarcop(Image*, Point, int, int, Image*, Point, int, int, Drawop);
 extern void	border(Image*, Rectangle, int, Image*, Point);
 extern void	borderop(Image*, Rectangle, int, Image*, Point, Drawop);
 extern Warp	mkwarp(double[3][3]);
-extern void	affinewarp(Image*, Rectangle, Image*, Point, Warp*, int);
+extern void	affinewarp(Image*, Rectangle, Image*, Image*, Point, Warp*, int);
+extern void	affinewarpop(Image*, Rectangle, Image*, Image*, Point, Warp*, int, Drawop);
+extern void	genaffinewarp(Image*, Point, Rectangle, Image*, Point, Image*, Point, Warp*, int);
+extern void	genaffinewarpop(Image*, Point, Rectangle, Image*, Point, Image*, Point, Warp*, int, Drawop);
 
 /*
  * Font management
@@ -489,8 +501,16 @@ extern int	loadchar(Font*, Rune, Cacheinfo*, int, int, char**);
 extern char*	subfontname(char*, char*, int);
 extern Subfont*	_getsubfont(Display*, char*);
 extern Subfont*	getdefont(Display*);
-extern void		lockdisplay(Display*);
+
+/*
+ * Concurrency
+ */
+extern void	lockdisplay(Display*);
 extern void	unlockdisplay(Display*);
+extern void	rlockdisplay(Display*);
+extern void	runlockdisplay(Display*);
+extern void	_lockdisplay(Display*);
+extern void	_unlockdisplay(Display*);
 
 /*
  * Predefined 
@@ -505,15 +525,15 @@ extern	Rectangle	ZR;
  */
 extern	Display	*display;
 extern	Font		*font;
-// extern	Image	*screen;
+extern	Image	*screen;
 extern	Screen	*_screen;
 extern	int	_cursorfd;
-extern	void	_setdrawop(Display*, Drawop);
+extern	uchar*	_bufimageop(Display*, int, Drawop);
 
-#define	BGSHORT(p)		(((p)[0]<<0) | ((p)[1]<<8))
-#define	BGLONG(p)		((BGSHORT(p)<<0) | (BGSHORT(p+2)<<16))
-#define	BPSHORT(p, v)		((p)[0]=(v), (p)[1]=((v)>>8))
-#define	BPLONG(p, v)		(BPSHORT(p, (v)), BPSHORT(p+2, (v)>>16))
+#define	BGSHORT(p)	((p)[0]|((p)[1]<<8))
+#define	BGLONG(p)	((p)[0]|((p)[1]<<8)|((p)[2]<<16)|((p)[3]<<24))
+#define BPSHORT(p,v)	do{ushort _v_=(v);(p)[0]=_v_;(p)[1]=_v_>>8;}while(0)
+#define BPLONG(p,v)	do{ulong _v_=(v);(p)[0]=_v_;(p)[1]=_v_>>8;(p)[2]=_v_>>16;(p)[3]=_v_>>24;}while(0)
 
 /*
  * Compressed image file parameters and helper routines

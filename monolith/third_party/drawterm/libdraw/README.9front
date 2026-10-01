@@ -1,0 +1,18 @@
+This libdraw is 9front's (the Plan2001 CPU server's, 1.10.2026; 9front is
+MIT-licensed), one library for drawterm's kernel and for the Plan 9
+programs built as WebAssembly on it (../../../wasmapp): drawterm's own
+libdraw was an older subset of it with its own draw.h, and two Display
+structs - drawterm's had no usrlock - broke a program linked with both.
+The headers are 9front's too (../include: draw.h, event.h, mouse.h,
+keyboard.h), without Plan 9 C's #pragma lines; RWLock is in lib.h, the
+kernel's.
+
+Not 9front's: mkwarp.c (drawterm's: 9front's needs geometry.h); chan.c
+has isspace renamed xisspace (it would be ctype's).
+Changed here: stringbg.c - its op parameters Drawop, not int (Plan 9's C
+takes an enum for an int, clang does not); event.c - its slaves (mouse,
+keyboard, timer, estart) are kprocs, not forked processes: there is no
+fork; no notes either.
+Not built (Makefile NOTHREAD): enter getrect keyboard menuhit mouse
+newwindow readcolmap - libthread, rio's newwindow, libbio; there are
+none of them here.  Not here: warptest.c and test.c, tests.
