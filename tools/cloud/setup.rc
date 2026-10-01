@@ -35,6 +35,8 @@ cp $repo/build/amd64/bootx64.efi /n/9fat/efi/boot/bootx64.efi || fail loader
 ls -l /n/9fat/9pc64 /n/9fat/efi/boot/bootx64.efi
 unmount /n/9fat
 
+step Plan2001 system headers (the pool's CRs get /sys/include from crsrv)
+cp $repo/sys/include/bootinfo.h /sys/include/bootinfo.h || fail bootinfo.h
 step the compute pool and the browser side
 rc $repo/tools/cpu-live.rc $repo pages apps webterm rcc crsrv || fail cpu-live
 

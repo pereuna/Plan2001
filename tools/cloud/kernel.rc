@@ -1,0 +1,16 @@
+#!/bin/rc
+# A new Plan2001 kernel and loader into the running server's 9fat, then
+# its file system halted and the machine rebooted into them (run as admin
+# through 9pterm: tools/cloud/kernel):	kernel.rc REPO
+rfork e
+repo=$1
+fn fail { echo KERNEL FAILED: $*; exit $1 }
+test -s $repo/build/amd64/9pc64 || fail no kernel
+bind -a '#S' /dev
+9fs 9fat >/dev/null || fail 9fat
+cp $repo/build/amd64/9pc64 /n/9fat/9pc64 || fail kernel
+cp $repo/build/amd64/bootx64.efi /n/9fat/efi/boot/bootx64.efi || fail loader
+ls -l /n/9fat/9pc64 /n/9fat/efi/boot/bootx64.efi
+unmount /n/9fat
+echo KERNEL-INSTALLED, rebooting
+@{ rfork s; sleep 3; fshalt -r } </dev/null >/dev/null >[2=1] &

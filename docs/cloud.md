@@ -278,3 +278,47 @@ kirjoiteta käsin:
    - auki TCP 443, TCP/UDP 53 ja UDP 51820;
    - kiinni 567, 17019 ja 17443, sillä palvelin ei niitä internetistä
      hyväksy muutenkaan.
+
+## Käyttöönotto pilvessä (1.10.)
+
+Imagen tuonti ei onnistunut Oraclessa:
+- boot volumen vaihto vaatii, että imagen käyttöjärjestelmätieto on sama
+  kuin instanssilla (Ubuntu);
+- UEFI-firmwaren valinta muuttaa tiedon arvoksi "Custom".
+
+Image kirjoitettiin siksi Ubuntun käynnistyslevylle ssh:n yli:
+`gzip -1 -n | ssh … 'gunzip | sudo dd of=/dev/sda'`.
+
+Käynnissä olevan järjestelmän oman levyn ylikirjoittaminen on arpapeliä:
+Ubuntun `sudo dd` kaatui segmentointivirheeseen, kun sen omat sivut
+jäivät levyllä `dd`:n alle. Pakotettu uudelleenkäynnistys toi kuitenkin
+uuden imagen esiin ehjänä. Kone haki heti oman Let's Encrypt
+-varmenteensa (`*.cpu.plan2001.com`, voimassa 30.12.2026 asti).
+
+**Jatkossa ei Ubuntua eikä tuontia:**
+- **`tools/cloud/kernel`** asentaa `build/amd64`:n ytimen ja loaderin
+  tunnelin yli 9fat:iin ja käynnistää koneen uudelleen. Uudelleenkäynnistys
+  tehdään koneen sisältä, joten se ei näy Oraclen konsolissa.
+- **`tools/cloud/reimage IMAGE`** vaihtaa koko levyn käynnistysympäristössä
+  (`aux/reimage`). Image kirjoitetaan ensin levyn jälkimmäiselle
+  puoliskolle, tarkistetaan (SHA-256 ja koko) ja vasta sitten kopioidaan
+  vanhan päälle. OCI:n levy on 50 Gt, joten 20 Gt:n image mahtuu
+  kahdesti. Tätä ei ole vielä kokeiltu.
+
+**Löytyneet viat:**
+- **WireGuardin vastaus ei lähtenyt** (`noroute`). 9frontin DHCP antaa
+  oletusreitin lähdekohtaisena, ja ulompien pakettien reittihaku
+  (`v4lookupskip`) kysyi ilman lähdettä. Korjaus: lähdekohtainen reitti
+  kelpaa, ja lähde otetaan sen alueelta. Paikallisessa testissä vika ei
+  näkynyt, koska vastapää oli samassa aliverkossa.
+- **`cpu-live` jätti crsrv:n pois päältä**, kun yksi sen säikeistä oli
+  ehtinyt poistua ennen tappoa (rc:n uudelleenohjausvirhe).
+
+**Ytimen kehitys poolissa:**
+- `kbuild9p.rc REPO amd64 pool` kääntää ytimen CPU-palvelimella
+  `CC=rcc`:llä.
+- Pilvessä 171 käännöstä meni selainten CR:ille, joista 165 teki yksi
+  23 workerin selain. mk kesti 13 s, ja koko kbuild9p (lähteet
+  `/mnt/term`in kautta tunnelista) 43 s.
+- Edellytys: `/sys/include/bootinfo.h` palvelimella, koska crsrv antaa
+  CR:ille järjestelmän otsakkeet.

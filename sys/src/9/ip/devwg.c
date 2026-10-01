@@ -629,7 +629,8 @@ static void
 sendouter(Wg *w, Block *b)
 {
 	uchar dst[IPaddrlen], src[IPaddrlen], *h, *gate;
-	int dport, n, ok;
+	int dport, n, ok, splen, i;
+	ulong x;
 	ushort csum;
 	Routehint rh;
 	Route *r;
@@ -649,8 +650,16 @@ sendouter(Wg *w, Block *b)
 			goto noroute;
 		gate = (r->type & (Rifc|Rbcast|Rmulti|Rv4)) == Rv4 ? r->v4.gate : dst+IPv4off;
 		memmove(src, v4prefix, IPv4off);
+		/* a source specific route (DHCP's default): a source from its
+		 * range, as v4source does */
+		splen = 0;
+		if(r->type & Rsrc){
+			for(x = ~(r->v4.endsource ^ r->v4.source); x & 0x80000000UL; x <<= 1)
+				splen++;
+			hnputl(src+IPv4off, r->v4.source);
+		}
 		rlock(ifc);
-		ok = ipv4local(ifc, src+IPv4off, 0, gate);
+		ok = ipv4local(ifc, src+IPv4off, splen, gate);
 		runlock(ifc);
 		if(!ok)
 			goto noroute;
@@ -678,8 +687,18 @@ sendouter(Wg *w, Block *b)
 		r = v6lookupskip(f, dst, IPnoaddr, &rh, &wgmedium);
 		if(r == nil || (ifc = r->ifc) == nil)
 			goto noroute;
+		splen = 0;
+		if(r->type & Rsrc){
+			for(i = 0; i < IPllen; i++){
+				hnputl(src+4*i, r->v6.source[i]);
+				for(x = ~(r->v6.endsource[i] ^ r->v6.source[i]); x & 0x80000000UL; x <<= 1)
+					splen++;
+				if(~(r->v6.endsource[i] ^ r->v6.source[i]) != 0xFFFFFFFFUL)
+					break;
+			}
+		}
 		rlock(ifc);
-		ok = ipv6local(ifc, src, 0, dst);
+		ok = ipv6local(ifc, src, splen, dst);
 		runlock(ifc);
 		if(!ok)
 			goto noroute;

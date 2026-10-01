@@ -621,7 +621,9 @@ v4lookup0(Fs *f, uchar *a, uchar *s, Routehint *rh, Medium *skip)
 			p = p->right;
 			continue;
 		}
-		if(p->type & Rsrc){
+		/* with skip and no source yet, a source specific route serves:
+		 * its source is the one to use (DHCP's default routes are) */
+		if((p->type & Rsrc) && (skip == nil || ls != 0)){
 			if(ls < p->v4.source){
 				p = p->mid;
 				continue;
@@ -708,7 +710,7 @@ v6lookup0(Fs *f, uchar *a, uchar *s, Routehint *rh, Medium *skip)
 			}
 			break;
 		}
-		if(p->type & Rsrc){
+		if((p->type & Rsrc) && (skip == nil || ipcmp(s, IPnoaddr) != 0)){
 			for(h = 0; h < IPllen; h++){
 				x = ls[h];
 				y = p->v6.source[h];

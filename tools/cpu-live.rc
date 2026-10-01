@@ -57,7 +57,7 @@ if(want crsrv){
 	if(~ $#args 0)
 		args=crsrv
 	for(p in `{ps | awk '$NF == "crsrv" {print $2}'})
-		echo kill >/proc/$p/notepg >[2]/dev/null
+		{ echo kill >/proc/$p/notepg } >[2]/dev/null	# a thread may be gone already
 	for(i in 1 2 3 4 5 6 7 8 9 10)
 		if(test -e /srv/compute)
 			sleep 0.5

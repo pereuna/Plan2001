@@ -1,0 +1,24 @@
+#!/bin/bash
+# Install build/amd64's kernel and loader on the cloud server and reboot
+# it, over the administrators' WireGuard tunnel (tools/cloud/wg-admin up),
+# then wait for it: tools/cloud/kernel [ADMIN-IP]
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$(dirname "$here")")
+admin=${1:-10.201.0.1}
+sec=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cloud
+T=$root/monolith/build/9pterm/9pterm
+p9() { "$T" -h "$admin" -a "tcp!$admin!567" -u admin -P "$sec/admin.pass" -W 20 -T "${TMO:-120}" -c "$1"; }
+# the reboot ends the connection: what it said is what counts
+out=$(TMO=60 p9 "rc /mnt/term$here/kernel.rc /mnt/term$root" 2>&1 || true)
+echo "$out"
+echo "$out" | grep -q KERNEL-INSTALLED || { echo "kernel: not installed" >&2; exit 1; }
+sleep 30
+for i in $(seq 60); do
+	if out=$(TMO=20 p9 'cat /dev/sysname; echo; cat /dev/osversion' 2>/dev/null); then
+		echo "kernel: up again: $(echo $out)"
+		exit 0
+	fi
+	sleep 10
+done
+echo "kernel: no answer in 10 minutes" >&2
+exit 1
