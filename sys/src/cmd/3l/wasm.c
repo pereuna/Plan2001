@@ -323,7 +323,7 @@ push(Adr *a, int k)
 	switch(a->type) {
 	case D_REG:
 		if(RCLASS(a->reg) != k && RNUM(a->reg) != NREGSP)
-			diag("%s: register class %d, not %d", cursym->name, RCLASS(a->reg), k);
+			diag("%s: register class %ld, not %d", cursym->name, RCLASS(a->reg), k);
 		if(RNUM(a->reg) == NREGRET)
 			op2(0x23, GRET + RCLASS(a->reg));
 		else
@@ -372,7 +372,7 @@ setreg(Adr *a, int k)
 		return;
 	}
 	if(RCLASS(a->reg) != k && RNUM(a->reg) != NREGSP)
-		diag("%s: register class %d, not %d", cursym->name, RCLASS(a->reg), k);
+		diag("%s: register class %ld, not %d", cursym->name, RCLASS(a->reg), k);
 	if(RNUM(a->reg) == NREGRET)
 		op2(0x24, GRET + RCLASS(a->reg));
 	else

@@ -268,11 +268,20 @@ nodfconst(double d)
 int
 nodreg(Node *n, Node *nn, int r)
 {
+	Type *t;
+	long l;
+
+	t = T;
+	l = 0;
+	if(nn != Z){	/* before *n is written: n may be nn */
+		t = nn->type;
+		l = nn->lineno;
+	}
 	*n = regnode;
 	n->reg = r;
 	if(nn != Z){
-		n->type = nn->type;
-		n->lineno = nn->lineno;
+		n->type = t;
+		n->lineno = l;
 	}
 	return 0;
 }
