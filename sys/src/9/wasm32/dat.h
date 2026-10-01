@@ -83,7 +83,7 @@ struct PMMU
 
 struct Mach
 {
-	int	machno;			/* a Worker's number */
+	int	machno;			/* 0: to port/, one CPU (proc.c) */
 	uintptr	splpc;
 	int	splhigh;		/* no interrupts here, but port/ keeps the level (ilock) */
 	Proc*	proc;			/* current process on this processor */
@@ -100,7 +100,7 @@ struct
 	int	exiting;
 }active;
 
-extern Mach*	machp[MAXMACH];	/* machp[0]: the boot CPU's; each Worker has its own Mach as m */
+extern Mach*	machp[MAXMACH];	/* machp[0]: mach0, the boot Worker's, the clock's; other Workers' m are not here */
 #define	MACHP(n)	(machp[n])
 
 extern register Mach* m;	/* registers 2, 3: each Worker's own (3c, 3l) */

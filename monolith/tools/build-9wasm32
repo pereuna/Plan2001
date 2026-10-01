@@ -4,7 +4,7 @@
 # build/wasm32/kernel/9wasm32.wasm; the page kernel.html and platform.js
 # boot it (tools/serve).
 #   tools/build-9wasm32
-set -e
+set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 P=$(cd "$root/.." && pwd)
 k=$P/sys/src/9/wasm32
@@ -30,5 +30,6 @@ for s in "$k"/*.c $(for f in $PORT; do echo "$port/$f.c"; done); do
 	fi
 done
 [ $fail = 0 ] || exit 1
+rm -f "$out/9wasm32.wasm"
 "$l3" -k -v -E main -o "$out/9wasm32.wasm" "$out"/o/*.3 "$root/build/wasm32/lib/libc.a" 2>&1 | grep -v '^3l: [0-9]* preemption'
 ls -l "$out/9wasm32.wasm"

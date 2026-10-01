@@ -20,6 +20,6 @@ void	validalign(uintptr, unsigned);
 void	splx(int);
 void	cycles(uvlong*);
 void	mmuinit(void);
-void	clockinit(void);
+_Noreturn void	clockinit(void);
 int	userureg(Ureg*);
 char*	getconf(char*);
