@@ -64,6 +64,9 @@ document.title = app + ' · Plan2001';
 const args = q.getAll('a').length ? q.getAll('a')
 	: ['-h', 'plan2001', '-a', 'tcp!plan2001!567', '-u', user];
 const textonly = args.includes('-G');
+// ?wasm=NAME: a Plan 9 program built into drawterm's kernel (tools/build
+// wasm-NAME, wasmapp/): NAME.js from this origin, no login, no server
+const wasm = /^[a-z0-9]+$/.test(q.get('wasm') || '') ? q.get('wasm') : 'drawterm';
 const touchui = q.has('touch') ? q.get('touch') !== '0' : matchMedia('(pointer: coarse)').matches;
 const box = document.getElementById('box');
 const canvas = document.getElementById('screen');
@@ -269,7 +272,7 @@ async function start() {
 	let text;
 	for (let i = 0; ; i++) {
 		try {
-			const r = await fetch('drawterm.js');
+			const r = await fetch(wasm + '.js');
 			if (!r.ok) throw new Error('HTTP ' + r.status);
 			text = await r.text();
 			break;
@@ -286,7 +289,7 @@ async function start() {
 	sc.src = URL.createObjectURL(blob);
 	document.body.appendChild(sc);
 }
-if (pass || textonly && !q.getAll('a').includes('-u')) {
+if (pass || wasm !== 'drawterm' || textonly && !q.getAll('a').includes('-u')) {
 	start();
 } else {
 	const login = document.getElementById('login');

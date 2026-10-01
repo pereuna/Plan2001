@@ -1,0 +1,3 @@
+9front programs built as WebAssembly on drawterm's kernel (../../wasmapp),
+unchanged: clock.c (sys/src/cmd/clock.c).  draw.h and event.h are
+9front's /sys/include ones (newer than drawterm's draw.h).
