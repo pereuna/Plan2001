@@ -1,0 +1,7 @@
+$objtype
+	bin
+		aux
+			reimage
+rc
+	lib
+		reimage.rc 555 sys sys ../boot/reimage.rc

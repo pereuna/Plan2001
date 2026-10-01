@@ -154,6 +154,14 @@ if(test -r /adm/wg/wg0){
 	{ n=`{read}; echo bind wg wg0 >/net/ipifc/$n/ctl; echo add 10.201.0.1 255.255.255.0 >/net/ipifc/$n/ctl } <>/net/ipifc/clone
 }
 @{ sleep 60; while(){ certrenew; sleep 86400 } } &
+# reimage (tools/cloud/reimage) is for one boot: this system booting means
+# it did not happen, so plan9.ini forgets it
+if(! ~ $#reimage 0){
+	9fs 9fat >/dev/null && {
+		grep -v '^reimage' /n/9fat/plan9.ini >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini
+		unmount /n/9fat
+	}
+}
 X
 echo $k >>$cfg/cpustart
 echo 'mount -c /srv/compute /global/compute' >>$cfg/cpustart

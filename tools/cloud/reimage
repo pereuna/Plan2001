@@ -1,0 +1,92 @@
+#!/bin/bash
+# Rewrite the Plan2001 cloud server's whole disk with an image, over the
+# network, without Oracle's image import (what dd over ssh to a rescue
+# system is elsewhere): sys/src/9/boot/reimage.rc and aux/reimage.
+#   tools/cloud/reimage IMAGE.qcow2
+#   HOST=IP PORT=N   where the boot environment takes it (82.70.55.84, 443)
+#   ADMIN=IP AUTH=DIAL  the running system for admin (10.201.0.1 over the
+#                    WireGuard tunnel, tools/cloud/wg-admin up; AUTH
+#                    defaults to tcp!ADMIN!567)
+# 1. the image as a raw gzip stream (gzip -1 -n), its SHA-256 and size
+# 2. as admin: plan9.ini gets reimage=PORT, a one-time key, the hash and
+#    the size; the server halts its file system and reboots
+# 3. its boot environment stages the image on the disk's second half,
+#    checks it, copies it over the old system and reboots; told back here
+# 4. the new system is waited for and asked its name
+# On any failure before the copy the old system boots again and forgets.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$(dirname "$here")")
+img=$1
+[ -s "$img" ] || { echo "usage: tools/cloud/reimage IMAGE.qcow2" >&2; exit 2; }
+sec=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cloud
+host=${HOST:-82.70.55.84} port=${PORT:-443}
+admin=${ADMIN:-10.201.0.1}; auth=${AUTH:-tcp!$admin!567}
+T=$root/monolith/build/9pterm/9pterm
+p9() { "$T" -h "$admin" -a "$auth" -u admin -P "$sec/admin.pass" -W 20 -T "${TMO:-60}" -c "$1"; }
+
+w=$root/build/reimage; mkdir -p "$w"
+echo "reimage: the stream"
+qemu-img convert -O raw "$img" "$w/raw"
+size=$(stat -c %s "$w/raw")
+gzip -1 -n -c "$w/raw" >"$w/raw.gz"
+rm -f "$w/raw"
+hash=$(sha256sum <"$w/raw.gz" | cut -d' ' -f1)
+key=$(openssl rand -hex 32)
+echo "reimage: $size bytes, $(stat -c %s "$w/raw.gz") compressed"
+
+echo "reimage: asking $admin to boot into it"
+cat >"$w/arm.rc" <<X
+9fs 9fat >/dev/null || exit 9fat
+{ grep -v '^reimage' /n/9fat/plan9.ini; echo 'reimage=$port'; echo 'reimagekey=$key'; echo 'reimagehash=$hash'; echo 'reimagesize=$size' } >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini || exit plan9.ini
+unmount /n/9fat
+echo armed: \`{cat /dev/sysname}
+@{ rfork s; sleep 3; fshalt -r } </dev/null >/dev/null >[2=1] &
+X
+p9 "rc /mnt/term$w/arm.rc"
+rm -f "$w/arm.rc"
+
+echo "reimage: sending to $host:$port"
+python3 - "$host" "$port" "$key" "$w/raw.gz" <<'PY'
+import socket, sys, time
+host, port, key, path = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+end = time.time() + 600
+while True:
+	try:
+		s = socket.create_connection((host, port), timeout=10)
+		s.settimeout(30)
+		b = s.recv(64)
+		if b.startswith(b'plan2001 reimage'):
+			break
+		s.close()
+	except OSError:
+		pass
+	if time.time() > end:
+		sys.exit('reimage: the boot environment did not answer in 10 minutes')
+	time.sleep(5)
+s.settimeout(None)
+s.sendall(key.encode() + b'\n')
+f = open(path, 'rb')
+n, t0 = 0, time.time()
+while (b := f.read(1 << 20)):
+	s.sendall(b)
+	n += len(b)
+s.shutdown(socket.SHUT_WR)
+print(f'reimage: sent {n} bytes in {time.time() - t0:.0f} s', flush=True)
+out = b''
+while (b := s.recv(4096)):
+	out += b
+text = out.decode(errors='replace')
+print(text, end='')
+sys.exit(0 if 'done, rebooting' in text else 1)
+PY
+echo "reimage: waiting for the new system"
+for i in $(seq 120); do
+	if out=$(TMO=20 p9 'cat /dev/sysname; echo; ls /n/9fat >[2]/dev/null; grep -c reimage /dev/null' 2>/dev/null); then
+		echo "reimage: up again: $(echo "$out" | head -1)"
+		rm -f "$w/raw.gz"
+		exit 0
+	fi
+	sleep 10
+done
+echo "reimage: the new system did not answer in 20 minutes" >&2
+exit 1

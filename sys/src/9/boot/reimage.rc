@@ -1,0 +1,19 @@
+#!/bin/rc
+# Plan2001 reimage (tools/cloud/reimage): the whole disk rewritten from
+# the network by the boot environment, which runs from memory with no
+# file system of the disk in use - what a rescue system and dd over ssh
+# are elsewhere.  bootrc sources this before it mounts the root; it does
+# something only when plan9.ini asks, for this boot:
+#	reimage=PORT		tcp port to take the image on (443 in the cloud)
+#	reimagekey=HEX		the one key a sender must give first
+#	reimagehash=HEX		SHA-256 of the gzip stream that follows
+#	reimagesize=BYTES	the raw image's size
+# aux/reimage stages, verifies, copies and reboots; when it does not, the
+# old system boots and removes these from plan9.ini (cpustart).
+if(! ~ $#reimage 0){
+	disk=`{echo $nobootprompt $bootargs | sed 's,.*local!(/dev/sd[^/ ]+)/.*,\1,; 1q'}
+	if(! test -e /net/ipifc/0/ctl)
+		ip/ipconfig >[2]/dev/null
+	if(! aux/reimage -p $reimage -k $reimagekey -h $reimagehash -s $reimagesize -d $disk)
+		echo reimage: not done, the old system boots
+}
