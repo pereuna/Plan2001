@@ -244,7 +244,22 @@ window.Module = {
 		// ?wasm=host3&prog=NAME: a wasm32 program (3c, 3l) on drawterm's kernel
 		if (/^[a-z0-9_-]+$/.test(q.get('prog') || '')) {
 			m.ENV.WASM32PROG = q.get('prog');
-			m.ENV.WASM32BIN = new URL('w3/', location.href).href;	// the Workers' own URLs are blobs
+			m.ENV.WASM32ARGV = q.getAll('arg').join('\x1f');
+			if (q.get('debug')) m.ENV.WASM32DEBUG = q.get('debug');
+			// /env/timezone (#e is the environment): the browser's offset, no transitions
+			const off = -new Date().getTimezoneOffset() * 60, tz = off ? 'LOC' : 'GMT';
+			m.ENV.timezone = `${tz} ${off} ${tz} ${off}\n`;
+			// build/wasm32/root into #U at /wasm32root before the kernel starts
+			m.addRunDependency('w3root');
+			(async () => {
+				const list = (await (await fetch('w3root.txt')).text()).split('\n').filter(Boolean);
+				await Promise.all(list.map(async (f) => {
+					const b = new Uint8Array(await (await fetch('w3root/' + f)).arrayBuffer());
+					m.FS.mkdirTree('/wasm32root/' + f.replace(/\/[^/]*$/, ''));
+					m.FS.writeFile('/wasm32root/' + f, b);
+				}));
+				m.removeRunDependency('w3root');
+			})().catch((e) => { show('w3root: ' + e); m.removeRunDependency('w3root'); });
 		}
 		// from Plan2001's webterm over https: its wss on the same origin;
 		// from tools/serve: its relay on the next port

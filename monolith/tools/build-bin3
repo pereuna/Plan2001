@@ -1,0 +1,48 @@
+#!/bin/bash
+# 9front's rc and commands for wasm32 (3c, 3l), from ../subset/9front, and
+# a root for them: build/wasm32/root (bin/NAME, rc/lib/rcmain) and its
+# list root.txt, which the page loads into drawterm's #U for host3
+# (wasm32host: ?wasm=host3&prog=rc).
+#   tools/build-bin3
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+P=$(cd "$root/.." && pwd)
+src=$P/subset/9front/sys/src/cmd
+out=$root/build/wasm32
+cc3=$root/build/cc-native/3c
+l3=$root/build/cc-native/3l
+"$root/tools/build-libc3" >/dev/null
+"$root/tools/build-3c3" >/dev/null	# libbio too
+INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
+libs="$out/lib/libbio.a $out/lib/libc.a"
+rm -rf "$out/root" "$out/o/cmd"
+mkdir -p "$out/root/bin" "$out/root/rc/lib" "$out/o/cmd/rc"
+fail=0
+
+# rc
+for f in code exec getflags glob here io lex pcmd pfnc simple subr trap tree var havefork plan9 y.tab; do
+	if ! (cd "$src/rc" && "$cc3" -FVw $INC -DPlan9 -o "$out/o/cmd/rc/$f.3" "$f.c") >"$out/o/cmd/rc/$f.err" 2>&1; then
+		echo "build-bin3: rc/$f.c:"; head -5 "$out/o/cmd/rc/$f.err"; fail=1
+	fi
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/rc" "$out"/o/cmd/rc/*.3 $libs || fail=1
+cp "$src/rc/rcmain.plan9" "$out/root/rc/lib/rcmain"
+
+# the one-file commands
+for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns; do	# not yet: sed (libregexp), mount (libauth)
+	if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/$c.3" "$c.c") >"$out/o/cmd/$c.err" 2>&1 ||
+	   ! "$l3" -o "$out/root/bin/$c" "$out/o/cmd/$c.3" $libs >>"$out/o/cmd/$c.err" 2>&1; then
+		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1
+	fi
+done
+# 3c's tests that run in the browser (tools/test-wasmapp host3)
+for t in libc/hello draw/dclock; do
+	n=$(basename $t)
+	if ! (cd "$P/sys/src/cmd/3c/test/$(dirname $t)" && "$cc3" -FVw $INC -o "$out/o/cmd/$n.3" "$n.c") >"$out/o/cmd/$n.err" 2>&1 ||
+	   ! "$l3" -o "$out/root/bin/$n" "$out/o/cmd/$n.3" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/$n.err" 2>&1; then
+		echo "build-bin3: $n:"; head -5 "$out/o/cmd/$n.err"; fail=1
+	fi
+done
+(cd "$out/root" && find . -type f | sed 's|^\./||' | sort) >"$out/root.txt"
+echo "build-bin3: $out/root ($(grep -c '^bin/' "$out/root.txt") programs, $(du -sh "$out/root" | cut -f1))"
+[ $fail = 0 ]

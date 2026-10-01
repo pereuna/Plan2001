@@ -155,31 +155,44 @@ ja 3c.wasm Nodessa 0,3 sekunnissa.
 ## Selaimessa drawtermin ytimen alla (vaihe A, 1.10.2026)
 
 `monolith/wasm32host`: wasm32-ohjelma on prosessi drawtermin ytimen alla.
-Prosessi on kproc eli Worker, joka ajaa ohjelman moduulin.
-`plan9.syscall` tulee host3.c:hen, joka kutsuu drawtermin sys*-funktioita
-(open, pread, pwrite, seek, stat, bind, mount, pipe, errstr, brk,
-exits ...). Ohjelman muistiin päästään vain host3js.c:n copyin- ja
-copyout-kutsuilla, kuin DMA:lla.
+Prosessi on kproc eli Worker, joka ajaa ohjelman moduulia.
+`plan9.syscall` tulee host3.c:hen, joka kutsuu drawtermin sys*-funktioita.
+Ohjelman muistiin päästään vain host3js.c:n copyin- ja copyout-kutsuilla,
+kuin DMA:lla.
 
-    monolith/tools/build host3                  build/host3/host3.{js,wasm}
-    ?wasm=host3&prog=NAME                       ajaa w3/NAME.wasm (build/wasm32/bin)
-    PROG=hello tools/test-wasmapp host3         libc-testi Plan 9 -konsolissa: PASS
-    PROG=dclock DRAWS=1 tools/test-wasmapp host3  9frontin libdraw (3c) piirtää kellon: PASS
+- fork (rfork RFPROC): pino puretaan (3l), muisti kopioidaan ytimen
+  kekoon, lapsi on uusi kproc, ja molemmat rakentavat pinon uudelleen.
+  RFFDG/RFCFDG kopioivat tai tyhjentävät tiedostokuvaajat, RFREND
+  rendezvous-ryhmän. RFNAMEG ja RFENVG jakavat vielä nimiavaruuden ja
+  ympäristön, ja RFMEM puuttuu.
+- exec ytimen nimiavaruudesta: WebAssembly-moduuli tai `#!`-skripti.
+- await/wait: lapsen exits-viesti Plan 9:n muodossa.
+- Prosessin päättyessä sen tiedostot suljetaan, jotta putken toinen pää
+  näkee lopun (drawtermin closefgrp ei sulkenut kanavia; korjattu).
+- Juuri: `tools/build-bin3` kääntää 9frontin rc:n ja komennot (cat, ls,
+  wc, date, cp, mv, rm, mkdir, sort, xd ...) ja kokoaa `build/wasm32/root`
+  -hakemiston (bin/, rc/lib/rcmain). Sivu lataa sen #U:hun, ja host3
+  liittää sen polkuihin / ja /bin. `/env/timezone` tulee selaimen
+  aikavyöhykkeestä.
 
-Aika on UTC, koska wasm32:n libc lukee aikavyöhykkeen 9frontin tapaan
-tiedostosta /env/timezone, jota drawtermin ympäristössä ei ole. Alustan
-on tarjottava se.
+    monolith/tools/build host3 && monolith/tools/build-bin3
+    ?wasm=host3&prog=rc&arg=-c&arg=...          rc /bin:stä; &debug=1..3 jäljittää
+    PROG=rc ARGS='["-c", "echo a b c | wc"]' tools/test-wasmapp host3   PASS
+    PROG=hello / PROG=dclock DRAWS=1 tools/test-wasmapp host3            PASS
 
 ## Kesken
 
 Suunnitelma ja vaiheet A–D: docs/architecture.md.
 
 
-- exec ytimen nimiavaruudesta (nyt ohjelma haetaan URL:sta).
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- rfork(RFMEM) ja libthread (atomics on jo, ks. alla).
+- rfork(RFMEM) ja libthread: jaettu muisti (3l: tuotu jaettu muisti,
+  passiiviset datasegmentit) ja lapselle oma pino; sitten event.c:n
+  apuprosessit (alkuperäinen clock.c) ja libthread.
+- RFNAMEG (nimiavaruuden kopio: pgrpcpy puuttuu drawtermista), RFENVG,
+  notes.
 - exec: wasm32-moduulin tunnistus ja käynnistys ytimen tavallisena
   exec-polkuna (nyt run3.mjs käynnistää moduulin itse).
 - 3a: assembleri samalle käskykannalle (nyt stub).

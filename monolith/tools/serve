@@ -27,6 +27,10 @@ for f in "$root"/build/wasm-*/*.js "$root"/build/wasm-*/*.wasm; do [ -e "$f" ] &
 for f in "$root"/build/host3/host3.js "$root"/build/host3/host3.wasm; do [ -e "$f" ] && ln -sfn "$f" "$site/"; done
 mkdir -p "$root/build/wasm32/bin"
 ln -sfn "$root/build/wasm32/bin" "$site/w3"
+# and their root (tools/build-bin3): rc, commands, /rc/lib/rcmain
+mkdir -p "$root/build/wasm32/root"; touch "$root/build/wasm32/root.txt"
+ln -sfn "$root/build/wasm32/root" "$site/w3root"
+ln -sfn "$root/build/wasm32/root.txt" "$site/w3root.txt"
 
 cd "$site"
 pids=

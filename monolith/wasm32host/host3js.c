@@ -1,7 +1,8 @@
 /*
  * host3's platform side (host3.c is the kernel's): the program's module
  * and memory, in JavaScript - copyin and copyout as DMA, brk, the module
- * run in this Worker.  Not with drawterm's headers: they define long.
+ * run in this Worker, kept there between runs (fork rewinds it).  Not
+ * with drawterm's headers: they define long.
  */
 #include <emscripten.h>
 
@@ -37,62 +38,92 @@ EM_JS(int, h3brk, (unsigned want), {
 	return 0;
 });
 
-EM_JS(void, h3exit, (const char *msg), {
-	globalThis.h3.exit = msg ? UTF8ToString(msg) : '';
+/* after this system call the program stops: exits, exec */
+EM_JS(void, h3stop, (int why), {
+	globalThis.h3.stop = why;
+});
+
+/* fork: after this system call the stack unwinds (3l) */
+EM_JS(void, h3unwind, (int flags), {
+	const h = globalThis.h3;
+	h.fork = flags;
+	h.inst.exports.asstate.value = 1;
 });
 
 /*
- * run url's module with argv: argc, argv[0] ... nil at its sp, as
- * Plan 9's kernel puts them; returns when it exits
+ * run the program: mode 0 a new one (img, argc, argv at its sp as Plan
+ * 9's kernel puts them), 1 a forked child (img, the parent's memory
+ * snap, rewound with asret), 2 the one here, rewound with asret.  Then
+ * out[0]: 0 it exited, 1 it unwound for fork (out[1] the flags, out[2]
+ * its memory in ours - malloc'd - out[3] its size, out[4] asptr), 2 exec
  */
-EM_JS(int, h3run, (const char *curl, int argc, char **argv, vlong *ret, char *msg, int nmsg), {
-	const fail = (t) => { stringToUTF8('host3: ' + url + ': ' + t, msg, nmsg); return -1; };
-	const url = UTF8ToString(curl);
-	let bytes;
+EM_JS(int, h3run, (int mode, unsigned char *img, int nimg, int argc, char **argv,
+	unsigned char *snap, int nsnap, unsigned asptr, vlong *asret, vlong *ret, int *out, char *msg, int nmsg), {
+	const fail = (t) => { stringToUTF8(String(t), msg, nmsg); return -1; };
+	/* one for the Worker: a forked process goes on with the closure made when it started */
+	const Stop = globalThis.h3stop ??= { stop: true };
+	let h = globalThis.h3;
 	try {
-		const x = new XMLHttpRequest();
-		x.open('GET', url, false);
-		x.responseType = 'arraybuffer';
-		x.send();
-		if (x.status != 200) return fail('http ' + x.status);
-		bytes = x.response;
-	} catch (e) { return fail(e); }
-	const h = globalThis.h3 = { exit: undefined, mem: null };
-	class Exit {}
-	let inst;
-	try {
-		inst = new WebAssembly.Instance(new WebAssembly.Module(bytes), { plan9: { syscall: (n, a) => {
-			_h3syscall1(n, a >>> 0);
-			if (h.exit !== undefined) throw new Exit();
-			const d = new DataView(wasmMemory.buffer);
-			return d.getBigInt64(ret, true);
-		} } });
-	} catch (e) { return fail(e); }
-	h.mem = inst.exports.memory;
-	const sp = inst.exports.sp, b = new Uint8Array(h.mem.buffer), d = new DataView(h.mem.buffer);
-	let top = sp.value;
-	const ptrs = [];
-	for (let i = 0; i < argc; i++) {
-		const s = UTF8ToString(HEAPU32[(argv >> 2) + i]), e = new TextEncoder().encode(s + '\0');
-		top -= e.length;
-		b.set(e, top);
-		ptrs.push(top);
-	}
-	top &= ~7;
-	top -= 4 * (argc + 2);
-	top &= ~7;
-	d.setInt32(top, argc, true);
-	ptrs.forEach((p, i) => d.setInt32(top + 4 + 4*i, p, true));
-	d.setInt32(top + 4 + 4*argc, 0, true);
-	sp.value = top;
-	try {
-		inst.exports._start();
+		if (mode != 2) {
+			const bytes = new Uint8Array(wasmMemory.buffer, img, nimg).slice();
+			h = globalThis.h3 = { stop: 0, fork: 0, mem: null, inst: null };
+			h.inst = new WebAssembly.Instance(new WebAssembly.Module(bytes), { plan9: { syscall: (n, a) => {
+				_h3syscall1(n, a >>> 0);
+				if (h.stop) throw Stop;
+				return new DataView(wasmMemory.buffer).getBigInt64(ret, true);
+			} } });
+			h.mem = h.inst.exports.memory;
+		}
+		const x = h.inst.exports;
+		if (mode == 0) {
+			const b = new Uint8Array(h.mem.buffer), d = new DataView(h.mem.buffer), k = new DataView(wasmMemory.buffer);
+			let top = x.sp.value;
+			const ptrs = [];
+			for (let i = 0; i < argc; i++) {
+				const s = UTF8ToString(k.getUint32(argv + 4*i, true)), e = new TextEncoder().encode(s + '\0');
+				top -= e.length;
+				b.set(e, top);
+				ptrs.push(top);
+			}
+			top &= ~7;
+			top -= 4 * (argc + 2);
+			top &= ~7;
+			d.setInt32(top, argc, true);
+			ptrs.forEach((p, i) => d.setInt32(top + 4 + 4*i, p, true));
+			d.setInt32(top + 4 + 4*argc, 0, true);
+			x.sp.value = top;
+		} else {
+			if (mode == 1) {
+				if (nsnap > h.mem.buffer.byteLength)
+					h.mem.grow(Math.ceil((nsnap - h.mem.buffer.byteLength) / 65536));
+				new Uint8Array(h.mem.buffer).set(new Uint8Array(wasmMemory.buffer, snap, nsnap));
+				x.asptr.value = asptr;
+			}
+			x.asstate.value = 2;
+			x.asret.value = new DataView(wasmMemory.buffer).getBigInt64(asret, true);
+		}
+		h.stop = 0;
+		h.fork = 0;
+		try {
+			x._start();
+		} catch (e) {
+			if (e !== Stop) throw e;
+		}
+		const o = (i, v) => new DataView(wasmMemory.buffer).setInt32(out + 4*i, v, true);
+		if (h.stop == 2) { o(0, 2); return 0; }
+		if (h.fork && !h.stop) {
+			const n = h.mem.buffer.byteLength, p = _malloc(n);
+			if (!p) return fail('no memory for fork');
+			new Uint8Array(wasmMemory.buffer).set(new Uint8Array(h.mem.buffer), p);
+			o(0, 1); o(1, h.fork); o(2, p); o(3, n); o(4, x.asptr.value);
+			return 0;
+		}
+		o(0, 0);
+		return 0;
 	} catch (e) {
-		if (!(e instanceof Exit)) return fail(e + (e.stack ? ' ' + e.stack : ''));
+		return fail(e + (e.stack ? ' ' + e.stack : ''));
 	}
-	return h.exit ? 1 : 0;
 });
-
 
 /* a process's end, on the page's console (tests: tools/test-wasmapp) */
 void
@@ -100,6 +131,13 @@ h3log(const char *prog, int bad, const char *msg)
 {
 	MAIN_THREAD_EM_ASM({ console.log('HOST3-EXIT ' + UTF8ToString($0) + ' ' + ($1 ? UTF8ToString($2) : 'ok')); },
 		prog, bad, msg);
+}
+
+/* host3's own tracing (?debug=1), on the page's console */
+void
+h3trace(const char *s)
+{
+	MAIN_THREAD_EM_ASM({ console.log('HOST3 ' + UTF8ToString($0)); }, s);
 }
 
 /* the kernel's (host3.c) */

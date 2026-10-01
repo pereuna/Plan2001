@@ -5,7 +5,8 @@ time; PASS when the canvas is not one colour and is not drawterm's own
 console window (its grey title bar, which the program draws over);
 the screen goes to build/wasmapp-NAME.png.
   tools/test-wasmapp [NAME [SECONDS]]     (default clock, 8)
-  PROG=P tools/test-wasmapp host3          a wasm32 program (3c, 3l) on drawterm's
+  PROG=P [ARGS='["a", ...]'] tools/test-wasmapp host3
+                                           a wasm32 program (3c, 3l) on drawterm's
                                            kernel: ?wasm=host3&prog=P, PASS when
                                            it exits ok (HOST3-EXIT) and drew
 """
@@ -124,6 +125,10 @@ def main():
 				time.sleep(0.2)
 		prog = os.environ.get('PROG')
 		url = f'http://127.0.0.1:{HTTP}/?wasm={name}' + (f'&prog={prog}' if prog else '')
+		for a in json.loads(os.environ.get('ARGS', '[]')):	# ARGS='["-c", "echo hi"]'
+			url += '&arg=' + urllib.parse.quote(a, safe='')
+		if os.environ.get('DEBUG'):
+			url += '&debug=' + os.environ['DEBUG']
 		t = json.loads(urllib.request.urlopen(urllib.request.Request(
 			f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT')).read())
 		cdp = Cdp(t['webSocketDebuggerUrl'])

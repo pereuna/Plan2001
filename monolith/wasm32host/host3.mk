@@ -12,4 +12,4 @@ wasm32host/host3js.$O: wasm32host/host3js.c
 	$(CC) -O2 -pthread -c -o $@ $<
 
 host3.js: $(filter-out cpu.$O,$(OFILES)) $(H3) $(LIBS)
-	$(CC) $(LDFLAGS) -o $@ $(filter-out cpu.$O,$(OFILES)) $(H3) $(LIBS) $(LDADD) -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_h3syscall1
+	$(CC) $(LDFLAGS) -o $@ $(filter-out cpu.$O,$(OFILES)) $(H3) $(LIBS) $(LDADD) -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_h3syscall1 -sEXPORTED_RUNTIME_METHODS=ENV,UTF8ToString,FS,addRunDependency,removeRunDependency -sFORCE_FILESYSTEM
