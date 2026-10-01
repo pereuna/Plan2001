@@ -8,9 +8,11 @@
 /*
  * #R: the machine's root files, read-only - what the page gave at boot
  * (platform.js, platbootfs: build/wasm32/root, tools/build-bin3).  The
- * archive is, for each file, its path (a/b/c) and a 0, its length in
- * four bytes, little-endian, and its bytes; its directories are made
- * from the paths, and the mount points init binds to besides.
+ * archive is, for each file, its path (a/b/c: no leading /, no empty
+ * element, no . or ..) and a 0, its length in four bytes, little-endian,
+ * and its bytes; its directories are made from the paths, and the mount
+ * points init binds to besides.  The page's input: checked, a bad one a
+ * panic.
  */
 
 typedef struct Ent Ent;
@@ -91,6 +93,8 @@ mkdirs(char *path, char **last)
 		memmove(s, p, q-p);
 		s[q-p] = 0;
 		if((i = lookup(d, s)) >= 0){
+			if(!ents[i].dir)
+				panic("rootfs: archive: %s: a file, not a directory", path);
 			free(s);
 			d = i;
 		}else
@@ -100,10 +104,28 @@ mkdirs(char *path, char **last)
 	return d;
 }
 
+/* a/b/c: no leading /, no empty element, no . or .. */
+static int
+goodpath(char *s)
+{
+	char *q;
+	int n;
+
+	for(;;){
+		q = strchr(s, '/');
+		n = q != nil ? q-s : strlen(s);
+		if(n == 0 || n == 1 && s[0] == '.' || n == 2 && s[0] == '.' && s[1] == '.')
+			return 0;
+		if(q == nil)
+			return 1;
+		s = q+1;
+	}
+}
+
 static void
 rootfsreset(void)
 {
-	uchar *a, *p, *e;
+	uchar *a, *p, *e, *z;
 	char *name, *last;
 	ulong len;
 	long n;
@@ -118,15 +140,21 @@ rootfsreset(void)
 			panic("rootfs: %ld bytes", n);
 		platbootfs(a, n);
 		for(p = a, e = a+n; p < e; p += len){
+			if((z = memchr(p, 0, e-p)) == nil)
+				panic("rootfs: archive: a name without its 0");
 			name = (char*)p;
-			p += strlen(name)+1;
-			if(p+4 > e)
-				panic("rootfs: archive");
+			if(!goodpath(name))
+				panic("rootfs: archive: bad name %q", name);
+			p = z+1;
+			if(e-p < 4)
+				panic("rootfs: archive: %s: no length", name);
 			len = p[0] | p[1]<<8 | p[2]<<16 | (ulong)p[3]<<24;
 			p += 4;
-			if(p+len > e)
-				panic("rootfs: archive: %s", name);
+			if(len > e-p)
+				panic("rootfs: archive: %s: %lud bytes, %ld there", name, len, (long)(e-p));
 			d = mkdirs(name, &last);
+			if(lookup(d, last) >= 0)
+				panic("rootfs: archive: %s twice", name);
 			i = newent(last, d, 0);
 			ents[i].data = p;
 			ents[i].len = len;

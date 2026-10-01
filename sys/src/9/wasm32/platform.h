@@ -21,4 +21,4 @@ long	platustrlen(ulong, long);		/* a string's length there, at most the second; 
 int	platbrk(ulong);			/* its memory to the address at least: -1 can not */
 void	platfork(Proc*, void (*)(Proc*), ulong);	/* it unwinds, its memory the child's, ready(child), both rewind (pid, 0) */
 long	platbootfs(void*, long);	/* the files the page gave: its size, the archive into the buffer */
-long	platbootargs(void*, long);	/* what init runs: argv's strings, each with its 0 */
+long	platbootargs(void*, long);	/* what init runs, argv's strings each with its 0: its size, and into the buffer */

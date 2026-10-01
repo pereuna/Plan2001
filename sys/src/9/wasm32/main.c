@@ -57,22 +57,30 @@ kcall(uintptr (*f)(va_list), ...)
 static void
 inituser(void)
 {
-	char *args, *argv[32];
+	char *args, *e, *z, **argv;
 	long n;
 	int argc;
 	Chan *c;
 
-	args = smalloc(4096);
-	n = platbootargs(args, 4095);
+	n = platbootargs(nil, 0);
 	if(n <= 0){
 		plathalt("C2a done");
 		for(;;)
 			tsleep(&up->sleep, return0, nil, 1000000);
 	}
-	for(argc = 0; argc < nelem(argv)-1 && n > 0; argc++){
-		argv[argc] = args;
-		n -= strlen(args)+1;
-		args += strlen(args)+1;
+	/* the page's: each string must end in its 0 */
+	args = smalloc(n);
+	platbootargs(args, n);
+	argv = smalloc((n+1)*sizeof(char*));
+	argc = 0;
+	for(e = args+n; args < e; args = z+1){
+		if((z = memchr(args, 0, e-args)) == nil){
+			print("inituser: init's arguments: no 0 at the end\n");
+			plathalt("inituser error");
+			for(;;)
+				tsleep(&up->sleep, return0, nil, 1000000);
+		}
+		argv[argc++] = args;
 	}
 	argv[argc] = nil;
 
