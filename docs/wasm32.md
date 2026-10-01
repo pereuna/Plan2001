@@ -126,15 +126,30 @@ yacc-jäsennin, makroprosessori, tyyppijärjestelmä ja 3c:n backend
 kääntyvät 3c:llä ja tuottavat saman tuloksen. Natiivi 3c kääntää t1.c:n
 ja 3c.wasm Nodessa 0,3 sekunnissa.
 
+## Selaimessa drawtermin ytimen alla (vaihe A, 1.10.2026)
+
+`monolith/wasm32host`: wasm32-ohjelma on prosessi drawtermin ytimen alla.
+Prosessi on kproc eli Worker, joka ajaa ohjelman moduulin.
+`plan9.syscall` tulee host3.c:hen, joka kutsuu drawtermin sys*-funktioita
+(open, pread, pwrite, seek, stat, bind, mount, pipe, errstr, brk,
+exits ...). Ohjelman muistiin päästään vain host3js.c:n copyin- ja
+copyout-kutsuilla, kuin DMA:lla.
+
+    monolith/tools/build host3                  build/host3/host3.{js,wasm}
+    ?wasm=host3&prog=NAME                       ajaa w3/NAME.wasm (build/wasm32/bin)
+    PROG=hello tools/test-wasmapp host3         libc-testi Plan 9 -konsolissa: PASS
+    PROG=dclock DRAWS=1 tools/test-wasmapp host3  9frontin libdraw (3c) piirtää kellon: PASS
+
+Aika on UTC, koska wasm32:n libc lukee aikavyöhykkeen 9frontin tapaan
+tiedostosta /env/timezone, jota drawtermin ympäristössä ei ole. Alustan
+on tarjottava se.
+
 ## Kesken
 
 Suunnitelma ja vaiheet A–D: docs/architecture.md.
 
 
-- Ydin: wasm32-prosessit drawtermin ytimen alle selaimessa niin, että
-  `plan9.syscall` on drawtermin sysopen, sysread ja niin edelleen. Prosessi
-  on oma Workerinsa jaetulla muistilla, ja järjestelmäkutsu odottaa
-  ytimen vastausta `Atomics.wait`:lla.
+- exec ytimen nimiavaruudesta (nyt ohjelma haetaan URL:sta).
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
