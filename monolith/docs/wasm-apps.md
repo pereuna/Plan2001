@@ -82,3 +82,11 @@ Mitä selvisi:
 - Vaihtoehto clang.wasm:lle on 6c:n wasm-taustaosa: satoja kilotavuja ja
   9frontin C sellaisenaan, mutta koodigeneraattori ja linkitys pitäisi
   kirjoittaa itse.
+
+## Jatko: 3c (1.10.2026)
+
+clang.wasm jää vertailutoteutukseksi. Plan2001:n oma suunta on 3c ja 3l:
+WebAssembly on arkkitehtuuri muiden joukossa (`objtype=wasm32`, .3), ja
+kääntäjä on 9frontin cc-frontend omalla backendillä. 3c kääntää 9frontin
+libc:n sekä itsensä: 3c.wasm on 447 kt, kun clang.wasm on 75 Mt. Ks.
+../../docs/wasm32.md.
