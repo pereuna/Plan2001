@@ -1,0 +1,38 @@
+#!/bin/bash
+# 9front's libc for wasm32 (3c): port, 9sys and fmt from
+# ../subset/9front/sys/src/libc, Plan2001's ../sys/src/libc/wasm32 for
+# what 386 has in assembler, compiled by 3c (tools/build-cc native 3c)
+# with ../wasm32/include and 9front's /sys/include.
+#   tools/build-libc3     build/wasm32/lib/libc.a
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+P=$(cd "$root/.." && pwd)
+lib=$P/subset/9front/sys/src/libc
+out=$root/build/wasm32
+cc3=$root/build/cc-native/3c
+"$root/tools/build-cc" native 3c >/dev/null
+mkdir -p "$out/lib" "$out/o/libc"
+rm -f "$out/o/libc/"*.3
+INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
+srcs=()
+for d in port 9sys fmt; do
+	for f in "$lib/$d"/*.c; do
+		case $d/$(basename "$f") in
+		9sys/callmain.c) ;;	# wasm32/main9.c
+		*) srcs+=("$f") ;;
+		esac
+	done
+done
+srcs+=("$P"/sys/src/libc/wasm32/*.c)
+fail=0
+for s in "${srcs[@]}"; do
+	d=$(basename "$(dirname "$s")")
+	o=$out/o/libc/$d-$(basename "${s%.c}").3
+	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+		echo "build-libc3: $s:"; head -5 "$o.err"; fail=1
+	fi
+done
+[ $fail = 0 ] || exit 1
+rm -f "$out/lib/libc.a"
+ar rcD "$out/lib/libc.a" "$out"/o/libc/*.3
+echo "build-libc3: $out/lib/libc.a ($(ls "$out"/o/libc/*.3 | wc -l) objects)"

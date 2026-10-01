@@ -2,28 +2,36 @@
 # 9front's C compiler 6c (amd64 objects, .6) for a compute resource
 # (docs/cpu-server-design.md): third_party/9cc (cc, 6c, libbio from 9front)
 # on POSIX through cc9/ (u.h, libc.h, the few system calls) and drawterm's
-# portable libc (fmt, utf, print).
-#   tools/build-cc native   build/cc-native/6c   (gcc; for testing)
-#   tools/build-cc wasm     build/cc-wasm/6c.{js,wasm}  (Emscripten; a
-#                           module the page instantiates per compile)
+# portable libc (fmt, utf, print).  Or Plan2001's 3c (WebAssembly, .3;
+# ../sys/src/cmd/3c) on the same front end.
+#   tools/build-cc native [6c|3c]   build/cc-native/6c   (gcc; for testing)
+#   tools/build-cc wasm [6c|3c]     build/cc-wasm/6c.{js,wasm}  (Emscripten; a
+#                                   module the page instantiates per compile)
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 t=$root/third_party
 what=${1:-native}
+cc=${2:-6c}
 case $what in
 native)	CC=${CC:-gcc}; out=$root/build/cc-native ;;
 wasm)	CC=emcc; out=$root/build/cc-wasm ;;
-*)	echo "usage: tools/build-cc [native|wasm]" >&2; exit 2 ;;
+*)	echo "usage: tools/build-cc [native|wasm] [6c|3c]" >&2; exit 2 ;;
 esac
-mkdir -p "$out/o"
+case $cc in
+6c)	be=$t/9cc/6c; befiles="cgen enam list sgen swt txt reg peep machcap div mul" ;;
+3c)	be=$(cd "$root/../sys/src/cmd/3c" && pwd); befiles="cgen enam list sgen swt txt machcap" ;;
+3l)	be=$(cd "$root/../sys/src/cmd/3l" && pwd); befiles="obj wasm" ;;	# the loader: no front end
+*)	echo "usage: tools/build-cc [native|wasm] [6c|3c|3l]" >&2; exit 2 ;;
+esac
+mkdir -p "$out/o/$cc"
 CFLAGS="-O2 -std=gnu17 -w -fno-strict-aliasing -fwrapv -Dlinux
 	-I$root/cc9 -I$t/drawterm/include -I$t/drawterm -I$t/9cc/cc"
 srcs=()
-for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 dpchk pgen pswt; do
+[ $cc = 3l ] || for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 dpchk pgen pswt; do
 	srcs+=("$t/9cc/cc/$f.c")
 done
-for f in cgen enam list sgen swt txt reg peep machcap div mul; do
-	srcs+=("$t/9cc/6c/$f.c")
+for f in $befiles; do
+	srcs+=("$be/$f.c")
 done
 srcs+=($(ls "$t"/9cc/libbio/*.c | grep -v btestprint) "$root/cc9/compat.c" "$root/cc9/p9.c" "$root/cc9/qsort.c")
 # drawterm's libc: what builds on POSIX (the rest is for its kernel)
@@ -38,9 +46,9 @@ objs=()
 fail=0
 for s in "${srcs[@]}"; do
 	case $s in
-	*/9cc/6c/*) o=$out/o/6c-$(basename "${s%.c}").o; inc=-I$t/9cc/6c ;;
-	*/drawterm/libc/*) o=$out/o/libc-$(basename "${s%.c}").o; inc= ;;
-	*) o=$out/o/$(basename "${s%.c}").o; inc=-I$t/9cc/6c ;;
+	$be/*) o=$out/o/$cc/be-$(basename "${s%.c}").o; inc=-I$be ;;
+	*/drawterm/libc/*) o=$out/o/$cc/libc-$(basename "${s%.c}").o; inc= ;;
+	*) o=$out/o/$cc/$(basename "${s%.c}").o; inc=-I$be ;;
 	esac
 	if ! $CC $CFLAGS $inc -c "$s" -o "$o" 2>"$o.err"; then
 		echo "build-cc: $s:"; head -5 "$o.err"; fail=1
@@ -49,9 +57,9 @@ for s in "${srcs[@]}"; do
 done
 [ $fail = 0 ] || exit 1
 if [ $what = native ]; then
-	$CC -o "$out/6c" "${objs[@]}" -lm
+	$CC -o "$out/$cc" "${objs[@]}" -lm
 else
-	$CC -O2 -o "$out/6c.js" "${objs[@]}" -sMODULARIZE -sEXPORT_NAME=Cc6 \
+	$CC -O2 -o "$out/$cc.js" "${objs[@]}" -sMODULARIZE -sEXPORT_NAME=Cc${cc%c} \
 		-sEXPORTED_RUNTIME_METHODS=FS,callMain -sINVOKE_RUN=0 -sEXIT_RUNTIME=1 \
 		-sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,worker,node -sFORCE_FILESYSTEM
 fi

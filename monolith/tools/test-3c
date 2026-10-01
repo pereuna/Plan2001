@@ -1,0 +1,83 @@
+#!/bin/bash
+# 3c and 3l (Plan2001's WebAssembly compiler and loader,
+# ../sys/src/cmd/3c, 3l): each test (../sys/src/cmd/3c/test/t*.c, no
+# libc: _trap is the system call) compiled, linked, run by
+# tools/run3.mjs, its output the same as gcc's for the same source; and
+# with 9front's libc (tools/build-libc3): test/libc/NAME.c run with the
+# arguments one, "two words", its output NAME.out; and self: 3c and 3l
+# compiled by 3c (tools/build-3c3) compile and link 3c's own sources to
+# the same bytes as the native ones.
+#   tools/test-3c [NAME...]     default all
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+td=$(cd "$root/../sys/src/cmd/3c/test" && pwd)
+out=$root/build/test-3c
+mkdir -p "$out"
+"$root/tools/build-cc" native 3c >/dev/null
+"$root/tools/build-cc" native 3l >/dev/null
+cc3=$root/build/cc-native/3c
+l3=$root/build/cc-native/3l
+tests=("$@")
+[ ${#tests[@]} -gt 0 ] || tests=($(cd "$td" && ls t*.c libc/*.c | sed 's/\.c$//') self)
+bad=0
+for t in "${tests[@]}"; do
+	case $t in
+	self)
+		"$root/tools/build-3c3" >"$out/self.log" 2>&1 || { echo "test-3c: self: FAIL (build-3c3)"; tail -5 "$out/self.log"; bad=1; continue; }
+		P=$(cd "$root/.." && pwd); t9=$root/third_party/9cc
+		inc="-I$P/wasm32/include -I$P/subset/9front/sys/include"
+		rm -rf "$out/self"; mkdir -p "$out/self/nat" "$out/self/w"
+		n=0; nb=0
+		for spec in $(for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 compat dpchk pgen pswt; do echo "$t9/cc/$f.c:-I$P/sys/src/cmd/3c"; done
+			for f in cgen enam list sgen swt txt machcap; do echo "$P/sys/src/cmd/3c/$f.c:-I$t9/cc"; done
+			for f in obj wasm; do echo "$P/sys/src/cmd/3l/$f.c:"; done); do
+			s=${spec%%:*}; x=${spec#*:}; o=$(basename "${s%.c}").3
+			case $s in */3l/*) o=3l-$o ;; esac
+			(cd "$(dirname "$s")" && "$cc3" -FVw $inc $x -o "$out/self/nat/$o" "$(basename "$s")") >/dev/null 2>&1
+			(cd "$(dirname "$s")" && node "$root/tools/run3.mjs" "$root/build/wasm32/bin/3c.wasm" -FVw $inc $x -o "$out/self/w/$o" "$(basename "$s")") >/dev/null 2>&1
+			n=$((n+1)); cmp -s "$out/self/nat/$o" "$out/self/w/$o" || { nb=$((nb+1)); echo "test-3c: self: $s differs"; }
+		done
+		# 3l.wasm links 3c.wasm's objects as 3l does
+		libs="$root/build/wasm32/lib/libbio.a $root/build/wasm32/lib/libc.a"
+		(cd "$out/self/w" && node "$root/tools/run3.mjs" "$root/build/wasm32/bin/3l.wasm" -o ../3c.w.wasm $(ls | grep -v '^3l-') $libs) >/dev/null 2>&1
+		(cd "$out/self/nat" && "$l3" -o ../3c.nat.wasm $(ls | grep -v '^3l-') $libs) >/dev/null 2>&1
+		cmp -s "$out/self/3c.w.wasm" "$out/self/3c.nat.wasm" || { nb=$((nb+1)); echo "test-3c: self: 3l.wasm links differently"; }
+		if [ $nb = 0 ]; then
+			echo "test-3c: self: ok ($n sources the same, 3c.wasm linked the same by 3l.wasm, $(stat -c %s "$out/self/3c.w.wasm") bytes)"
+		else
+			bad=1
+		fi
+		continue ;;
+	libc/*)
+		if [ -z "$libcdone" ]; then	# with this 3c
+			"$root/tools/build-libc3" >/dev/null
+			libcdone=1
+		fi
+		n=${t#libc/}
+		inc="-I$root/../wasm32/include -I$root/../subset/9front/sys/include"
+		if ! (cd "$td/libc" && "$cc3" -FVw $inc -o "$out/$n.3" "$n.c") >"$out/$n.err" 2>&1 ||
+		   ! "$l3" -o "$out/$n.wasm" "$out/$n.3" "$root/build/wasm32/lib/libc.a" >>"$out/$n.err" 2>&1; then
+			echo "test-3c: $t: FAIL (build)"; head -10 "$out/$n.err"; bad=1; continue
+		fi
+		node "$root/tools/run3.mjs" "$out/$n.wasm" one "two words" >"$out/$n.got" 2>&1 || true
+		if cmp -s "$td/libc/$n.out" "$out/$n.got"; then
+			echo "test-3c: $t: ok ($(wc -l <"$out/$n.got") lines, $(stat -c %s "$out/$n.wasm") bytes)"
+		else
+			echo "test-3c: $t: FAIL"; diff "$td/libc/$n.out" "$out/$n.got" | head -20; bad=1
+		fi
+		continue
+	esac
+	if ! (cd "$td" && "$cc3" -o "$out/$t.3" "$t.c") >"$out/$t.err" 2>&1 ||
+	   ! "$l3" -o "$out/$t.wasm" "$out/$t.3" >>"$out/$t.err" 2>&1; then
+		echo "test-3c: $t: FAIL (build)"; head -10 "$out/$t.err"; bad=1; continue
+	fi
+	gcc -w -fwrapv -fno-strict-aliasing -o "$out/$t.gcc" "$td/$t.c" "$td/gccshim.c"
+	"$out/$t.gcc" >"$out/$t.want" 2>&1 || true
+	node "$root/tools/run3.mjs" "$out/$t.wasm" >"$out/$t.got" 2>&1 || true
+	if cmp -s "$out/$t.want" "$out/$t.got"; then
+		echo "test-3c: $t: ok ($(wc -l <"$out/$t.got") lines, $(stat -c %s "$out/$t.wasm") bytes)"
+	else
+		echo "test-3c: $t: FAIL"; diff "$out/$t.want" "$out/$t.got" | head -20; bad=1
+	fi
+done
+[ $bad = 0 ] && echo "PASS" || { echo "FAIL"; exit 1; }
