@@ -11,3 +11,14 @@ vlong	platnsec(void);			/* nanoseconds since 1970 */
 void	platrandom(void*, ulong);	/* crypto.getRandomValues */
 void	platlog(char*);			/* early, before #t/eia0: on the page's console (KLOG) */
 void	plathalt(char*);			/* the machine stops: the page says so */
+
+/* the program on this proc's Worker: its own module and memory (trap.c, sysproc.c) */
+int	platexec(void*, long, void*, long, int);	/* the next program: its module's bytes, argv's strings, argc; -1 not a module */
+_Noreturn void	platuser(vlong (*)(int, ulong));	/* run it, and each one exec makes next; its system calls to the function */
+int	platcopyin(void*, ulong, long);	/* from the program's memory: -1 not there */
+int	platcopyout(ulong, void*, long);	/* to it */
+long	platustrlen(ulong, long);		/* a string's length there, at most the second; -1 none */
+int	platbrk(ulong);			/* its memory to the address at least: -1 can not */
+void	platfork(Proc*, void (*)(Proc*), ulong);	/* it unwinds, its memory the child's, ready(child), both rewind (pid, 0) */
+long	platbootfs(void*, long);	/* the files the page gave: its size, the archive into the buffer */
+long	platbootargs(void*, long);	/* what init runs: argv's strings, each with its 0 */

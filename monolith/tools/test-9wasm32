@@ -1,0 +1,24 @@
+#!/bin/bash
+# Plan2001's wasm32 kernel (sys/src/9/wasm32) in headless Chromium: its
+# serial port, #t/eia0, against sys/src/9/wasm32/test/*.out - C2a's test
+# of port/, then init as a program from the root (tools/build-bin3): echo,
+# fork, rc -c, an interactive rc.
+#   tools/test-9wasm32 [NAME...]
+set -e -o pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+t=$root/../sys/src/9/wasm32/test
+"$root/tools/build-9wasm32" >/dev/null
+[ -s "$root/build/wasm32/root.txt" ] || "$root/tools/build-bin3" >/dev/null
+run() {	# NAME ARGS [SEND]
+	echo "test-9wasm32: $1"
+	PAGE=kernel.html SERIAL=1 EXPECTTAIL=1 EXPECT="$t/$1.out" ARGS="$2" SEND="${3:-[]}" \
+		"$root/tools/test-wasmapp" kernel | tail -1
+}
+want() { local n=$1; shift; [ $# = 0 ] || [[ " $* " == *" $n "* ]]; }
+names="$*"
+want c2a $names && run c2a '[]'
+want echo $names && run echo '["/bin/echo", "hello", "world"]'
+want fork $names && run fork '["/bin/fork"]'
+want rc $names && run rc '["/bin/rc", "-c", "echo hello from rc; x=(a b c); echo $#x; ls /bin/echo /bin/rc | wc -l; cat /rc/lib/rcmain | wc -l; echo done"]'
+want rci $names && run rci '["/bin/rc", "-i"]' '["echo hi\n", "ls /bin/echo /bin/rc | wc -l\n", "x=`{echo a b}; echo $#x\n", "cat nonexistent\n", "exit\n"]'
+echo "test-9wasm32: ok"

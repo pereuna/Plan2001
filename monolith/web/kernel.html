@@ -17,9 +17,40 @@
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
+const q = new URLSearchParams(location.search), args = q.getAll('arg');
+
+// the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c)
+async function rootfs() {
+	const names = (await (await fetch('w3root.txt')).text()).split('\n').filter((n) => n);
+	const files = await Promise.all(names.map(async (n) => new Uint8Array(await (await fetch('w3root/' + n)).arrayBuffer())));
+	const enc = new TextEncoder(), parts = [];
+	names.forEach((n, i) => {
+		const len = new Uint8Array(4);
+		new DataView(len.buffer).setUint32(0, files[i].length, true);
+		parts.push(enc.encode(n + '\0'), len, files[i]);
+	});
+	const a = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+	let o = 0;
+	for (const p of parts) { a.set(p, o); o += p.length; }
+	return a;
+}
+
+// typing: a line at a time, echoed here (no kbdfs yet), to #t/eia0
+let line = '';
+document.addEventListener('keydown', (e) => {
+	if (!window.monolith || e.ctrlKey || e.metaKey || e.altKey) return;
+	if (e.key === 'Enter') { pre.textContent += '\n'; window.monolith.eia0in(line + '\n'); line = ''; }
+	else if (e.key === 'Backspace') { if (line) { line = line.slice(0, -1); pre.textContent = pre.textContent.slice(0, -1); } }
+	else if (e.key.length === 1) { line += e.key; pre.textContent += e.key; }
+	else return;
+	e.preventDefault();
+});
+
 boot('9wasm32.wasm', {
 	eia: (b) => { pre.textContent += dec.decode(b, { stream: true }); },
 	halt: (why) => { pre.textContent += '\n[halted: ' + why + ']\n'; },
+	fs: args.length ? await rootfs() : undefined,
+	args,
 });
 </script>
 </body>

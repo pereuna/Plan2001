@@ -9,7 +9,7 @@
  * on the other machines
  */
 extern	Dev	rootdevtab, consdevtab, envdevtab, pipedevtab, dupdevtab;
-extern	Dev	srvdevtab, mntdevtab, uartdevtab;
+extern	Dev	srvdevtab, mntdevtab, uartdevtab, rootfsdevtab;
 
 Dev*	devtab[] = {
 	&rootdevtab,
@@ -20,6 +20,7 @@ Dev*	devtab[] = {
 	&srvdevtab,
 	&mntdevtab,
 	&uartdevtab,
+	&rootfsdevtab,
 	nil,
 };
 

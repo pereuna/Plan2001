@@ -209,8 +209,31 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   (`platform`), ja argumentit ovat muistissa kuten wasm32:n
   kutsukonventiossa.
 
+- Järjestelmäkutsun raja (`trap.c`, C2b): ohjelma on oma moduulinsa omalla
+  muistillaan procin Workerissa (platform.js, `platuser`). Sen
+  `plan9.syscall(n, a)` kutsuu saman Workerin ytimen `syscall(n, a)`:ta.
+  Kutsutaulu kertoo jokaisen argumenttisanan lajin: sana, vlong,
+  merkkijono, luettava tai kirjoitettava puskuri tai pipen int[2].
+  Merkkijonot ja puskurit kopioidaan ytimeen ennen 9frontin `sys*`-funktiota
+  ja kirjoitettu osa takaisin sen jälkeen, joten laitteet näkevät vain
+  ytimen osoitteita. Virheet kulkevat 9frontin errstr-vaihdon kautta.
+- Ohjelmat (`sysproc.c`): exec lukee moduulin (ja `#!`-tulkin) ytimeen ja
+  antaa sen alustalle, joka purkaa vanhan ohjelman kehykset ja käynnistää
+  uuden. Fork (RFPROC ilman RFMEM:iä) tekee lapsen 9frontin tapaan, minkä
+  jälkeen alusta purkaa ohjelman pinon muistiin, kopioi muistin lapsen
+  Workerille ja kutsuu `ready`a, ja molemmat rakentavat pinonsa
+  uudelleen. exits on 9frontin pexit, joka palaa `procstart`iin, ja Worker
+  päättyy. Notesit, RFMEM ja kontekstit tulevat C3:ssa.
+- Juuri `#R` (`devrootfs.c`): sivun käynnistyksessä antamat tiedostot
+  (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
+  `#t`:n `/dev`iin sekä `#e`:n ja `#s`:n paikoilleen, avaa `#t/eia0`:n
+  tiedostoiksi 0, 1 ja 2 ja ajaa sivun `?arg=`-argumenteista saadun
+  ohjelman. Rivinmuokkaus ja kaiku ovat toistaiseksi sivun (kbdfs puuttuu).
+  Testit: `tools/test-9wasm32` (c2a, echo, fork, rc -c ja interaktiivinen
+  rc).
+
 | | Sisältö | Valmis kun |
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
-| C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia |
+| C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
 | C3 | fork, exec, RFMEM, preemptio, kontekstit, notes; devdraw ja hiiri alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |

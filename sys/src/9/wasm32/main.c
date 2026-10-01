@@ -35,6 +35,72 @@ confinit(void)
 	conf.copymode = 0;
 }
 
+Proc	*initp;		/* its end is the machine's (sysexits) */
+
+static uintptr
+kcall(uintptr (*f)(va_list), ...)
+{
+	va_list a;
+	uintptr r;
+
+	va_start(a, f);
+	r = (*f)(a);
+	va_end(a);
+	return r;
+}
+
+/*
+ * C2b: init becomes a program, what the page says (platbootargs): its
+ * root #R, the page's files; #c, #t (eia0) in /dev, #e, #s; its files
+ * 0, 1, 2 #t/eia0.  Without one: the end of C2a's test.
+ */
+static void
+inituser(void)
+{
+	char *args, *argv[32];
+	long n;
+	int argc;
+	Chan *c;
+
+	args = smalloc(4096);
+	n = platbootargs(args, 4095);
+	if(n <= 0){
+		plathalt("C2a done");
+		for(;;)
+			tsleep(&up->sleep, return0, nil, 1000000);
+	}
+	for(argc = 0; argc < nelem(argv)-1 && n > 0; argc++){
+		argv[argc] = args;
+		n -= strlen(args)+1;
+		args += strlen(args)+1;
+	}
+	argv[argc] = nil;
+
+	if(waserror()){
+		print("inituser: %s\n", up->errstr);
+		plathalt("inituser error");
+		for(;;)
+			tsleep(&up->sleep, return0, nil, 1000000);
+	}
+	c = namec("#R", Atodir, 0, 0);
+	pathclose(c->path);
+	c->path = newpath("/");
+	cclose(up->slash);
+	cclose(up->dot);
+	up->slash = c;
+	up->dot = cclone(c);
+	kcall(sysbind, "#c", "/dev", MAFTER);
+	kcall(sysbind, "#t", "/dev", MAFTER);
+	kcall(sysbind, "#e", "/env", MREPL|MCREATE);
+	kcall(sysbind, "#s", "/srv", MREPL|MCREATE);
+	kcall(sysopen, "/dev/eia0", OREAD);
+	kcall(sysopen, "/dev/eia0", OWRITE);
+	kcall(sysopen, "/dev/eia0", OWRITE);
+	poperror();
+	initp = up;
+	touser(argv, argc);
+}
+
 /*
  * C2a: port/ at work - the console (devcons on #t/eia0), a pipe,
  * #e, errors, sleep with a timeout, the time
@@ -112,9 +178,7 @@ initproc(void*)
 		print("ticks in it: %s\n", ticks >= 5 && ticks <= 100 ? "ok" : "wrong");
 	}
 	USED(fd);
-	plathalt("C2a done");
-	for(;;)
-		tsleep(&up->sleep, return0, nil, 1000000);
+	inituser();
 }
 
 void
