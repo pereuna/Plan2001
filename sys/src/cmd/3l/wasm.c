@@ -7,7 +7,8 @@
  *	globals	SP, RET.w RET.v RET.f RET.d
  *	table	function pointers: index 1 on (0 is nil)
  *	import	plan9.syscall(number i32, args i32) -> i64
- *	export	memory, _start (calls the entry: -E, default _main)
+ *	export	memory, sp, _start (calls the entry: -E, default _main; the
+ *		kernel puts argc, argv[0] ... nil at sp first)
  * every function () -> ().  Control flow: a function's basic blocks in
  * nested blocks, block j's code after the end of block j: a branch
  * forward is a br out to it; one backward goes round a loop whose
@@ -725,7 +726,7 @@ function(Sym *s, Buf *b)
 	cursym = s;
 	code.n = 0;
 	if(s->type == SSYNTH) {
-		/* _trap: plan9.syscall(*SP, SP+4), the result in RET */
+		/* _trap(n, args): plan9.syscall(n, args), the result in RET */
 		buleb(b, 1);
 		buleb(b, 1);
 		bput1(b, I64);
@@ -733,8 +734,8 @@ function(Sym *s, Buf *b)
 		op(0x28);
 		memarg(2, 0);
 		op2(0x23, GSP);
-		iconst(4);
-		op(0x6a);
+		op(0x28);
+		memarg(2, 4);
 		op2(0x10, 0);
 		op2(0x22, 0);		/* local.tee */
 		op2(0x24, GRET+Kv);
@@ -894,11 +895,14 @@ asmb(void)
 	bput1(&b, F64); bput1(&b, 1); bput1(&b, 0x44); bputn(&b, "\0\0\0\0\0\0\0\0", 8); bput1(&b, 0x0b);
 	section(&out, 6, &b);
 
-	/* exports */
-	buleb(&b, 2);
+	/* exports: the kernel puts argc and argv below sp, then calls _start */
+	buleb(&b, 3);
 	bstr(&b, "memory");
 	bput1(&b, 0x02);
 	buleb(&b, 0);
+	bstr(&b, "sp");
+	bput1(&b, 0x03);
+	buleb(&b, GSP);
 	bstr(&b, "_start");
 	bput1(&b, 0x00);
 	buleb(&b, NIMPORT + nfuncs);

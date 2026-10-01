@@ -1,7 +1,16 @@
 /*
  * 3c test: the harder parts
  */
-long long _trap(int, ...);
+#ifdef __GNUC__
+#include <unistd.h>
+#include <stdlib.h>
+long pwrite1(int fd, void *s, long n, long long off) { return write(fd, s, n); }
+void exits1(char *s) { exit(s != 0 && *s != 0); }
+#else
+long long _trap(int, void*);
+long pwrite1(int fd, void *s, long n, long long off) { return _trap(51, &fd); }
+void exits1(char *s) { _trap(8, &s); }
+#endif
 enum { PWRITE = 51, EXITS = 8 };
 
 #ifdef __GNUC__
@@ -26,7 +35,7 @@ puts1(char *s)
 
 	for(n = 0; s[n]; n++)
 		;
-	_trap(PWRITE, 1, s, n, -1LL);
+	pwrite1(1, s, n, -1LL);
 }
 
 void
@@ -264,5 +273,5 @@ _main(void)
 	show("comma", (i = 5, i * 2));
 	show("sizeof Big", sizeof(Big));
 	show("sizeof Bits", sizeof(Bits));
-	_trap(EXITS, 0);
+	exits1(0);
 }

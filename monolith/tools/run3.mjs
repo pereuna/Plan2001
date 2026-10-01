@@ -6,7 +6,8 @@
 import { readFileSync, writeSync } from 'node:fs';
 
 const EXITS = 8, BRK_ = 24, PWRITE = 51, PREAD = 50, ERRSTR = 41;
-const [file] = process.argv.slice(2);
+const [file, ...args] = process.argv.slice(2);
+let errstr = '';
 let mem;
 const dv = () => new DataView(mem.buffer);
 const str = (p) => { const b = new Uint8Array(mem.buffer); let e = p; while (b[e]) e++; return Buffer.from(b.subarray(p, e)).toString(); };
@@ -28,8 +29,16 @@ function syscall(n, a) {
 			mem.grow(Math.ceil((want - have) / 65536));
 		return 0n;
 	}
-	case ERRSTR:
+	case ERRSTR: {
+		// swap: the process's buffer gets ours, ours what it had
+		const p = w(0) >>> 0, n = w(1), b = new Uint8Array(mem.buffer);
+		const had = str(p), ours = Buffer.from(errstr);
+		const m = Math.min(ours.length, n - 1);
+		b.set(ours.subarray(0, m), p);
+		b[p + m] = 0;
+		errstr = had;
 		return 0n;
+	}
 	}
 	process.stderr.write(`run3: system call ${n} not here\n`);
 	return -1n;
@@ -37,6 +46,20 @@ function syscall(n, a) {
 
 const { instance } = await WebAssembly.instantiate(readFileSync(file), { plan9: { syscall: (n, a) => syscall(n, a) } });
 mem = instance.exports.memory;
+// argc, argv[0] ... nil at sp; the strings above them, as Plan 9's kernel does
+{
+	const sp = instance.exports.sp, argv = [file.replace(/.*\//, '').replace(/\.wasm$/, ''), ...args];
+	const b = new Uint8Array(mem.buffer), d = dv();
+	let top = sp.value;
+	const ptrs = argv.map((a) => { const e = Buffer.from(a + '\0'); top -= e.length; b.set(e, top); return top; });
+	top &= ~7;
+	top -= 4 * (ptrs.length + 2);
+	top &= ~7;
+	d.setInt32(top, ptrs.length, true);
+	ptrs.forEach((p, i) => d.setInt32(top + 4 + 4*i, p, true));
+	d.setInt32(top + 4 + 4*ptrs.length, 0, true);
+	sp.value = top;
+}
 try {
 	instance.exports._start();
 } catch (e) {

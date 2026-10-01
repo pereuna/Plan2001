@@ -2,7 +2,9 @@
 # 3c and 3l (Plan2001's WebAssembly compiler and loader,
 # ../sys/src/cmd/3c, 3l): each test (../sys/src/cmd/3c/test/t*.c, no
 # libc: _trap is the system call) compiled, linked, run by
-# tools/run3.mjs, its output the same as gcc's for the same source.
+# tools/run3.mjs, its output the same as gcc's for the same source; and
+# with 9front's libc (tools/build-libc3): test/libc/NAME.c run with the
+# arguments one, "two words", its output NAME.out.
 #   tools/test-3c [NAME...]     default all
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -14,9 +16,27 @@ mkdir -p "$out"
 cc3=$root/build/cc-native/3c
 l3=$root/build/cc-native/3l
 tests=("$@")
-[ ${#tests[@]} -gt 0 ] || tests=($(cd "$td" && ls t*.c | sed 's/\.c$//'))
+[ ${#tests[@]} -gt 0 ] || tests=($(cd "$td" && ls t*.c libc/*.c | sed 's/\.c$//'))
 bad=0
 for t in "${tests[@]}"; do
+	case $t in
+	libc/*)
+		[ -s "$root/build/wasm32/lib/libc.a" ] && [ -z "$libcdone" ] || "$root/tools/build-libc3" >/dev/null
+		libcdone=1
+		n=${t#libc/}
+		inc="-I$root/../wasm32/include -I$root/../subset/9front/sys/include"
+		if ! (cd "$td/libc" && "$cc3" -FVw $inc -o "$out/$n.3" "$n.c") >"$out/$n.err" 2>&1 ||
+		   ! "$l3" -o "$out/$n.wasm" "$out/$n.3" "$root/build/wasm32/lib/libc.a" >>"$out/$n.err" 2>&1; then
+			echo "test-3c: $t: FAIL (build)"; head -10 "$out/$n.err"; bad=1; continue
+		fi
+		node "$root/tools/run3.mjs" "$out/$n.wasm" one "two words" >"$out/$n.got" 2>&1 || true
+		if cmp -s "$td/libc/$n.out" "$out/$n.got"; then
+			echo "test-3c: $t: ok ($(wc -l <"$out/$n.got") lines, $(stat -c %s "$out/$n.wasm") bytes)"
+		else
+			echo "test-3c: $t: FAIL"; diff "$td/libc/$n.out" "$out/$n.got" | head -20; bad=1
+		fi
+		continue
+	esac
 	if ! (cd "$td" && "$cc3" -o "$out/$t.3" "$t.c") >"$out/$t.err" 2>&1 ||
 	   ! "$l3" -o "$out/$t.wasm" "$out/$t.3" >>"$out/$t.err" 2>&1; then
 		echo "test-3c: $t: FAIL (build)"; head -10 "$out/$t.err"; bad=1; continue
