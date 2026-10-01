@@ -15,9 +15,10 @@ if(@{ . /rc/bin/localonly /tmp/cloudcheck })
 	fail an internet address got through localonly
 echo -n '10.201.0.2!40000' >/tmp/cloudcheck/remote
 @{ . /rc/bin/localonly /tmp/cloudcheck } || fail a WireGuard address was refused
-echo localonly: internet refused, WireGuard in
+grep -s localonly /rc/bin/service/tcp17443 || fail 17443 is public
+echo localonly: internet refused, WireGuard in, 17443 local only
 
-# services
+# services (17443 listens, but localonly lets only the local network in)
 for(p in 53 443 567 17019 17030 17443)
 	netstat -n | grep -s 'Listen +'^$p^' ' || fail no listener on $p
 echo listening: 53 443 567 17019 17030 17443

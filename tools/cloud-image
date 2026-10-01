@@ -98,7 +98,7 @@ run9 -t 30 'mkdir -p /usr/admin/tmp /usr/admin/lib /usr/admin/bin/rc /usr/admin/
 "$T" -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -P "$sec/glenda.pass" -W 20 -T 300 \
 	-c "rc /mnt/term$here/cloud/handover.rc" | grep -q HANDOVER-DONE || die handover
 session admin
-"$here/rcparse" "$sock" "$here/cloud/setup.rc" "$here/cpu-live.rc" >/dev/null || die "setup.rc does not parse"
+"$here/rcparse" "$sock" "$here/cloud/setup.rc" "$here/cpu-live.rc" "$here/cloud/check.rc" "$here/cloud/handover.rc" >/dev/null || die "a script does not parse (tools/rcparse)"
 "$T" -S "$sock" -T 900 -c "rc /mnt/term$here/cloud/setup.rc /mnt/term$root /mnt/term$sec $public" | tee "$root/build/oci/setup.log" |
 	grep -q SETUP-DONE || die "setup (build/oci/setup.log)"
 "$T" -S "$sock" -X >/dev/null 2>&1 || true

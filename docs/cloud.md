@@ -246,10 +246,10 @@ kirjoiteta käsin:
 
 | Portti | Mitä | Kenelle |
 |---|---|---|
-| 443, 17443 | https/wss (webterm, sovellukset) | kaikille |
+| 443 | https/wss (webterm, sovellukset), Let's Encrypt | kaikille |
 | 53 tcp/udp | `ndb/dns -rsL`, oma vyöhyke | kaikille (rekursio vain paikalliselle verkolle) |
 | 51820 udp | WireGuard, ylläpitotunneli | vain avaimella |
-| 567, 17019, 17020, 17080 | auth, rcpu, exportfs, webterm ilman TLS:ää | vain paikallinen verkko ja WireGuard (`/rc/bin/localonly`, hylkäykset lokiin `/sys/log/localonly`) |
+| 567, 17019, 17020, 17080, 17443 | auth, rcpu, exportfs, webterm ilman TLS:ää, https kehitys-CA:n varmenteella | vain paikallinen verkko ja WireGuard (`/rc/bin/localonly`, hylkäykset lokiin `/sys/log/localonly`) |
 
 **Ylläpito:**
 - `tools/cloud/wg-admin up` nostaa tällä koneella rajapinnan `wgp2001`
@@ -276,5 +276,5 @@ kirjoiteta käsin:
 3. Vaihda instanssin käynnistyslevy tähän imageen. Julkinen IP säilyy.
 4. Security list:
    - auki TCP 443, TCP/UDP 53 ja UDP 51820;
-   - kiinni 567 ja 17019, sillä palvelin ei niitä internetistä
+   - kiinni 567, 17019 ja 17443, sillä palvelin ei niitä internetistä
      hyväksy muutenkaan.

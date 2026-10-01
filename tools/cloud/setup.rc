@@ -43,8 +43,9 @@ cat >/rc/bin/localonly <<'X'
 #!/bin/rc
 # Plan2001: . /rc/bin/localonly NETDIR in a service: the connection must
 # come from this machine, its local network or a WireGuard peer (10.x,
-# 192.168.x), not the internet.  Public are only https (443, 17443) and
-# DNS; auth, rcpu, exportfs and plain webterm are not.
+# 192.168.x), not the internet.  Public are only https (443) and DNS;
+# auth, rcpu, exportfs, plain webterm and 17443 (https with the
+# development certificate) are not.
 r=`{cat $1/remote >[2]/dev/null}
 switch($r){
 case 127.* 10.* 192.168.* ::1!*
@@ -56,7 +57,9 @@ case *
 X
 chmod 775 /rc/bin/localonly
 test -e /sys/log/localonly || { touch /sys/log/localonly && chmod 666 /sys/log/localonly }
-for(s in /rc/bin/service.auth/tcp567 /rc/bin/service/tcp17019 /rc/bin/service/tcp17020 /rc/bin/service/tcp17080){
+# 17443 too: the development certificate's https, for the local network;
+# the internet has 443 with the real one
+for(s in /rc/bin/service.auth/tcp567 /rc/bin/service/tcp17019 /rc/bin/service/tcp17020 /rc/bin/service/tcp17080 /rc/bin/service/tcp17443){
 	if(test -e $s && ! grep -s localonly $s){
 		{ sed 1q $s; echo '. /rc/bin/localonly $3'; sed 1d $s } >/tmp/svc && cp /tmp/svc $s || fail $s
 	}
