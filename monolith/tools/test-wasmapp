@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""A Plan 9 program in the browser on drawterm's kernel (wasmapp/, tools/build
+wasm-NAME): tools/serve's page with ?wasm=NAME in headless Chromium, real
+time; PASS when the canvas is not one colour and is not drawterm's own
+console window (its grey title bar, which the program draws over);
+the screen goes to build/wasmapp-NAME.png.
+  tools/test-wasmapp [NAME [SECONDS]]     (default clock, 8)
+"""
+import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEVTOOLS = 19224
+HTTP = 18092
+
+class Cdp:
+	"""The DevTools protocol over a minimal WebSocket client (text frames)."""
+	def __init__(self, url):
+		u = urllib.parse.urlparse(url)
+		self.s = socket.create_connection((u.hostname, u.port))
+		key = base64.b64encode(os.urandom(16)).decode()
+		self.s.sendall((f'GET {u.path} HTTP/1.1\r\nHost: {u.netloc}\r\nUpgrade: websocket\r\n'
+			f'Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n').encode())
+		resp = b''
+		while b'\r\n\r\n' not in resp:
+			resp += self.s.recv(1)
+		if b' 101 ' not in resp.split(b'\r\n')[0]:
+			raise SystemExit(f'test-wasmapp: DevTools handshake: {resp[:80]}')
+		self.id = 0
+		self.log = []	# the page's console
+
+	def read(self, n):
+		b = b''
+		while len(b) < n:
+			x = self.s.recv(n - len(b))
+			if not x:
+				raise SystemExit('test-wasmapp: DevTools connection closed')
+			b += x
+		return b
+
+	def send(self, text):
+		data = text.encode()
+		n = len(data)
+		hdr = bytes([0x81]) + (bytes([0x80 | n]) if n < 126 else
+			bytes([0x80 | 126]) + struct.pack('>H', n) if n < 65536 else
+			bytes([0x80 | 127]) + struct.pack('>Q', n))
+		mask = os.urandom(4)
+		self.s.sendall(hdr + mask + bytes(c ^ mask[i % 4] for i, c in enumerate(data)))
+
+	def recv(self):
+		msg = b''
+		while True:
+			b0, b1 = self.read(2)
+			n = b1 & 0x7f
+			if n == 126:
+				n = struct.unpack('>H', self.read(2))[0]
+			elif n == 127:
+				n = struct.unpack('>Q', self.read(8))[0]
+			data = self.read(n)
+			if b0 & 0x0f in (1, 2, 0):
+				msg += data
+				if b0 & 0x80:
+					return msg
+
+	def call(self, method, **params):
+		self.id += 1
+		self.send(json.dumps({'id': self.id, 'method': method, 'params': params}))
+		while True:
+			r = json.loads(self.recv())
+			if r.get('method') == 'Runtime.consoleAPICalled':
+				self.log.append(' '.join(str(a.get('value', a.get('description', ''))) for a in r['params']['args']))
+			elif r.get('method') == 'Runtime.exceptionThrown':
+				self.log.append('EXCEPTION ' + json.dumps(r['params']['exceptionDetails'].get('exception', {}).get('description')))
+			if r.get('id') == self.id:
+				if 'error' in r:
+					raise RuntimeError(f'{method}: {r["error"]}')
+				return r.get('result', {})
+
+	def js(self, expr):
+		r = self.call('Runtime.evaluate', expression=expr, returnByValue=True)
+		return r.get('result', {}).get('value')
+
+
+def wait(cdp, expr, secs, what):
+	end = time.time() + secs
+	while time.time() < end:
+		try:
+			if cdp.js(expr):
+				return
+		except RuntimeError:	# the page still loading
+			pass
+		time.sleep(0.5)
+	st = cdp.js("(document.getElementById('status') || {}).textContent")
+	raise SystemExit(f'test-wasmapp: timed out waiting for {what} (page: {st!r})')
+
+
+
+SIG = """(() => { const c = document.getElementById('screen');
+	const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+	const s = new Set();
+	for (let i = 0; i < d.length; i += 4 * 97) { const v = d[i] << 16 | d[i+1] << 8 | d[i+2]; s.add(v); }
+	const t = c.getContext('2d').getImageData(c.width >> 1, 36, 1, 1).data;
+	return [s.size, t[0] == 0xaa && t[1] == 0xaa && t[2] == 0xaa]; })()"""
+
+
+def main():
+	name = sys.argv[1] if len(sys.argv) > 1 else 'clock'
+	secs = float(sys.argv[2]) if len(sys.argv) > 2 else 8
+	tmp = tempfile.mkdtemp()
+	srv = subprocess.Popen([os.path.join(root, 'tools/serve'), str(HTTP), str(HTTP + 1)],
+		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+	chrome = subprocess.Popen(['chromium', '--headless=new', '--no-sandbox', '--disable-gpu',
+		f'--user-data-dir={tmp}', f'--remote-debugging-port={DEVTOOLS}', '--window-size=600,600', 'about:blank'],
+		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+	try:
+		for _ in range(50):
+			try:
+				urllib.request.urlopen(f'http://127.0.0.1:{DEVTOOLS}/json')
+				urllib.request.urlopen(f'http://127.0.0.1:{HTTP}/{name}.js')
+				break
+			except Exception:
+				time.sleep(0.2)
+		url = f'http://127.0.0.1:{HTTP}/?wasm={name}'
+		t = json.loads(urllib.request.urlopen(urllib.request.Request(
+			f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT')).read())
+		cdp = Cdp(t['webSocketDebuggerUrl'])
+		cdp.call('Page.enable')
+		cdp.call('Runtime.enable')
+		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, 'the first flush')
+		time.sleep(secs)
+		png = base64.b64decode(cdp.call('Page.captureScreenshot', format='png')['data'])
+		out = os.path.join(root, f'build/wasmapp-{name}.png')
+		open(out, 'wb').write(png)
+		n, console = cdp.js(SIG)
+		fl = cdp.js('window.monolith.flushes')
+		open(os.path.join(root, f'build/wasmapp-{name}.log'), 'w').write('\n'.join(cdp.log) + '\n')
+		print(f'test-wasmapp: {name}: {fl} flushes, {n} colours, {out}')
+		if n < 2 or console:
+			raise SystemExit(f'FAIL: {name} drew nothing (build/wasmapp-{name}.log)')
+		print(f'PASS: {name} drew in the browser on drawterm\'s kernel, no server')
+	finally:
+		chrome.terminate()
+		srv.terminate()
+
+
+main()

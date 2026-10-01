@@ -1,0 +1,3 @@
+9front programs built as WebAssembly on drawterm's kernel (../../wasmapp),
+unchanged: clock.c (sys/src/cmd/clock.c).  Their libdraw and headers are
+drawterm's, which are 9front's (../drawterm/libdraw/README.9front).

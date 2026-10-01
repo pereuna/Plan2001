@@ -21,6 +21,8 @@ site=$root/build/site
 mkdir -p "$site"
 ln -sfn "$root"/web/* "$site/"
 ln -sfn "$root/build/wasm/drawterm.js" "$root/build/wasm/drawterm.wasm" "$site/"
+# Plan 9 programs on drawterm's kernel (tools/build wasm-NAME): ?wasm=NAME
+for f in "$root"/build/wasm-*/*.js "$root"/build/wasm-*/*.wasm; do [ -e "$f" ] && ln -sfn "$f" "$site/"; done
 
 cd "$site"
 pids=

@@ -146,6 +146,28 @@ typedef struct QLock
 	struct Proc	*last;
 } QLock;
 
+enum	/* access(2) */
+{
+	AEXIST	= 0,
+	AEXEC	= 1,
+	AWRITE	= 2,
+	AREAD	= 4,
+};
+
+typedef struct RWLock	/* the kernel's (kern/qlock.c); also libdraw's Display */
+{
+	int	readers;
+	Lock	lk;
+	QLock	x;
+	QLock	k;
+} RWLock;
+
+extern	void	rlock(RWLock*);
+extern	void	runlock(RWLock*);
+extern	int	canrlock(RWLock*);
+extern	void	wlock(RWLock*);
+extern	void	wunlock(RWLock*);
+
 typedef
 struct Qid
 {

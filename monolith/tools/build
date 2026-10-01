@@ -3,6 +3,8 @@
 #   tools/build [wasm|native]   default wasm
 #     wasm:   build/wasm/drawterm.{js,wasm}  (Emscripten, gui-web)
 #     native: build/native/drawterm          (Linux, X11, the baseline)
+#     wasm-APP: build/wasm-APP/APP.{js,wasm} (9front's 9apps/APP.c on drawterm's
+#             kernel in the browser, wasmapp/)
 #     9pterm: build/9pterm/9pterm            (Linux, no graphics: drawterm as
 #             a text terminal, Make.9pterm, gui-none)
 set -e
@@ -15,6 +17,10 @@ mkdir -p "$out"
 cp -rpu "$root/third_party/drawterm/." "$out/"
 cd "$out"
 rm -f */*.a *.a
+# make knows no header dependencies: a changed header rebuilds everything
+if [ -n "$(find "$root/third_party/drawterm" -name '*.h' -newer "$out/.built" 2>/dev/null | head -1)" ] || [ ! -e "$out/.built" ]; then
+	find "$out" -name '*.o' -delete
+fi
 case $what in
 wasm)	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l drawterm.js drawterm.wasm ;;
@@ -22,7 +28,16 @@ native)	make CONF=linux GUI=x11 AUDIO=none -j"$(nproc)" \
 		'CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -ggdb -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -D_THREAD_SAFE -DPTHREAD -pthread -D_REENTRANT -O2' \
 		'LDADD=-lX11 -ggdb -lm -lrt' >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l drawterm ;;
+wasm-*)	# a Plan 9 program on drawterm's kernel in the browser (wasmapp/):
+	# tools/build wasm-clock -> build/wasm-clock/clock.{js,wasm}
+	app=${what#wasm-}
+	rm -rf "$out/9libdraw" "$out/9apps" "$out/wasmapp"	# fresh: a file gone here goes there too
+	cp -rp "$root/third_party/9apps" "$root/wasmapp" "$out/"
+	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
+	make -f wasmapp/wasmapp.mk CONF=emscripten APP=$app -j"$(nproc)" $app.js >app.log 2>&1 || { grep -i -B2 -A3 "error" app.log | head -40; exit 1; }
+	ls -l $app.js $app.wasm ;;
 9pterm)	make CONF=9pterm -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l 9pterm ;;
 *)	echo "usage: tools/build [wasm|native|9pterm]" >&2; exit 2 ;;
 esac
+touch "$out/.built"
