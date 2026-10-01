@@ -23,8 +23,11 @@ enum
 	F32	= 0x7d,
 	F64	= 0x7c,
 
-	NIMPORT	= 1,
+	MAXPAGES = 16384,	/* -k: a shared memory has a maximum: 1 GB */
 };
+
+static	int	nimport = 1;	/* plan9.syscall, then -k's platform functions */
+static	Sym**	imports;
 
 static	long	stacktop;
 static	long	database;
@@ -35,7 +38,7 @@ static	Sym*	setjmpsym;
 static	long	asbase;
 static	Sym*	entrysym;
 static	void	unwindgraph(void);
-static	char*	synths[] = { "_trap", "_yield", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
+static	char*	synths[] = { "_trap", "_yield", "longjmp", "gotolabel", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
 
 void
 bput1(Buf *b, int c)
@@ -138,7 +141,7 @@ unwindcall(Prog *p)
 {
 	Sym *s;
 
-	if(p->as != ACALL)
+	if(p->as != ACALL || debug['k'])
 		return 0;
 	if(p->to.type != D_EXTERN && p->to.type != D_STATIC)
 		return 1;
@@ -164,6 +167,8 @@ preemptpoints(void)
 
 	ys = lookup("_yield", 0);
 	nloop = 0;
+	if(debug['k'])
+		return;		/* a kernel's procs are Workers: the browser preempts them */
 	for(s = allsym; s != nil; s = s->next) {
 		if(s->type != STEXT)
 			continue;
@@ -246,10 +251,37 @@ layout(void)
 		if(s->ref && s->type == SNONE)
 			s->type = SSYNTH;
 	}
-	/* setjmp: in place at each call (function) */
+	/* setjmp, and the kernel's setlabel: in place at each call (function) */
 	setjmpsym = lookup("setjmp", 0);
 	if(setjmpsym->type == SNONE)
 		setjmpsym->type = SINLINE;
+	s = lookup("setlabel", 0);
+	if(s->type == SNONE)
+		s->type = SINLINE;
+	/* -k: what it calls and does not define, the platform's */
+	if(debug['k']) {
+		Sym *f;
+		Prog *p;
+
+		n = 0;
+		for(f = allsym; f != nil; f = f->next) {
+			if(f->type != STEXT)
+				continue;
+			for(p = f->text->link; p != nil; p = p->link)
+				if(p->as == ACALL && (p->to.type == D_EXTERN || p->to.type == D_STATIC) &&
+				   p->to.sym->type == SNONE) {
+					p->to.sym->type = SIMPORT;
+					n++;
+				}
+		}
+		imports = emalloc((n+1)*sizeof(Sym*));
+		for(s = allsym; s != nil; s = s->next)
+			if(s->type == SIMPORT) {
+				s->fn = nimport;
+				imports[nimport-1] = s;
+				nimport++;
+			}
+	}
 	n = 0;
 	for(s = allsym; s != nil; s = s->next)
 		if(s->type == STEXT || s->type == SSYNTH)
@@ -257,7 +289,7 @@ layout(void)
 	funcs = emalloc((n+1)*sizeof(Sym*));
 	for(s = allsym; s != nil; s = s->next)
 		if(s->type == STEXT || s->type == SSYNTH) {
-			s->fn = NIMPORT + nfuncs;
+			s->fn = nimport + nfuncs;
 			s->tab = nfuncs + 1;
 			funcs[nfuncs++] = s;
 		}
@@ -367,6 +399,9 @@ symaddr(Sym *s)
 		return s->value;
 	case SINLINE:
 		diag("%s: the address of %s, which is made in place", cursym->name, s->name);
+		return 0;
+	case SIMPORT:
+		diag("%s: the address of %s, the platform's", cursym->name, s->name);
 		return 0;
 	}
 	diag("%s: undefined %s", cursym->name, s->name);
@@ -926,7 +961,7 @@ eprog(Prog *p)
 				op2(0x24, GRET+Kw);
 				break;
 			}
-			if(s->type != STEXT && s->type != SSYNTH) {
+			if(s->type != STEXT && s->type != SSYNTH && s->type != SIMPORT) {
 				diag("%s: call of %s, not a function", cursym->name, s->name);
 				break;
 			}
@@ -1053,6 +1088,11 @@ synth(Sym *s, Buf *b)
 			/* longjmp(buf, v): thrown to the frame of buf's setjmp */
 			argw(0);
 			argw(1);
+			op2(0x08, 0);
+		} else if(strcmp(n, "gotolabel") == 0) {
+			/* the kernel's: setlabel's place gets 1 */
+			argw(0);
+			iconst(1);
 			op2(0x08, 0);
 		} else if(strcmp(n, "_tas") == 0) {
 			argw(0);
@@ -1274,17 +1314,31 @@ asmb(void)
 	bput1(&b, 0x60); buleb(&b, 2); bput1(&b, I32); bput1(&b, I32); buleb(&b, 0);
 	section(&out, 1, &b);
 
-	/* import */
-	buleb(&b, 1);
+	/* imports: plan9.syscall; -k the platform's functions and the memory */
+	buleb(&b, nimport + (debug['k'] ? 1 : 0));
 	bstr(&b, "plan9");
 	bstr(&b, "syscall");
 	bput1(&b, 0x00);
 	buleb(&b, 1);
+	for(i = 0; i < nimport-1; i++) {
+		bstr(&b, "platform");
+		bstr(&b, imports[i]->name);
+		bput1(&b, 0x00);
+		buleb(&b, 0);
+	}
+	if(debug['k']) {
+		bstr(&b, "platform");
+		bstr(&b, "memory");
+		bput1(&b, 0x02);
+		bput1(&b, 0x03);	/* shared, with a maximum */
+		buleb(&b, npages);
+		buleb(&b, MAXPAGES);
+	}
 	section(&out, 2, &b);
 
-	/* functions, and _start */
-	buleb(&b, nfuncs+1);
-	for(i = 0; i <= nfuncs; i++)
+	/* functions, and _start (and -k's _init) */
+	buleb(&b, nfuncs+1+(debug['k']?1:0));
+	for(i = 0; i <= nfuncs+(debug['k']?1:0); i++)
 		buleb(&b, 0);
 	section(&out, 3, &b);
 
@@ -1295,11 +1349,13 @@ asmb(void)
 	buleb(&b, nfuncs+1);
 	section(&out, 4, &b);
 
-	/* memory */
-	buleb(&b, 1);
-	bput1(&b, 0x00);
-	buleb(&b, npages);
-	section(&out, 5, &b);
+	/* memory: -k imports it */
+	if(!debug['k']) {
+		buleb(&b, 1);
+		bput1(&b, 0x00);
+		buleb(&b, npages);
+		section(&out, 5, &b);
+	}
 
 	/* tags: 0 longjmp's (buf, v) */
 	buleb(&b, 1);
@@ -1333,7 +1389,19 @@ asmb(void)
 	 * exports: the kernel puts argc and argv below sp, then calls _start;
 	 * fork: asstate, asptr, asret
 	 */
-	buleb(&b, 12);
+	buleb(&b, 12 + (debug['k'] ? 3 : 0));
+	if(debug['k']) {
+		/* the platform's functions return through RET; _init puts the data in memory */
+		bstr(&b, "retw");
+		bput1(&b, 0x03);
+		buleb(&b, GRET+Kw);
+		bstr(&b, "retv");
+		bput1(&b, 0x03);
+		buleb(&b, GRET+Kv);
+		bstr(&b, "_init");
+		bput1(&b, 0x00);
+		buleb(&b, nimport + nfuncs + 1);
+	}
 	bstr(&b, "preempt");	/* back edges until _yield */
 	bput1(&b, 0x03);
 	buleb(&b, GPREEMPT);
@@ -1372,7 +1440,7 @@ asmb(void)
 	buleb(&b, GSP);
 	bstr(&b, "_start");
 	bput1(&b, 0x00);
-	buleb(&b, NIMPORT + nfuncs);
+	buleb(&b, nimport + nfuncs);
 	section(&out, 7, &b);
 
 	/* elements: the table from 1 */
@@ -1384,8 +1452,14 @@ asmb(void)
 		buleb(&b, funcs[i]->fn);
 	section(&out, 9, &b);
 
+	/* -k: one passive data segment (its count before the code) */
+	if(debug['k']) {
+		buleb(&b, 1);
+		section(&out, 12, &b);
+	}
+
 	/* code */
-	buleb(&b, nfuncs+1);
+	buleb(&b, nfuncs+1+(debug['k']?1:0));
 	for(i = 0; i < nfuncs; i++) {
 		function(funcs[i], &f);
 		buleb(&b, f.n);
@@ -1402,12 +1476,25 @@ asmb(void)
 	bput1(&f, 0x0b);
 	buleb(&b, f.n);
 	bputn(&b, f.p, f.n);
+	if(debug['k']) {
+		/* _init: the data where it goes; once, by the first Worker */
+		f.n = 0;
+		buleb(&f, 0);
+		bput1(&f, 0x41); bsleb(&f, database);
+		bput1(&f, 0x41); bsleb(&f, 0);
+		bput1(&f, 0x41); bsleb(&f, dataend - database);
+		bput1(&f, 0xfc); buleb(&f, 8); buleb(&f, 0); bput1(&f, 0x00);	/* memory.init 0 */
+		bput1(&f, 0xfc); buleb(&f, 9); buleb(&f, 0);			/* data.drop 0 */
+		bput1(&f, 0x0b);
+		buleb(&b, f.n);
+		bputn(&b, f.p, f.n);
+	}
 	bfree(&f);
 	section(&out, 10, &b);
 
-	/* data: one segment, database to dataend */
-	if(dataend > database) {
-		mem = emalloc(dataend - database);
+	/* data: one segment, database to dataend; -k passive (_init) */
+	if(dataend > database || debug['k']) {
+		mem = emalloc(dataend - database + 1);
 		for(s = allsym; s != nil; s = s->next) {
 			if(s->type != SDATA || s->data == nil)
 				continue;
@@ -1420,8 +1507,12 @@ asmb(void)
 			}
 		}
 		buleb(&b, 1);
-		buleb(&b, 0);
-		bput1(&b, 0x41); bsleb(&b, database); bput1(&b, 0x0b);
+		if(debug['k'])
+			buleb(&b, 1);	/* passive */
+		else {
+			buleb(&b, 0);
+			bput1(&b, 0x41); bsleb(&b, database); bput1(&b, 0x0b);
+		}
 		buleb(&b, dataend - database);
 		bputn(&b, mem, dataend - database);
 		free(mem);
@@ -1433,15 +1524,23 @@ asmb(void)
 		Buf n;
 
 		memset(&n, 0, sizeof n);
-		buleb(&n, nfuncs + 2);
+		buleb(&n, nfuncs + 1 + nimport + (debug['k'] ? 1 : 0));
 		buleb(&n, 0);
 		bstr(&n, "plan9.syscall");
+		for(i = 0; i < nimport-1; i++) {
+			buleb(&n, imports[i]->fn);
+			bstr(&n, imports[i]->name);
+		}
 		for(i = 0; i < nfuncs; i++) {
 			buleb(&n, funcs[i]->fn);
 			bstr(&n, funcs[i]->name);
 		}
-		buleb(&n, NIMPORT + nfuncs);
+		buleb(&n, nimport + nfuncs);
 		bstr(&n, "_start");
+		if(debug['k']) {
+			buleb(&n, nimport + nfuncs + 1);
+			bstr(&n, "_init");
+		}
 		bstr(&b, "name");
 		bput1(&b, 1);
 		buleb(&b, n.n);

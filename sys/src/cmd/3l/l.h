@@ -54,6 +54,7 @@ enum
 	SBSS,
 	SSYNTH,		/* made here: _trap, longjmp, the atomics */
 	SINLINE,	/* made in place at each call: setjmp */
+	SIMPORT,	/* -k: the platform's, a function the module imports */
 };
 
 struct	Rel	/* in data: the address of sym+add, or its function pointer */

@@ -2,7 +2,10 @@
 #include	"l.h"
 
 /*
- *	3l [-o out] [-E entry] [-s stacksize] [-v] file.3 ... lib.a ...
+ *	3l [-k] [-o out] [-E entry] [-s stacksize] [-v] file.3 ... lib.a ...
+ * -k: a kernel (sys/src/9/wasm32): its memory imported, shared, its data
+ * passive (_init puts it there, once); the functions it calls and does not
+ * define are imported from "platform"; no unwinding (its procs are Workers)
  * Libraries: their members that define what is undefined, until
  * nothing more is.
  */
@@ -13,7 +16,7 @@ static	int	nlibs;
 static void
 usage(void)
 {
-	fprint(2, "usage: 3l [-o out] [-E entry] [-s stack] [-v] file.3 ... lib.a ...\n");
+	fprint(2, "usage: 3l [-k] [-o out] [-E entry] [-s stack] [-v] file.3 ... lib.a ...\n");
 	exits("usage");
 }
 
@@ -36,6 +39,7 @@ main(int argc, char *argv[])
 	case 's':
 		stacksize = strtol(EARGF(usage()), nil, 0);
 		break;
+	case 'k':	/* a kernel: memory imported shared, the platform's functions imported */
 	case 'v':
 	case 'a':
 		debug[ARGC()] = 1;

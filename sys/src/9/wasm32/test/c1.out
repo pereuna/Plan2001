@@ -1,0 +1,6 @@
+Plan2001 wasm32 kernel
+setlabel
+gotolabel: back at setlabel
+kproc one: on a Worker of its own
+woken by kproc one
+time since 2001

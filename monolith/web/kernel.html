@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan2001 wasm32</title>
+<style>
+	:root { --bg: #fff; --fg: #000; }
+	@media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #ddd; } }
+	body { margin: 0; background: var(--bg); color: var(--fg); font: 14px monospace; }
+	pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+<!-- Plan2001's wasm32 kernel (sys/src/9/wasm32): its serial port on the page -->
+<pre id="eia0"></pre>
+<script type="module">
+import { boot } from './platform.js';
+const pre = document.getElementById('eia0'), dec = new TextDecoder();
+boot('9wasm32.wasm', {
+	eia: (b) => { pre.textContent += dec.decode(b, { stream: true }); },
+	halt: (why) => { pre.textContent += '\n[halted: ' + why + ']\n'; },
+});
+</script>
+</body>
+</html>
