@@ -181,6 +181,21 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   SP ja muut globaalit ovat suorittimen rekisterejä. `sleep`/`wakeup` ovat
   `Atomics.wait`- ja `Atomics.notify`-kutsuja, joten ydin ei vaihda
   pinoa. 9frontin `proc.c`:n ajastinosa korvataan; drawtermin malli.
+- Proc, Worker ja Mach (`sys/src/9/wasm32/proc.c`): proc on oma Workerinsa,
+  jolla on oma ytimen instanssi, omat `m` ja `up` (3c:n extern-rekisterit)
+  ja jaettu ytimen muisti. `sleep` odottaa `p->state`a (`Atomics.wait`),
+  `ready` asettaa Readyn ja herättää (New-proc saa Workerin), `sched`
+  odottaa Readya tai lopettaa Workerin (Moribund). Ajojonoa, prioriteetteja,
+  rebalancea, preemptiota tai EDF:ää ei ole: suorittimet jakaa selain.
+  Jokaisen Workerin `m` on oma Machinsa (spl-taso, sched-label, proc),
+  mutta sen `machno` on 0, koska `port/` indeksoi suoritinkohtaiset
+  taulunsa (ajastimet, intrcount) sillä. `port/`:lle koneessa on yksi
+  suoritin, `MACHP(0)` eli boot-Workerin mach0, ja `conf.nmach` on 1.
+- Kello (`clock.c`): boot-Worker on mainin jälkeen kellon keskeytys. Se
+  odottaa seuraavaan ajastimeen (`timerset`, lukon alla mistä tahansa
+  Workerista) ja ajaa `timerintr`in, jonka HZ-ajastin (hzclock) laskee
+  tickit. Myöhästynyt kello (taustavälilehti) ajaa erääntyneet ajastimet,
+  ja menetetyt tickit jäävät pois kuten raudalla.
 - `waserror`/`nexterror`: setlabel ja gotolabel ovat 3l:n setjmp ja
   longjmp (WebAssemblyn poikkeukset).
 - Käyttäjäprosesseilla on oma muisti kuten host3:ssa. Järjestelmäkutsun

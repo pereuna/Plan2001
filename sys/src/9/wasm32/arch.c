@@ -175,7 +175,7 @@ getconf(char*)
 }
 
 /*
- * what port/ wants from parts wasm32 has not (segments, edf, dtrace,
+ * what port/ wants from parts wasm32 has not (segments, dtrace,
  * the debugger) or has in its own way
  */
 char	*configfile = "";
@@ -199,11 +199,6 @@ void	rdb(void) { }
 void	segclock(uintptr) { }
 void	putseg(Segment*) { }
 void	dtracytick(Ureg*) { }
-void	edfrecord(Proc*) { }
-void	edfrun(Proc*, int) { }
-void	edfstop(Proc*) { }
-Edf*	edflock(Proc*) { return nil; }
-void	edfunlock(void) { }
 
 void*
 vmemchr(void *s, int c, ulong n)

@@ -100,12 +100,16 @@ initproc(void*)
 	{
 		Rendez r;
 		uvlong t;
+		ulong ticks;
 
 		memset(&r, 0, sizeof r);
 		t = platnsec();
+		ticks = MACHP(0)->ticks;
 		tsleep(&r, return0, nil, 100);
 		t = (platnsec() - t) / 1000000;
+		ticks = MACHP(0)->ticks - ticks;
 		print("tsleep 100 ms: %s\n", t >= 90 && t < 1000 ? "ok" : "wrong");
+		print("ticks in it: %s\n", ticks >= 5 && ticks <= 100 ? "ok" : "wrong");
 	}
 	USED(fd);
 	plathalt("C2a done");
@@ -129,12 +133,11 @@ main(void)
 	procinit0();
 	chandevreset();
 	print("Plan2001 wasm32: %lud pages free\n", conf.npage);
-	/* main's Worker has no up; the work is a proc's */
+	/* main's Worker has no up: it is CPU 0, the clock (clock.c); the work is a proc's */
 	{
 		Proc *p;
 
 		p = newproc();
-		p->mach = mallocz(sizeof(Mach), 1);
 		kstrdup(&p->text, "init");
 		kstrdup(&p->user, eve);
 		kprocchild(p, (void(*)(void))initproc);

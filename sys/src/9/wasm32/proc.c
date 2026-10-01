@@ -9,19 +9,26 @@
 #include	"tos.h"
 #include	"ureg.h"
 
-enum {
-	Scaling = 2,
-};
+/*
+ * wasm32's procs (docs/architecture.md, phase C): 9front's proc.c
+ * without its scheduler.  A Proc is a Worker of its own - its own
+ * instance of the kernel, its own m and up, the kernel's memory shared.
+ * The browser schedules the Workers; there is no run queue, no
+ * priority, no preemption here:
+ *
+ *	sleep	the proc's Worker waits on p->state (Atomics.wait)
+ *	ready	p->state = Ready and a notify; for a New proc, a Worker
+ *	sched	the Worker waits until it is Ready again, or ends
+ *
+ * Each Worker's m is a Mach of its own (splhigh, the sched label, proc);
+ * its machno is 0, as port/ indexes its per-CPU tables (timers,
+ * intrcount) with it: to port/, the machine has one CPU, MACHP(0) -
+ * mach0, the boot Worker's, which is the clock (clock.c): ticks,
+ * timers, alarms and load are its.  conf.nmach is 1.  A lock's l->m is
+ * MACHP(0) on every Worker: its owner is l->p (iprint's check sees any
+ * holder as itself and prints without the lock).
+ */
 
-int	schedgain = 30;	/* units in seconds */
-int	nrdy;
-
-static void updatecpu(Proc*);
-static int reprioritize(Proc*);
-
-ulong	delayedscheds;	/* statistics */
-ulong	skipscheds;
-ulong	preempts;
 ulong	load;
 
 static struct Procalloc
@@ -31,9 +38,6 @@ static struct Procalloc
 	Proc	*free;
 	int	nextindex;
 } procalloc;
-
-Schedq	runq[Nrq];
-ulong	runvec;
 
 char *statename[] =
 {	/* BUG: generate automatically */
@@ -53,51 +57,8 @@ char *statename[] =
 	"Waitrelease",
 };
 
-static void rebalance(void);
 static void pidinit(void);
 static void pidfree(Proc*);
-
-/*
- * Always splhi()'ed.
- */
-_Noreturn void
-schedinit(void)
-{
-	Edf *e;
-
-	setlabel(&m->sched);
-	if(up != nil) {
-		if((e = up->edf) != nil && (e->flags & Admitted))
-			edfrecord(up);
-		m->proc = nil;
-		switch(up->state) {
-		default:
-			updatecpu(up);
-			break;
-		case Running:
-			up->state = Scheding;
-			ready(up);
-			break;
-		case Moribund:
-			mmurelease(up);
-			lock(&procalloc);
-			up->state = Dead;
-			up->mach = nil;
-			up->qnext = procalloc.free;
-			procalloc.free = up;
-			/* proc is free now, make sure unlock() wont touch it */
-			up = procalloc.Lock.p = nil;
-			unlock(&procalloc);
-			goto out;
-		}
-		coherence();
-		up->mach = nil;
-		up = nil;
-	}
-out:
-	sched();
-	panic("schedinit");
-}
 
 int
 kenter(Ureg*)
@@ -108,27 +69,6 @@ kenter(Ureg*)
 void
 kexit(Ureg*)
 {
-}
-
-static void
-procswitch(void)
-{
-	int st;
-
-	/* statistics */
-	m->cs++;
-
-	if(up->state == Moribund)
-		gotolabel(&m->sched);	/* procstart: the Worker's start */
-	if(up->state == Running)
-		return;			/* a yield: the browser shares its CPUs */
-	for(;;){
-		st = up->state;
-		if(st == Ready)
-			break;
-		platwait((long*)&up->state, st, -1);
-	}
-	up->state = Running;
 }
 
 /*
@@ -147,7 +87,7 @@ procstart(void *v)
 	m->proc = p;
 	p->state = Running;
 	if(setlabel(&m->sched)){
-		/* Moribund (pexit): the proc is free, the Worker ends */
+		/* Moribund (pexit): the proc is free, its Worker ends */
 		mmurelease(up);
 		lock(&procalloc);
 		up->state = Dead;
@@ -162,269 +102,43 @@ procstart(void *v)
 	pexit("procstart", 0);
 }
 
+/*
+ * up gives up its Worker: Moribund ends it (back to procstart),
+ * Running goes on (the browser shares its CPUs), anything else
+ * waits until ready makes it Ready
+ */
 void
 sched(void)
 {
+	int st;
+
 	if(up == nil)
 		panic("sched: no up on a wasm32 Worker");
-	procswitch();
-}
-
-int
-anyready(void)
-{
-	return runvec;
-}
-
-int
-anyhigher(void)
-{
-	return runvec & ~((1<<(up->priority+1))-1);
-}
-
-/*
- *  here once per clock tick to see if we should resched
- */
-void
-hzsched(void)
-{
-	/* once a second, rebalance will reprioritize ready procs */
-	if(m->machno == 0)
-		rebalance();
-
-	/* unless preempted, get to run for at least 100ms */
-	if(anyhigher()
-	|| (!up->fixedpri && (long)(m->ticks - m->schedticks) > 0 && anyready())){
-		m->readied = nil;	/* avoid cooperative scheduling */
-		up->delaysched++;
-	}
-}
-
-/*
- *  here at the end of interrupts to see if we should preempt the
- *  current process.
- */
-void
-preempted(int clockintr)
-{
-	if(up == nil || up->state != Running || active.exiting)
+	m->cs++;
+	if(up->state == Moribund)
+		gotolabel(&m->sched);
+	if(up->state == Running)
 		return;
-	if(!clockintr){
-		if(!anyhigher())
-			return;
-		m->readied = nil;	/* avoid cooperative scheduling */
-		sched();
-	} else if(up->delaysched)
-		sched();		/* quantum ended or we held a lock */
-}
-
-/*
- * Update the cpu time average for this particular process,
- * which is about to change from up -> not up or vice versa.
- * p->lastupdate is the last time an updatecpu happened.
- *
- * The cpu time average is a decaying average that lasts
- * about D clock ticks.  D is chosen to be approximately
- * the cpu time of a cpu-intensive "quick job".  A job has to run
- * for approximately D clock ticks before we home in on its 
- * actual cpu usage.  Thus if you manage to get in and get out
- * quickly, you won't be penalized during your burst.  Once you
- * start using your share of the cpu for more than about D
- * clock ticks though, your p->cpu hits 1000 (1.0) and you end up 
- * below all the other quick jobs.  Interactive tasks, because
- * they basically always use less than their fair share of cpu,
- * will be rewarded.
- *
- * If the process has not been running, then we want to
- * apply the filter
- *
- *	cpu = cpu * (D-1)/D
- *
- * n times, yielding 
- * 
- *	cpu = cpu * ((D-1)/D)^n
- *
- * but D is big enough that this is approximately 
- *
- * 	cpu = cpu * (D-n)/D
- *
- * so we use that instead.
- * 
- * If the process has been running, we apply the filter to
- * 1 - cpu, yielding a similar equation.  Note that cpu is 
- * stored in fixed point (* 1000).
- *
- * Updatecpu must be called before changing up, in order
- * to maintain accurate cpu usage statistics.  It can be called
- * at any time to bring the stats for a given proc up-to-date.
- */
-static void
-updatecpu(Proc *p)
-{
-	ulong t, ocpu, n, D;
-
-	if(p->edf != nil)
-		return;
-
-	t = MACHP(0)->ticks*Scaling + Scaling/2;
-	n = t - p->lastupdate;
-	if(n == 0)
-		return;
-	p->lastupdate = t;
-
-	D = schedgain*HZ*Scaling;
-	if(n > D)
-		n = D;
-
-	ocpu = p->cpu;
-	if(p != up)
-		p->cpu = (ocpu*(D-n))/D;
-	else{
-		t = 1000 - ocpu;
-		t = (t*(D-n))/D;
-		p->cpu = 1000 - t;
-	}
-//iprint("pid %lud %s for %lud cpu %lud -> %lud\n", p->pid,p==up?"active":"inactive",n, ocpu,p->cpu);
-}
-
-/*
- * On average, p has used p->cpu of a cpu recently.
- * Its fair share is conf.nmach/m->load of a cpu.  If it has been getting
- * too much, penalize it.  If it has been getting not enough, reward it.
- * I don't think you can get much more than your fair share that 
- * often, so most of the queues are for using less.  Having a priority
- * of 3 means you're just right.  Having a higher priority (up to p->basepri) 
- * means you're not using as much as you could.
- */
-static int
-reprioritize(Proc *p)
-{
-	int fairshare, n, load, ratio;
-
-	updatecpu(p);
-
-	if(p->fixedpri)
-		return p->basepri;
-
-	load = MACHP(0)->load;
-	if(load == 0)
-		return p->basepri;
-
-	/*
-	 * fairshare = 1.000 * conf.nmach * 1.000/load,
-	 * except the decimal point is moved three places
-	 * on both load and fairshare.
-	 */
-	fairshare = (conf.nmach*1000*1000)/load;
-	n = p->cpu;
-	if(n == 0)
-		n = 1;
-	ratio = (fairshare+n/2) / n;
-	if(ratio > p->basepri)
-		ratio = p->basepri;
-	if(ratio < 0)
-		panic("reprioritize");
-//iprint("pid %lud cpu %lud load %d fair %d pri %d\n", p->pid, p->cpu, load, fairshare, ratio);
-	return ratio;
-}
-
-/*
- * add a process to a scheduling queue
- */
-static int
-queueproc(Schedq *rq, Proc *p)
-{
-	int pri = rq - runq;
-
-	lock(runq);
-	switch(p->state){
-	case New:
-	case Queueing:
-	case QueueingR:
-	case QueueingW:
-	case Wakeme:
-	case Broken:
-	case Stopped:
-	case Rendezvous:
-		if(p != up)
+	for(;;){
+		st = up->state;
+		if(st == Ready)
 			break;
-		/* wet floor */
-	case Dead:
-	case Moribund:
-	case Ready:
-	case Running:
-	case Waitrelease:
-		unlock(runq);
-		return -1;
+		platwait((long*)&up->state, st, -1);
 	}
-	p->state = Ready;
-
-	/*
-	 * When the priority is very low (process is using
-	 * more than its fair share) or when it has changed,
-	 * reset processor affinity.
-	 *
-	 * Long running processes would otherwise be stuck
-	 * on the same cpu preventing sharing the load.
-	 * When the priority changes, we want to give
-	 * every cpu a chance to pick up the load.
-	 */
-	if(!p->wired)
-	if(pri < 3 || pri != p->priority)
-		p->affinity = -1;
-	p->priority = pri;
-
-	if(pri == PriEdf){
-		Proc *pp, *l;
-
-		/* insert in queue in earliest deadline order */
-		l = nil;
-		for(pp = rq->head; pp != nil; pp = pp->rnext){
-			if(pp->edf->d > p->edf->d)
-				break;
-			l = pp;
-		}
-		p->rnext = pp;
-		if(l == nil)
-			rq->head = p;
-		else
-			l->rnext = p;
-		if(pp == nil)
-			rq->tail = p;
-	} else {
-		p->rnext = nil;
-		if(rq->tail != nil)
-			rq->tail->rnext = p;
-		else
-			rq->head = p;
-		rq->tail = p;
-	}
-	rq->n++;
-	nrdy++;
-	runvec |= 1<<pri;
-	unlock(runq);
-	return 0;
+	up->state = Running;
 }
 
-/*
- *  ready(p) picks a new priority for a process and sticks it in the
- *  runq for that priority.
- */
 void
 ready(Proc *p)
 {
-	Mach *mp;
-
 	if(p->state == New){
-		/* its own Worker, its stack the KSTACK below it (newproc) */
-		mp = p->mach;
-		if(mp == nil){
-			mp = mallocz(sizeof(Mach), 1);
-			if(mp == nil)
+		/* a Worker of its own, its stack the KSTACK below it (newproc) */
+		if(p->mach == nil){
+			p->mach = mallocz(sizeof(Mach), 1);
+			if(p->mach == nil)
 				panic("ready: no Mach");
 		}
-		mp->machno = 0;
-		p->mach = mp;
+		p->mach->machno = 0;
 		p->state = Ready;
 		platnewproc(procstart, p, p);
 		return;
@@ -435,196 +149,17 @@ ready(Proc *p)
 }
 
 /*
- *  try to remove a process from a scheduling queue (called splhi)
+ * port/'s hooks into a scheduler wasm32 has not: the clock's
+ * (portclock.c) and a lock's spinning (taslock.c)
  */
-Proc*
-dequeueproc(Schedq *rq, Proc *tp)
+void
+hzsched(void)
 {
-	Proc *l, *p;
-
-	if(!canlock(runq))
-		return nil;
-
-	/*
-	 *  the queue may have changed before we locked runq,
-	 *  refind the target process.
-	 */
-	l = nil;
-	for(p = rq->head; p != nil; p = p->rnext){
-		if(p == tp)
-			break;
-		l = p;
-	}
-
-	/*
-	 *  p->mach==0 only when process state is saved
-	 */
-	if(p == nil || p->mach != nil){
-		unlock(runq);
-		return nil;
-	}
-	if(p->rnext == nil)
-		rq->tail = l;
-	if(l != nil)
-		l->rnext = p->rnext;
-	else
-		rq->head = p->rnext;
-	if(rq->head == nil)
-		runvec &= ~(1<<(rq-runq));
-	rq->n--;
-	nrdy--;
-	if(p->state != Ready){
-		iprint("dequeueproc %s %lud %s pc %p\n",
-			p->text, p->pid, statename[p->state], getcallerpc(&rq));
-		p = nil;
-	}
-	unlock(runq);
-	return p;
 }
 
-/*
- *  yield the processor and drop our priority
- */
 void
 yield(void)
 {
-	if(anyready()){
-		/* pretend we just used 1/2 tick */
-		up->lastupdate -= Scaling/2;  
-		sched();
-	}
-}
-
-/*
- *  recalculate priorities once a second.  We need to do this
- *  since priorities will otherwise only be recalculated when
- *  the running process blocks.
- */
-static void
-rebalance(void)
-{
-	static ulong lasttime;
-	int pri, npri;
-	Schedq *rq;
-	Proc *p;
-	ulong t;
-
-	t = m->ticks;
-	if(t - lasttime < HZ)
-		return;
-	lasttime = t;
-
-	assert(!islo());
-
-	for(pri=0, rq=runq; pri<Npriq; pri++, rq++){
-another:
-		p = rq->head;
-		if(p == nil)
-			continue;
-		if(pri == p->basepri)
-			continue;
-		npri = reprioritize(p);
-		if(npri != pri){
-			p = dequeueproc(rq, p);
-			if(p != nil){
-				p->state = Scheding;
-				if(queueproc(&runq[npri], p) < 0)
-					iprint("rebalance: queueproc %lud %s %s\n",
-						p->pid, p->text, statename[p->state]);
-				goto another;
-			}
-		}
-	}
-}
-	
-
-/*
- *  pick a process to run
- */
-Proc*
-runproc(void)
-{
-	Schedq *rq;
-	Proc *p;
-	ulong start, now;
-	int i;
-	void (*pt)(Proc*, int, vlong);
-
-	start = perfticks();
-
-	/* cooperative scheduling until the clock ticks */
-	if((p = m->readied) != nil && p->mach == nil && p->state == Ready
-	&& (!p->wired || p->affinity == m->machno)
-	&& runq[Nrq-1].head == nil && runq[Nrq-2].head == nil){
-		skipscheds++;
-		rq = &runq[p->priority];
-		goto found;
-	}
-
-	preempts++;
-
-loop:
-	/*
-	 *  find a process that last ran on this processor (affinity),
-	 *  or one that can be moved to this processor.
-	 */
-	spllo();
-	for(i = 0;; i++){
-		/*
-		 *  find the highest priority target process that this
-		 *  processor can run given affinity constraints.
-		 *
-		 */
-		for(rq = &runq[Nrq-1]; rq >= runq; rq--){
-			for(p = rq->head; p != nil; p = p->rnext){
-				if(p->affinity < 0 || p->affinity == m->machno
-				|| (!p->wired && i > 0))
-					goto found;
-			}
-		}
-
-		/* waste time or halt the CPU */
-		idlehands();
-
-		/* remember how much time we're here */
-		now = perfticks();
-		m->perf.inidle += now-start;
-		start = now;
-	}
-
-found:
-	splhi();
-	p = dequeueproc(rq, p);
-	if(p == nil)
-		goto loop;
-	if(edflock(p)){
-		edfrun(p, rq == &runq[PriEdf]);	/* start deadline timer and do admin */
-		edfunlock();
-	} else {
-		p->priority = reprioritize(p);
-	}
-	pt = proctrace;
-	if(pt != nil)
-		pt(p, SRun, 0);
-	return p;
-}
-
-int
-canpage(Proc *p)
-{
-	int ok = 0;
-
-	splhi();
-	lock(runq);
-	/* Only reliable way to see if we are Running */
-	if(p->mach == nil) {
-		p->newtlb = 1;
-		ok = 1;
-	}
-	unlock(runq);
-	spllo();
-
-	return ok;
 }
 
 Proc*
@@ -674,45 +209,23 @@ newproc(void)
 	p->trace = 0;
 	p->delaysched = 0;
 
-	/* sched params */
+	/* sched params: the browser's; kept for devproc */
 	p->wired = 0;
 	p->affinity = -1;
 	procpriority(p, PriNormal, 0);
 	p->cpu = 0;
-	p->lastupdate = MACHP(0)->ticks*Scaling;
 	p->edf = nil;
 
 	return p;
 }
 
 /*
- * wire this proc to a machine
+ * wire this proc to a machine: to port/, wasm32 has one (MACHP(0))
  */
 void
-procwired(Proc *p, int a)
+procwired(Proc *p, int)
 {
-	ushort nwired[MAXMACH];
-	Proc *pp;
-	int i;
-
-	if(a < 0){
-		/* pick a machine to wire to */
-		memset(nwired, 0, sizeof(nwired));
-		p->wired = 0;
-		for(i=0; (pp = proctab(i)) != nil; i++){
-			a = pp->affinity;
-			if(a >= 0 && pp->wired && pp->pid)
-				nwired[a]++;
-		}
-		a = 0;
-		for(i=0; i<conf.nmach; i++)
-			if(nwired[i] < nwired[a])
-				a = i;
-	} else {
-		/* use the virtual machine requested */
-		a = a % conf.nmach;
-	}
-	p->affinity = a;
+	p->affinity = 0;
 	p->wired = 1;
 }
 
@@ -798,7 +311,7 @@ sleep(Rendez *r, int (*f)(void*), void *arg)
 		up->r = r;
 		unlock(&up->rlock);
 		unlock(r);
-		procswitch();
+		sched();
 	}
 
 	if(up->notepending) {
@@ -1286,7 +799,6 @@ pexit(char *exitstr, int freemem)
 	}
 
 	if(!freemem){
-		edfstop(up);
 		addbroken();
 	}
 
@@ -1337,11 +849,6 @@ pexit(char *exitstr, int freemem)
 	up->nwatchpt = 0;
 	qunlock(&up->debug);
 
-	edfstop(up);
-	if(up->edf != nil){
-		free(up->edf);
-		up->edf = nil;
-	}
 	up->state = Moribund;
 	sched();
 	panic("pexit");
@@ -1733,53 +1240,13 @@ procsetuser(char *new)
 }
 
 /*
- *  time accounting called by clock() splhi'd
+ *  time accounting called by hzclock: wasm32's clock is a Worker of
+ *  its own and sees no proc running - neither a proc's time nor the
+ *  load is kept
  */
 void
 accounttime(void)
 {
-	Proc *p;
-	ulong n, per;
-	static ulong nrun;
-
-	p = m->proc;
-	if(p != nil) {
-		nrun++;
-		p->time[p->insyscall]++;
-	}
-
-	/* calculate decaying duty cycles */
-	n = perfticks();
-	per = n - m->perf.last;
-	m->perf.last = n;
-	per = ((uvlong)m->perf.period*(HZ-1) + per)/HZ;
-	if(per != 0)
-		m->perf.period = per;
-
-	m->perf.avg_inidle = ((uvlong)m->perf.avg_inidle*(HZ-1)+m->perf.inidle)/HZ;
-	m->perf.inidle = 0;
-
-	m->perf.avg_inintr = ((uvlong)m->perf.avg_inintr*(HZ-1)+m->perf.inintr)/HZ;
-	m->perf.inintr = 0;
-
-	/* only one processor gets to compute system load averages */
-	if(m->machno != 0)
-		return;
-
-	/*
-	 * calculate decaying load average.
-	 * if we decay by (n-1)/n then it takes
-	 * n clock ticks to go from load L to .36 L once
-	 * things quiet down.  it takes about 5 n clock
-	 * ticks to go to zero.  so using HZ means this is
-	 * approximately the load over the last second,
-	 * with a tail lasting about 5 seconds.
-	 */
-	n = nrun;
-	nrun = 0;
-	n = (nrdy+n)*1000*100;
-	load = ((uvlong)load*(HZ-1)+n)/HZ;
-	m->load = load/100;
 }
 
 /*
