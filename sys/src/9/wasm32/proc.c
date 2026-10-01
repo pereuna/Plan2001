@@ -73,9 +73,12 @@ kexit(Ureg*)
 
 /*
  * a proc's Worker starts here (platform.js, platnewproc): its Mach (m)
- * and up, then what kprocchild or forkchild put in p->sched.pc
+ * and up, then what kprocchild or forkchild put in p->sched.pc.  It
+ * returns when the proc is Dead: &p->workergone, which the platform sets
+ * once the Worker has left the kernel - until then the Proc, free, and
+ * its KSTACK are not newproc's to give
  */
-static void
+static ulong
 procstart(void *v)
 {
 	Proc *p;
@@ -95,11 +98,12 @@ procstart(void *v)
 		procalloc.free = up;
 		up = procalloc.Lock.p = nil;
 		unlock(&procalloc);
-		return;
+		return (ulong)&p->workergone;
 	}
 	f = (void(*)(void))p->sched.pc;
 	(*f)();
 	pexit("procstart", 0);
+	return 0;
 }
 
 /*
@@ -140,7 +144,9 @@ ready(Proc *p)
 		}
 		p->mach->machno = 0;
 		p->state = Ready;
-		platnewproc(procstart, p, p);
+		p->workergone = 0;
+		coherence();
+		platnewproc((void(*)(void*))procstart, p, p);
 		return;
 	}
 	p->state = Ready;
@@ -181,6 +187,7 @@ newproc(void)
 			return nil;
 		}
 		p = (Proc*)(b + KSTACK);
+		p->workergone = 1;
 		p->index = procalloc.nextindex++;
 		procalloc.tab[p->index] = p;
 	}
@@ -188,6 +195,10 @@ newproc(void)
 	procalloc.free = p->qnext;
 	p->qnext = nil;
 	unlock(&procalloc);
+
+	/* its last Worker may still be on its KSTACK, on the way out */
+	while(p->workergone == 0)
+		platwait(&p->workergone, 0, -1);
 
 	p->psstate = nil;
 	p->state = New;

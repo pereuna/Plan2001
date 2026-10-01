@@ -170,7 +170,7 @@ def main():
 						break
 					time.sleep(0.1)
 				cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
-			end = time.time() + 60
+			end = time.time() + float(os.environ.get('HALTWAIT', '60'))	# HALTWAIT=s: a long test
 			while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
 				try:
 					cdp.js('1')

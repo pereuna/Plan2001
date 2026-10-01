@@ -96,7 +96,8 @@ struct Call
 		void	*k;
 		ulong	u;
 		long	n;
-		int	out;	/* w, W, p */
+		int	out;	/* w, W, p: copied out */
+		int	upto;	/* w: as much as the call returns */
 	} b[Nbufs];
 	int	nb;
 };
@@ -112,7 +113,7 @@ nwords(char *a)
 }
 
 static void*
-callbuf(Call *c, ulong u, long n, int in, int out)
+callbuf(Call *c, ulong u, long n, int in, int out, int upto)
 {
 	void *k;
 
@@ -127,6 +128,7 @@ callbuf(Call *c, ulong u, long n, int in, int out)
 	c->b[c->nb].u = u;
 	c->b[c->nb].n = n;
 	c->b[c->nb].out = out;
+	c->b[c->nb].upto = upto;
 	c->nb++;
 	if(in && platcopyin(k, u, n) < 0)
 		error(Ebadarg);
@@ -142,7 +144,7 @@ callstr(Call *c, ulong u)
 	n = platustrlen(u, Maxstr);
 	if(n < 0)
 		error(Ebadarg);
-	return callbuf(c, u, n, 1, 0);
+	return callbuf(c, u, n, 1, 0, 0);
 }
 
 /* the program's words to the kernel's */
@@ -175,12 +177,12 @@ marshal(Call *c, char *a)
 		case 'r':
 		case 'w':
 		case 'W':
-			c->k[i] = (ulong)callbuf(c, c->u[i], c->u[i+1], *a != 'w', *a != 'r');
+			c->k[i] = (ulong)callbuf(c, c->u[i], c->u[i+1], *a != 'w', *a != 'r', *a == 'w');
 			c->k[i+1] = c->u[i+1];
 			i += 2;
 			break;
 		case 'p':
-			c->k[i] = (ulong)callbuf(c, c->u[i], 2*sizeof(int), 0, 1);
+			c->k[i] = (ulong)callbuf(c, c->u[i], 2*sizeof(int), 0, 1, 0);
 			i++;
 			break;
 		}
@@ -189,7 +191,7 @@ marshal(Call *c, char *a)
 
 /* what the call wrote, back to the program */
 static void
-unmarshal(Call *c, char *a, vlong r)
+unmarshal(Call *c, vlong r)
 {
 	int i;
 	long n;
@@ -198,7 +200,7 @@ unmarshal(Call *c, char *a, vlong r)
 		if(!c->b[i].out)
 			continue;
 		n = c->b[i].n;
-		if(strchr(a, 'w') != nil && r < n)
+		if(c->b[i].upto && r < n)
 			n = r;
 		if(n > 0 && platcopyout(c->b[i].u, c->b[i].k, n) < 0)
 			error(Ebadarg);
@@ -235,7 +237,7 @@ syscall(int n, ulong a)
 			r = (*s->fv)((va_list)c.k);
 		else
 			r = (long)(*s->f)((va_list)c.k);
-		unmarshal(&c, s->args, r);
+		unmarshal(&c, r);
 		poperror();
 	}else{
 		/* the error is the call's (errstr): 9front's syscall does the same */

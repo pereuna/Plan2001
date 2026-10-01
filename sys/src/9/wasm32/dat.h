@@ -73,7 +73,7 @@ struct Conf
 #define NCOLOR 1
 struct PMMU
 {
-	int	unused;
+	long	workergone;	/* 1: no Worker is on its KSTACK any more (proc.c, platform.js) */
 };
 
 #define	inittxtflush(p)

@@ -170,11 +170,10 @@ function imports(env) {
 			if (arg(0)) new Uint8Array(env.mem.buffer).set(a.subarray(0, iarg(1)), arg(0));
 			env.x.retw.value = a.length;
 		},
-		platbootargs: () => {
+		platbootargs: () => {	/* as platbootfs: its size, then into the buffer */
 			const a = new TextEncoder().encode((env.boot?.args ?? []).map((s) => s + '\0').join(''));
-			const n = Math.min(a.length, iarg(1));
-			new Uint8Array(env.mem.buffer).set(a.subarray(0, n), arg(0));
-			env.x.retw.value = n;
+			if (arg(0)) new Uint8Array(env.mem.buffer).set(a.subarray(0, iarg(1)), arg(0));
+			env.x.retw.value = a.length;
 		},
 	};
 	// a function the kernel wants and the platform has not: say which
@@ -197,7 +196,14 @@ function cpu({ module, mem, role, fn, arg, sp, boot, user }) {
 			new DataView(mem.buffer).setUint32(top, arg, true);
 			env.x.sp.value = top;
 			env.x.table.get(fn)();
-			close();	/* the proc is Dead: its Worker ends */
+			// the proc is Dead and this Worker out of the kernel: its Proc and KSTACK are free (newproc)
+			const gone = env.x.retw.value;
+			if (gone) {
+				const i32 = new Int32Array(mem.buffer);
+				Atomics.store(i32, gone >> 2, 1);
+				Atomics.notify(i32, gone >> 2);
+			}
+			close();
 		}
 	} catch (e) {
 		postMessage({ halt: 'platform: ' + e + (e.stack ? ' ' + e.stack : '') });

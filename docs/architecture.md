@@ -223,17 +223,24 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   jälkeen alusta purkaa ohjelman pinon muistiin, kopioi muistin lapsen
   Workerille ja kutsuu `ready`a, ja molemmat rakentavat pinonsa
   uudelleen. exits on 9frontin pexit, joka palaa `procstart`iin, ja Worker
-  päättyy. Notesit, RFMEM ja kontekstit tulevat C3:ssa.
+  päättyy. Kuolema on kaksivaiheinen: Proc ja sen KSTACK (samaa lohkoa)
+  ovat vapaita, mutta `newproc` antaa ne uudelle procille vasta, kun
+  alusta on asettanut `workergone`-sanan eli Worker on poistunut ytimestä.
+  Notesit, RFMEM ja kontekstit tulevat C3:ssa.
 - Juuri `#R` (`devrootfs.c`): sivun käynnistyksessä antamat tiedostot
   (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
   `#t`:n `/dev`iin sekä `#e`:n ja `#s`:n paikoilleen, avaa `#t/eia0`:n
   tiedostoiksi 0, 1 ja 2 ja ajaa sivun `?arg=`-argumenteista saadun
   ohjelman. Rivinmuokkaus ja kaiku ovat toistaiseksi sivun (kbdfs puuttuu).
-  Testit: `tools/test-9wasm32` (c2a, echo, fork, rc -c ja interaktiivinen
-  rc).
+  Sivun syötteet (initin argumentit, `#R`:n arkisto) tarkistetaan: koko
+  kysytään ensin, jokaisella merkkijonolla on oltava 0 alueen sisällä, ja
+  polussa ei saa olla alussa /:ta, tyhjää elementtiä eikä . tai ..
+  Testit: `tools/test-9wasm32` (c2a, echo, yli 4096 tavun argumentti, fork,
+  2000 forkia exitin, chdirin, execin ja waitin kanssa, rc -c ja
+  interaktiivinen rc).
 
 | | Sisältö | Valmis kun |
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
 | C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
-| C3 | fork, exec, RFMEM, preemptio, kontekstit, notes; devdraw ja hiiri alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |
+| C3 | notes, RFMEM, rendezvous, libthread ja kontekstit, preemptio, kbdfs; devdraw, hiiri ja näppäimistö alustan ajureina; Workerin luonnin kuittaus (fork ei jää odottamaan Workeria, jota ei syntynyt) | clock ja testisarja; drawterm poistuu selainpuolelta |
