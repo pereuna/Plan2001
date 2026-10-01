@@ -193,7 +193,25 @@ siirretään. Raja: jos ohjelma on tallentanut pinon osoitteen muistiin ennen
 rforkia, lapsen osoite osoittaa edelleen vanhemman pinoon. Lisäksi exec
 RFMEM-procista ei vielä toimi.
 
-    tools/test-host3        selaintestit: hello, dclock, fork, rfmem, rc, clock
+    tools/test-host3        selaintestit: hello, dclock, fork, rfmem, threads, rc, clock
+
+Procikohtainen data: Plan 9:ssä `_tos` (getpid) ja privallocin taulukko
+ovat jokaisen prosessin omia samassa virtuaaliosoitteessa. wasm32:n libc
+kokoaa ne `_perproc`-alueeseen. 3l vie alueen osoitteen ja koon, ja
+ajastin tallentaa ja palauttaa sen procia vaihdettaessa kuin
+rekisterijoukon. Se kirjoittaa alueelle myös procin pid:n.
+
+Kontekstit ja libthread: proc voi vaihtaa itse pinostaan toiseen alustan
+kutsuilla `_ctxnew(fn, arg, stk, n)`, `_ctxswitch(id)`, `_ctxself` ja
+`_ctxfree` (järjestelmäkutsut 100–103, libc/wasm32/ctx.c). Vaihdossa
+nykyinen konteksti puretaan, ja kohde rakennetaan uudelleen tai
+käynnistetään. Alusta käynnistää uuden kontekstin kutsumalla funktiota
+3l:n viemän taulun kautta. Kontekstit kuuluvat muistille: aloittamaton
+siirtyy sille procille, joka siihen ensimmäisenä vaihtaa.
+`sys/src/libthread/wasm32` on 9frontin libthread, jossa sched.c:n
+setjmp/longjmp-parit ovat kontekstinvaihtoja, main.c:stä puuttuu `mainjmp`
+ja wasm32.c:n `_threadinitstack` luo kontekstin. Säikeet ovat procin
+konteksteja, ja procit (proccreate) ovat rfork(RFMEM)-procceja.
 
 9frontin muuttamaton clock.c toimii: sen event-kirjasto käynnistää ajastimen,
 hiiren ja näppäimistön apuprosessit `rfork(RFPROC)`:lla eikä RFMEM:llä,
@@ -207,8 +225,8 @@ Suunnitelma ja vaiheet A–D: docs/architecture.md.
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- libthread (rio, acme ...): säikeet RFMEM-procceina, joiden vaihto
-  kulkee rendezvousin kautta (plan9portin tapaan).
+- Ohjelmat libthreadin päällä: rio, acme ... (libframe, libplumb,
+  9P-palvelimet).
 - exec RFMEM-procista.
 - RFNAMEG (nimiavaruuden kopio: pgrpcpy puuttuu drawtermista), RFENVG,
   notes.

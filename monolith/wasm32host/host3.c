@@ -41,9 +41,10 @@ extern	int	h3strlen(ulong, int);
 extern	int	h3brk(ulong);
 extern	void	h3stop(int);
 extern	void	h3unwind(int);
-extern	int	h3run(H3*, int, uchar*, int, int, char**, uchar*, int, ulong, ulong, ulong, vlong*, int*, char*, int);
+extern	int	h3run(H3*, int, uchar*, int, int, char**, uchar*, int, ulong, ulong, ulong, ulong, vlong*, int*, char*, int);
 extern	void	h3log(char*, int, char*);
 extern	void	h3trace(char*);
+extern	void	h3jdebug(void);
 
 /* 9front's /sys/src/libc/9syscall/sys.h */
 enum {
@@ -146,6 +147,7 @@ struct H3
 	ulong	asptr;
 	ulong	asbase;
 	ulong	stacktop;
+	ulong	ctxfn;	/* a forked child's: its context's function, 0 _start */
 	vlong	asret;
 	Img	*eimg;	/* exec's */
 	int	eargc;
@@ -492,6 +494,12 @@ doreq(H3 *c, Req *q)
 			osmsleep(v[0]);
 		q->r = 0;
 		break;
+	case RENDEZVOUS:
+		/* tags and values: the program's numbers, not addresses here */
+		q->r = (ulong)(uintptr)sysrendezvous((void*)(uintptr)v[0], (void*)(uintptr)v[1]);
+		if(q->r == (ulong)~0)
+			q->r = ~0;	/* (void*)~0: interrupted */
+		break;
 	}
 	if(q->r < 0)
 		strecpy(q->err, q->err+ERRMAX, up->syserrstr);
@@ -527,7 +535,7 @@ static void	h3proc(void*);
 
 /* fork: p unwound, snap its memory (ours now, malloc'd) */
 static H3*
-h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr, ulong asbase, ulong stacktop)
+h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr, ulong asbase, ulong stacktop, ulong ctxfn)
 {
 	H3 *c;
 	Fgrp *f;
@@ -547,6 +555,7 @@ h3child(H3 *p, int flags, uchar *snap, long nsnap, ulong asptr, ulong asbase, ul
 	c->asptr = asptr;
 	c->asbase = asbase;
 	c->stacktop = stacktop;
+	c->ctxfn = ctxfn;
 	c->asret = 0;
 	if(!c->nowait) {
 		lock(&p->lk);
@@ -908,14 +917,14 @@ static void
 h3proc(void *v)
 {
 	H3 *p, *c;
-	int r, out[8];
+	int r, out[9];
 	char msg[ERRMAX];
 
 	p = v;
 	for(;;) {
 		msg[0] = 0;
 		r = h3run(p, p->mode, p->img->p, p->img->n, p->argc, p->argv,
-			p->snap, p->nsnap, p->asptr, p->asbase, p->stacktop, &p->asret, out, msg, sizeof msg);
+			p->snap, p->nsnap, p->asptr, p->asbase, p->stacktop, p->ctxfn, &p->asret, out, msg, sizeof msg);
 		free(p->snap);
 		p->snap = nil;
 		if(r < 0) {
@@ -925,7 +934,7 @@ h3proc(void *v)
 		}
 		if(out[0] == Hforked) {
 			/* out[5]: the proc that forked (an rfork(RFMEM) one perhaps), 6, 7 its stack's */
-			c = h3child((H3*)(uintptr)out[5], out[1], (uchar*)(uintptr)out[2], out[3], out[4], out[6], out[7]);
+			c = h3child((H3*)(uintptr)out[5], out[1], (uchar*)(uintptr)out[2], out[3], out[4], out[6], out[7], out[8]);
 			dbg("%d %s fork %#x: child %d, %d bytes", p->pid, p->name, out[1], c->pid, out[3]);
 			p->asret = c->pid;
 			p->mode = Hgoon;
@@ -981,6 +990,8 @@ cpubody(void)
 		prog = "rc";
 	if(getenv("WASM32DEBUG") != nil)
 		h3debug = atoi(getenv("WASM32DEBUG"));
+	if(h3debug > 3)
+		h3jdebug();
 	p = mallocz(sizeof *p, 1);
 	p->pid = newpid();
 	p->proc = p;

@@ -20,6 +20,7 @@ t hello
 t dclock DRAWS=1
 t fork
 t rfmem
+t threads
 t rc ARGS='["-c", "echo a b c | wc; ls /bin | wc -l; for(i in 1 2) echo $i; date"]'
 t clock DRAWS=1 RUNS=1
 [ $bad = 0 ] && echo PASS || { echo FAIL; exit 1; }

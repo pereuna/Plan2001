@@ -1230,8 +1230,8 @@ asmb(void)
 	buleb(&b, 2);
 	section(&out, 13, &b);
 
-	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase tzone tslot ntslot */
-	buleb(&b, 13);
+	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase tzone tslot ntslot perproc perprocsize */
+	buleb(&b, 15);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
@@ -1245,13 +1245,29 @@ asmb(void)
 	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, tzone); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, TSTACK+TASAREA); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, NTSLOT); bput1(&b, 0x0b);
+	{
+		Sym *pp;
+
+		pp = lookup("_perproc", 0);
+		bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, pp->type == SDATA || pp->type == SBSS ? pp->value : 0); bput1(&b, 0x0b);
+		bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, pp->type == SDATA || pp->type == SBSS ? pp->size : 0); bput1(&b, 0x0b);
+	}
 	section(&out, 6, &b);
 
 	/*
 	 * exports: the kernel puts argc and argv below sp, then calls _start;
 	 * fork: asstate, asptr, asret
 	 */
-	buleb(&b, 11);
+	buleb(&b, 14);
+	bstr(&b, "perproc");	/* libc's per-proc region (_perproc): the kernel swaps it (rfork RFMEM) */
+	bput1(&b, 0x03);
+	buleb(&b, GASRET+6);
+	bstr(&b, "perprocsize");
+	bput1(&b, 0x03);
+	buleb(&b, GASRET+7);
+	bstr(&b, "table");	/* function pointers, for the kernel's contexts (_ctxnew) */
+	bput1(&b, 0x01);
+	buleb(&b, 0);
 	{
 		static char *cn[] = { "stacktop", "asbase", "tzone", "tslot", "ntslot" };
 

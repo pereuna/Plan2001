@@ -4,6 +4,12 @@
  * run in this Worker, kept there between runs (fork rewinds it), and its
  * procs (rfork RFMEM) taking turns on it.  Not with drawterm's headers:
  * they define long.
+ *
+ * Contexts (libthread's threads): a proc's stacks it switches between
+ * itself - _ctxnew(fn, arg, stk, n) one on stk (saved frames at its
+ * bottom), _ctxswitch(id) to it: the current unwound, it rewound (or
+ * started: fn(arg)), _ctxself, _ctxfree.  System calls 100-103, the
+ * platform's own (libc/wasm32/ctx.c).
  */
 #include <emscripten.h>
 
@@ -59,12 +65,12 @@ EM_JS(void, h3unwind, (int flags), {
  * current proc rewound with asret.  Then out[0]: 0 it exited, 1 it
  * unwound for fork (out[1] the flags, out[2] its memory in ours -
  * malloc'd - out[3] its size, out[4] asptr, out[5] the proc, out[6]
- * asbase, out[7] stacktop), 2 exec.  rfork(RFMEM) procs are scheduled
+ * asbase, out[7] stacktop, out[8] its context's function), 2 exec.  rfork(RFMEM) procs are scheduled
  * here: a call that blocks goes to the proc's helper (host3.c h3start)
  * and the next proc that can go, goes.
  */
 EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, char **argv,
-	unsigned char *snap, int nsnap, unsigned asptr, unsigned asbase, unsigned stacktop,
+	unsigned char *snap, int nsnap, unsigned asptr, unsigned asbase, unsigned stacktop, unsigned ctxfn,
 	vlong *asret, int *out, char *msg, int nmsg), {
 	const fail = (t) => { stringToUTF8(String(t), msg, nmsg); return -1; };
 	const Stop = globalThis.h3stopobj ??= { stop: true };
@@ -75,10 +81,12 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 	try {
 		if (mode != 2) {
 			const bytes = new Uint8Array(wasmMemory.buffer, img, nimg).slice();
-			h = globalThis.h3 = { stop: 0, fork: 0, block: 0, mem: null, inst: null, multi: false, cos: [], cur: 0, slots: [] };
+			h = globalThis.h3 = { stop: 0, fork: 0, block: 0, mem: null, inst: null, multi: false, cos: [], cur: 0, slots: [], ctxs: [] };
 			h.inst = new WebAssembly.Instance(new WebAssembly.Module(bytes), { plan9: { syscall: (n, a) => {
 				const c = h.cos[h.cur];
 				a >>>= 0;
+				if (n >= 100 && n <= 103)
+					return ctxcall(c, n, a);
 				if (!h.multi) {
 					_h3sys1(c.ptr, n, a);
 					if (h.stop) throw Stop;
@@ -95,6 +103,67 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 		}
 		const x = h.inst.exports;
 		const m32 = () => new DataView(h.mem.buffer);
+		const tbl = x.table;
+		const jt = (t) => {	/* ?debug=4: the scheduler's steps, on the page's console */
+			if (!globalThis.h3jdebug) return;
+			const n = lengthBytesUTF8(t) + 1, q = _malloc(n);
+			stringToUTF8(t, q, n);
+			_h3trace(q);
+			_free(q);
+		};
+		/* the contexts' calls (libc/wasm32/ctx.c): 100 new, 101 switch, 102 free, 103 self */
+		globalThis.h3ctxcall = (c, n, a) => {
+			const d = m32(), arg = (i) => d.getUint32(a + 4*i, true);
+			switch (n) {
+			case 100: {
+				const fn = arg(0), farg = arg(1), stk = arg(2), size = arg(3);
+				let id = h.ctxs.findIndex((t) => t == null);
+				if (id < 0) id = h.ctxs.length;
+				h.ctxs[id] = { fn, arg: farg, base: stk, top: (stk + size) & ~15, asptr: stk, started: false };
+				return BigInt(id);
+			}
+			case 101: {
+				/* a context: the memory's; one not started goes with the first proc to switch to it */
+				const id = arg(0);
+				if (id == c.cx) return 0n;
+				if (!h.ctxs[id] || h.cos.some((q) => q !== c && q.cx == id && q.state != 'done')) return -1n;
+				h.ctxswitch = id;
+				x.asstate.value = 1;
+				return 0n;
+			}
+			case 102:
+				if (!h.cos.some((q) => q.cx == arg(0) && q.state != 'done')) h.ctxs[arg(0)] = null;
+				return 0n;
+			case 103:
+				return BigInt(c.cx);
+			}
+			return -1n;
+		};
+		var ctxcall = globalThis.h3ctxcall;
+		/* go on with c's current context: rewound, or started; the function to call */
+		const resume = (c) => {
+			const t = h.ctxs[c.cx];
+			jt(`resume pid ${k32().getInt32(c.ptr + 8, true)} ctx ${c.cx} ${t.started ? 'rewind' : 'start'} fn ${t.fn} asptr ${t.asptr} base ${t.base} top ${t.top}`);
+			if (!t.started) {
+				t.started = true;
+				x.asstate.value = 0;
+				const sp = (t.top - 16) & ~7;
+				m32().setUint32(sp, t.arg, true);
+				x.sp.value = sp;
+				x.asptr.value = t.base;
+				return tbl.get(t.fn);
+			}
+			x.asptr.value = t.asptr;
+			x.asstate.value = 2;
+			x.asret.value = c.ret;
+			return t.fn ? tbl.get(t.fn) : x._start;
+		};
+		/* libc's per-proc region (_perproc: _tos, privalloc's): swapped as procs take turns */
+		const pp = x.perproc ? x.perproc.value : 0, ppn = x.perprocsize ? x.perprocsize.value : 0;
+		const setpid = (pid) => { if (pp && ppn >= 52) m32().setUint32(pp + 48, pid, true); };	/* Tos.pid */
+		const ppsave = () => pp ? new Uint8Array(h.mem.buffer, pp, ppn).slice() : null;
+		const ppload = (v) => { if (pp && v) new Uint8Array(h.mem.buffer).set(v, pp); };
+		let entry = x._start;
 		if (mode == 0) {
 			const b = new Uint8Array(h.mem.buffer), d = m32(), k = k32();
 			let top = x.sp.value;
@@ -112,56 +181,60 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			ptrs.forEach((q, i) => d.setInt32(top + 4 + 4*i, q, true));
 			d.setInt32(top + 4 + 4*argc, 0, true);
 			x.sp.value = top;
-			h.cos = [{ ptr: p, slot: -1, base: x.asbase.value, top: x.stacktop.value, asptr: 0, state: 'run', ret: 0n }];
+			setpid(k.getInt32(p + 8, true));
+			h.ctxs = [{ fn: 0, base: x.asbase.value, top: x.stacktop.value, asptr: 0, started: true }];
+			h.cos = [{ ptr: p, slot: -1, state: 'run', ret: 0n, cx: 0 }];
 		} else if (mode == 1) {
 			if (nsnap > h.mem.buffer.byteLength)
 				h.mem.grow(Math.ceil((nsnap - h.mem.buffer.byteLength) / 65536));
 			new Uint8Array(h.mem.buffer).set(new Uint8Array(wasmMemory.buffer, snap, nsnap));
-			h.cos = [{ ptr: p, slot: -1, base: asbase || x.asbase.value, top: stacktop || x.stacktop.value,
-				asptr: asptr, state: 'run', ret: ret64(asret) }];
-			x.asptr.value = asptr;
-			x.asstate.value = 2;
-			x.asret.value = ret64(asret);
+			h.ctxs = [{ fn: ctxfn, base: asbase || x.asbase.value, top: stacktop || x.stacktop.value, asptr, started: true }];
+			h.cos = [{ ptr: p, slot: -1, state: 'run', ret: ret64(asret), cx: 0 }];
+			setpid(k32().getInt32(p + 8, true));
+			entry = resume(h.cos[0]);
 		} else {
 			const c = h.cos[h.cur];
-			x.asptr.value = c.asptr;
-			x.asstate.value = 2;
-			x.asret.value = ret64(asret);
+			c.ret = ret64(asret);
+			entry = resume(c);
 		}
 
 		/* an rfork(RFMEM) child of c: its stack and saved frames a copy in a slot of its own */
 		const mkchild = (c, flags) => {
+			const t = h.ctxs[c.cx];
 			let s = 0;
 			while (h.slots[s]) s++;
 			if (s >= x.ntslot.value) return null;
 			const d = m32(), b = new Uint8Array(h.mem.buffer);
 			const slot = x.tzone.value + s * x.tslot.value;
 			const top = slot + x.tslot.value - TASAREA, abase = top;
-			/* the stack in use: from the innermost saved frame's SP to c's top */
-			let minsp = c.top;
-			for (let q = c.asptr; q > c.base; ) {
+			/* the stack in use: from the innermost saved frame's SP to the context's top */
+			let minsp = t.top;
+			for (let q = t.asptr; q > t.base; ) {
 				const size = d.getInt32(q - 4, true), rec = q - size;
 				minsp = Math.min(minsp, d.getUint32(rec + 4, true));
 				q = rec;
 			}
-			const delta = top - c.top;
-			if (minsp < c.top - (x.tslot.value - TASAREA)) return null;	/* too deep for a slot */
-			b.copyWithin(minsp + delta, minsp, c.top);
-			b.copyWithin(abase, c.base, c.asptr);
-			const asp = abase + (c.asptr - c.base);
+			const delta = top - t.top;
+			if (minsp < t.top - (x.tslot.value - TASAREA)) return null;	/* too deep for a slot */
+			b.copyWithin(minsp + delta, minsp, t.top);
+			b.copyWithin(abase, t.base, t.asptr);
+			const asp = abase + (t.asptr - t.base);
 			/* SPs and what looks like a stack address in i32 locals: moved (docs/wasm32.md) */
 			for (let q = asp; q > abase; ) {
 				const size = d.getInt32(q - 4, true), rec = q - size, ni = d.getInt32(q - 8, true);
 				for (let i = 0; i < ni; i++) {
 					const v = d.getUint32(rec + 4 + 4*i, true);
-					if (v >= minsp && v < c.top)
+					if (v >= minsp && v < t.top)
 						d.setUint32(rec + 4 + 4*i, v + delta, true);
 				}
 				q = rec;
 			}
 			const ptr = _h3newco(c.ptr, flags);
 			h.slots[s] = 1;
-			return { ptr, slot: s, base: abase, top, asptr: asp, state: 'ready', ret: 0n };
+			const priv = ppsave();
+			if (priv && priv.length >= 52) new DataView(priv.buffer).setUint32(48, k32().getInt32(ptr + 8, true), true);
+			h.ctxs.push({ fn: t.fn, base: abase, top, asptr: asp, started: true });
+			return { ptr, slot: s, state: 'ready', ret: 0n, cx: h.ctxs.length - 1, priv };
 		};
 
 		const o = (i, v) => k32().setInt32(out + 4*i, v, true);
@@ -169,15 +242,25 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			h.stop = 0;
 			h.fork = 0;
 			h.block = 0;
+			h.ctxswitch = undefined;
 			try {
-				x._start();
+				entry();
 			} catch (e) {
 				if (e !== Stop) throw e;
 			}
 			let c = h.cos[h.cur];
+			jt(`back: stop ${h.stop} fork ${h.fork} block ${h.block} ctxswitch ${h.ctxswitch} asptr ${x.asptr.value} asstate ${x.asstate.value}`);
 			if (h.stop == 2) { o(0, 2); return 0; }
+			if (h.ctxswitch !== undefined && !h.stop) {
+				/* another context of the same proc */
+				h.ctxs[c.cx].asptr = x.asptr.value;
+				c.cx = h.ctxswitch;
+				c.ret = 0n;
+				entry = resume(c);
+				continue;
+			}
 			if (h.fork && !h.stop) {
-				c.asptr = x.asptr.value;
+				h.ctxs[c.cx].asptr = x.asptr.value;
 				if (h.fork & RFMEM) {
 					if (!h.multi) {
 						h.multi = true;
@@ -195,11 +278,12 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 					const n = h.mem.buffer.byteLength, q = _malloc(n);
 					if (!q) return fail('no memory for fork');
 					new Uint8Array(wasmMemory.buffer).set(new Uint8Array(h.mem.buffer), q);
-					o(0, 1); o(1, h.fork); o(2, q); o(3, n); o(4, c.asptr); o(5, c.ptr); o(6, c.base); o(7, c.top);
+					const t = h.ctxs[c.cx];
+					o(0, 1); o(1, h.fork); o(2, q); o(3, n); o(4, t.asptr); o(5, c.ptr); o(6, t.base); o(7, t.top); o(8, t.fn);
 					return 0;
 				}
 			} else if (h.block && !h.stop) {
-				c.asptr = x.asptr.value;
+				h.ctxs[c.cx].asptr = x.asptr.value;
 				c.state = 'blocked';
 			} else {
 				/* exits, or main returned */
@@ -224,14 +308,18 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 					if (h.cos[j].state == 'ready') { next = j; break; }
 				}
 				if (next >= 0) break;
+				jt('wait for a helper');
 				_h3waitdone(p);
+			}
+			if (next != h.cur) {
+				const was = h.cos[h.cur];
+				if (was.state != 'done') was.priv = ppsave();
+				ppload(h.cos[next].priv);
 			}
 			h.cur = next;
 			c = h.cos[next];
 			c.state = 'run';
-			x.asptr.value = c.asptr;
-			x.asstate.value = 2;
-			x.asret.value = c.ret;
+			entry = resume(c);
 		}
 	} catch (e) {
 		return fail(e + (e.stack ? ' ' + e.stack : ''));
@@ -245,6 +333,11 @@ h3log(const char *prog, int bad, const char *msg)
 	MAIN_THREAD_EM_ASM({ console.log('HOST3-EXIT ' + UTF8ToString($0) + ' ' + ($1 ? UTF8ToString($2) : 'ok')); },
 		prog, bad, msg);
 }
+
+/* the scheduler's tracing (?debug=4): every Worker */
+EM_JS(void, h3jdebug, (void), {
+	globalThis.h3jdebug = 1;
+});
 
 /* host3's own tracing (?debug=1), on the page's console */
 void

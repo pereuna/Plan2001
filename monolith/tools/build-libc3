@@ -50,6 +50,24 @@ for s in "$P"/subset/9front/sys/src/libdraw/*.c; do
 	fi
 done
 [ $fail = 0 ] || exit 1
+# libthread: 9front's, with wasm32's own scheduler and main (contexts, not longjmp)
+mkdir -p "$out/o/libthread"
+rm -f "$out/o/libthread/"*.3
+for s in "$P"/subset/9front/sys/src/libthread/*.c "$P"/sys/src/libthread/wasm32/*.c; do
+	case $s in
+	*/subset/*/386.c|*/subset/*/amd64.c|*/subset/*/arm64.c|*/subset/*/arm.c|*/subset/*/mips.c|*/subset/*/power.c|*/subset/*/power64.c|\
+	*/subset/*/example.c|*/subset/*/test.c|*/subset/*/tprimes.c|*/subset/*/sched.c|*/subset/*/main.c) continue ;;
+	esac
+	o=$out/o/libthread/$(basename "$(dirname "$s")")-$(basename "${s%.c}").3
+	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -I"$P/subset/9front/sys/src/libthread" -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+		echo "build-libc3: $s:"; head -5 "$o.err"; fail=1
+	fi
+done
+[ $fail = 0 ] || exit 1
+rm -f "$out/lib/libthread.a"
+ar rcD "$out/lib/libthread.a" "$out"/o/libthread/*.3
+echo "build-libc3: $out/lib/libthread.a ($(ls "$out"/o/libthread/*.3 | wc -l) objects)"
+
 rm -f "$out/lib/libdraw.a"
 ar rcD "$out/lib/libdraw.a" "$out"/o/libdraw/*.3
 echo "build-libc3: $out/lib/libdraw.a ($(ls "$out"/o/libdraw/*.3 | wc -l) objects)"

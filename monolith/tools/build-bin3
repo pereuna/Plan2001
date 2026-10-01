@@ -43,10 +43,10 @@ if ! (cd "$root/third_party/9apps" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" c
 fi
 
 # 3c's tests that run in the browser (tools/test-wasmapp host3)
-for t in libc/hello draw/dclock host3/rfmem libc/fork; do
+for t in libc/hello draw/dclock host3/rfmem libc/fork host3/threads; do
 	n=$(basename $t)
 	if ! (cd "$P/sys/src/cmd/3c/test/$(dirname $t)" && "$cc3" -FVw $INC -o "$out/o/cmd/$n.3" "$n.c") >"$out/o/cmd/$n.err" 2>&1 ||
-	   ! "$l3" -o "$out/root/bin/$n" "$out/o/cmd/$n.3" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/$n.err" 2>&1; then
+	   ! "$l3" -o "$out/root/bin/$n" "$out/o/cmd/$n.3" "$out/lib/libthread.a" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/$n.err" 2>&1; then
 		echo "build-bin3: $n:"; head -5 "$out/o/cmd/$n.err"; fail=1
 	fi
 done
