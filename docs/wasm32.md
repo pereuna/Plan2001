@@ -203,7 +203,21 @@ pino-osoitteilta näyttävät arvot korjattiin heuristisesti. 3l:n kiinteä
 säiealue (16 paikkaa) poistui samalla. Raja: exec RFMEM-procista ei vielä
 toimi.
 
-    tools/test-host3        selaintestit: hello, dclock, fork, rfmem, threads, rc, clock
+    tools/test-host3        selaintestit: hello, dclock, fork, rfmem, threads, preempt, bytes, rc, clock
+
+Preemptio (3l ja alusta): saman muistin procit vaihtuvat myös silloin, kun
+yksi vain laskee. 3l lisää jokaisen taaksepäin hyppäävän haaran eteen
+laskurin vähennyksen (globaali `preempt`). Kun laskuri on nolla, kutsutaan
+`_yield`ia, joka on oma peruslohkonsa, jotta uudelleenrakennus voi palata
+siihen. Alusta (kutsu 105) asettaa laskurin uudelleen (20 000 kierrosta,
+kun procceja on useita, muuten käytännössä ääretön). Jos procin
+aikaviipale (10 ms) on kulunut ja toinen proc voi jatkaa, nykyinen
+puretaan valmiina-tilaan ja seuraava jatkaa. Silmukalliset funktiot ovat
+siksi purettavia, mikä kasvattaa ohjelmia lisää (hello 167 -> 238 kt,
+3c.wasm 756 kt -> 1,26 Mt), ja optimointi tulee myöhemmin. Rekursio ilman
+silmukkaa ei ole preemptiopiste. Saman procin libthread-säikeet vaihtuvat
+edelleen vain itse, kuten Plan 9:ssä. Testi host3/preempt: vanhempi ja
+lapsi odottavat toisiaan silmukassa ilman järjestelmäkutsuja.
 
 Sarjaportti #t/eia0 (monolith/wasm32host/devuart3.c) on wasm32-alustan
 ensimmäinen ajuri: tavuputki sivulle. Ytimen osa on Dev, jossa ovat eia0,
@@ -246,11 +260,6 @@ joten ne ovat tavallisia forkattuja prosesseja, jotka puhuvat putken kautta.
 
 ## Kesken
 
-- Preemptio: RFMEM-procien ajastin ei keskeytä. Proc, joka laskee ilman
-  järjestelmäkutsuja, pysäyttää muut saman muistin procit (erilliset
-  prosessit ovat omia Workereitaan ja vaihtuvat aidosti). Ehdotus: 3l:n
-  preemptiopisteet taaksepäin hyppääviin haaroihin (laskuri ja `_yield`,
-  alusta vaihtaa aikaviipaleen kuluttua).
 
 Suunnitelma ja vaiheet A–D: docs/architecture.md.
 
