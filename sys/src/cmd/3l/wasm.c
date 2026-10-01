@@ -7,6 +7,7 @@
  *	globals	SP, RET.w RET.v RET.f RET.d
  *	table	function pointers: index 1 on (0 is nil)
  *	import	plan9.syscall(number i32, args i32) -> i64
+ *	tag	0, longjmp's (buf, v): a function calling setjmp catches it
  *	export	memory, sp, _start (calls the entry: -E, default _main; the
  *		kernel puts argc, argv[0] ... nil at sp first)
  * every function () -> ().  Control flow: a function's basic blocks in
@@ -30,8 +31,9 @@ static	long	database;
 static	long	dataend;
 static	long	bssend;
 static	long	npages;
-static	Sym*	trapsym;
+static	Sym*	setjmpsym;
 static	Sym*	entrysym;
+static	char*	synths[] = { "_trap", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
 
 void
 bput1(Buf *b, int c)
@@ -128,14 +130,21 @@ layout(void)
 {
 	Sym *s;
 	long a, al;
-	int n;
+	int n, i;
 
 	applydata();
 
 	/* functions: defined ones, then _trap if wanted */
-	trapsym = lookup("_trap", 0);
-	if(trapsym->ref && trapsym->type == SNONE)
-		trapsym->type = SSYNTH;
+	/* made here when used and not defined: _trap, longjmp, the atomics */
+	for(i = 0; synths[i] != nil; i++) {
+		s = lookup(synths[i], 0);
+		if(s->ref && s->type == SNONE)
+			s->type = SSYNTH;
+	}
+	/* setjmp: in place at each call (function) */
+	setjmpsym = lookup("setjmp", 0);
+	if(setjmpsym->type == SNONE)
+		setjmpsym->type = SINLINE;
 	n = 0;
 	for(s = allsym; s != nil; s = s->next)
 		if(s->type == STEXT || s->type == SSYNTH)
@@ -195,6 +204,7 @@ static	int	locbase[NK];
 static	int	nloc[NK];
 static	int	nblk;
 static	int	hasloop;
+static	int	sjlj;		/* calls setjmp: in a try, longjmp's catch */
 static	Sym*	cursym;
 
 static void
@@ -242,6 +252,9 @@ symaddr(Sym *s)
 	case SDATA:
 	case SBSS:
 		return s->value;
+	case SINLINE:
+		diag("%s: the address of %s, which is made in place", cursym->name, s->name);
+		return 0;
 	}
 	diag("%s: undefined %s", cursym->name, s->name);
 	return 0;
@@ -584,7 +597,7 @@ branch(Prog *p, int cond)
 		op2(0x04, 0x40);	/* if */
 	iconst(t);
 	local(1, 1);
-	op2(0x0c, nblk - 1 - j + cond);
+	op2(0x0c, nblk - 1 - j + cond + sjlj);
 	if(cond)
 		op(0x0b);
 }
@@ -664,6 +677,26 @@ eprog(Prog *p)
 			Sym *s;
 
 			s = p->to.sym;
+			if(s->type == SINLINE) {
+				/*
+				 * setjmp(buf): buf[0] this frame's SP, buf[1] the block
+				 * after the call (longjmp's catch goes there); 0
+				 */
+				local(0, 0);
+				op(0x28);
+				memarg(2, 0);
+				op2(0x22, 2);		/* local.tee: the buf */
+				local(0, 0);
+				op(0x36);
+				memarg(2, 0);
+				local(0, 2);
+				iconst(p->link != nil ? p->link->blk : 0);
+				op(0x36);
+				memarg(2, 4);
+				iconst(0);
+				op2(0x24, GRET+Kw);
+				break;
+			}
 			if(s->type != STEXT && s->type != SSYNTH) {
 				diag("%s: call of %s, not a function", cursym->name, s->name);
 				break;
@@ -714,6 +747,80 @@ isbranch(int as)
 }
 
 /*
+ * a function made here: its arguments at SP, as any function's
+ */
+static void
+argw(int i)
+{
+	op2(0x23, GSP);
+	op(0x28);
+	memarg(2, 4*i);
+}
+
+static void
+atomic(int c)
+{
+	op2(0xfe, c);
+	memarg(2, 0);
+}
+
+static void
+synth(Sym *s, Buf *b)
+{
+	char *n;
+
+	n = s->name;
+	if(strcmp(n, "_trap") == 0) {
+		/* _trap(n, args): plan9.syscall(n, args), the result in RET */
+		buleb(b, 1);
+		buleb(b, 1);
+		bput1(b, I64);
+		argw(0);
+		argw(1);
+		op2(0x10, 0);
+		op2(0x22, 0);		/* local.tee */
+		op2(0x24, GRET+Kv);
+		local(0, 0);
+		op(0xa7);
+		op2(0x24, GRET+Kw);
+	} else {
+		buleb(b, 0);
+		if(strcmp(n, "longjmp") == 0) {
+			/* longjmp(buf, v): thrown to the frame of buf's setjmp */
+			argw(0);
+			argw(1);
+			op2(0x08, 0);
+		} else if(strcmp(n, "_tas") == 0) {
+			argw(0);
+			iconst(0xdeadead);
+			atomic(0x41);		/* i32.atomic.rmw.xchg */
+			op2(0x24, GRET+Kw);
+		} else if(strcmp(n, "ainc") == 0 || strcmp(n, "adec") == 0) {
+			argw(0);
+			iconst(1);
+			atomic(n[0] == 'a' && n[1] == 'i' ? 0x1e : 0x25);	/* rmw.add, rmw.sub */
+			iconst(1);
+			op(n[1] == 'i' ? 0x6a : 0x6b);
+			op2(0x24, GRET+Kw);
+		} else if(strcmp(n, "coherence") == 0) {
+			op2(0xfe, 0x03);	/* atomic.fence */
+			bput1(&code, 0);
+		} else {
+			/* cas, casp, casl(p, ov, nv): 1 if *p was ov and is now nv */
+			argw(0);
+			argw(1);
+			argw(2);
+			atomic(0x48);		/* i32.atomic.rmw.cmpxchg */
+			argw(1);
+			op(0x46);
+			op2(0x24, GRET+Kw);
+		}
+	}
+	op(0x0b);
+	bputn(b, code.p, code.n);
+}
+
+/*
  * a function's body (locals and code) into b
  */
 static void
@@ -726,30 +833,14 @@ function(Sym *s, Buf *b)
 	cursym = s;
 	code.n = 0;
 	if(s->type == SSYNTH) {
-		/* _trap(n, args): plan9.syscall(n, args), the result in RET */
-		buleb(b, 1);
-		buleb(b, 1);
-		bput1(b, I64);
-		op2(0x23, GSP);
-		op(0x28);
-		memarg(2, 0);
-		op2(0x23, GSP);
-		op(0x28);
-		memarg(2, 4);
-		op2(0x10, 0);
-		op2(0x22, 0);		/* local.tee */
-		op2(0x24, GRET+Kv);
-		local(0, 0);
-		op(0xa7);
-		op2(0x24, GRET+Kw);
-		op(0x0b);
-		bputn(b, code.p, code.n);
+		synth(s, b);
 		return;
 	}
 	frame = rnd(s->text->to.offset, 8);
 	memset(nloc, 0, sizeof nloc);
 	nblk = 0;
 	hasloop = 0;
+	sjlj = 0;
 	for(p = s->text->link; p != nil; p = p->link) {
 		scanreg(&p->from);
 		scanreg(&p->from2);
@@ -758,6 +849,11 @@ function(Sym *s, Buf *b)
 			p->targ->leader = 1;
 		if(isbranch(p->as) && p->link != nil)
 			p->link->leader = 1;
+		if(p->as == ACALL && p->to.sym != nil && p->to.sym->type == SINLINE) {
+			sjlj = 1;
+			if(p->link != nil)
+				p->link->leader = 1;
+		}
 	}
 	if(s->text->link != nil)
 		s->text->link->leader = 1;
@@ -769,8 +865,10 @@ function(Sym *s, Buf *b)
 	for(p = s->text->link; p != nil; p = p->link)
 		if(p->targ != nil && p->targ->blk <= p->blk)
 			hasloop = 1;
+	if(sjlj)
+		hasloop = 1;
 
-	/* locals: SP, the block, then the registers by class */
+	/* locals: SP, the block, longjmp's buf and value, then the registers by class */
 	nl = 0;
 	for(k = 0; k < NK; k++)
 		if(nloc[k] || k == Kw)
@@ -778,7 +876,7 @@ function(Sym *s, Buf *b)
 	buleb(b, nl);
 	for(k = 0; k < NK; k++) {
 		if(k == Kw) {
-			buleb(b, 2 + nloc[Kw]);
+			buleb(b, 4 + nloc[Kw]);
 			bput1(b, I32);
 			continue;
 		}
@@ -787,8 +885,8 @@ function(Sym *s, Buf *b)
 			bput1(b, types[k]);
 		}
 	}
-	locbase[Kw] = 2;
-	locbase[Kv] = 2 + nloc[Kw];
+	locbase[Kw] = 4;
+	locbase[Kv] = 4 + nloc[Kw];
 	locbase[Kf] = locbase[Kv] + nloc[Kv];
 	locbase[Kd] = locbase[Kf] + nloc[Kf];
 
@@ -802,9 +900,11 @@ function(Sym *s, Buf *b)
 	} else
 		local(1, 0);
 
-	if(nblk > 1) {
+	if(nblk > 1 || sjlj) {
 		if(hasloop)
 			op2(0x03, 0x40);	/* loop */
+		if(sjlj)
+			op2(0x06, 0x40);	/* try */
 		for(i = nblk-1; i >= 1; i--)
 			op2(0x02, 0x40);	/* block */
 		if(hasloop) {
@@ -823,7 +923,38 @@ function(Sym *s, Buf *b)
 			op(0x0b);	/* end of block blk: its code */
 		eprog(p);
 	}
-	if(nblk > 1 && hasloop)
+	if(sjlj) {
+		/*
+		 * longjmp(buf, v) threw (buf, v): this frame's if buf[0] is its
+		 * SP - the global SP back, v (or 1) the result, round the loop
+		 * to buf[1]'s block; else on up
+		 */
+		op2(0x07, 0);		/* catch tag 0 */
+		local(1, 3);
+		local(1, 2);
+		local(0, 2);
+		op(0x28);
+		memarg(2, 0);
+		local(0, 0);
+		op(0x46);
+		op2(0x04, 0x40);	/* if */
+		local(0, 0);
+		op2(0x24, GSP);
+		local(0, 3);
+		iconst(1);
+		local(0, 3);
+		op(0x1b);		/* select: v ? v : 1 */
+		op2(0x24, GRET+Kw);
+		local(0, 2);
+		op(0x28);
+		memarg(2, 4);
+		local(1, 1);
+		op2(0x0c, 2);		/* br: the loop */
+		op(0x0b);
+		op2(0x09, 0);		/* rethrow */
+		op(0x0b);		/* end try */
+	}
+	if((nblk > 1 || sjlj) && hasloop)
 		op(0x0b);
 	op(0x0b);
 	bputn(b, code.p, code.n);
@@ -853,10 +984,11 @@ asmb(void)
 	memset(&f, 0, sizeof f);
 	bputn(&out, "\0asm\1\0\0\0", 8);
 
-	/* types: 0 () -> (), 1 (i32 i32) -> i64 */
-	buleb(&b, 2);
+	/* types: 0 () -> (), 1 (i32 i32) -> i64, 2 (i32 i32) -> () longjmp's tag */
+	buleb(&b, 3);
 	bput1(&b, 0x60); buleb(&b, 0); buleb(&b, 0);
 	bput1(&b, 0x60); buleb(&b, 2); bput1(&b, I32); bput1(&b, I32); buleb(&b, 1); bput1(&b, I64);
+	bput1(&b, 0x60); buleb(&b, 2); bput1(&b, I32); bput1(&b, I32); buleb(&b, 0);
 	section(&out, 1, &b);
 
 	/* import */
@@ -885,6 +1017,12 @@ asmb(void)
 	bput1(&b, 0x00);
 	buleb(&b, npages);
 	section(&out, 5, &b);
+
+	/* tags: 0 longjmp's (buf, v) */
+	buleb(&b, 1);
+	bput1(&b, 0x00);
+	buleb(&b, 2);
+	section(&out, 13, &b);
 
 	/* globals: SP, RET.w RET.v RET.f RET.d */
 	buleb(&b, 5);

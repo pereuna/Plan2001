@@ -68,6 +68,23 @@ paikallismuuttujaan 1 ja palaa silmukan alkuun, jossa `br_table` valitsee
 lohkon. Silmukka syntyy vain funktioihin, joissa on hyppyjä taaksepäin.
 Myöhemmin varsinainen stackifier voi poistaa br_table-kierroksen.
 
+## setjmp, longjmp ja atomics (3l)
+
+`setjmp` tehdään kutsukohtaan: jmp_buf[0] saa kehyksen SP:n ja
+jmp_buf[1] kutsun jälkeisen peruslohkon numeron, tulos on 0. `longjmp(buf,
+v)` heittää WebAssembly-poikkeuksen (tag 0, (buf, v)). Funktio, joka kutsuu
+setjmp:ia, on try-lohkossa. Sen catch tarkistaa, onko buf[0] sen oma SP.
+Jos on, catch palauttaa globaalin SP:n (välistä purettujen kehysten
+epilogit jäivät ajamatta), asettaa tuloksen (v, tai 1 jos v on 0) ja
+palaa silmukan br_tablen kautta buf[1]:n lohkoon. Muuten se heittää
+poikkeuksen eteenpäin (rethrow). Paikallismuuttujat säilyvät, koska ollaan
+samassa funktiokutsussa. Käytössä ovat legacy-poikkeuskäskyt (try, catch,
+throw, rethrow), jotka toimivat kaikissa nykyselaimissa ja Node 20:ssä.
+
+`_tas`, `ainc`, `adec`, `cas`, `casp`, `casl` ja `coherence` ovat 3l:n
+tekemiä funktioita WebAssemblyn atomic-käskyillä (xchg, add, sub, cmpxchg,
+fence), kun ohjelma käyttää niitä eikä määrittele niitä itse.
+
 ## Prosessi
 
 Yksi 3l:n tuottama moduuli on yksi prosessi, jolla on oma muisti eli oma
@@ -94,6 +111,7 @@ parametreikseen, joten `&arg0` on argv, samoin kuin Plan 9:ssä.
 |---|---|
 | t1, t2 | ilman libc:tä; tuloste sama kuin gcc:n samasta lähteestä: rekursio, switch, funktio-osoittimet, structien palautus ja välitys arvona, vlong, double, bittikentät, unionit, goto, staattiset muuttujat, Plan 9:n varargs, sekatyyppiset `op=`-sijoitukset |
 | t3 | MOVit (3l:n emov): jokainen leveys ladattuna ja tallennettuna, etumerkki- ja nollalaajennus, tallennuksen katkaisu, siirtymät osoittimen kautta (myös yli 2^16 ja negatiiviset), tasaamattomat osoitteet, rekisteristä rekisteriin kaventaminen, structien kopiot; tuloste sama kuin gcc:n |
+| t4 | setjmp ja longjmp (WebAssemblyn poikkeukset): syvältä takaisin, longjmp(.., 0) antaa 1, 20 000 longjmp:ia ilman pinon vuotoa, ytimen waserror/nexterror-pino, rekisterit säilyvät; atomics (_tas, ainc, adec, cas) |
 | libc/hello | 9frontin libc: print-muotoilut, smprint, malloc, qsort, strtol, atof, sqrt, pow, tokenize, rune-funktiot, cleanname |
 | libc/sysabi | järjestelmäkutsujen ABI: jokainen argumentti siellä, mistä ydin sen lukee, myös vlongit (pread, pwrite, seek); odotettu tuloste kirjoitettu käsin kutsujen merkityksestä |
 | self | 3c.wasm kääntää 3c:n omat 25 lähdettä samoiksi tavuiksi kuin natiivi 3c, ja 3l.wasm linkittää ne samaksi 3c.wasm:ksi (447 kt) |
@@ -120,10 +138,7 @@ Suunnitelma ja vaiheet A–D: docs/architecture.md.
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- setjmp ja longjmp: WebAssemblyn poikkeuksilla (nyt longjmp lopettaa
-  prosessin).
-- `_tas` ja atom eivät ole atomisia: riittää yhdelle säikeelle, ei
-  rfork(RFMEM):lle eikä libthreadille.
+- rfork(RFMEM) ja libthread (atomics on jo, ks. alla).
 - exec: wasm32-moduulin tunnistus ja käynnistys ytimen tavallisena
   exec-polkuna (nyt run3.mjs käynnistää moduulin itse).
 - 3a: assembleri samalle käskykannalle (nyt stub).

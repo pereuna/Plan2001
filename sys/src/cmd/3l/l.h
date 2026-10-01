@@ -52,7 +52,8 @@ enum
 	STEXT,
 	SDATA,
 	SBSS,
-	SSYNTH,		/* made here: _trap */
+	SSYNTH,		/* made here: _trap, longjmp, the atomics */
+	SINLINE,	/* made in place at each call: setjmp */
 };
 
 struct	Rel	/* in data: the address of sym+add, or its function pointer */
