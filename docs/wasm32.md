@@ -186,12 +186,22 @@ prosessin Workerissa kuten yhden suorittimen koneessa. Ajastin (host3js.c)
 vaihtaa procia purkamalla toisen ja rakentamalla toisen. Järjestelmäkutsu on
 prep (argumentit sisään Workerissa), doreq (ytimen osa: Workerissa tai procin
 apu-kprocissa) ja fin (tulokset ulos). Kun procceja on useita, estävä kutsu
-menee apu-kprocille, ja seuraava valmis proc jatkaa. Lapsen pino kopioidaan
-säiealueelle (3l: 16 paikkaa, 128 kt pinoa ja 32 kt tallennuksia). Sen
-tallennetut SP:t ja kaikki pino-osoitteilta näyttävät i32-paikallismuuttujat
-siirretään. Raja: jos ohjelma on tallentanut pinon osoitteen muistiin ennen
-rforkia, lapsen osoite osoittaa edelleen vanhemman pinoon. Lisäksi exec
-RFMEM-procista ei vielä toimi.
+menee apu-kprocille, ja seuraava valmis proc jatkaa.
+
+Pino on Plan 9:n tapaan procin yksityinen samoissa osoitteissa: lapsi
+jakaa vanhempansa kontekstin alueen, eli pinon [SP, huippu) ja
+tallennukset [base, asptr). Muistissa on aina yhden version sisältö, ja
+muiden versiot ajastin pitää tallessa. Kun proc jatkaa ja alueella on
+toinen versio, sen version käytetty osa tallennetaan ja procin oma
+palautetaan. Kopioitavaa on vain käytetty osa, ja vaihtoja tulee vain
+estävissä kutsuissa. Myös valmistuneen kutsun tulokset kopioidaan vasta,
+kun procin oma pino on paikallaan. Osoitteita ei siirretä, joten pinon
+osoite, joka on tallennettu globaaliin ennen rforkia, osoittaa lapsessa
+lapsen omaan kopioon kuten Plan 9:ssä (testi host3/rfmem). Tämä korvasi
+1.10. aiemman ratkaisun, jossa pino siirrettiin säiepaikkaan ja
+pino-osoitteilta näyttävät arvot korjattiin heuristisesti. 3l:n kiinteä
+säiealue (16 paikkaa) poistui samalla. Raja: exec RFMEM-procista ei vielä
+toimi.
 
     tools/test-host3        selaintestit: hello, dclock, fork, rfmem, threads, rc, clock
 

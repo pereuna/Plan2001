@@ -33,7 +33,6 @@ static	long	bssend;
 static	long	npages;
 static	Sym*	setjmpsym;
 static	long	asbase;
-static	long	tzone;
 static	Sym*	entrysym;
 static	void	unwindgraph(void);
 static	char*	synths[] = { "_trap", "longjmp", "_tas", "ainc", "adec", "cas", "casp", "casl", "coherence", nil };
@@ -238,9 +237,6 @@ layout(void)
 	a = rnd(a, 8);
 	asbase = a;	/* the saved frames, for fork */
 	a += ASAREA;
-	a = rnd(a, 16);
-	tzone = a;	/* rfork(RFMEM) procs' stacks and saved frames */
-	a += NTSLOT*(TSTACK+TASAREA);
 	bssend = rnd(a, 8);
 	defsym("edata", dataend);
 	defsym("end", bssend);
@@ -1230,8 +1226,8 @@ asmb(void)
 	buleb(&b, 2);
 	section(&out, 13, &b);
 
-	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase tzone tslot ntslot perproc perprocsize */
-	buleb(&b, 15);
+	/* globals: SP, RET.w RET.v RET.f RET.d, asstate asptr asret; constants: stacktop asbase perproc perprocsize */
+	buleb(&b, 12);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 1); bput1(&b, 0x41); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
@@ -1242,9 +1238,6 @@ asmb(void)
 	bput1(&b, I64); bput1(&b, 1); bput1(&b, 0x42); bsleb(&b, 0); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, stacktop); bput1(&b, 0x0b);
 	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, asbase); bput1(&b, 0x0b);
-	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, tzone); bput1(&b, 0x0b);
-	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, TSTACK+TASAREA); bput1(&b, 0x0b);
-	bput1(&b, I32); bput1(&b, 0); bput1(&b, 0x41); bsleb(&b, NTSLOT); bput1(&b, 0x0b);
 	{
 		Sym *pp;
 
@@ -1258,20 +1251,20 @@ asmb(void)
 	 * exports: the kernel puts argc and argv below sp, then calls _start;
 	 * fork: asstate, asptr, asret
 	 */
-	buleb(&b, 14);
+	buleb(&b, 11);
 	bstr(&b, "perproc");	/* libc's per-proc region (_perproc): the kernel swaps it (rfork RFMEM) */
 	bput1(&b, 0x03);
-	buleb(&b, GASRET+6);
+	buleb(&b, GASRET+3);
 	bstr(&b, "perprocsize");
 	bput1(&b, 0x03);
-	buleb(&b, GASRET+7);
+	buleb(&b, GASRET+4);
 	bstr(&b, "table");	/* function pointers, for the kernel's contexts (_ctxnew) */
 	bput1(&b, 0x01);
 	buleb(&b, 0);
 	{
-		static char *cn[] = { "stacktop", "asbase", "tzone", "tslot", "ntslot" };
+		static char *cn[] = { "stacktop", "asbase" };
 
-		for(i = 0; i < 5; i++) {
+		for(i = 0; i < 2; i++) {
 			bstr(&b, cn[i]);
 			bput1(&b, 0x03);
 			buleb(&b, GASRET+1+i);
