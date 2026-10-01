@@ -1,0 +1,26 @@
+#!/bin/bash
+# wasm32 programs (3c, 3l) as processes on drawterm's kernel in the
+# browser (wasm32host, docs/wasm32.md): each through tools/test-wasmapp.
+#   tools/test-host3        builds host3 and the root first
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+tools/build host3 >/dev/null
+tools/build-bin3 >/dev/null
+bad=0
+t() {	# t NAME env...
+	local n=$1; shift
+	if env "$@" PROG=$n timeout 300 tools/test-wasmapp host3 3 >build/test-host3-$n.out 2>&1; then
+		echo "test-host3: $n: ok"
+	else
+		echo "test-host3: $n: FAIL"; tail -3 build/test-host3-$n.out; bad=1
+	fi
+}
+t hello
+t dclock DRAWS=1
+t fork
+t rfmem
+t threads
+t rc ARGS='["-c", "echo a b c | wc; ls /bin | wc -l; for(i in 1 2) echo $i; date"]'
+t clock DRAWS=1 RUNS=1
+[ $bad = 0 ] && echo PASS || { echo FAIL; exit 1; }

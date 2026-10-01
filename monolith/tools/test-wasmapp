@@ -8,7 +8,9 @@ the screen goes to build/wasmapp-NAME.png.
   PROG=P [ARGS='["a", ...]'] tools/test-wasmapp host3
                                            a wasm32 program (3c, 3l) on drawterm's
                                            kernel: ?wasm=host3&prog=P, PASS when
-                                           it exits ok (HOST3-EXIT) and drew
+                                           it exits ok (HOST3-EXIT) and drew;
+                                           RUNS=1: it goes on (clock), PASS
+                                           if it is still running and drew
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
@@ -139,6 +141,8 @@ def main():
 		label = prog or name
 		if prog:
 			end = time.time() + 60
+			if os.environ.get('RUNS'):	# a program that goes on: its time, then look
+				end = time.time() + secs
 			while time.time() < end and not any(l.startswith('HOST3-EXIT ') for l in cdp.log):
 				try:
 					cdp.js('1')
@@ -154,7 +158,9 @@ def main():
 		print(f'test-wasmapp: {label}: {fl} flushes, {n} colours, {out}')
 		if prog:
 			ex = [l for l in cdp.log if l.startswith('HOST3-EXIT ')]
-			if ex != [f'HOST3-EXIT {prog} ok']:
+			if os.environ.get('RUNS') and ex:
+				raise SystemExit(f'FAIL: {prog} ended: {ex} (build/wasmapp-{label}.log)')
+			if not os.environ.get('RUNS') and ex != [f'HOST3-EXIT {prog} ok']:
 				raise SystemExit(f'FAIL: {prog}: {ex or "did not exit"} (build/wasmapp-{label}.log)')
 			if os.environ.get('DRAWS') and (n < 2 or console):
 				raise SystemExit(f'FAIL: {prog} drew nothing (build/wasmapp-{label}.log)')

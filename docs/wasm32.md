@@ -179,6 +179,43 @@ kuin DMA:lla.
     ?wasm=host3&prog=rc&arg=-c&arg=...          rc /bin:stä; &debug=1..3 jäljittää
     PROG=rc ARGS='["-c", "echo a b c | wc"]' tools/test-wasmapp host3   PASS
     PROG=hello / PROG=dclock DRAWS=1 tools/test-wasmapp host3            PASS
+    PROG=clock DRAWS=1 RUNS=1 tools/test-wasmapp host3                   PASS
+
+rfork(RFMEM) (päätös 1.10.: vaihtoehto 1): saman muistin procit vuorottelevat
+prosessin Workerissa kuten yhden suorittimen koneessa. Ajastin (host3js.c)
+vaihtaa procia purkamalla toisen ja rakentamalla toisen. Järjestelmäkutsu on
+prep (argumentit sisään Workerissa), doreq (ytimen osa: Workerissa tai procin
+apu-kprocissa) ja fin (tulokset ulos). Kun procceja on useita, estävä kutsu
+menee apu-kprocille, ja seuraava valmis proc jatkaa. Lapsen pino kopioidaan
+säiealueelle (3l: 16 paikkaa, 128 kt pinoa ja 32 kt tallennuksia). Sen
+tallennetut SP:t ja kaikki pino-osoitteilta näyttävät i32-paikallismuuttujat
+siirretään. Raja: jos ohjelma on tallentanut pinon osoitteen muistiin ennen
+rforkia, lapsen osoite osoittaa edelleen vanhemman pinoon. Lisäksi exec
+RFMEM-procista ei vielä toimi.
+
+    tools/test-host3        selaintestit: hello, dclock, fork, rfmem, threads, rc, clock
+
+Procikohtainen data: Plan 9:ssä `_tos` (getpid) ja privallocin taulukko
+ovat jokaisen prosessin omia samassa virtuaaliosoitteessa. wasm32:n libc
+kokoaa ne `_perproc`-alueeseen. 3l vie alueen osoitteen ja koon, ja
+ajastin tallentaa ja palauttaa sen procia vaihdettaessa kuin
+rekisterijoukon. Se kirjoittaa alueelle myös procin pid:n.
+
+Kontekstit ja libthread: proc voi vaihtaa itse pinostaan toiseen alustan
+kutsuilla `_ctxnew(fn, arg, stk, n)`, `_ctxswitch(id)`, `_ctxself` ja
+`_ctxfree` (järjestelmäkutsut 100–103, libc/wasm32/ctx.c). Vaihdossa
+nykyinen konteksti puretaan, ja kohde rakennetaan uudelleen tai
+käynnistetään. Alusta käynnistää uuden kontekstin kutsumalla funktiota
+3l:n viemän taulun kautta. Kontekstit kuuluvat muistille: aloittamaton
+siirtyy sille procille, joka siihen ensimmäisenä vaihtaa.
+`sys/src/libthread/wasm32` on 9frontin libthread, jossa sched.c:n
+setjmp/longjmp-parit ovat kontekstinvaihtoja, main.c:stä puuttuu `mainjmp`
+ja wasm32.c:n `_threadinitstack` luo kontekstin. Säikeet ovat procin
+konteksteja, ja procit (proccreate) ovat rfork(RFMEM)-procceja.
+
+9frontin muuttamaton clock.c toimii: sen event-kirjasto käynnistää ajastimen,
+hiiren ja näppäimistön apuprosessit `rfork(RFPROC)`:lla eikä RFMEM:llä,
+joten ne ovat tavallisia forkattuja prosesseja, jotka puhuvat putken kautta.
 
 ## Kesken
 
@@ -188,9 +225,9 @@ Suunnitelma ja vaiheet A–D: docs/architecture.md.
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- rfork(RFMEM) ja libthread: jaettu muisti (3l: tuotu jaettu muisti,
-  passiiviset datasegmentit) ja lapselle oma pino; sitten event.c:n
-  apuprosessit (alkuperäinen clock.c) ja libthread.
+- Ohjelmat libthreadin päällä: rio, acme ... (libframe, libplumb,
+  9P-palvelimet).
+- exec RFMEM-procista.
 - RFNAMEG (nimiavaruuden kopio: pgrpcpy puuttuu drawtermista), RFENVG,
   notes.
 - exec: wasm32-moduulin tunnistus ja käynnistys ytimen tavallisena

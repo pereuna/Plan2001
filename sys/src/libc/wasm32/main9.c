@@ -15,16 +15,22 @@ enum {
 	NPRIVATES = 16,
 };
 
-static	Tos	tos;
+/*
+ * what is each proc's own on Plan 9 (its stack, at the same address in
+ * each): _tos and privalloc's.  Here rfork(RFMEM) procs share memory, so
+ * the kernel keeps this per proc, swapping it when they take turns (3l
+ * exports its address); it puts the pid in tos.
+ */
+struct {
+	Tos	tos;
+	void	*priv[NPRIVATES];
+} _perproc;
 
 void
 _main(int argc, char *arg0)
 {
-	void *privates[NPRIVATES];
-
-	_tos = &tos;
-	memset(privates, 0, sizeof(privates));
-	_privates = privates;
+	_tos = &_perproc.tos;
+	_privates = _perproc.priv;
 	_nprivates = NPRIVATES;
 	main(argc, &arg0);
 	exits("main");

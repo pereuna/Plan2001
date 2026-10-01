@@ -106,6 +106,9 @@ enum
 	GASRET,		/* what the rewound _trap returns */
 
 	ASAREA	= 256*1024,	/* the saved frames */
+	NTSLOT	= 16,		/* rfork(RFMEM) procs: a stack and saved frames each */
+	TSTACK	= 128*1024,
+	TASAREA	= 32*1024,
 };
 
 EXTERN	Sym*	hash[NHASH];
