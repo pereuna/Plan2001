@@ -10,7 +10,7 @@ Selaimessa (tai Nodessa, wasmtimessa) ajettava 6c on edelleen 6c:
 isäntä wasm32, kohde amd64. 3c kääntää wasm32:lle, ajoi se missä tahansa.
 clang.wasm (monolith/docs/wasm-apps.md) jää vertailutoteutukseksi.
 
-    monolith/tools/build-cc native 3c|3l   build/cc-native/3c, 3l (Linux)
+    monolith/tools/build-cc native 3c|3l|3a   build/cc-native/3c, 3l, 3a (Linux)
     monolith/tools/build-libc3             build/wasm32/lib/libc.a
     monolith/tools/build-3c3               build/wasm32/bin/3c.wasm, 3l.wasm
     monolith/tools/test-3c                 testit, ks. alla
@@ -23,7 +23,10 @@ clang.wasm (monolith/docs/wasm-apps.md) jää vertailutoteutukseksi.
   list.c, enam.c, machcap.c; `3.out.h` on käskykanta ja oliomuoto.
 - `sys/src/cmd/3l`: obj.c (oliot ja ar-kirjastot), wasm.c (asettelu ja
   WebAssembly-moduuli).
-- `wasm32/include/u.h`, `ureg.h`.
+- `wasm32/include/u.h`, `ureg.h`, `wasm32/mkfile` (CC=3c LD=3l O=3 AS=3a).
+- `sys/src/cmd/3a`: vielä vain stub, joka sanoo, ettei assembleria ole, ja
+  palauttaa virheen: mitä muilla arkkitehtuureilla on assemblerina, on
+  wasm32:lla C:tä.
 - `sys/src/libc/wasm32`: mitä 386:lla on assemblerina (main9, tas, atom,
   getfcr, setjmp, notejmp) sekä järjestelmäkutsut (syscall.c, sys.h:sta).
   Muu libc on 9frontin port, 9sys ja fmt sellaisenaan.
@@ -90,10 +93,17 @@ parametreikseen, joten `&arg0` on argv, samoin kuin Plan 9:ssä.
 | Testi | Mitä |
 |---|---|
 | t1, t2 | ilman libc:tä; tuloste sama kuin gcc:n samasta lähteestä: rekursio, switch, funktio-osoittimet, structien palautus ja välitys arvona, vlong, double, bittikentät, unionit, goto, staattiset muuttujat, Plan 9:n varargs, sekatyyppiset `op=`-sijoitukset |
+| t3 | MOVit (3l:n emov): jokainen leveys ladattuna ja tallennettuna, etumerkki- ja nollalaajennus, tallennuksen katkaisu, siirtymät osoittimen kautta (myös yli 2^16 ja negatiiviset), tasaamattomat osoitteet, rekisteristä rekisteriin kaventaminen, structien kopiot; tuloste sama kuin gcc:n |
 | libc/hello | 9frontin libc: print-muotoilut, smprint, malloc, qsort, strtol, atof, sqrt, pow, tokenize, rune-funktiot, cleanname |
+| libc/sysabi | järjestelmäkutsujen ABI: jokainen argumentti siellä, mistä ydin sen lukee, myös vlongit (pread, pwrite, seek); odotettu tuloste kirjoitettu käsin kutsujen merkityksestä |
 | self | 3c.wasm kääntää 3c:n omat 25 lähdettä samoiksi tavuiksi kuin natiivi 3c, ja 3l.wasm linkittää ne samaksi 3c.wasm:ksi (447 kt) |
 
-Itseisäännöstys on koko kääntäjän vahvin oikeellisuuskoe: cc-frontendin
+Itseisäännöstys todistaa, että 3c ja 3l toimivat samoin natiivina ja
+wasm32:na, mutta ei sitä, että 3l:n tuottama koodi on semanttisesti
+oikein: virhe, joka on molemmissa, tuottaisi samat tavut. Semantiikan
+testaavat t1–t3 (gcc vertailukohtana) ja libc-testit (odotettu tuloste).
+
+Itseisäännöstys on silti koko kääntäjän laajin koe: cc-frontendin
 yacc-jäsennin, makroprosessori, tyyppijärjestelmä ja 3c:n backend
 kääntyvät 3c:llä ja tuottavat saman tuloksen. Natiivi 3c kääntää t1.c:n
 ja 3c.wasm Nodessa 0,3 sekunnissa.
@@ -110,8 +120,16 @@ Suunnitelma ja vaiheet A–D: docs/architecture.md.
 - rfork(RFMEM) ja libthread: säikeet ovat samaa jaettua muistia käyttäviä
   Workereita, joilla on oma pinonsa ja oma SP-globaalinsa; `_tas` ja atom
   tarvitsevat WebAssemblyn atomic-käskyt.
-- setjmp ja longjmp: WebAssemblyn poikkeuksilla.
-- 3a: assembleri samalle käskykannalle.
+- setjmp ja longjmp: WebAssemblyn poikkeuksilla (nyt longjmp lopettaa
+  prosessin).
+- `_tas` ja atom eivät ole atomisia: riittää yhdelle säikeelle, ei
+  rfork(RFMEM):lle eikä libthreadille.
+- exec: wasm32-moduulin tunnistus ja käynnistys ytimen tavallisena
+  exec-polkuna (nyt run3.mjs käynnistää moduulin itse).
+- 3a: assembleri samalle käskykannalle (nyt stub).
+- Käännös: Linuxilla monolith/cc9:n kautta; kanoninen Plan 9 -malli
+  (`/sys/src/cmd/cc`, `3c`, `3l` mkfileineen) on olemassa mutta
+  kokeilematta.
 - Optimointi: skalaarimuuttujat, joiden osoitetta ei oteta, wasm-
   paikallismuuttujiksi muistin sijaan, sekä stackifier.
 - Plan 9:n mkfilet ovat olemassa (`sys/src/cmd/3c/mkfile`, `3l/mkfile`),

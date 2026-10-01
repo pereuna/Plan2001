@@ -21,13 +21,14 @@ case $cc in
 6c)	be=$t/9cc/6c; befiles="cgen enam list sgen swt txt reg peep machcap div mul" ;;
 3c)	be=$(cd "$root/../sys/src/cmd/3c" && pwd); befiles="cgen enam list sgen swt txt machcap" ;;
 3l)	be=$(cd "$root/../sys/src/cmd/3l" && pwd); befiles="obj wasm" ;;	# the loader: no front end
-*)	echo "usage: tools/build-cc [native|wasm] [6c|3c|3l]" >&2; exit 2 ;;
+3a)	be=$(cd "$root/../sys/src/cmd/3a" && pwd); befiles="3a" ;;	# not yet: says so
+*)	echo "usage: tools/build-cc [native|wasm] [6c|3c|3l|3a]" >&2; exit 2 ;;
 esac
 mkdir -p "$out/o/$cc"
 CFLAGS="-O2 -std=gnu17 -w -fno-strict-aliasing -fwrapv -Dlinux
 	-I$root/cc9 -I$t/drawterm/include -I$t/drawterm -I$t/9cc/cc"
 srcs=()
-[ $cc = 3l ] || for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 dpchk pgen pswt; do
+[ $cc = 3l ] || [ $cc = 3a ] || for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 dpchk pgen pswt; do
 	srcs+=("$t/9cc/cc/$f.c")
 done
 for f in $befiles; do
