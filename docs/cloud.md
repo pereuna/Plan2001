@@ -197,3 +197,84 @@ base.qcow2 (build-VM) on 9frontin koskematon asennus ja cpu.qcow2:n
 taustakuva, joten siihen ei kosketa. Sen 9front-profiili yrittää
 terminaalissa rio:ta, mikä näkyy vain, kun base käynnistetään
 terminaalina (build-VM, testit).
+
+## Uusi pilvi-image: cpu-amd64-poc1 (1.10.)
+
+Vanhan pilvipalvelimen auth meni sekaisin, kun salasanaa yritettiin
+vaihtaa käsin. `changeuser` kysyy olemassa olevalta käyttäjältä ensin
+"assign new Plan 9 password?", ja väärä vastaus jättää keyfs:ään vanhan
+salasanan, vaikka nvram (`wrkey`) saa uuden. Palvelimelle ei saa enää
+tehdä käsityötä, joten image tehdään kokonaan skriptillä.
+
+**Nimet:**
+- **Palvelu** on `cpu.plan2001.com` (sovellukset `APP.cpu.plan2001.com`).
+  Se on osoite, ei kone.
+- **Kone** on `cpu-amd64-poc1`: rooli, arkkitehtuuri ja vaihe. Paikallinen
+  on `cpu-amd64-dev1`. Nimi tulee plan9.ini:n `sysname=`-rivistä, ei
+  imagesta tai MAC-osoitteesta (`/rc/bin/cpurc.local`).
+- **Hostowner** on `admin`, ja tavallinen käyttäjä on `glenda`. Konsolin
+  kehote on `cpu-amd64-poc1#`.
+
+**Tekeminen:** `tools/cloud-image` tuottaa tiedoston
+`build/oci/cpu-amd64-poc1.qcow2`. Se ajetaan QEMU:ssa pilven raudalla
+(`tools/vm --oci`) pohjasta `build/oci/cpu-oci.qcow2`. Mitään ei
+kirjoiteta käsin:
+- **Salaisuudet** (salasanat ja WireGuard-avaimet) syntyvät
+  hakemistoon `~/.cache/plan2001/cloud`, eivät repoon.
+- **Konsolilla** `tools/9run` hoitaa:
+  - käyttäjän `admin` ja ryhmät cwfs:ään;
+  - `changeuser`:n käyttäjille `admin` ja `glenda` (dialogi
+    `tools/cloud/changeuser.dialog.in`, joka kattaa kaikki
+    kysymysvariantit);
+  - `convkeys`:in, joka purkaa salauksen nvramin vanhalla avaimella;
+  - `wrkey`:n, joka kirjoittaa nvramiin `admin`/`plan2001`;
+  - skriptin `tools/cloud/rename.rc`.
+- **Glendana** `tools/cloud/handover.rc`: glendan aiemmin asentamat
+  järjestelmätiedostot siirtyvät admin-ryhmälle.
+- **Adminina** 9pterm-istunnossa `tools/cloud/setup.rc`:
+  - Plan2001:n ydin (`#W`) ja loader;
+  - profiilit ilman rio:ta;
+  - compute-pino (`cpu-live`);
+  - DNS-vyöhyke;
+  - TLS ja sen uusinta;
+  - porttien vartija;
+  - WireGuard.
+- **Lopuksi** image käynnistetään ja tarkistetaan: `tools/cloud/check.rc`
+  ja `monolith/tools/test-apps`. Sen jälkeen syntyy pakattu qcow2.
+
+**Mikä on julkista:**
+
+| Portti | Mitä | Kenelle |
+|---|---|---|
+| 443, 17443 | https/wss (webterm, sovellukset) | kaikille |
+| 53 tcp/udp | `ndb/dns -rsL`, oma vyöhyke | kaikille (rekursio vain paikalliselle verkolle) |
+| 51820 udp | WireGuard, ylläpitotunneli | vain avaimella |
+| 567, 17019, 17020, 17080 | auth, rcpu, exportfs, webterm ilman TLS:ää | vain paikallinen verkko ja WireGuard (`/rc/bin/localonly`, hylkäykset lokiin `/sys/log/localonly`) |
+
+**Ylläpito:**
+- `tools/cloud/wg-admin up` nostaa tällä koneella rajapinnan `wgp2001`
+  (10.201.0.2 ↔ 10.201.0.1).
+- Sen jälkeen `9pterm -h 10.201.0.1 -a 'tcp!10.201.0.1!567' -u admin
+  -P ~/.cache/plan2001/cloud/admin.pass`.
+- `tools/cpu-live SOCK` toimii saman tunnelin yli.
+- Vanhaa 9p-skriptiä, joka käyttää julkisia portteja ja tiedostoa
+  `cpu.pass`, ei enää tarvita.
+
+**Varmenne:**
+- `/rc/bin/certrenew` hakee Let's Encrypt -varmenteen
+  `*.cpu.plan2001.com` DNS-haasteella oman ndb/dns:n kautta minuutti
+  käynnistyksen jälkeen ja sitten vuorokauden välein. Se uusii varmenteen,
+  kun se on yli 60 päivää vanha, ja kirjoittaa lokiin
+  `/sys/log/certrenew`.
+- Siihen asti `tcp443` käyttää kehitys-CA:n varmennetta.
+- TLS-avain ja ACME-tili syntyvät palvelimella, joten niitä ei tarvitse
+  siirtää.
+
+**Tuonti Oracle Cloudiin:**
+1. Lataa `build/oci/cpu-amd64-poc1.qcow2` Object Storageen.
+2. Compute → Custom images → Import: QCOW2, paravirtualisoitu, UEFI.
+3. Vaihda instanssin käynnistyslevy tähän imageen. Julkinen IP säilyy.
+4. Security list:
+   - auki TCP 443, TCP/UDP 53 ja UDP 51820;
+   - kiinni 567 ja 17019, sillä palvelin ei niitä internetistä
+     hyväksy muutenkaan.

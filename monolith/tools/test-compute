@@ -3,6 +3,7 @@
 spread over browser tabs.
 
   tools/test-compute [TABS [WORKERS]]     (default 3 tabs, 2 workers each)
+  CRKEY=FILE tools/test-compute ...      crsrv -k: the key the pages give (#key=)
   CORRUPT=N tools/test-compute ...       the first N tabs return wrong objects
                                           (with crsrv -v 2of3 the build must still match)
   KERNEL=1 tools/test-compute ...         the kernel (sys/src/9/pc64) instead of
@@ -100,6 +101,8 @@ def main():
 				time.sleep(0.2)
 		for i in range(tabs):
 			url = f'https://compute.localhost:17443/cr.html?workers={workers}&nolock&autostart'  # as if separate machines
+			if os.environ.get('CRKEY'):	# crsrv -k: the key, in a file
+				url += '#key=' + open(os.environ['CRKEY']).read().strip()
 			if i < int(os.environ.get('CORRUPT', '0')):
 				url += '&corrupt'	# a CR not to be trusted: crsrv -v 2of3 must still get it right
 			urllib.request.urlopen(urllib.request.Request(

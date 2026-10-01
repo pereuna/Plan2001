@@ -1,0 +1,13 @@
+# auth/changeuser USER (new or existing), for 9run --dialog; PASS is replaced
+assign new Plan 9 password\? \[y/n\]: *	y
+Confirm password: *	PASS
+Password: *	PASS
+assign new Inferno/POP secret\? \[y/n\]: *	n
+Expiration date.*: *	''
+Post id.*: *	''
+User's full name.*: *	''
+Department #.*: *	''
+User's email address.*: *	''
+other email address.*: *	''
+Sponsor's email address.*: *	''
+[a-z0-9-]+# 	!done

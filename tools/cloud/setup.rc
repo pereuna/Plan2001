@@ -1,0 +1,161 @@
+#!/bin/rc
+# The Plan2001 cloud CPU server (cpu-amd64-poc1, docs/cloud.md), set up on
+# its image's VM by tools/cloud-image through a 9pterm session as admin,
+# the host owner (after tools/cloud/rename.rc on the console):
+#	setup.rc REPO SECRETS PUBLICIP
+# REPO this repo and SECRETS ~/.cache/plan2001/cloud, both through
+# /mnt/term.  It can be run again.
+rfork e
+repo=$1
+sec=$2
+public=$3
+if(~ $#public 0){
+	echo usage: setup.rc REPO SECRETS PUBLICIP >[1=2]
+	exit usage
+}
+name=`{cat /dev/sysname}
+cfg=/cfg/$name
+tls=/sys/lib/tls
+fn fail { echo SETUP FAILED: $*; exit $1 }
+fn step { echo '###' $* }
+
+step homes: Plan2001 profile, no rio
+for(u in admin glenda){
+	mkdir -p /usr/$u/lib /usr/$u/tmp /usr/$u/bin/rc /usr/$u/bin/amd64 >[2]/dev/null
+	cp $repo/usr/glenda/lib/profile /usr/$u/lib/profile || fail profile $u
+	rm -f /usr/$u/bin/rc/riostart
+}
+rm -f /amd64/bin/rio
+
+step kernel and loader into 9fat, as a pair
+bind -a '#S' /dev
+9fs 9fat >/dev/null || fail 9fat
+cp $repo/build/amd64/9pc64 /n/9fat/9pc64 || fail kernel
+cp $repo/build/amd64/bootx64.efi /n/9fat/efi/boot/bootx64.efi || fail loader
+ls -l /n/9fat/9pc64 /n/9fat/efi/boot/bootx64.efi
+unmount /n/9fat
+
+step the compute pool and the browser side
+rc $repo/tools/cpu-live.rc $repo pages apps webterm rcc crsrv || fail cpu-live
+
+step services this machine gives only to itself, its network and WireGuard
+cat >/rc/bin/localonly <<'X'
+#!/bin/rc
+# Plan2001: . /rc/bin/localonly NETDIR in a service: the connection must
+# come from this machine, its local network or a WireGuard peer (10.x,
+# 192.168.x), not the internet.  Public are only https (443, 17443) and
+# DNS; auth, rcpu, exportfs and plain webterm are not.
+r=`{cat $1/remote >[2]/dev/null}
+switch($r){
+case 127.* 10.* 192.168.* ::1!*
+	;
+case *
+	echo `{date} refused $r for $0 >>/sys/log/localonly
+	exit 'not local'
+}
+X
+chmod 775 /rc/bin/localonly
+test -e /sys/log/localonly || { touch /sys/log/localonly && chmod 666 /sys/log/localonly }
+for(s in /rc/bin/service.auth/tcp567 /rc/bin/service/tcp17019 /rc/bin/service/tcp17020 /rc/bin/service/tcp17080){
+	if(test -e $s && ! grep -s localonly $s){
+		{ sed 1q $s; echo '. /rc/bin/localonly $3'; sed 1d $s } >/tmp/svc && cp /tmp/svc $s || fail $s
+	}
+}
+grep -l localonly /rc/bin/service.auth/* /rc/bin/service/*
+
+step DNS: authoritative for cpu.plan2001.com
+{
+	grep -v '^(dom=cpu\.plan2001\.com|dom=[a-z0-9]+\.cpu\.plan2001\.com|	refresh=|	ns=ns1\.plan2001\.com|	mb=|	caa=)' /lib/ndb/local
+	echo 'dom=cpu.plan2001.com soa='
+	echo '	refresh=3600 ttl=3600'
+	echo '	ns=ns1.plan2001.com'
+	echo '	mb=hostmaster@plan2001.com'
+	echo '	caa=letsencrypt.org'
+	echo 'dom=cpu.plan2001.com ip='^$public
+	for(a in `{ls $repo/lib/app}){
+		a=`{basename $a}
+		echo 'dom='^$a^'.cpu.plan2001.com ip='^$public
+	}
+} >/tmp/ndb && cp /tmp/ndb /lib/ndb/local || fail ndb
+grep -s dnschallenge /lib/ndb/local || fail no dnschallenge in the database
+test -e /lib/ndb/dnschallenge || { touch /lib/ndb/dnschallenge && chmod 664 /lib/ndb/dnschallenge }
+echo 'ndb/dns -rsL	# authoritative for cpu.plan2001.com, recursion only for the local network' >$cfg/cpurc
+
+step TLS: the server key, the Lets Encrypt account, renewal
+mkdir -p $tls/acmed
+if(! test -s $tls/cpu.plan2001.com.key){
+	auth/rsagen -t 'service=tls role=client owner=*' >$tls/cpu.plan2001.com.key || fail tls key
+	chmod 600 $tls/cpu.plan2001.com.key
+}
+auth/rsa2csr 'CN=*.cpu.plan2001.com' $tls/cpu.plan2001.com.key >$tls/acmed/cpu.plan2001.com.csr || fail csr
+if(! test -s $tls/acmed/hostmaster@plan2001.com.key){
+	auth/rsagen -t 'service=acme role=sign hash=sha256 acct=hostmaster@plan2001.com' >$tls/acmed/hostmaster@plan2001.com.key || fail acct key
+	chmod 600 $tls/acmed/hostmaster@plan2001.com.key
+}
+auth/rsa2jwk $tls/acmed/hostmaster@plan2001.com.key >$tls/acmed/hostmaster@plan2001.com.pub || fail jwk
+cat >/rc/bin/certrenew <<'X'
+#!/bin/rc
+# Plan2001: the Let's Encrypt certificate for *.cpu.plan2001.com (DNS
+# challenge through this machine's own ndb/dns), fetched when there is
+# none or it is older than 60 days; what happens goes to /sys/log/certrenew
+rfork e
+d=/sys/lib/tls/acmed
+crt=$d/cpu.plan2001.com.crt
+if(test -s $crt && ! ~ `{echo `{date -n} - `{mtime $crt | awk '{print $1}'} '>' 5184000 | hoc} 1)
+	exit
+test -e /mnt/web/clone || webfs
+if(auth/acmed -t dns hostmaster@plan2001.com $d/cpu.plan2001.com.csr >$crt.new >[2]/tmp/certrenew.err && test -s $crt.new){
+	mv $crt.new $crt
+	echo `{date} renewed >>/sys/log/certrenew
+}
+if not {
+	echo `{date} failed: `{cat /tmp/certrenew.err} >>/sys/log/certrenew
+	rm -f $crt.new
+}
+X
+chmod 775 /rc/bin/certrenew
+test -e /sys/log/certrenew || touch /sys/log/certrenew
+cat >/rc/bin/service/tcp443 <<'X'
+#!/bin/rc
+# https and wss for the apps: the Let's Encrypt certificate (certrenew),
+# the development one until there is one
+crt=/sys/lib/tls/acmed/cpu.plan2001.com.crt
+test -s $crt || crt=/sys/lib/tls/monolith.pem
+exec tlssrv -c $crt /bin/webterm -s -w /sys/lib/monolith
+X
+chmod 775 /rc/bin/service/tcp443
+
+step WireGuard: the administrators tunnel, 10.201.0.1
+mkdir -p /adm/wg
+{
+	echo private `{cat $sec/wg-cloud.key}
+	echo listen 51820
+	echo peer `{cat $sec/wg-admin.pub} allowed 10.201.0.2/32
+} >/adm/wg/wg0 || fail wg config
+chmod 600 /adm/wg/wg0
+
+step startup: $cfg/cpustart
+k=`{grep '^crsrv' $cfg/cpustart}
+if(~ $#k 0)
+	k=crsrv
+cat >$cfg/cpustart <<'X'
+# Plan2001 cloud CPU server: keys, the compute pool, network, WireGuard,
+# the certificate (tools/cloud/setup.rc)
+cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl
+cat /sys/lib/tls/cpu.plan2001.com.key >/mnt/factotum/ctl
+cat /sys/lib/tls/acmed/hostmaster@plan2001.com.key >/mnt/factotum/ctl
+if(! grep u /net/ipselftab | grep -sv '^(127.0.0.1|::1)')
+	ip/ipconfig -h $sysname ether /net/ether0
+if(test -r /adm/wg/wg0){
+	cat /adm/wg/wg0 >'#W/wg0/ctl'
+	{ n=`{read}; echo bind wg wg0 >/net/ipifc/$n/ctl; echo add 10.201.0.1 255.255.255.0 >/net/ipifc/$n/ctl } <>/net/ipifc/clone
+}
+@{ sleep 60; while(){ certrenew; sleep 86400 } } &
+X
+echo $k >>$cfg/cpustart
+echo 'mount -c /srv/compute /global/compute' >>$cfg/cpustart
+sed 's/-k [^ ]*/-k <key>/' $cfg/cpustart
+
+step the old name goes
+rm -rf /cfg/cirno
+echo SETUP-DONE

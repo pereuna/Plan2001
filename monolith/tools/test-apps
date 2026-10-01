@@ -30,7 +30,7 @@ import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 plan2001 = os.path.dirname(root)
 cache = os.environ.get('PLAN2001_CACHE', os.path.expanduser('~/.cache/plan2001'))
-password = open(os.path.join(cache, 'cpu.pass')).read().strip()
+password = open(os.environ.get('PASSFILE') or os.path.join(cache, 'cpu.pass')).read().strip()	# PASSFILE: another machine's (tools/cloud)
 DEVTOOLS = 19222
 Evmouse, Evkey = 1, 2
 B1, B2, B3 = 1, 2, 4
@@ -117,7 +117,7 @@ def run9(cmd):
 
 
 def apps():
-	out = run9('apps')
+	out = run9('apps -a')	# the console is the host owner's, the tabs another user's
 	return [l.split('\t') for l in out.splitlines() if l.count('\t') == 3 and not l.startswith('SESSION')]
 
 
@@ -304,7 +304,7 @@ def main():
 		other.call('Page.enable')
 		wait(other, 'window.monolith && window.monolith.flushes > 1', 180, 'the clock to draw despite -c')
 		time.sleep(2)
-		nsleep = run9('ps | grep -c sleep').split()
+		nsleep = run9("ps -a | grep -c 'slee[p] 777'").split()	# the client's own (other sleeps may run)
 		urllib.request.urlopen(f'http://127.0.0.1:{DEVTOOLS}/json/close/{oid}')
 		if '0' not in nsleep:
 			raise SystemExit(f'test-apps: the client command ran (sleeps: {nsleep})')

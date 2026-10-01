@@ -1,0 +1,50 @@
+# Plan2001 cloud image: machine name from plan9.ini, admin the host owner
+# (tools/cloud-image runs this on the console of the image's VM); it can
+# be run again
+name=cpu-amd64-poc1
+fn fail { echo RENAME FAILED: $*; exit $1 }
+
+# the auth server lets the host owner speak for the users
+sed 's/^hostid=glenda$/hostid=admin/' /lib/ndb/auth >/tmp/auth && cp /tmp/auth /lib/ndb/auth || fail auth
+grep -s '^hostid=admin' /lib/ndb/auth || fail speaksfor
+
+# networks: each names its own machine; no machine is cirno
+{
+	grep -v '^(ipnet=|sys=cirno |sys=cpu-amd64-)' /lib/ndb/local
+	echo 'ipnet=plan2001 ip=10.0.2.0 ipmask=255.255.255.0 ipgw=10.0.2.2 dns=10.0.2.3 auth=cpu-amd64-dev1 authdom=plan2001 cpu=cpu-amd64-dev1'
+	# auth= on the machine's own entry: cpurc starts keyfs and authsrv
+	# (cpu+auth server) when $sysname is its own auth server, and asks
+	# before DHCP has given it an address
+	echo 'sys=cpu-amd64-dev1 ether=525400123456 ip=10.0.2.15 auth=cpu-amd64-dev1 authdom=plan2001'
+	echo 'ipnet=oci ip=10.0.0.0 ipmask=255.255.255.0 auth=cpu-amd64-poc1 authdom=plan2001 cpu=cpu-amd64-poc1'
+	echo 'sys=cpu-amd64-poc1 auth=cpu-amd64-poc1 authdom=plan2001'
+} >/tmp/ndb && cp /tmp/ndb /lib/ndb/local || fail ndb
+
+# the name comes from plan9.ini, set before cs looks it up
+cat >/rc/bin/cpurc.local <<'X'
+# Plan2001: the machine's name is plan9.ini's sysname=, not the image's
+if(! ~ $#sysname 0 && ! ~ $sysname '')
+	echo -n $sysname >/dev/sysname
+# a Plan2001 CPU server is its own auth server (cpurc then starts keyfs
+# and authsrv), whatever the boot environment says
+auth=`{cat /dev/sysname}
+X
+chmod 775 /rc/bin/cpurc.local
+
+# its startup, as the old name had it
+test -d /cfg/$name || mkdir /cfg/$name
+dircp /cfg/cirno /cfg/$name || fail cfg
+
+# the host owner reads the TLS key
+chgrp admin /sys/lib/tls/monolith.key && chmod 640 /sys/lib/tls/monolith.key || fail tlskey
+
+# plan9.ini: host owner admin, the name
+9fs 9fat >/dev/null
+{
+	grep -v '^(user|sysname)=' /n/9fat/plan9.ini
+	echo 'user=admin'
+	echo sysname^'='^$name
+} >/tmp/p9ini && cp /tmp/p9ini /n/9fat/plan9.ini || fail plan9.ini
+cat /n/9fat/plan9.ini
+unmount /n/9fat
+echo RENAME-DONE

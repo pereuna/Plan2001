@@ -1,0 +1,17 @@
+#!/bin/rc
+# Run as glenda, the old host owner: what glenda set up for the system
+# (pages, apps, webterm and the pool's programs, services, startup, TLS)
+# goes to the admin group, writable, so that admin, the host owner now,
+# can keep it up to date.  It can be run again.
+rfork e
+fn hand {
+	for(f in `{du -a $* | awk '{print $2}'}){
+		if(~ `{ls -ld $f | awk '{print $4}'} glenda){
+			chgrp admin $f && chmod g+w $f || echo cannot hand over $f
+		}
+	}
+}
+hand /sys/lib/monolith /lib/app /rc/bin/service /rc/bin/service.auth /cfg /sys/lib/tls /sys/log /lib/ndb
+for(f in /amd64/bin/webterm /amd64/bin/crsrv /amd64/bin/rcc /rc/bin/apps /rc/bin/cpurc.local /global /compute)
+	test -e $f && hand $f
+echo HANDOVER-DONE
