@@ -273,9 +273,18 @@ window.Module = {
 };
 // for tests driving the page (tools/test-rio)
 window.monolith = {
-	// #t/eia0, the wasm32 platform's serial port (wasm32host): what it said, and to it
-	eia0out: () => globalThis.h3eia0out ?? '',
-	eia0in: (s) => globalThis.h3eia0in ? (globalThis.h3eia0in(s), true) : false,
+	// #t/eia0, the wasm32 platform's serial port (wasm32host): bytes both ways;
+	// eia0out() the stream decoded as UTF-8 (a rune split between writes is whole)
+	eia0bytes: () => {
+		const cs = globalThis.h3eia0out ?? [], b = new Uint8Array(cs.reduce((n, c) => n + c.length, 0));
+		let o = 0;
+		for (const c of cs) { b.set(c, o); o += c.length; }
+		return b;
+	},
+	eia0out: () => new TextDecoder().decode(window.monolith.eia0bytes()),
+	eia0b64: () => { let s = ''; for (const c of window.monolith.eia0bytes()) s += String.fromCharCode(c); return btoa(s); },
+	eia0in: (x) => globalThis.h3eia0in ? globalThis.h3eia0in(x) : -1,	// text, or bytes
+	eia0inb64: (b) => globalThis.h3eia0in ? globalThis.h3eia0in(Uint8Array.from(atob(b), (c) => c.charCodeAt(0))) : -1,
 	push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, get tokens() { return mo.tokens; }, dropnet: () => mo.dropnet() };
 // ?dropevery=MS (tests): drop the connections every MS ms, as a phone does
 if (+q.get('dropevery') > 0)

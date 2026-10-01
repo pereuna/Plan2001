@@ -11,11 +11,12 @@ the screen goes to build/wasmapp-NAME.png.
                                            it exits ok (HOST3-EXIT) and drew;
                                            RUNS=1: it goes on (clock), PASS
                                            if it is still running and drew
-  SERIAL=1 [SEND='["line\n", ...]'] [EXPECT=FILE]
+  SERIAL=1 [SEND='["line\n", ...]'] [SENDFILE=F] [EXPECT=FILE]
                                            its console #t/eia0, the platform's
                                            serial port: text, not pixels; SEND
                                            typed there a line at a time when its
-                                           output has settled; what it said in
+                                           output has settled, then F's bytes;
+                                           what it said (bytes) in
                                            build/wasmapp-P.txt, the same as FILE
 """
 import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
@@ -154,7 +155,7 @@ def main():
 				last, since, end = None, time.time(), time.time() + limit
 				while time.time() < end:
 					try:
-						o = cdp.js('window.monolith.eia0out()')
+						o = cdp.js('window.monolith.eia0b64()')
 					except RuntimeError:
 						o = None
 					if o != last:
@@ -167,6 +168,10 @@ def main():
 			for line in json.loads(os.environ.get('SEND', '[]')):
 				settled()
 				cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
+			if os.environ.get('SENDFILE'):	# bytes, as they are
+				settled()
+				b = base64.b64encode(open(os.environ['SENDFILE'], 'rb').read()).decode()
+				cdp.js(f'window.monolith.eia0inb64({json.dumps(b)})')
 		if prog:
 			end = time.time() + 60
 			if os.environ.get('RUNS'):	# a program that goes on: its time, then look
@@ -185,13 +190,14 @@ def main():
 		open(os.path.join(root, f'build/wasmapp-{label}.log'), 'w').write('\n'.join(cdp.log) + '\n')
 		print(f'test-wasmapp: {label}: {fl} flushes, {n} colours, {out}')
 		if serial:
-			got = cdp.js('window.monolith.eia0out()') or ''
-			open(os.path.join(root, f'build/wasmapp-{label}.txt'), 'w').write(got)
+			got = base64.b64decode(cdp.js('window.monolith.eia0b64()') or '')
+			open(os.path.join(root, f'build/wasmapp-{label}.txt'), 'wb').write(got)
 			if os.environ.get('EXPECT'):
-				want = open(os.environ['EXPECT']).read()
+				want = open(os.environ['EXPECT'], 'rb').read()
 				if got != want:
 					import difflib
-					sys.stdout.writelines(difflib.unified_diff(want.splitlines(True), got.splitlines(True), 'want', 'got'))
+					w, g = want.decode(errors='backslashreplace'), got.decode(errors='backslashreplace')
+					sys.stdout.writelines(difflib.unified_diff(w.splitlines(True), g.splitlines(True), 'want', 'got'))
 					raise SystemExit(f'FAIL: {prog}: its output on eia0 is not {os.environ["EXPECT"]} (build/wasmapp-{label}.txt)')
 		if prog:
 			ex = [l for l in cdp.log if l.startswith('HOST3-EXIT ')]
