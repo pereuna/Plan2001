@@ -3,11 +3,13 @@
 
 /*
  * 3c test: rfork(RFPROC|RFMEM): the child shares the memory (globals,
- * heap), has its own stack (a copy, moved: docs/wasm32.md), and runs
- * while the parent blocks and the other way round
+ * heap), has its own stack - a copy at the same addresses, as Plan 9's
+ * private stack segment: a stack address kept in a global is its own
+ * there - and runs while the parent blocks and the other way round
  */
 int	shared;
 char	*heap;
+int	*gstack;
 
 void
 child(int fd, int n)
@@ -22,9 +24,11 @@ child(int fd, int n)
 			break;
 		buf[r] = 0;
 		shared += 10;
-		print("child got '%s', shared %d, %s\n", buf, shared, local);
+		print("child got '%s', %s\n", buf, local);	/* shared now: as it happens */
 	}
 	heap[0] = 'C';
+	*gstack += 100;		/* the parent's frame's address: the child's own copy */
+	print("child: *gstack %d\n", *gstack);
 	exits("child done");
 }
 
@@ -34,7 +38,10 @@ main(int, char**)
 	int p[2], pid, i;
 	Waitmsg *w;
 	char frame[32];
+	int mine;
 
+	mine = 7;
+	gstack = &mine;
 	heap = malloc(8);
 	strcpy(heap, "h");
 	strcpy(frame, "parent-frame");
@@ -54,6 +61,6 @@ main(int, char**)
 		sleep(50);
 	}
 	w = wait();
-	print("parent: shared %d heap %s %s, child said '%s'\n", shared, heap, frame, w != nil ? w->msg : "nothing");
+	print("parent: shared %d heap %s %s mine %d, child said '%s'\n", shared, heap, frame, mine, w != nil ? w->msg : "nothing");
 	exits(nil);
 }

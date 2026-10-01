@@ -74,14 +74,14 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 	vlong *asret, int *out, char *msg, int nmsg), {
 	const fail = (t) => { stringToUTF8(String(t), msg, nmsg); return -1; };
 	const Stop = globalThis.h3stopobj ??= { stop: true };
-	const RFMEM = 1<<5, TASAREA = 32*1024;
+	const RFMEM = 1<<5;
 	const k32 = () => new DataView(wasmMemory.buffer);
 	const ret64 = (c) => k32().getBigInt64(c, true);
 	let h = globalThis.h3;
 	try {
 		if (mode != 2) {
 			const bytes = new Uint8Array(wasmMemory.buffer, img, nimg).slice();
-			h = globalThis.h3 = { stop: 0, fork: 0, block: 0, mem: null, inst: null, multi: false, cos: [], cur: 0, slots: [], ctxs: [] };
+			h = globalThis.h3 = { stop: 0, fork: 0, block: 0, mem: null, inst: null, multi: false, cos: [], cur: 0, ctxs: [], regions: new Map() };
 			h.inst = new WebAssembly.Instance(new WebAssembly.Module(bytes), { plan9: { syscall: (n, a) => {
 				const c = h.cos[h.cur];
 				a >>>= 0;
@@ -132,7 +132,10 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 				return 0n;
 			}
 			case 102:
-				if (!h.cos.some((q) => q.cx == arg(0) && q.state != 'done')) h.ctxs[arg(0)] = null;
+				if (h.ctxs[arg(0)] && !h.cos.some((q) => q.cx == arg(0) && q.state != 'done')) {
+					h.ctxs[arg(0)].dead = true;
+					h.ctxs[arg(0)] = null;
+				}
 				return 0n;
 			case 103:
 				return BigInt(c.cx);
@@ -140,9 +143,43 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			return -1n;
 		};
 		var ctxcall = globalThis.h3ctxcall;
+		/*
+		 * A context's region: its stack [.., top) and saved frames [base, asptr).
+		 * rfork(RFMEM) procs share them at the same addresses, as Plan 9's
+		 * private stack segments: memory holds one's, the owner; the others'
+		 * are kept here (t.saved) and swapped in when they go on.
+		 */
+		const minspOf = (t) => {
+			const d = m32();
+			let ms = t.top;
+			for (let q = t.asptr; q > t.base; ) {
+				const size = d.getInt32(q - 4, true), rec = q - size;
+				ms = Math.min(ms, d.getUint32(rec + 4, true));
+				q = rec;
+			}
+			return ms;
+		};
+		const save = (t) => {
+			const ms = minspOf(t), b = new Uint8Array(h.mem.buffer);
+			t.saved = { ms, stack: b.slice(ms, t.top), recs: b.slice(t.base, t.asptr) };
+		};
+		const claim = (t) => {
+			const key = t.base + ':' + t.top, r = h.regions.get(key);
+			if (!r) { h.regions.set(key, { owner: t }); return; }
+			if (r.owner === t) return;
+			if (r.owner && !r.owner.dead && r.owner.started) save(r.owner);
+			if (t.saved) {
+				const b = new Uint8Array(h.mem.buffer);
+				b.set(t.saved.stack, t.saved.ms);
+				b.set(t.saved.recs, t.base);
+				t.saved = null;
+			}
+			r.owner = t;
+		};
 		/* go on with c's current context: rewound, or started; the function to call */
 		const resume = (c) => {
 			const t = h.ctxs[c.cx];
+			claim(t);
 			jt(`resume pid ${k32().getInt32(c.ptr + 8, true)} ctx ${c.cx} ${t.started ? 'rewind' : 'start'} fn ${t.fn} asptr ${t.asptr} base ${t.base} top ${t.top}`);
 			if (!t.started) {
 				t.started = true;
@@ -183,13 +220,13 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			x.sp.value = top;
 			setpid(k.getInt32(p + 8, true));
 			h.ctxs = [{ fn: 0, base: x.asbase.value, top: x.stacktop.value, asptr: 0, started: true }];
-			h.cos = [{ ptr: p, slot: -1, state: 'run', ret: 0n, cx: 0 }];
+			h.cos = [{ ptr: p, state: 'run', ret: 0n, cx: 0 }];
 		} else if (mode == 1) {
 			if (nsnap > h.mem.buffer.byteLength)
 				h.mem.grow(Math.ceil((nsnap - h.mem.buffer.byteLength) / 65536));
 			new Uint8Array(h.mem.buffer).set(new Uint8Array(wasmMemory.buffer, snap, nsnap));
 			h.ctxs = [{ fn: ctxfn, base: asbase || x.asbase.value, top: stacktop || x.stacktop.value, asptr, started: true }];
-			h.cos = [{ ptr: p, slot: -1, state: 'run', ret: ret64(asret), cx: 0 }];
+			h.cos = [{ ptr: p, state: 'run', ret: ret64(asret), cx: 0 }];
 			setpid(k32().getInt32(p + 8, true));
 			entry = resume(h.cos[0]);
 		} else {
@@ -198,43 +235,17 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 			entry = resume(c);
 		}
 
-		/* an rfork(RFMEM) child of c: its stack and saved frames a copy in a slot of its own */
+		/* an rfork(RFMEM) child of c: its stack and saved frames, at the same addresses, kept until it goes */
 		const mkchild = (c, flags) => {
 			const t = h.ctxs[c.cx];
-			let s = 0;
-			while (h.slots[s]) s++;
-			if (s >= x.ntslot.value) return null;
-			const d = m32(), b = new Uint8Array(h.mem.buffer);
-			const slot = x.tzone.value + s * x.tslot.value;
-			const top = slot + x.tslot.value - TASAREA, abase = top;
-			/* the stack in use: from the innermost saved frame's SP to the context's top */
-			let minsp = t.top;
-			for (let q = t.asptr; q > t.base; ) {
-				const size = d.getInt32(q - 4, true), rec = q - size;
-				minsp = Math.min(minsp, d.getUint32(rec + 4, true));
-				q = rec;
-			}
-			const delta = top - t.top;
-			if (minsp < t.top - (x.tslot.value - TASAREA)) return null;	/* too deep for a slot */
-			b.copyWithin(minsp + delta, minsp, t.top);
-			b.copyWithin(abase, t.base, t.asptr);
-			const asp = abase + (t.asptr - t.base);
-			/* SPs and what looks like a stack address in i32 locals: moved (docs/wasm32.md) */
-			for (let q = asp; q > abase; ) {
-				const size = d.getInt32(q - 4, true), rec = q - size, ni = d.getInt32(q - 8, true);
-				for (let i = 0; i < ni; i++) {
-					const v = d.getUint32(rec + 4 + 4*i, true);
-					if (v >= minsp && v < t.top)
-						d.setUint32(rec + 4 + 4*i, v + delta, true);
-				}
-				q = rec;
-			}
+			const ct = { fn: t.fn, base: t.base, top: t.top, asptr: t.asptr, started: true };
+			claim(t);	/* c's is in memory: it owns the region (the first run did not resume) */
+			save(ct);	/* the child's copy of it */
 			const ptr = _h3newco(c.ptr, flags);
-			h.slots[s] = 1;
 			const priv = ppsave();
 			if (priv && priv.length >= 52) new DataView(priv.buffer).setUint32(48, k32().getInt32(ptr + 8, true), true);
-			h.ctxs.push({ fn: t.fn, base: abase, top, asptr: asp, started: true });
-			return { ptr, slot: s, state: 'ready', ret: 0n, cx: h.ctxs.length - 1, priv };
+			h.ctxs.push(ct);
+			return { ptr, state: 'ready', ret: 0n, cx: h.ctxs.length - 1, priv };
 		};
 
 		const o = (i, v) => k32().setInt32(out + 4*i, v, true);
@@ -289,7 +300,7 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 				/* exits, or main returned */
 				if (!h.multi) { o(0, 0); return 0; }
 				c.state = 'done';
-				if (c.slot >= 0) h.slots[c.slot] = 0;
+				h.ctxs[c.cx].dead = true;
 				if (c.ptr != p) _h3coend(c.ptr);
 				if (h.cos.every((q) => q.state == 'done')) { o(0, 0); return 0; }
 			}
@@ -299,6 +310,7 @@ EM_JS(int, h3run, (void *p, int mode, unsigned char *img, int nimg, int argc, ch
 				const i32 = new Int32Array(wasmMemory.buffer);
 				for (const q of h.cos)
 					if (q.state == 'blocked' && Atomics.load(i32, (q.ptr + 12) >> 2)) {
+						claim(h.ctxs[q.cx]);	/* its results go to its stack: in memory first */
 						_h3finish(q.ptr);
 						q.ret = ret64(q.ptr);
 						q.state = 'ready';
@@ -332,6 +344,38 @@ h3log(const char *prog, int bad, const char *msg)
 {
 	MAIN_THREAD_EM_ASM({ console.log('HOST3-EXIT ' + UTF8ToString($0) + ' ' + ($1 ? UTF8ToString($2) : 'ok')); },
 		prog, bad, msg);
+}
+
+/*
+ * #t/eia0 (devuart3.c): the page's side.  Out: to the page, where
+ * window.monolith.eia0out() reads it.  In: the page's eia0in(text)
+ * puts it in the kernel's ring (r, w, b[8192]).
+ */
+void
+eiaplatform(void *ring)
+{
+	MAIN_THREAD_EM_ASM({ ((ring) => {	/* in parentheses: a macro's argument */
+		const N = 8192;
+		globalThis.h3eia0out = '';
+		globalThis.h3eia0in = (s) => {
+			const b = new TextEncoder().encode(s), i32 = new Int32Array(wasmMemory.buffer), u8 = new Uint8Array(wasmMemory.buffer);
+			let w = Atomics.load(i32, (ring + 4) >> 2);
+			for (const c of b) {
+				if (w - Atomics.load(i32, ring >> 2) >= N) break;	/* full: the rest is lost */
+				u8[ring + 8 + (w % N)] = c;
+				w++;
+			}
+			Atomics.store(i32, (ring + 4) >> 2, w);
+		};
+	})($0); }, ring);
+}
+
+void
+eiaout(void *p, int n)
+{
+	MAIN_THREAD_EM_ASM({ ((p, n) => {
+		globalThis.h3eia0out += new TextDecoder().decode(new Uint8Array(wasmMemory.buffer).slice(p, p + n));
+	})($0, $1); }, p, n);
 }
 
 /* the scheduler's tracing (?debug=4): every Worker */

@@ -7,7 +7,7 @@
  * (switched by _ctxswitch), procs are rfork(RFMEM) procs; channels
  * between them, a prime sieve of threads
  */
-Channel	*c;
+Channel	*c, *done;
 
 void
 counter(void*)
@@ -42,11 +42,19 @@ filter(void *v)
 
 	in = v;
 	p = recvul(in);
+	if(p == ~0) {		/* the end: through all the filters */
+		sendul(done, 1);
+		threadexits(nil);
+	}
 	print("prime %lud\n", p);
 	out = chancreate(sizeof(ulong), 0);
 	threadcreate(filter, out, 16384);
 	for(;;) {
 		n = recvul(in);
+		if(n == ~0) {
+			sendul(out, n);
+			threadexits(nil);
+		}
 		if(n % p)
 			sendul(out, n);
 	}
@@ -69,9 +77,12 @@ threadmain(int, char**)
 	print("proc says %lud\n", recvul(r));
 
 	s = chancreate(sizeof(ulong), 0);
+	done = chancreate(sizeof(ulong), 0);
 	threadcreate(filter, s, 16384);
 	for(i = 2; i < 30; i++)
 		sendul(s, i);
+	sendul(s, ~0);
+	recvul(done);
 	print("threads done\n");
 	threadexitsall(nil);
 }

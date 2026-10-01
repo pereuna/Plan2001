@@ -4,9 +4,15 @@
 # objects but cpu.o, and host3.o -> host3.js, host3.wasm
 include Makefile
 
-H3=wasm32host/host3.$O wasm32host/host3js.$O
+H3=wasm32host/host3.$O wasm32host/host3js.$O wasm32host/devuart3.$O wasm32host/devdup3.$O wasm32host/devtab3.$O
 
 wasm32host/host3.$O: wasm32host/host3.c
+	$(CC) $(CFLAGS) -o $@ $<
+wasm32host/devuart3.$O: wasm32host/devuart3.c
+	$(CC) $(CFLAGS) -o $@ $<
+wasm32host/devdup3.$O: wasm32host/devdup3.c
+	$(CC) $(CFLAGS) -o $@ $<
+wasm32host/devtab3.$O: wasm32host/devtab3.c
 	$(CC) $(CFLAGS) -o $@ $<
 wasm32host/host3js.$O: wasm32host/host3js.c
 	$(CC) -O2 -pthread -c -o $@ $<

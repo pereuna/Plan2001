@@ -246,6 +246,7 @@ window.Module = {
 			m.ENV.WASM32PROG = q.get('prog');
 			m.ENV.WASM32ARGV = q.getAll('arg').join('\x1f');
 			if (q.get('debug')) m.ENV.WASM32DEBUG = q.get('debug');
+			if (q.get('console') === 'eia0') m.ENV.WASM32CONSOLE = 'eia0';
 			// /env/timezone (#e is the environment): the browser's offset, no transitions
 			const off = -new Date().getTimezoneOffset() * 60, tz = off ? 'LOC' : 'GMT';
 			m.ENV.timezone = `${tz} ${off} ${tz} ${off}\n`;
@@ -271,7 +272,11 @@ window.Module = {
 	onExit: code => { setstatus('drawterm exited (' + code + ')'); console.log('MONOLITH-EXIT ' + code); },
 };
 // for tests driving the page (tools/test-rio)
-window.monolith = { push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, get tokens() { return mo.tokens; }, dropnet: () => mo.dropnet() };
+window.monolith = {
+	// #t/eia0, the wasm32 platform's serial port (wasm32host): what it said, and to it
+	eia0out: () => globalThis.h3eia0out ?? '',
+	eia0in: (s) => globalThis.h3eia0in ? (globalThis.h3eia0in(s), true) : false,
+	push, get flushes() { return mo.flushes; }, get resumes() { return mo.resumes; }, get tokens() { return mo.tokens; }, dropnet: () => mo.dropnet() };
 // ?dropevery=MS (tests): drop the connections every MS ms, as a phone does
 if (+q.get('dropevery') > 0)
 	setInterval(() => { if (mo.ready) mo.dropnet(); }, +q.get('dropevery'));
