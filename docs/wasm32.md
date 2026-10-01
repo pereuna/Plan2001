@@ -207,9 +207,14 @@ toimi.
 
 Sarjaportti #t/eia0 (monolith/wasm32host/devuart3.c) on wasm32-alustan
 ensimmäinen ajuri: tavuputki sivulle. Ytimen osa on Dev, jossa ovat eia0,
-eia0ctl ja eia0status. Alustan osa (host3js.c) kirjoittaa sivulle
-(`window.monolith.eia0out()`) ja ottaa sivulta vastaan
-(`window.monolith.eia0in(teksti)`) ytimen rengaspuskurin kautta.
+eia0ctl ja eia0status. Alustan osa (host3js.c) kuljettaa tavuja kuten
+sarjalinja: ytimen kirjoitukset tallentuvat sellaisinaan (Uint8Array), ja
+sivun lähettämät tavut menevät ytimen rengaspuskuriin. Tekstiksi
+dekoodaaminen on lukijan asia: `window.monolith.eia0out()` dekoodaa koko
+virran UTF-8:na, joten kahteen kirjoitukseen jakautunut rune säilyy
+ehjänä, ja `eia0bytes()` palauttaa tavut. `eia0in(teksti tai tavut)`
+kirjoittaa porttiin. Testi host3/bytes ajaa kaikki 256 tavuarvoa
+molempiin suuntiin.
 `?console=eia0` antaa ohjelmille konsoliksi sarjaportin ruudun sijaan.
 Testit lukevat ja kirjoittavat tekstiä kuten koneen sarjakonsolia
 (`SERIAL=1 [SEND=...] [EXPECT=tiedosto] tools/test-wasmapp host3`), myös
@@ -240,6 +245,12 @@ hiiren ja näppäimistön apuprosessit `rfork(RFPROC)`:lla eikä RFMEM:llä,
 joten ne ovat tavallisia forkattuja prosesseja, jotka puhuvat putken kautta.
 
 ## Kesken
+
+- Preemptio: RFMEM-procien ajastin ei keskeytä. Proc, joka laskee ilman
+  järjestelmäkutsuja, pysäyttää muut saman muistin procit (erilliset
+  prosessit ovat omia Workereitaan ja vaihtuvat aidosti). Ehdotus: 3l:n
+  preemptiopisteet taaksepäin hyppääviin haaroihin (laskuri ja `_yield`,
+  alusta vaihtaa aikaviipaleen kuluttua).
 
 Suunnitelma ja vaiheet A–D: docs/architecture.md.
 

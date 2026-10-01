@@ -347,25 +347,30 @@ h3log(const char *prog, int bad, const char *msg)
 }
 
 /*
- * #t/eia0 (devuart3.c): the page's side.  Out: to the page, where
- * window.monolith.eia0out() reads it.  In: the page's eia0in(text)
- * puts it in the kernel's ring (r, w, b[8192]).
+ * #t/eia0 (devuart3.c): the page's side - bytes, as a serial line: what
+ * the kernel writes is kept as it came (h3eia0out, Uint8Arrays), what
+ * the page sends goes into the kernel's ring (r, w, b[8192]) as bytes.
+ * Text is the reader's business: window.monolith.eia0out() decodes the
+ * whole stream as UTF-8, eia0bytes() is the bytes.
  */
 void
 eiaplatform(void *ring)
 {
 	MAIN_THREAD_EM_ASM({ ((ring) => {	/* in parentheses: a macro's argument */
 		const N = 8192;
-		globalThis.h3eia0out = '';
-		globalThis.h3eia0in = (s) => {
-			const b = new TextEncoder().encode(s), i32 = new Int32Array(wasmMemory.buffer), u8 = new Uint8Array(wasmMemory.buffer);
-			let w = Atomics.load(i32, (ring + 4) >> 2);
+		globalThis.h3eia0out = [];
+		globalThis.h3eia0in = (x) => {
+			const b = typeof x === 'string' ? new TextEncoder().encode(x) : new Uint8Array(x);
+			const i32 = new Int32Array(wasmMemory.buffer), u8 = new Uint8Array(wasmMemory.buffer);
+			let w = Atomics.load(i32, (ring + 4) >> 2), n = 0;
 			for (const c of b) {
-				if (w - Atomics.load(i32, ring >> 2) >= N) break;	/* full: the rest is lost */
+				if (w - Atomics.load(i32, ring >> 2) >= N) break;	/* full */
 				u8[ring + 8 + (w % N)] = c;
 				w++;
+				n++;
 			}
 			Atomics.store(i32, (ring + 4) >> 2, w);
+			return n;
 		};
 	})($0); }, ring);
 }
@@ -374,7 +379,7 @@ void
 eiaout(void *p, int n)
 {
 	MAIN_THREAD_EM_ASM({ ((p, n) => {
-		globalThis.h3eia0out += new TextDecoder().decode(new Uint8Array(wasmMemory.buffer).slice(p, p + n));
+		globalThis.h3eia0out.push(new Uint8Array(wasmMemory.buffer).slice(p, p + n));
 	})($0, $1); }, p, n);
 }
 
