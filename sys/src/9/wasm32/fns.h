@@ -40,3 +40,5 @@ extern Ufns	ufns;
 void	helperquit(Proc*);
 void	umemrelease(Proc*);
 void	callabort(Proc*);
+void	screeninit(void);
+void	mouseinput(void);

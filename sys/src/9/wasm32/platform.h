@@ -37,3 +37,11 @@ void	platnote(void*, char*, void (*)(Proc*), Proc*);	/* the proc's notify handle
 void	platnoted(void);		/* noted(NCONT): back out of the handler */
 long	platbootfs(void*, long);	/* the files the page gave: its size, the archive into the buffer */
 long	platbootargs(void*, long);	/* what init runs, argv's strings each with its 0: its size, and into the buffer */
+
+/* the screen and the mouse (screen.c) */
+void	platscreen(int*, int*);		/* the page's size, if it has one */
+void	platfb(void*, long, int, int);	/* the framebuffer: XRGB32 at the address, bytes a line, width, height */
+void	platflush(int, int, int, int);	/* this rectangle of it changed */
+void	platcursor(int, int, uchar*, uchar*);	/* the cursor: its offset, clr and set (16x16, 2 bytes a line) */
+void	platkbdring(void*);			/* the page's keyboard messages into the ring: r, w, b[4096] (devkbd.c) */
+void	platmousering(void*);		/* the page's mouse events into the ring: w, r, ev[64][4] (x, y, buttons, msec) */

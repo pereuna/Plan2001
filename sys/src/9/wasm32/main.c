@@ -32,6 +32,7 @@ confinit(void)
 	conf.ialloc = 1*MiB;
 	conf.pipeqsize = 32*1024;
 	conf.nuart = 1;
+	conf.monitor = 1;	/* the page's screen (screen.c) */
 	conf.copymode = 0;
 }
 
@@ -102,6 +103,9 @@ inituser(void)
 	kcall(sysbind, "#e", "/env", MREPL|MCREATE);
 	kcall(sysbind, "#s", "/srv", MREPL|MCREATE);
 	kcall(sysbind, "#p", "/proc", MREPL);
+	kcall(sysbind, "#i", "/dev", MAFTER);
+	kcall(sysbind, "#m", "/dev", MAFTER);
+	kcall(sysbind, "#b", "/dev", MAFTER);
 	kcall(sysopen, "/dev/eia0", OREAD);
 	kcall(sysopen, "/dev/eia0", OWRITE);
 	kcall(sysopen, "/dev/eia0", OWRITE);
@@ -209,8 +213,11 @@ main(void)
 	xinit();
 	printinit();
 	timersinit();
+	todset(platnsec(), 0, 0);	/* the time: the platform's */
 	procinit0();
+	screeninit();
 	chandevreset();
+	mouseinput();
 	print("Plan2001 wasm32: %lud pages free\n", conf.npage);
 	/* main's Worker has no up: it is CPU 0, the clock (clock.c); the work is a proc's */
 	{
