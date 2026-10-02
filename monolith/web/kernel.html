@@ -79,6 +79,9 @@ boot('9wasm32.wasm', {
 	args,
 	canvas: document.getElementById('screen'),
 	screen: (([w, h]) => ({ w: Number(w) || 800, h: Number(h) || 600 }))((q.get('screen') ?? '').split('x')),
+	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */
+	ws: q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
+		: `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`),
 	failfork: Number(q.get('failfork')) || 0,
 	failhelper: Number(q.get('failhelper')) || 0,
 	failrfmem: Number(q.get('failrfmem')) || 0,

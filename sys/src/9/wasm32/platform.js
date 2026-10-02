@@ -500,6 +500,12 @@ function imports(env) {
 			env.post({ cursor: { x: iarg(0), y: iarg(1), clr: k.slice(arg(2), arg(2) + 32), set: k.slice(arg(3), arg(3) + 32) } });
 		},
 		platmousering: () => env.post({ mring: arg(0) }),
+		platnetopen: () => env.post({ netopen: { id: iarg(0), path: str(arg(1)), ring: arg(2), st: arg(3) } }),
+		platnetsend: () => {
+			const b = new Uint8Array(env.mem.buffer).slice(arg(1), arg(1) + iarg(2));
+			env.post({ netsend: { id: iarg(0), b } }, [b.buffer]);
+		},
+		platnetclose: () => env.post({ netclose: iarg(0) }),
 		platkbdring: () => env.post({ kring: arg(0) }),
 		platbootargs: () => {	/* as platbootfs: its size, then into the buffer */
 			const a = new TextEncoder().encode((env.boot?.args ?? []).map((s) => s + '\0').join(''));
@@ -552,6 +558,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 // on the page: the machine
 // front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's),
 //	canvas, screen ({ w, h }: the kernel's screen, shown on the canvas; its pointer the mouse),
+//	ws (the machine's webterm: ws://host:port, the network's WebSockets),
 //	failfork, failhelper, failrfmem (a test's: the nth fork's child, helper, rfork(RFMEM) child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
@@ -653,6 +660,60 @@ export async function boot(url, front = {}) {
 		canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 	}
 
+	/*
+	 * the network (devwsnet.c): conversation n a WebSocket to front.ws +
+	 * path (the machine's webterm); what it brings into the kernel's ring
+	 * (r, w, closed, b[64K]), the kernel woken; past a full ring the
+	 * connection fails rather than lose bytes, as drawterm's wsock.c
+	 */
+	const net = { ws: new Map() };
+	const NRING = 64*1024;
+	net.open = ({ id, path, ring, st }) => {
+		net.close(id);
+		const i32 = new Int32Array(mem.buffer);
+		const word = (a, v) => { Atomics.store(i32, a >> 2, v); Atomics.notify(i32, a >> 2); };
+		let ws, opened = false;
+		try {
+			ws = new WebSocket((front.ws ?? '') + path);
+		} catch (e) {
+			word(st, -1);
+			return;
+		}
+		ws.binaryType = 'arraybuffer';
+		net.ws.set(id, ws);
+		const end = (why) => {
+			if (net.ws.get(id) !== ws) return;
+			net.ws.delete(id);
+			if (!opened) word(st, -1);
+			else { Atomics.store(i32, (ring + 8) >> 2, why); Atomics.notify(i32, (ring + 4) >> 2); }
+		};
+		ws.onopen = () => { opened = true; word(st, 1); };
+		ws.onclose = () => end(1);
+		ws.onerror = () => end(2);
+		ws.onmessage = (e) => {
+			if (net.ws.get(id) !== ws) return;
+			const b = typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(e.data);
+			const u8 = new Uint8Array(mem.buffer);
+			let w = Atomics.load(i32, (ring + 4) >> 2);
+			if (w + b.length - Atomics.load(i32, ring >> 2) > NRING) {
+				end(3);
+				ws.close();
+				return;
+			}
+			for (const c of b) u8[ring + 12 + (w++ % NRING)] = c;
+			Atomics.store(i32, (ring + 4) >> 2, w);
+			Atomics.notify(i32, (ring + 4) >> 2);
+		};
+	};
+	net.send = ({ id, b }) => { const ws = net.ws.get(id); if (ws && ws.readyState === 1) ws.send(b); };
+	net.close = (id) => {
+		const ws = net.ws.get(id);
+		if (!ws) return;
+		net.ws.delete(id);
+		ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+		ws.close();
+	};
+
 	/* a test's: the nth Worker of a kind is not made - a fork's child, a helper, an rfork(RFMEM) child's (platform.h) */
 	const fails = { 1: front.failfork, 2: front.failhelper, 3: front.failrfmem }, made = { 1: 0, 2: 0, 3: 0 };
 	const spawn = (job) => {
@@ -677,6 +738,9 @@ export async function boot(url, front = {}) {
 			if (m.flush) screen.flush(m.flush);
 			if (m.cursor) screen.cursor(m.cursor);
 			if (m.mring !== undefined) screen.mring = m.mring;
+			if (m.netopen) net.open(m.netopen);
+			if (m.netsend) net.send(m.netsend);
+			if (m.netclose !== undefined) net.close(m.netclose);
 			if (m.kring !== undefined) kring = m.kring;
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
