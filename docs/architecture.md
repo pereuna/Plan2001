@@ -293,8 +293,16 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   alustan kellosta (`todset`), ja `/boot/init` kopioi
   `/adm/timezone/local`in `/env/timezone`en. 9frontin clock piirtää
   ytimen päällä. Testiajo: `DRAWS`, `KEYS` (selaimen omat
-  näppäintapahtumat), `MOUSE`, `EXPECTJS` ja `MASKPIDS` (wait-viestien
-  pid:t). Kesken: `keys`-testissä näppäin katoaa joskus.
+  näppäintapahtumat; Enterin jälkeen odotetaan vastausta, sillä etukäteen
+  kirjoitettu kaikuu heti kuten Plan 9:ssä), `MOUSE`, `EXPECTJS`,
+  `SENDFILE` ja `MASKPIDS` (wait-viestien pid:t).
+- C3 valmis (2.10.): ydin ajaa kaiken, mitä host3 drawtermin ytimen päällä
+  ajoi, ja `tools/test-9wasm32` sisältää host3:n testit sellaisinaan
+  (hello, dclock, fork, rfmem, threads, preempt, bytes, rc, interaktiivinen
+  rc, clock), yhteensä 24 testiä. Ohjelmien ajaminen selaimessa ei siis
+  enää tarvitse drawtermia. Drawtermin web-asiakas on yhä yhteys
+  Plan2001-koneeseen (webterm, rcpu), ja se korvautuu vaiheessa D, kun
+  ytimellä on verkko (WebSocket 9P:n kuljettimena).
   Sivun syötteet (initin argumentit, `#R`:n arkisto) tarkistetaan: koko
   kysytään ensin, jokaisella merkkijonolla on oltava 0 alueen sisällä, ja
   polussa ei saa olla alussa /:ta, tyhjää elementtiä eikä . tai ..
@@ -311,4 +319,4 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
 | C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
-| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c (2.10.): kbdfs, `#p`, /boot/init; C3d (2.10., välietappi): devdraw, hiiri ja näppäimistö alustan ajureina, clock piirtää | clock ja testisarja; drawterm poistuu selainpuolelta |
+| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c (2.10.): kbdfs, `#p`, /boot/init; C3d (2.10.): devdraw, hiiri ja näppäimistö alustan ajureina, clock piirtää; host3:n testit ytimellä | clock ja testisarja; drawterm poistuu selainpuolelta ohjelmien ajajana (valmis 2.10.) |

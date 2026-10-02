@@ -170,6 +170,11 @@ def main():
 						break
 					time.sleep(0.1)
 				cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
+			if os.environ.get('SENDFILE'):	# bytes, as they are, once eia0 is there
+				wait(cdp, 'window.monolith && window.monolith.eia0in("") >= 0', 60, 'eia0')
+				time.sleep(1)
+				b = base64.b64encode(open(os.environ['SENDFILE'], 'rb').read()).decode()
+				cdp.js(f'window.monolith.eia0inb64({json.dumps(b)})')
 			# KEYS: typed on the page as a person types (the browser's key events), after it has settled
 			keys = json.loads(os.environ.get('KEYS', '[]'))
 			if keys:
@@ -206,11 +211,25 @@ def main():
 					time.sleep(0.2)
 					cdp.call('Input.dispatchMouseEvent', type='mouseReleased', x=x, y=y, button=bname, buttons=0, clickCount=1)
 					time.sleep(0.3)
+			def quiet(secs):	# eia0 the same for secs: the program has answered
+				last, since, end = None, time.time(), time.time() + 30
+				while time.time() < end:
+					try:
+						o = cdp.js('window.monolith.eia0b64()')
+					except RuntimeError:
+						o = None
+					if o != last:
+						last, since = o, time.time()
+					elif time.time() - since > secs:
+						return
+					time.sleep(0.05)
 			for k in keys:
-				time.sleep(0.05 if len(k) == 1 else 0.6)
+				time.sleep(0.05)
 				ev = {'key': k, 'code': k} if len(k) > 1 else {'key': k, 'text': k, 'code': 'Key' + k}
 				cdp.call('Input.dispatchKeyEvent', type='keyDown', **ev)
 				cdp.call('Input.dispatchKeyEvent', type='keyUp', **{x: ev[x] for x in ('key', 'code')})
+				if k == 'Enter':	# what was typed ahead echoes at once: the next line after the answer
+					quiet(0.8)
 			end = time.time() + float(os.environ.get('HALTWAIT', '60'))	# HALTWAIT=s: a long test
 			while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
 				try:

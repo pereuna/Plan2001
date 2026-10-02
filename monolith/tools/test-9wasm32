@@ -10,7 +10,8 @@
 # rfork(RFMEM) undone when the parent's helper or the child gets no Worker;
 # C3c's console: /boot/init, kbdfs and rc - echo, äåö, DEL the interrupt;
 # C3d's screen, keyboard and mouse: 9front's clock drawing, keys typed
-# on the page (the browser's key events, äåö), a click and the cursor.
+# on the page (the browser's key events, äåö), a click and the cursor;
+# and host3's tests (3c/test/host3) as they are: hello, dclock, bytes, rc.
 #   tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,7 +20,7 @@ t=$root/../sys/src/9/wasm32/test
 [ -e "$root/build/wasm32/root/bin/c3d" ] || "$root/tools/build-bin3" >/dev/null
 run() {	# NAME ARGS [SEND [PAGEARGS]]
 	echo "test-9wasm32: $1"
-	MASKPIDS=1 PAGEARGS="$4" HALTWAIT=${HALTWAIT:-60} PAGE=kernel.html SERIAL=1 EXPECTTAIL=1 EXPECT="$t/$1.out" ARGS="$2" SEND="${3:-[]}" \
+	MASKPIDS=1 PAGEARGS="$4" HALTWAIT=${HALTWAIT:-60} PAGE=kernel.html SERIAL=1 EXPECTTAIL=1 EXPECT="${EXPECT:-$t/$1.out}" ARGS="$2" SEND="${3:-[]}" \
 		"$root/tools/test-wasmapp" kernel | tail -1
 }
 want() { local n=$1; shift; [ $# = 0 ] || [[ " $* " == *" $n "* ]]; }
@@ -43,4 +44,10 @@ want init $names && run init '["/bin/rc", "/boot/init"]' '["echo hi\n", "echo ä
 want clock $names && DRAWS=3 run clock '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; clock & sleep 4; echo drawn"]'
 want keys $names && KEYS='["e", "c", "h", "o", " ", "ä", "å", "ö", " ", "$", "s", "y", "s", "n", "a", "m", "e", "Enter", "e", "x", "i", "t", "Enter"]' run keys '["/bin/rc", "/boot/init"]'
 want mouse $names && WAITFOR=ready MOUSE='[[0.75, 0.5, 4]]' EXPECTJS="document.getElementById('screen').style.cursor.startsWith('url(')" run mouse '["/bin/c3d"]'
+h=$root/../sys/src/cmd/3c/test/host3
+want hello $names && EXPECT=$h/hello.out run hello '["/bin/rc", "-c", "hello"]'
+want dclock $names && DRAWS=3 run dclock '["/bin/rc", "-c", "dclock 15 & sleep 3; echo drawn"]'
+want bytes $names && EXPECT=$h/bytes.out SENDFILE=$h/bytes.in run bytes '["/bin/bytes"]'
+want rc3 $names && EXPECT=$h/rc.out run rc3 '["/bin/rc", "-c", "echo a b c | wc; ls /bin/rc /bin/echo; for(i in 1 2) echo $i; x=`{echo one two}; echo $#x; cat /rc/lib/rcmain | wc -l"]'
+want rci3 $names && EXPECT=$h/rci.out run rci3 '["/bin/rc", "-i"]' '["echo hello over eia0\n", "echo a b c | wc\n", "ls /bin/rc /bin/echo\n", "x=(1 2 3); echo $#x\n", "exit\n"]'
 echo "test-9wasm32: ok"
