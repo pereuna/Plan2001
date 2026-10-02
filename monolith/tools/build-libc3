@@ -5,7 +5,7 @@
 # with ../wasm32/include and 9front's /sys/include.
 #   tools/build-libc3     build/wasm32/lib/libc.a, libdraw.a (9front's
 #                         libdraw: the parts with libthread compile, for
-#                         later)
+#                         later), libthread.a, libauth.a, lib9p.a
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 P=$(cd "$root/.." && pwd)
@@ -78,6 +78,35 @@ done
 rm -f "$out/lib/libthread.a"
 ar rcD "$out/lib/libthread.a" "$out"/o/libthread/*.3
 echo "build-libc3: $out/lib/libthread.a ($(ls "$out"/o/libthread/*.3 | wc -l) objects)"
+
+# libauth: 9front's (amount: lib9p's postmountsrv)
+mkdir -p "$out/o/libauth"
+rm -f "$out/o/libauth/"*.3
+for s in "$P"/subset/9front/sys/src/libauth/*.c; do
+	o=$out/o/libauth/$(basename "${s%.c}").3
+	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+		echo "build-libc3: $s:"; head -5 "$o.err"; fail=1
+	fi
+done
+[ $fail = 0 ] || exit 1
+rm -f "$out/lib/libauth.a"
+ar rcD "$out/lib/libauth.a" "$out"/o/libauth/*.3
+echo "build-libc3: $out/lib/libauth.a ($(ls "$out"/o/libauth/*.3 | wc -l) objects)"
+
+# lib9p: 9front's (kbdfs, file servers)
+mkdir -p "$out/o/lib9p"
+rm -f "$out/o/lib9p/"*.3
+for s in "$P"/subset/9front/sys/src/lib9p/*.c; do
+	case $(basename "$s") in ramfs.c|ftest.c) continue ;; esac
+	o=$out/o/lib9p/$(basename "${s%.c}").3
+	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+		echo "build-libc3: $s:"; head -5 "$o.err"; fail=1
+	fi
+done
+[ $fail = 0 ] || exit 1
+rm -f "$out/lib/lib9p.a"
+ar rcD "$out/lib/lib9p.a" "$out"/o/lib9p/*.3
+echo "build-libc3: $out/lib/lib9p.a ($(ls "$out"/o/lib9p/*.3 | wc -l) objects)"
 
 rm -f "$out/lib/libdraw.a"
 ar rcD "$out/lib/libdraw.a" "$out"/o/libdraw/*.3

@@ -7,7 +7,8 @@
 # rendezvous, and a fork whose child gets no Worker (the page's failfork);
 # C3b's rfork(RFMEM) procs, libthread and preemption (3c's host3 tests),
 # ten rounds of them under rc, a note that ends an RFMEM proc, and an
-# rfork(RFMEM) undone when the parent's helper or the child gets no Worker.
+# rfork(RFMEM) undone when the parent's helper or the child gets no Worker;
+# C3c's console: /boot/init, kbdfs and rc - echo, äåö, DEL the interrupt.
 #   tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,7 +22,7 @@ run() {	# NAME ARGS [SEND [PAGEARGS]]
 }
 want() { local n=$1; shift; [ $# = 0 ] || [[ " $* " == *" $n "* ]]; }
 names="$*"
-want c2a $names && run c2a '[]'
+want c2a $names && run c2a '[]' '[]' '&noinit=1'
 want echo $names && run echo '["/bin/echo", "hello", "world"]'
 want long $names && run long "[\"/bin/echo\", \"$(printf '%06000d' 0 | tr 0 a)\"]"
 want fork $names && run fork '["/bin/fork"]'
@@ -36,4 +37,5 @@ want preempt $names && run preempt '["/bin/preempt"]'
 want rfmemloop $names && HALTWAIT=200 run rfmemloop '["/bin/rc", "-c", "for(i in 1 2 3 4 5 6 7 8 9 10) { threads >/dev/null; rfmem >/dev/null; preempt >/dev/null }; echo ten rounds; threads | echo the pipe closed; ~ $status *'"'"'write on closed pipe'"'"'* && echo threads ended by its note"]'
 want failhelper $names && run failhelper '["/bin/c3b"]' '[]' '&failhelper=1'
 want failrfmem $names && run failrfmem '["/bin/c3b"]' '[]' '&failrfmem=1'
+want init $names && run init '["/bin/rc", "/boot/init"]' '["echo hi\n", "echo äåö | wc -c\n", "sleep 100\n", "\u007f", "echo after the interrupt\n", "exit\n"]'
 echo "test-9wasm32: ok"

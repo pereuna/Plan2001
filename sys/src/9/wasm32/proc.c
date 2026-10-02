@@ -350,34 +350,49 @@ Proc*
 newproc(void)
 {
 	char *b;
-	Proc *p;
+	Proc *p, **l;
 	long w;
+	int held;
 
-	lock(&procalloc);
-	p = procalloc.free;
-	if(p == nil){
-		if(procalloc.nextindex >= conf.nproc){
-			unlock(&procalloc);
-			return nil;
+	for(;;){
+		lock(&procalloc);
+		/*
+		 * a free Proc no Worker is on any more: one may still be held
+		 * (its memory's Worker goes on with its other procs, or its own
+		 * is on the way out: workers) - not that one
+		 */
+		for(l = &procalloc.free; (p = *l) != nil; l = &p->qnext)
+			if(p->workers == 0)
+				break;
+		if(p != nil){
+			*l = p->qnext;
+			break;
 		}
-		b = malloc(KSTACK+sizeof(Proc));
-		if(b == nil){
-			unlock(&procalloc);
-			return nil;
+		if(procalloc.nextindex < conf.nproc){
+			b = malloc(KSTACK+sizeof(Proc));
+			if(b == nil){
+				unlock(&procalloc);
+				return nil;
+			}
+			p = (Proc*)(b + KSTACK);
+			p->workers = 0;
+			p->state = Dead;
+			p->index = procalloc.nextindex++;
+			procalloc.tab[p->index] = p;
+			break;
 		}
-		p = (Proc*)(b + KSTACK);
-		p->workers = 0;
-		p->index = procalloc.nextindex++;
-		procalloc.tab[p->index] = p;
+		held = procalloc.free != nil;
+		unlock(&procalloc);
+		if(!held)
+			return nil;
+		/* all of them free but held yet: a while */
+		w = 0;
+		platwait(&w, 0, 10);
 	}
 	assert(p->state == Dead);
-	procalloc.free = p->qnext;
 	p->qnext = nil;
 	unlock(&procalloc);
 
-	/* its last Workers may still be on it or its KSTACK, on the way out */
-	while((w = p->workers) != 0)
-		platwait(&p->workers, w, -1);
 	p->umem = nil;
 	p->memdone = nil;
 	p->hcall = nil;

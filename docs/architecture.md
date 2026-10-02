@@ -264,9 +264,21 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   pitää muistin Workerin.
 - Juuri `#R` (`devrootfs.c`): sivun käynnistyksessä antamat tiedostot
   (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
-  `#t`:n `/dev`iin sekä `#e`:n ja `#s`:n paikoilleen, avaa `#t/eia0`:n
-  tiedostoiksi 0, 1 ja 2 ja ajaa sivun `?arg=`-argumenteista saadun
-  ohjelman. Rivinmuokkaus ja kaiku ovat toistaiseksi sivun (kbdfs puuttuu).
+  `#t`:n `/dev`iin sekä `#e`:n, `#s`:n ja `#p`:n paikoilleen, avaa
+  `#t/eia0`:n tiedostoiksi 0, 1 ja 2 ja ajaa sivun `?arg=`-argumenteista
+  saadun ohjelman, ilman niitä `/boot/init`in (`sys/src/9/wasm32/init`).
+- Konsoli (C3c): `/boot/init` käynnistää 9frontin kbdfs:n sarjakonsolille
+  (`aux/kbdfs -q -s cons /dev/eia0`, kuten 9frontin boot) ja
+  interaktiivisen rc:n sen `/dev/cons`iin. kbdfs tekee rivinmuokkauksen ja
+  kaiun, ja DEL on interrupt: kbdfs kirjoittaa sen `/proc/n/notepg`:hen.
+  Sivu lähettää jokaisen näppäimen sellaisenaan. Merkit ovat selaimen
+  (`e.key`), joten käyttöjärjestelmän näppäimistöasettelu on jo käytetty
+  ja äåö tulevat UTF-8:na ilman kbmapia; scancodeja ei wasm32:ssa ole.
+  `#p` (`devproc.c`) on wasm32:n oma pieni proc-laite: ctl (kill), note,
+  notepg, status ja args, ei segmenttejä eikä rekisterejä. lib9p ja
+  libauth käännetään 3c:llä. `newproc` ohittaa vapaat Procit, joihin
+  jokin Worker vielä viittaa (esimerkiksi kbdfs:n ensimmäinen proc, kun
+  sen muisti jatkaa), eikä jää odottamaan niitä.
   Sivun syötteet (initin argumentit, `#R`:n arkisto) tarkistetaan: koko
   kysytään ensin, jokaisella merkkijonolla on oltava 0 alueen sisällä, ja
   polussa ei saa olla alussa /:ta, tyhjää elementtiä eikä . tai ..
@@ -276,10 +288,11 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   tee Workeria: `?failfork=N`, sekä host3:n rfmem-, threads- ja
   preempt-testit, kymmenen kierrosta niitä rc:n alla, note, joka
   lopettaa RFMEM-procin, ja rfork(RFMEM), jonka vanhemman apuWorkerille
-  tai lapselle sivu ei tee Workeria: `?failhelper=N`, `?failrfmem=N`).
+  tai lapselle sivu ei tee Workeria: `?failhelper=N`, `?failrfmem=N`,
+  sekä `/boot/init`: kaiku, äåö ja DEL; C2a:n testi `?noinit=1`).
 
 | | Sisältö | Valmis kun |
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
 | C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
-| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c: kbdfs; devdraw, hiiri ja näppäimistö alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |
+| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c (2.10.): kbdfs, `#p`, /boot/init; seuraavaksi devdraw, hiiri ja näppäimistö alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |

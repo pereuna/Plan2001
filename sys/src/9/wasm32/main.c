@@ -101,6 +101,7 @@ inituser(void)
 	kcall(sysbind, "#t", "/dev", MAFTER);
 	kcall(sysbind, "#e", "/env", MREPL|MCREATE);
 	kcall(sysbind, "#s", "/srv", MREPL|MCREATE);
+	kcall(sysbind, "#p", "/proc", MREPL);
 	kcall(sysopen, "/dev/eia0", OREAD);
 	kcall(sysopen, "/dev/eia0", OWRITE);
 	kcall(sysopen, "/dev/eia0", OWRITE);
