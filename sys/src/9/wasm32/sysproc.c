@@ -144,7 +144,7 @@ _Noreturn void
 touser(char **argv, int argc)
 {
 	exec1(argv[0], argv, argc);
-	platuser(syscall);
+	platuser(&ufns, up, up->pid);
 }
 
 uintptr
@@ -157,6 +157,8 @@ sysexec(va_list list)
 
 	file = va_arg(list, char*);
 	uargv = va_arg(list, ulong);
+	if(up->memdone != nil)
+		error("exec from an rfork(RFMEM) proc: not yet on wasm32");
 	argv = malloc(Maxargs*sizeof(char*));
 	buf = malloc(Maxargsize);
 	if(argv == nil || buf == nil){
@@ -214,7 +216,7 @@ sysexits(va_list list)
 static void
 forkuser(void)
 {
-	platuser(syscall);
+	platuser(&ufns, up, up->pid);
 }
 
 static void
@@ -239,6 +241,22 @@ forkready(Proc *p)
 }
 
 /*
+ * the platform's, for an rfork(RFMEM) child when the parent has
+ * unwound: its helper's Worker, and the memory's Worker on it too
+ */
+static int
+rfmemready(Proc *p)
+{
+	if(procspawn(p) < 0){
+		procunmake(p);
+		kstrcpy(up->syserrstr, "rfork: the page could not make a Worker", ERRMAX);
+		return -1;
+	}
+	ainc(&p->workers);
+	return 0;
+}
+
+/*
  * rfork(RFPROC): 9front's, less segments.  The child is made here, its
  * pid the result; the platform then unwinds the program, copies its
  * memory for the child and readies it (platfork), and both rewind - the
@@ -251,8 +269,6 @@ forkproc(ulong flag)
 	Proc *p;
 	ulong pid;
 
-	if(flag & RFMEM)
-		error("rfork RFMEM: not yet on wasm32");
 	if((p = newproc()) == nil)
 		error("no procs");
 
@@ -275,7 +291,7 @@ forkproc(ulong flag)
 	p->noswap = up->noswap;
 	p->hang = up->hang;
 	p->kp = 0;
-	kprocchild(p, forkuser);
+	kprocchild(p, (flag & RFMEM) ? helper : forkuser);
 	kstrdup(&p->text, up->text);
 	kstrdup(&p->user, up->user);
 	kstrdup(&p->args, "");
@@ -333,7 +349,21 @@ forkproc(ulong flag)
 		unlock(&up->exl);
 	}
 	procpriority(p, up->basepri, up->fixedpri);
-	platfork(p, forkready, pid);
+	if(flag & RFMEM){
+		/* the memory's procs: their programs on its Worker, their calls on their helpers */
+		if(up->memdone == nil){
+			up->memdone = mallocz(sizeof(long), 1);
+			if(up->memdone == nil){
+				p->kp = 1;
+				kprocchild(p, abortion);
+				ready(p);
+				error(Enomem);
+			}
+		}
+		p->memdone = up->memdone;
+		platrfmem(p, rfmemready, helperspawn, pid, up->memdone);
+	}else
+		platfork(p, forkready, pid);
 	return pid;
 }
 
@@ -521,6 +551,8 @@ sysnoted(va_list list)
 	case NSAVE:
 		error("noted NSAVE: not on wasm32");
 	}
+	if(helperdie())
+		return 0;	/* the memory's Worker: its helper ends it */
 	if(up->lastnote->flag == NDebug)
 		pprint("suicide: %s\n", up->lastnote->msg);
 	pexit(up->lastnote->msg, up->lastnote->flag != NDebug);

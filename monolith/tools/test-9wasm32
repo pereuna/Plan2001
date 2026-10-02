@@ -4,7 +4,9 @@
 # of port/, then init as a program from the root (tools/build-bin3): echo,
 # init's arguments longer than 4096 bytes, fork, 2000 forks with exit,
 # chdir, exec and wait, rc -c, an interactive rc; C3a's notes and
-# rendezvous, and a fork whose child gets no Worker (the page's failfork).
+# rendezvous, and a fork whose child gets no Worker (the page's failfork);
+# C3b's rfork(RFMEM) procs, libthread and preemption (3c's host3 tests),
+# ten rounds of them under rc, and a note that ends an RFMEM proc.
 #   tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -27,4 +29,8 @@ want rc $names && run rc '["/bin/rc", "-c", "echo hello from rc; x=(a b c); echo
 want rci $names && run rci '["/bin/rc", "-i"]' '["echo hi\n", "ls /bin/echo /bin/rc | wc -l\n", "x=`{echo a b}; echo $#x\n", "cat nonexistent\n", "exit\n"]'
 want c3a $names && run c3a '["/bin/c3a"]'
 want failfork $names && run failfork '["/bin/c3a", "-f"]' '[]' '&failfork=1'
+want rfmem $names && run rfmem '["/bin/rfmem"]'
+want threads $names && run threads '["/bin/threads"]'
+want preempt $names && run preempt '["/bin/preempt"]'
+want rfmemloop $names && HALTWAIT=200 run rfmemloop '["/bin/rc", "-c", "for(i in 1 2 3 4 5 6 7 8 9 10) { threads >/dev/null; rfmem >/dev/null; preempt >/dev/null }; echo ten rounds; threads | echo the pipe closed; ~ $status *'"'"'write on closed pipe'"'"'* && echo threads ended by its note"]'
 echo "test-9wasm32: ok"

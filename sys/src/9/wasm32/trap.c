@@ -103,6 +103,10 @@ struct Call
 		int	upto;	/* w: as much as the call returns */
 	} b[Nbufs];
 	int	nb;
+	int	n;
+	Sys	*s;
+	vlong	r;
+	int	failed;		/* an error before the call or in it: r -1, errstr the call's */
 };
 
 static int
@@ -212,30 +216,136 @@ unmarshal(Call *c, vlong r)
 
 /* the program's handler is done: noted, or it jumped out (notejmp) */
 static void
-notedone(void)
+notedone(Proc *p)
 {
-	up->notified = 0;
+	p->notified = 0;
+}
+
+/*
+ * a note that ends the proc, on the memory's Worker (rfork RFMEM): its
+ * helper ends it (hcall nil) - pexit is not the memory's Worker's to do
+ */
+int
+helperdie(void)
+{
+	if(up->memdone == nil || m->helper)
+		return 0;
+	up->hdie = 1;
+	up->hcall = nil;
+	up->hdone = 0;
+	coherence();
+	up->hreq = 1;
+	platwake(&up->hreq, 1);
+	return 1;
 }
 
 /*
  * a note for the program, when its call returns: its handler gets it
- * (platform.js); popnote ends the proc if it has none or is in it
+ * (platform.js); popnote ends the proc if it has none or is in it.  1
+ * if the proc ends on its helper
  */
-static void
+static int
 usernote(void)
 {
 	char *msg;
+	Note *n;
 
 	if(up->nnote == 0)
-		return;
+		return 0;
 	qlock(&up->debug);
+	n = up->note[0];
+	if(!(up->notified && n->flag == NUser) && (up->notify == nil || up->notified) && helperdie()){
+		qunlock(&up->debug);
+		return 1;
+	}
 	msg = popnote(nil);
 	if(msg == nil){
 		qunlock(&up->debug);
+		return 0;
+	}
+	platnote(up->notify, msg, notedone, up);
+	qunlock(&up->debug);
+	return 0;
+}
+
+/* the error is the call's (errstr): 9front's syscall does the same */
+static void
+callerr(Call *c)
+{
+	char *e;
+
+	e = up->syserrstr;
+	up->syserrstr = up->errstr;
+	up->errstr = e;
+	c->r = -1;
+	c->failed = 1;
+}
+
+/* the program's arguments into the kernel */
+static void
+callprep(Call *c, int n, ulong a)
+{
+	memset(c, 0, sizeof *c);
+	c->n = n;
+	up->insyscall = 1;
+	up->scallnr = n;
+	if(waserror()){
+		callerr(c);
 		return;
 	}
-	platnote(up->notify, msg, notedone);
-	qunlock(&up->debug);
+	if(n < 0 || n >= nelem(systab) || systab[n].args == nil){
+		pprint("bad sys call number %d\n", n);
+		error(Ebadarg);
+	}
+	c->s = &systab[n];
+	if(platcopyin(c->u, a, nwords(c->s->args)*BY2WD) < 0)
+		error(Ebadarg);
+	marshal(c, c->s->args);
+	poperror();
+}
+
+/* the call itself: 9front's sys* and the devices, the kernel's addresses */
+static void
+callrun(Call *c)
+{
+	int nerrlab;
+
+	if(c->failed)
+		return;
+	nerrlab = up->nerrlab;
+	if(waserror()){
+		callerr(c);
+		return;
+	}
+	if(c->s->fv != nil)
+		c->r = (*c->s->fv)((va_list)c->k);
+	else
+		c->r = (long)(*c->s->f)((va_list)c->k);
+	poperror();
+	if(up->nerrlab != nerrlab){
+		print("bad errstack [%d]: %d extra\n", c->n, up->nerrlab - nerrlab);
+		up->nerrlab = nerrlab;
+	}
+}
+
+/* what it wrote, back to the program; the result */
+static vlong
+callfin(Call *c)
+{
+	int i;
+
+	if(!c->failed){
+		if(waserror())
+			callerr(c);
+		else{
+			unmarshal(c, c->r);
+			poperror();
+		}
+	}
+	for(i = 0; i < c->nb; i++)
+		free(c->b[i].k);
+	up->insyscall = 0;
+	return c->r;
 }
 
 /*
@@ -245,45 +355,137 @@ usernote(void)
 vlong
 syscall(int n, ulong a)
 {
-	Sys *s;
 	Call c;
 	vlong r;
-	char *e;
-	int i, nerrlab;
 
-	memset(&c, 0, sizeof c);
-	up->insyscall = 1;
-	up->scallnr = n;
-	nerrlab = up->nerrlab;
-	r = -1;
-	if(!waserror()){
-		if(n < 0 || n >= nelem(systab) || (s = &systab[n])->args == nil){
-			pprint("bad sys call number %d\n", n);
-			error(Ebadarg);
-		}
-		if(platcopyin(c.u, a, nwords(s->args)*BY2WD) < 0)
-			error(Ebadarg);
-		marshal(&c, s->args);
-		if(s->fv != nil)
-			r = (*s->fv)((va_list)c.k);
-		else
-			r = (long)(*s->f)((va_list)c.k);
-		unmarshal(&c, r);
-		poperror();
-	}else{
-		/* the error is the call's (errstr): 9front's syscall does the same */
-		e = up->syserrstr;
-		up->syserrstr = up->errstr;
-		up->errstr = e;
-		r = -1;
-	}
-	for(i = 0; i < c.nb; i++)
-		free(c.b[i].k);
-	if(up->nerrlab != nerrlab){
-		print("bad errstack [%d]: %d extra\n", n, up->nerrlab - nerrlab);
-		up->nerrlab = nerrlab;
-	}
-	up->insyscall = 0;
+	callprep(&c, n, a);
+	callrun(&c);
+	r = callfin(&c);
 	usernote();
 	return r;
 }
+
+/*
+ * rfork(RFMEM): the memory's Worker runs its procs' programs in turn.
+ * A call is prepared there (sysprep: the arguments copied in), done
+ * there if it is quick or the platform's (rfork, exec, brk, noted ...)
+ * or else by the proc's helper, and finished there (sysfin: copied out).
+ * up is the calling proc's on the memory's Worker as on the helper.
+ */
+static int
+local(int n)
+{
+	switch(n){
+	case RFORK:
+	case EXEC:
+	case BRK_:
+	case NOTIFY:
+	case NOTED:
+	case ERRSTR:
+	case ALARM:
+	case _NSEC:
+	case YIELD:
+		return 1;
+	}
+	return 0;
+}
+
+/* 1 done here, 0 its helper has it */
+static int
+sysprep(Proc *p, int n, ulong a)
+{
+	Call *c;
+
+	up = p;
+	c = malloc(sizeof(Call));
+	if(c == nil)
+		panic("sysprep: no memory");
+	callprep(c, n, a);
+	p->hcall = c;
+	p->hdone = 0;
+	if(c->failed || local(n)){
+		callrun(c);
+		return 1;
+	}
+	coherence();
+	p->hreq = 1;
+	platwake(&p->hreq, 1);
+	return 0;
+}
+
+/* 0 not yet, 1 done, 2 the proc ended */
+static int
+sysdone(Proc *p)
+{
+	if(p->hexit)
+		return 2;
+	return p->hdone;
+}
+
+/* 0: its result is p->hret; 1: a note ends it, on its helper (sysdone) */
+static int
+sysfin(Proc *p)
+{
+	Call *c;
+
+	up = p;
+	c = p->hcall;
+	p->hcall = nil;
+	p->hdone = 0;
+	p->hret = callfin(c);
+	free(c);
+	if(p->hdie)
+		return 1;
+	return usernote();
+}
+
+static vlong
+sysret(Proc *p)
+{
+	return p->hret;
+}
+
+/* the memory's Worker is done with p: a Worker less on it */
+static void
+coend(Proc *p)
+{
+	procrelease(p);
+}
+
+/* an rfork(RFMEM) proc's helper: its calls, on a Worker of its own */
+void
+helper(void)
+{
+	Call *c;
+
+	for(;;){
+		while(up->hreq == 0)
+			platwait(&up->hreq, 0, -1);
+		up->hreq = 0;
+		c = up->hcall;
+		if(c == nil){
+			/* a note ends it (usernote, noted NDFLT): popnote's pexit, or the last note's */
+			qlock(&up->debug);
+			if(up->nnote > 0)
+				popnote(nil);
+			qunlock(&up->debug);
+			pexit(up->lastnote != nil ? up->lastnote->msg : "killed",
+				up->lastnote == nil || up->lastnote->flag != NDebug);
+		}
+		callrun(c);
+		up->hdone = 1;
+		coherence();
+		ainc(up->memdone);
+		platwake(up->memdone, 1);
+	}
+}
+
+/* the kernel's functions the platform calls (platform.js, runuser) */
+Ufns ufns = {
+	syscall,
+	sysprep,
+	sysdone,
+	sysfin,
+	sysret,
+	coend,
+};
