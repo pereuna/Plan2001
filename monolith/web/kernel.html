@@ -7,24 +7,35 @@
 <style>
 	:root { --bg: #fff; --fg: #000; }
 	@media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #ddd; } }
-	body { margin: 0; background: var(--bg); color: var(--fg); font: 14px monospace; }
-	pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; }
-	canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #777; touch-action: none; }
+	html, body { margin: 0; height: 100%; overflow: hidden; background: #777; }
+	body { color: var(--fg); font: 14px monospace; }
+	/* the machine's screen is the window (rio in all of it); ?console=1 the serial port below it */
+	canvas { display: block; width: 100vw; height: 100vh; background: #777; touch-action: none; outline: none; }
+	pre { display: none; margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; background: var(--bg); }
+	body.console { overflow: auto; }
+	body.console canvas { width: auto; height: auto; max-width: 100%; margin: 0 auto; }
+	body.console pre { display: block; }
+	#halt { display: none; position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px; background: var(--bg); }
 </style>
 </head>
 <body>
-<!-- Plan2001's wasm32 kernel (sys/src/9/wasm32): its screen (?screen=WxH), and its serial port on the page -->
+<!-- Plan2001's wasm32 machine (sys/src/9/wasm32): its screen the window (?screen=WxH another size), its serial port with ?console=1 -->
 <canvas id="screen" width="800" height="600"></canvas>
 <pre id="eia0"></pre>
+<pre id="halt"></pre>
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
 // init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test)
 const q = new URLSearchParams(location.search);
+if ((q.get('console') === '1')) document.body.classList.add('console');
 const args = q.has('noinit') ? [] : q.getAll('arg').length ? q.getAll('arg') : ['/bin/rc', '/boot/init'];
 
-// the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c)
+// the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c);
+// w3root.fs is all of it, one file (a server that has no directories: webterm), else each from w3root.txt
 async function rootfs() {
+	const fs = await fetch('w3root.fs');
+	if (fs.ok) return new Uint8Array(await fs.arrayBuffer());
 	const names = (await (await fetch('w3root.txt')).text()).split('\n').filter((n) => n);
 	const files = await Promise.all(names.map(async (n) => n.endsWith('/') ? new Uint8Array(0) : new Uint8Array(await (await fetch('w3root/' + n)).arrayBuffer())));
 	const enc = new TextEncoder(), parts = [];
@@ -86,11 +97,14 @@ document.addEventListener('paste', (e) => {
 
 boot('9wasm32.wasm', {
 	eia: (b) => { pre.textContent += dec.decode(b, { stream: true }); },
-	halt: (why) => { pre.textContent += '\n[halted: ' + why + ']\n'; },
+	halt: (why) => {
+		pre.textContent += '\n[halted: ' + why + ']\n';
+		if (!(q.get('console') === '1')) { const h = document.getElementById('halt'); h.textContent = 'Plan2001 halted: ' + why; h.style.display = 'block'; }
+	},
 	fs: args.length ? await rootfs() : undefined,
 	args,
 	canvas: document.getElementById('screen'),
-	screen: (([w, h]) => ({ w: Number(w) || 800, h: Number(h) || 600 }))((q.get('screen') ?? '').split('x')),
+	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight) }))((q.get('screen') ?? '').split('x')),
 	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */
 	ws: q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
 		: `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`),

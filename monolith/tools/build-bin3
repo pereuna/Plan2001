@@ -119,5 +119,14 @@ for t in forkloop c3a c3b c3d d2; do
 	fi
 done
 (cd "$out/root" && { find . -type f; find . -type d -empty | sed 's|$|/|'; } | sed 's|^\./||' | sort) >"$out/root.txt"	# an empty directory: its name and a /
+# and all of it as one file, as the kernel's #R reads it (rootfs.c): a server without directories (webterm)
+python3 - "$out/root" "$out/root.txt" "$out/root.fs" <<'PY'
+import sys, struct
+root, lst, out = sys.argv[1:]
+with open(out, 'wb') as o:
+	for n in open(lst).read().split():
+		b = b'' if n.endswith('/') else open(root + '/' + n, 'rb').read()
+		o.write(n.encode() + b'\0' + struct.pack('<I', len(b)) + b)
+PY
 echo "build-bin3: $out/root ($(grep -c '^bin/' "$out/root.txt") programs, $(du -sh "$out/root" | cut -f1))"
 [ $fail = 0 ]
