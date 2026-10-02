@@ -60,6 +60,8 @@ want riorc $names && HALTWAIT=60 KEYS='["e", "c", "h", "o", " ", "ä", "å", "ö
 	run riorc '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; rio -i '"'"'window -r 20 20 580 400 rc'"'"' & sleep 25; echo done"]'
 want boot $names && RUNS=40 DRAWS=10 KEYDELAY=12 MOUSE='[[0.4, 0.4, 1]]' KEYS='["e", "c", "h", "o", " ", "b", "o", "o", "t", "e", "d", " ", ">", "/", "d", "e", "v", "/", "e", "i", "a", "0", "Enter"]' \
 	PAGEARGS='&x=boot' run boot '[]'
+want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
+	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
 if want net $names; then
 	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
 		HTTPPORT=18080 run net '["/bin/d2"]'

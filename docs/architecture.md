@@ -208,6 +208,14 @@ Testi `net` (tarvitsee CPU-VM:n, `tools/vm start --disk
 ~/.cache/plan2001/cpu.qcow2 --net`, origin 127.0.0.1:18080): rcpu:n
 p9any-tervehdys (dp9ik), haaste ja palvelimen tikettipyyntö takaisin,
 auth `net!cpu!ticket`illa, ja portti, jota webterm ei salli, torjutaan.
+Syöte (2.10., katselmus): mikään ei katoa ylivuodossa. Sivun näppäimistö-
+ja hiirijonot odottavat, kun ytimen rengas on täynnä; ytimen kbdin-kproc
+kirjoittaa kbdfs:n jonoon estävästi (`qwrite`). Hiiressä vain peräkkäiset
+liikkeet samoilla painikkeilla yhdistyvät, painallus, vapautus ja rulla
+eivät katoa. Liitetty teksti kulkee näppäiminä (`r`/`R`, muokkausnäppäimet
+ensin ylös, CR ja CRLF rivinvaihdoksi), sillä kbdfs:n `c`-polku pudottaa
+(`nbsend`) eikä mene riolle; Meta yksin on Kmod4. kbdfs heittää pois
+syötteen, jota kukaan ei lue `/dev/cons`ista - 9frontin tapa.
 webfs ja webcookies (profiili) tarvitsevat yleisen verkon, jota webterm ei
 anna: ne odottavat selaimen fetchin päälle tehtävää palvelua (myöhemmin).
 

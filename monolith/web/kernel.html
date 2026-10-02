@@ -48,7 +48,8 @@ const K = { Enter: '\n', Backspace: '\b', Tab: '\t', Escape: '\x1b', Delete: '\x
 	Home: '\uf00d', End: '\uf018', PageUp: '\uf00f', PageDown: '\uf013', Insert: '\uf014' };
 const down = new Map();	/* e.code: the rune its down sent, for its up */
 document.addEventListener('keydown', (e) => {
-	if (!window.monolith || e.metaKey) return;
+	/* Meta itself is Plan 9's Kmod4; Meta with another key is the browser's (its shortcuts) */
+	if (!window.monolith || e.metaKey && e.key !== 'Meta') return;
 	const r = K[e.key] ?? ([...e.key].length === 1 ? e.key : undefined);
 	if (r === undefined) return;
 	down.set(e.code, r);
@@ -67,8 +68,19 @@ window.addEventListener('blur', () => {	/* keys let go elsewhere */
 	for (const r of down.values()) window.monolith?.kbd('R' + r + '\0');
 	down.clear();
 });
+/*
+ * paste: each character as a key down and up - kbdfs's key path waits
+ * for its readers (its c path drops what it has no room for), and rio
+ * gets them as typed.  The modifiers let go first: Ctrl is down after
+ * Ctrl-V, and kbdfs would make the text control characters
+ */
+window.kernelpaste = (text) => {
+	if (!window.monolith) return;
+	for (const k of ['Shift', 'Control', 'Alt', 'AltGraph', 'Meta']) window.monolith.kbd('R' + K[k] + '\0');
+	for (const c of text.replace(/\r\n?/g, '\n')) window.monolith.kbd('r' + c + '\0R' + c + '\0');
+};
 document.addEventListener('paste', (e) => {
-	if (window.monolith) for (const c of e.clipboardData.getData('text')) window.monolith.kbd('c' + (c === '\r' ? '' : c) + '\0');
+	window.kernelpaste(e.clipboardData.getData('text'));
 	e.preventDefault();
 });
 
