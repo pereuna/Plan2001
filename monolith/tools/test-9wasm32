@@ -3,16 +3,17 @@
 # serial port, #t/eia0, against sys/src/9/wasm32/test/*.out - C2a's test
 # of port/, then init as a program from the root (tools/build-bin3): echo,
 # init's arguments longer than 4096 bytes, fork, 2000 forks with exit,
-# chdir, exec and wait, rc -c, an interactive rc.
+# chdir, exec and wait, rc -c, an interactive rc; C3a's notes and
+# rendezvous, and a fork whose child gets no Worker (the page's failfork).
 #   tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 t=$root/../sys/src/9/wasm32/test
 "$root/tools/build-9wasm32" >/dev/null
-[ -e "$root/build/wasm32/root/bin/forkloop" ] || "$root/tools/build-bin3" >/dev/null
-run() {	# NAME ARGS [SEND]
+[ -e "$root/build/wasm32/root/bin/c3a" ] || "$root/tools/build-bin3" >/dev/null
+run() {	# NAME ARGS [SEND [PAGEARGS]]
 	echo "test-9wasm32: $1"
-	HALTWAIT=${HALTWAIT:-60} PAGE=kernel.html SERIAL=1 EXPECTTAIL=1 EXPECT="$t/$1.out" ARGS="$2" SEND="${3:-[]}" \
+	PAGEARGS="$4" HALTWAIT=${HALTWAIT:-60} PAGE=kernel.html SERIAL=1 EXPECTTAIL=1 EXPECT="$t/$1.out" ARGS="$2" SEND="${3:-[]}" \
 		"$root/tools/test-wasmapp" kernel | tail -1
 }
 want() { local n=$1; shift; [ $# = 0 ] || [[ " $* " == *" $n "* ]]; }
@@ -24,4 +25,6 @@ want fork $names && run fork '["/bin/fork"]'
 want forkloop $names && HALTWAIT=400 run forkloop '["/bin/forkloop", "2000"]'
 want rc $names && run rc '["/bin/rc", "-c", "echo hello from rc; x=(a b c); echo $#x; ls /bin/echo /bin/rc | wc -l; cat /rc/lib/rcmain | wc -l; echo done"]'
 want rci $names && run rci '["/bin/rc", "-i"]' '["echo hi\n", "ls /bin/echo /bin/rc | wc -l\n", "x=`{echo a b}; echo $#x\n", "cat nonexistent\n", "exit\n"]'
+want c3a $names && run c3a '["/bin/c3a"]'
+want failfork $names && run failfork '["/bin/c3a", "-f"]' '[]' '&failfork=1'
 echo "test-9wasm32: ok"

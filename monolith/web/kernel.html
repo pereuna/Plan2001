@@ -51,6 +51,7 @@ boot('9wasm32.wasm', {
 	halt: (why) => { pre.textContent += '\n[halted: ' + why + ']\n'; },
 	fs: args.length ? await rootfs() : undefined,
 	args,
+	failfork: Number(q.get('failfork')) || 0,
 });
 </script>
 </body>

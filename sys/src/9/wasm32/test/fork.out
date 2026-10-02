@@ -1,9 +1,9 @@
 ticks in it: ok
 child: acc 15 local level0 d 0 heap cheap gcount 101
-parent: r 15005 heap pheap gcount 101, child said 'fork 4: child done'
+parent: r 15005 heap pheap gcount 101, child said 'fork 5: child done'
 grandchild
 child: grandchild said ''
-parent: child 2 said 'fork 5: child 2 done'
-reaped one: fork 7: child 0
-reaped one: fork 8: child 1
-reaped one: fork 9: child 2
+parent: child 2 said 'fork 6: child 2 done'
+reaped one: ok
+reaped one: ok
+reaped one: ok

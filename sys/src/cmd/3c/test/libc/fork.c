@@ -71,7 +71,7 @@ main(int, char**)
 			exits(smprint("child %d", i));
 	for(i = 0; i < 3; i++) {
 		w = wait();
-		print("reaped one: %s\n", strncmp(w->msg, "child ", 6) == 0 ? "ok" : w->msg);
+		print("reaped one: %s\n", strstr(w->msg, "child ") != nil ? "ok" : w->msg);	/* Plan 9's: "prog pid: child N" */
 		free(w);
 	}
 	exits(nil);
