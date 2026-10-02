@@ -1,8 +1,11 @@
 #!/bin/rc
-# the wasm32 machine's init (sys/src/9/wasm32/init, /boot/init): the
-# time zone; the console - the page's keyboard (#b/kbd) and #t/eia0 -
-# through kbdfs (line editing, echo, DEL the interrupt), and an
-# interactive rc on it
+# the wasm32 machine's init (/boot/init), as 9front's: the time zone; the
+# console through kbdfs (the page's keyboard, #b/kbd, and #t/eia0); then
+# the user's login rc - glenda's profile starts ramfs for /tmp and, on a
+# terminal, rio -i riostart; rc goes on on the console when rio is done
 cat /adm/timezone/local >/env/timezone
 aux/kbdfs -q -s cons /dev/eia0
-rc -i </dev/cons >/dev/cons >[2]/dev/cons
+user=glenda
+home=/usr/glenda
+cd $home
+rc -l -i </dev/cons >/dev/cons >[2]/dev/cons

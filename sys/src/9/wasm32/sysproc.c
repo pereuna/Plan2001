@@ -147,51 +147,18 @@ touser(char **argv, int argc)
 	platuser(&ufns, up, up->pid);
 }
 
+/* the program's argv was copied in with the call (trap.c's A) */
 uintptr
 sysexec(va_list list)
 {
-	char *file, **argv, *buf;
-	ulong uargv, u;
-	long n, used;
+	char *file, **argv;
 	int argc;
 
 	file = va_arg(list, char*);
-	uargv = va_arg(list, ulong);
-	if(up->memdone != nil)
-		error("exec from an rfork(RFMEM) proc: not yet on wasm32");
-	argv = malloc(Maxargs*sizeof(char*));
-	buf = malloc(Maxargsize);
-	if(argv == nil || buf == nil){
-		free(argv);
-		free(buf);
-		error(Enomem);
-	}
-	if(waserror()){
-		free(argv);
-		free(buf);
-		nexterror();
-	}
-	used = 0;
-	for(argc = 0; ; argc++){
-		if(argc == Maxargs)
-			error(Etoobig);
-		if(platcopyin(&u, uargv + argc*BY2WD, BY2WD) < 0)
-			error(Ebadarg);
-		if(u == 0)
-			break;
-		n = platustrlen(u, Maxargsize-used-1);
-		if(n < 0)
-			error(Etoobig);
-		if(platcopyin(buf+used, u, n) < 0)
-			error(Ebadarg);
-		buf[used+n] = 0;
-		argv[argc] = buf+used;
-		used += n+1;
-	}
+	argv = va_arg(list, char**);
+	for(argc = 0; argv[argc] != nil; argc++)
+		;
 	exec1(file, argv, argc);
-	poperror();
-	free(argv);
-	free(buf);
 	return 0;
 }
 

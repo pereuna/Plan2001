@@ -3,6 +3,7 @@
 #include	"mem.h"
 #include	"dat.h"
 #include	"fns.h"
+#include	<pool.h>
 #include	"../port/error.h"
 
 /*
@@ -29,7 +30,15 @@ confinit(void)
 	conf.mem[0].npage = (top - base) / BY2PG;
 	conf.npage = conf.mem[0].npage;
 	conf.upages = 0;
-	conf.ialloc = 1*MiB;
+	/*
+	 * the kernel's heap is all of it: programs' memories are their own,
+	 * and what passes through the kernel (an exec's module, the screen)
+	 * is here.  9front's pools start at 4 and 16 MB; pc64's confinit sets
+	 * them from the machine's memory too
+	 */
+	conf.ialloc = (top - base) / 2;
+	mainmem->maxsize = top - base;
+	imagmem->maxsize = top - base;
 	conf.pipeqsize = 32*1024;
 	conf.nuart = 1;
 	conf.monitor = 1;	/* the page's screen (screen.c) */
@@ -103,9 +112,11 @@ inituser(void)
 	kcall(sysbind, "#e", "/env", MREPL|MCREATE);
 	kcall(sysbind, "#s", "/srv", MREPL|MCREATE);
 	kcall(sysbind, "#p", "/proc", MREPL);
+	kcall(sysbind, "#d", "/fd", MREPL);
 	kcall(sysbind, "#i", "/dev", MAFTER);
 	kcall(sysbind, "#m", "/dev", MAFTER);
 	kcall(sysbind, "#b", "/dev", MAFTER);
+	kcall(sysbind, "/rc/bin", "/bin", MAFTER);	/* as /lib/namespace: rc's own commands after the machine's */
 	kcall(sysopen, "/dev/eia0", OREAD);
 	kcall(sysopen, "/dev/eia0", OWRITE);
 	kcall(sysopen, "/dev/eia0", OWRITE);

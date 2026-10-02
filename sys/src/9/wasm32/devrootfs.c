@@ -10,7 +10,8 @@
  * (platform.js, platbootfs: build/wasm32/root, tools/build-bin3).  The
  * archive is, for each file, its path (a/b/c: no leading /, no empty
  * element, no . or ..) and a 0, its length in four bytes, little-endian,
- * and its bytes; its directories are made from the paths, and the mount
+ * and its bytes (a name ending in / an empty directory, no bytes); its
+ * directories are made from the paths, and the mount
  * points init binds to besides.  The page's input: checked, a bad one a
  * panic.
  */
@@ -31,7 +32,11 @@ static	Ent	*ents;
 static	int	nents;
 static	int	aents;
 
-static char *mounts[] = { "dev", "env", "srv", "mnt", "n", "tmp", "proc", "fd" };
+static char *mounts[] = {
+	"bin", "dev", "env", "srv", "n", "tmp", "proc", "fd",
+	/* 9front's /mnt */
+	"mnt", "mnt/wsys", "mnt/term", "mnt/temp", "mnt/plumb", "mnt/acme", "mnt/exportfs", "mnt/keys", "mnt/web",
+};
 
 static int
 newent(char *name, int parent, int dir)
@@ -126,6 +131,7 @@ static void
 rootfsreset(void)
 {
 	uchar *a, *p, *e, *z;
+	int dir;
 	char *name, *last;
 	ulong len;
 	long n;
@@ -143,6 +149,9 @@ rootfsreset(void)
 			if((z = memchr(p, 0, e-p)) == nil)
 				panic("rootfs: archive: a name without its 0");
 			name = (char*)p;
+			dir = z > p && z[-1] == '/';	/* a directory, empty: a/b/ */
+			if(dir)
+				z[-1] = 0;
 			if(!goodpath(name))
 				panic("rootfs: archive: bad name %q", name);
 			p = z+1;
@@ -152,6 +161,14 @@ rootfsreset(void)
 			p += 4;
 			if(len > e-p)
 				panic("rootfs: archive: %s: %lud bytes, %ld there", name, len, (long)(e-p));
+			if(dir){
+				if(len != 0)
+					panic("rootfs: archive: directory %q with bytes", name);
+				d = mkdirs(name, &last);
+				if(lookup(d, last) < 0)
+					newent(last, d, 1);
+				continue;
+			}
 			d = mkdirs(name, &last);
 			if(lookup(d, last) >= 0)
 				panic("rootfs: archive: %s twice", name);
@@ -160,9 +177,11 @@ rootfsreset(void)
 			ents[i].len = len;
 		}
 	}
-	for(i = 0; i < nelem(mounts); i++)
-		if(lookup(0, mounts[i]) < 0)
-			newent(mounts[i], 0, 1);
+	for(i = 0; i < nelem(mounts); i++){
+		d = mkdirs(mounts[i], &last);
+		if(lookup(d, last) < 0)
+			newent(last, d, 1);
+	}
 }
 
 static void

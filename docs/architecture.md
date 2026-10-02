@@ -151,7 +151,7 @@ kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 
 | | Sisältö | Valmis kun |
 |---|---|---|
-| D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa |
+| D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa (valmis 2.10.) |
 | D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat |
 | D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle |
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta |
@@ -163,6 +163,33 @@ kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 Järjestys (päätös 2.10.): rio paikallisesti ensin, sillä se on ytimen ja
 ruudun luonteva koe ja terminal tarvitsee sen joka tapauksessa. host3
 poistetaan vasta D7:ssä.
+
+D1 valmis (2.10.), Plan 9:n tapaan:
+- Rio on taas perusjärjestelmää. Se poistettiin 28.9. (a7aaebf, Monolithin
+  vaihe 3a), ja jäänteet on purettu: `derive.py`:n "no rio" -sääntö,
+  pilven `setup.rc` ja `check.rc` sekä `vm-cpu`, jotka poistivat rion ja
+  `riostart`in. Glendan profiili käynnistää terminaalissa jälleen
+  `rio -i riostart`:n kuten 9front (asennustikulla rc-kehote).
+- Subset on johdettu uudelleen (`tools/subset/derive`, `make.py`; `test`
+  PASS, `check` 0 eroa): rio, libframe, libcomplete, `frame.h` ja
+  `complete.h` 9frontin muuttamattomina sekä `extra`ssa perustellut, joita
+  analyysi ei näe: `window`, `wloc`, glendan `riostart` ja `plumbing`,
+  `stats` ja `unicode.font`in vga-alifontit (binääreinä ne tulevat
+  tikulle VM:n puusta, wasm32:n juureen `build/subset`ista).
+- wasm32: rio, plumber, plumb, stats, ramfs, syscall, sed, mount, pwd ja ps
+  3c:llä; `/rc/bin` (window, wloc) `/bin`in perään kuten `/lib/namespace`;
+  `#d` `/fd`ksi; 9frontin `/mnt`-liitospisteet; tyhjät hakemistot
+  juuren arkistossa (`a/b/`); ytimen keko koko muisti (9frontin poolit
+  4 ja 16 Mt); libc:n `Along`/`Aptr`-atomit; exec RFMEM-procista (argv
+  kopioidaan kutsun mukana, ja procin apuWorkerista tulee uuden ohjelman
+  Worker) - rion ikkunat käynnistyvät niin.
+- `/boot/init` kuten 9front: aikavyöhyke, kbdfs, glendan login-rc
+  (`rc -l`), jonka profiili käynnistää ramfs:n `/tmp`:ksi, plumberin ja
+  rion riostartilla (stats ja rc-ikkuna). Sarjakonsolin rc on
+  `/boot/console`. webcookies ja webfs tulevat D2:ssa.
+- Testit: `rioclock` (clock rion ikkunassa), `riorc` (selaimen näppäimet
+  rion rc-ikkunaan, äåö) ja `boot` (oletusinit: riostart, napsautus
+  ikkunaan ja kirjoitus siihen); yhteensä 27.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 

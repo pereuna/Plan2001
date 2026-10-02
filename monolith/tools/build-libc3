@@ -5,7 +5,8 @@
 # with ../wasm32/include and 9front's /sys/include.
 #   tools/build-libc3     build/wasm32/lib/libc.a, libdraw.a (9front's
 #                         libdraw: the parts with libthread compile, for
-#                         later), libthread.a, libauth.a, lib9p.a, libmemdraw.a, libmemlayer.a
+#                         later), libthread.a, libauth.a, lib9p.a, libmemdraw.a, libmemlayer.a,
+#                         libframe.a, libcomplete.a, libplumb.a, libregexp.a
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 P=$(cd "$root/.." && pwd)
@@ -94,6 +95,23 @@ for l in libmemdraw libmemlayer; do
 	rm -f "$out/lib/$l.a"
 	ar rcD "$out/lib/$l.a" "$out"/o/$l/*.3
 	echo "build-libc3: $out/lib/$l.a ($(ls "$out"/o/$l/*.3 | wc -l) objects)"
+done
+
+# libframe, libcomplete, libplumb, libregexp: rio's, window's sed's
+for l in "$P"/subset/9front/sys/src/libframe "$P"/subset/9front/sys/src/libcomplete "$P"/subset/9front/sys/src/libplumb "$P"/subset/9front/sys/src/libregexp; do
+	n=$(basename "$l")
+	mkdir -p "$out/o/$n"
+	rm -f "$out/o/$n/"*.3
+	for s in "$l"/*.c; do
+		o=$out/o/$n/$(basename "${s%.c}").3
+		if ! (cd "$l" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
+			echo "build-libc3: $s:"; head -5 "$o.err"; fail=1
+		fi
+	done
+	[ $fail = 0 ] || exit 1
+	rm -f "$out/lib/$n.a"
+	ar rcD "$out/lib/$n.a" "$out"/o/$n/*.3
+	echo "build-libc3: $out/lib/$n.a ($(ls "$out"/o/$n/*.3 | wc -l) objects)"
 done
 
 # libauth: 9front's (amount: lib9p's postmountsrv)

@@ -181,7 +181,12 @@ joka käynnisti terminaalissa `rio -i riostart`:n (rio itse oli jo poistettu).
 - poistaa `riostart`:in ja `rio`:n.
 
 Pilveen tehtiin 30.9. sama profiilin vaihto 9pterm-istunnolla (vanha
-tallessa `profile.9front`) ja `riostart` poistettiin. Pilven ydin on
+tallessa `profile.9front`) ja `riostart` poistettiin.
+
+Rio palasi 2.10. (docs/architecture.md, vaihe D1): profiili käynnistää
+terminaalissa jälleen `rio -i riostart`:n kuten 9front, eivätkä
+`vm-cpu` ja `tools/cloud/setup.rc` enää poista rio:ta. Pilvi- ja
+CPU-koneilla (`service=cpu`) profiilin terminal-haara ei ole käytössä. Pilven ydin on
 yhä 29.9.:n.
 
 Vain pilvessä, tarkoituksella:

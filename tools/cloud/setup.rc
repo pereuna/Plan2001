@@ -19,13 +19,11 @@ tls=/sys/lib/tls
 fn fail { echo SETUP FAILED: $*; exit $1 }
 fn step { echo '###' $* }
 
-step homes: Plan2001 profile, no rio
+step homes: Plan2001 profile
 for(u in admin glenda){
 	mkdir -p /usr/$u/lib /usr/$u/tmp /usr/$u/bin/rc /usr/$u/bin/amd64 >[2]/dev/null
 	cp $repo/usr/glenda/lib/profile /usr/$u/lib/profile || fail profile $u
-	rm -f /usr/$u/bin/rc/riostart
 }
-rm -f /amd64/bin/rio
 
 step kernel and loader into 9fat, as a pair
 bind -a '#S' /dev
