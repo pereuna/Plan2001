@@ -52,6 +52,8 @@ boot('9wasm32.wasm', {
 	fs: args.length ? await rootfs() : undefined,
 	args,
 	failfork: Number(q.get('failfork')) || 0,
+	failhelper: Number(q.get('failhelper')) || 0,
+	failrfmem: Number(q.get('failrfmem')) || 0,
 });
 </script>
 </body>

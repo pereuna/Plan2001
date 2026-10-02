@@ -31,7 +31,7 @@ const MEMDONE = { memdone: true };
 // the kernel's Ufns (platform.h): its functions for the program's Worker
 function ufns(env, a) {
 	const d = new DataView(env.mem.buffer), w = (i) => d.getUint32(a + 4*i, true);
-	return { syscall: w(0), sysprep: w(1), sysdone: w(2), sysfin: w(3), sysret: w(4), coend: w(5) };
+	return { syscall: w(0), sysprep: w(1), sysdone: w(2), sysfin: w(3), sysret: w(4), coend: w(5), memend: w(6) };
 }
 
 // a note (trap.c, platnote): the program's handler(ureg, msg) below its SP,
@@ -312,21 +312,24 @@ function runprog(env, K, host, pid, job) {
 			continue;
 		}
 		if (env.rfmem) {
-			/* rfork(RFMEM): the child a proc of this memory, its calls on its helper; c's too from now */
+			/*
+			 * rfork(RFMEM): the child a proc of this memory, its calls on its
+			 * helper, c's too from now - or, if a Worker could not be made,
+			 * neither, and c as it was (sysproc.c rfmemstart)
+			 */
 			const rf = env.rfmem;
 			h.ctxs[c.cx].asptr = x.asptr.value;
-			if (!h.multi) {
-				kcall(env, rf.helperspawn, c.p);
-				if (kw() < 0) throw new Error('platform: no Worker for a helper');
-				h.multi = true;
-				h.memdone = rf.memdone;
-			}
 			const ch = mkchild(c, rf);
-			kcall(env, rf.ready, rf.p);
+			kcall(env, rf.start, rf.p);
 			if (kw() < 0) {
 				h.ctxs.pop();
 				c.ret = -1n;
 			} else {
+				if (!h.multi) {
+					h.multi = true;
+					h.memdone = rf.memdone;
+					h.umem = rf.umem;
+				}
 				h.cos.push(ch);
 				c.ret = BigInt(rf.pid);
 			}
@@ -373,6 +376,7 @@ function runprog(env, K, host, pid, job) {
 			}
 			if (h.cos.every((q) => q.state == 'done')) {
 				kcall(env, K.coend, host);
+				kcall(env, K.memend, h.umem);
 				throw MEMDONE;
 			}
 			for (let i = 1; i <= h.cos.length; i++) {
@@ -407,7 +411,7 @@ function imports(env) {
 		platnewproc: () => {
 			const user = env.forkimage;
 			env.forkimage = null;
-			env.post({ spawn: { fn: arg(0), arg: arg(1), sp: arg(2), up: arg(3), user } }, user ? [user.snap.buffer] : []);
+			env.post({ spawn: { fn: arg(0), arg: arg(1), sp: arg(2), up: arg(3), what: iarg(4), user } }, user ? [user.snap.buffer] : []);
 		},
 		platnote: () => {
 			const k = new Uint8Array(env.mem.buffer);
@@ -461,7 +465,7 @@ function imports(env) {
 			env.x.retw.value = i < e ? i - a : -1;
 		},
 		platrfmem: () => {
-			env.rfmem = { p: arg(0), ready: arg(1), helperspawn: arg(2), pid: arg(3), memdone: arg(4) };
+			env.rfmem = { p: arg(0), start: arg(1), pid: arg(2), umem: arg(3), memdone: arg(4) };
 			env.user.x.asstate.value = 1;	/* unwind when the call returns */
 		},
 		platfork: () => {
@@ -532,7 +536,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 
 // on the page: the machine
 // front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's),
-//	failfork (a test's: the nth fork's child gets no Worker) }
+//	failfork, failhelper, failrfmem (a test's: the nth fork's child, helper, rfork(RFMEM) child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
 	const mem = new WebAssembly.Memory({ initial: PAGES, maximum: MAXPAGES, shared: true });
@@ -548,10 +552,11 @@ export async function boot(url, front = {}) {
 		Atomics.notify(i32, job.up >> 2);
 		return true;
 	};
-	let forks = 0;
+	/* a test's: the nth Worker of a kind is not made - a fork's child, a helper, an rfork(RFMEM) child's (platform.h) */
+	const fails = { 1: front.failfork, 2: front.failhelper, 3: front.failrfmem }, made = { 1: 0, 2: 0, 3: 0 };
 	const spawn = (job) => {
-		if (job.user && ++forks === front.failfork) {	/* a test's: this fork's child gets no Worker */
-			failed(job, 'failfork ' + forks);
+		if (fails[job.what] && ++made[job.what] === fails[job.what]) {
+			failed(job, 'the test fails Worker ' + made[job.what] + ' of kind ' + job.what);
 			return;
 		}
 		let w;

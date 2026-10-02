@@ -232,7 +232,7 @@ abortion(void)
 static int
 forkready(Proc *p)
 {
-	if(procspawn(p) < 0){
+	if(procspawn(p, Wfork) < 0){
 		procunmake(p);
 		kstrcpy(up->syserrstr, "fork: the page could not make a Worker", ERRMAX);
 		return -1;
@@ -241,18 +241,37 @@ forkready(Proc *p)
 }
 
 /*
- * the platform's, for an rfork(RFMEM) child when the parent has
- * unwound: its helper's Worker, and the memory's Worker on it too
+ * the platform's, for an rfork(RFMEM) child when the parent (up) has
+ * unwound: all or nothing - the parent's helper if it has none yet, the
+ * child's; then the parent is one of the memory's group, and the
+ * memory's Worker holds the child and the group too.  -1: the child
+ * undone, the parent as it was
  */
 static int
-rfmemready(Proc *p)
+rfmemstart(Proc *p)
 {
-	if(procspawn(p) < 0){
+	int first;
+
+	first = up->memdone == nil;
+	if(first && helperspawn(up) < 0){
 		procunmake(p);
+		kstrcpy(up->syserrstr, "rfork: the page could not make a Worker for a helper", ERRMAX);
+		return -1;
+	}
+	if(procspawn(p, Wrfmem) < 0){
+		procunmake(p);
+		if(first)
+			helperquit(up);
 		kstrcpy(up->syserrstr, "rfork: the page could not make a Worker", ERRMAX);
 		return -1;
 	}
 	ainc(&p->workers);
+	if(first){
+		up->umem = p->umem;
+		incref(up->umem);	/* the parent's */
+		incref(up->umem);	/* the memory's Worker's (memend) */
+		up->memdone = &up->umem->done;
+	}
 	return 0;
 }
 
@@ -267,6 +286,7 @@ forkproc(ulong flag)
 {
 	static char nomntdevs[] = "|decp";
 	Proc *p;
+	Umem *u;
 	ulong pid;
 
 	if((p = newproc()) == nil)
@@ -350,18 +370,26 @@ forkproc(ulong flag)
 	}
 	procpriority(p, up->basepri, up->fixedpri);
 	if(flag & RFMEM){
-		/* the memory's procs: their programs on its Worker, their calls on their helpers */
-		if(up->memdone == nil){
-			up->memdone = mallocz(sizeof(long), 1);
-			if(up->memdone == nil){
+		/*
+		 * the memory's procs: their programs on its Worker, their calls
+		 * on their helpers.  The parent joins the group in rfmemstart
+		 */
+		u = up->umem;
+		if(u != nil)
+			incref(u);
+		else{
+			u = mallocz(sizeof(Umem), 1);
+			if(u == nil){
 				p->kp = 1;
 				kprocchild(p, abortion);
 				ready(p);
 				error(Enomem);
 			}
+			u->ref = 1;
 		}
-		p->memdone = up->memdone;
-		platrfmem(p, rfmemready, helperspawn, pid, up->memdone);
+		p->umem = u;
+		p->memdone = &u->done;
+		platrfmem(p, rfmemstart, pid, u, &u->done);
 	}else
 		platfork(p, forkready, pid);
 	return pid;

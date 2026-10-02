@@ -71,6 +71,20 @@ kexit(Ureg*)
 {
 }
 
+/* a proc's part in a memory's group (rfork RFMEM) given up */
+void
+umemrelease(Proc *p)
+{
+	Umem *u;
+
+	if((u = p->umem) == nil)
+		return;
+	p->umem = nil;
+	p->memdone = nil;
+	if(decref(u) == 0)
+		free(u);
+}
+
 /* a proc gone (pexit): free; the memory's Worker told, if it runs the proc's program */
 static void
 procdead(Proc *p)
@@ -82,6 +96,7 @@ procdead(Proc *p)
 		ainc(p->memdone);
 		platwake(p->memdone, 1);
 	}
+	umemrelease(p);
 	mmurelease(p);
 	lock(&procalloc);
 	p->state = Dead;
@@ -109,8 +124,9 @@ struct Helping
 /*
  * an rfork(RFMEM) proc's helper that is not its own Worker: the one
  * that ran its program before the memory had more than one proc
- * (helperspawn).  Its stack is the lower part of the proc's KSTACK; the
- * memory's Worker keeps to the top
+ * (helperspawn).  Its Mach and stack are the Proc's, kept with it; the
+ * memory's Worker has the KSTACK.  It returns when the proc is Dead, or
+ * when it is told to go (hquit: the rfork undone): a Worker less on p
  */
 static ulong
 helperstart(void *v)
@@ -120,9 +136,8 @@ helperstart(void *v)
 
 	h = v;
 	p = h->p;
-	m = mallocz(sizeof(Mach), 1);
-	if(m == nil)
-		panic("helperstart: no Mach");
+	m = p->hmach;
+	memset(m, 0, sizeof(Mach));
 	m->helper = 1;
 	up = p;
 	m->proc = p;
@@ -133,14 +148,8 @@ helperstart(void *v)
 		return (ulong)&p->workers;
 	}
 	helper();
-	panic("helperstart");
-	return 0;
+	return (ulong)&p->workers;
 }
-
-enum
-{
-	Memstack	= 16*1024,	/* the top of a KSTACK the memory's Worker keeps (helperstart) */
-};
 
 /* p's helper, a Worker more on p: -1 if the page could not make it */
 int
@@ -149,10 +158,16 @@ helperspawn(Proc *p)
 	Helping h;
 	long st;
 
+	if(p->hmach == nil)
+		p->hmach = mallocz(sizeof(Mach), 1);
+	if(p->hstack == nil)
+		p->hstack = malloc(KSTACK);
+	if(p->hmach == nil || p->hstack == nil)
+		return -1;
 	h.p = p;
 	h.up = 0;
 	ainc(&p->workers);
-	platnewproc((void(*)(void*))helperstart, &h, (char*)p - Memstack, &h.up);
+	platnewproc((void(*)(void*))helperstart, &h, p->hstack + KSTACK, &h.up, Whelper);
 	while((st = h.up) == 0)
 		platwait(&h.up, 0, -1);
 	if(st < 0){
@@ -160,6 +175,20 @@ helperspawn(Proc *p)
 		return -1;
 	}
 	return 0;
+}
+
+/* p's helper (helperspawn) goes, and is gone when this returns: p has only its own Worker again */
+void
+helperquit(Proc *p)
+{
+	long w;
+
+	p->hquit = 1;
+	coherence();
+	p->hreq = 1;
+	platwake(&p->hreq, 1);
+	while((w = p->workers) > 1)
+		platwait(&p->workers, w, -1);
 }
 
 /*
@@ -224,7 +253,7 @@ sched(void)
  * the page could not make one (the proc is still New)
  */
 int
-procspawn(Proc *p)
+procspawn(Proc *p, int what)
 {
 	long st;
 
@@ -238,7 +267,7 @@ procspawn(Proc *p)
 	p->workers = 1;
 	p->workerup = 0;
 	coherence();
-	platnewproc((void(*)(void*))procstart, p, p, &p->workerup);
+	platnewproc((void(*)(void*))procstart, p, p, &p->workerup, what);
 	while((st = p->workerup) == 0)
 		platwait(&p->workerup, 0, -1);
 	if(st < 0){
@@ -281,6 +310,7 @@ procunmake(Proc *p)
 		cclose(p->dot);
 		p->dot = nil;
 	}
+	umemrelease(p);
 	pidfree(p);
 	lock(&procalloc);
 	p->state = Dead;
@@ -293,7 +323,7 @@ void
 ready(Proc *p)
 {
 	if(p->state == New){
-		if(procspawn(p) < 0)
+		if(procspawn(p, Wproc) < 0)
 			panic("ready: no Worker for %s", p->text);
 		return;
 	}
@@ -348,8 +378,10 @@ newproc(void)
 	/* its last Workers may still be on it or its KSTACK, on the way out */
 	while((w = p->workers) != 0)
 		platwait(&p->workers, w, -1);
+	p->umem = nil;
 	p->memdone = nil;
 	p->hcall = nil;
+	p->hquit = 0;
 	p->hreq = 0;
 	p->hdone = 0;
 	p->hexit = 0;
@@ -1015,6 +1047,7 @@ pexit(char *exitstr, int freemem)
 	up->nwatchpt = 0;
 	qunlock(&up->debug);
 
+	callabort(up);	/* the call that ended it does not return: its buffers */
 	up->state = Moribund;
 	sched();
 	panic("pexit");
