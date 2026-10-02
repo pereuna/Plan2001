@@ -46,6 +46,6 @@ void	platcursor(int, int, uchar*, uchar*);	/* the cursor: its offset, clr and se
 void	platkbdring(void*);			/* the page's keyboard messages into the ring: r, w, b[4096] (devkbd.c) */
 void	platmousering(void*);
 /* the network (devwsnet.c): WebSockets to the machine's webterm, the page's */
-void	platnetopen(int, char*, void*, long*);	/* conversation n: the path (/17019), its ring (r, w, closed, b[64K]), its word (1 open, -1 not) */
-void	platnetsend(int, void*, long);		/* bytes out */
-void	platnetclose(int);			/* hang up */		/* the page's mouse events into the ring: w, r, ev[64][4] (x, y, buttons, msec) */
+void	platnetopen(int, ulong, char*, void*, long*);	/* conversation n, its gen: the path (/17019), its ring (r, w, closed, b[64K]; the page empties it), its word (1 open, -1 not) */
+void	platnetsend(int, ulong, void*, long);	/* bytes out, if (n, gen) is still the page's */
+void	platnetclose(int, ulong);		/* hang up (n, gen) */		/* the page's mouse events into the ring: w, r, ev[64][4] (x, y, buttons, msec) */

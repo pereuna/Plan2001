@@ -62,9 +62,13 @@ want boot $names && RUNS=40 DRAWS=10 KEYDELAY=12 MOUSE='[[0.4, 0.4, 1]]' KEYS='[
 	PAGEARGS='&x=boot' run boot '[]'
 want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
 	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
+want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status; fault; echo the machine goes on"]'
 if want net $names; then
 	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
 		HTTPPORT=18080 run net '["/bin/d2"]'
+		HTTPPORT=18080 PAGEARGS='&ringstart=2147483600' run net '["/bin/d2"]'	# the rings' counters across 2^31
+		HTTPPORT=18080 PAGEARGS='&ringstart=4294967240' run net '["/bin/d2"]'	# and 2^32
+		HTTPPORT=18080 HALTWAIT=200 run netloop '["/bin/d2", "-l", "20", "4"]'	# conversations made again and again, four procs at once
 	else
 		echo "test-9wasm32: net: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
 	fi

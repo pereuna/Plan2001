@@ -14,6 +14,10 @@
  * the machine.  The page owns the WebSockets (a Worker waits in
  * Atomics.wait and would not hear them): what comes in it writes into
  * the conversation's ring here, what goes out goes to it as a message.
+ * A conversation's WebSocket is the page's by (n, gen): a new gen each
+ * time n is made, so an old one's close, data or end touches no new
+ * one; the page empties the ring when it opens the new one, and only the
+ * page writes it, all on its one thread.
  *
  *	/net/tcp/clone, /net/tcp/n/{ctl,data,local,remote,status}
  *	ctl: connect host!port, hangup
@@ -44,8 +48,8 @@ enum
 typedef struct Ring Ring;
 struct Ring
 {
-	long	r;
-	long	w;		/* the page's: bytes written */
+	ulong	r;		/* ours: read; modulo 2^32, Nring a power of 2 (the index masked) */
+	ulong	w;		/* the page's: bytes written */
 	long	closed;		/* the page's: 1 the WebSocket closed, 2 it failed, 3 the ring was full */
 	uchar	b[Nring];
 };
@@ -55,7 +59,9 @@ struct Conv
 {
 	QLock;
 	int	ref;		/* open channels */
-	int	used;
+	int	used;		/* /net/tcp/n is there: set when all of it is ready (newconv) */
+	int	taken;		/* newconv is making it */
+	ulong	gen;		/* which conversation n this is: the page's WebSocket goes with (n, gen) */
 	long	st;		/* the page's: 0 opening, 1 open, -1 it could not */
 	char	raddr[64];
 	Ring	*in;
@@ -162,6 +168,10 @@ wsstat(Chan *c, uchar *db, int n)
 	return devstat(c, db, n, nil, 0, wsgen);
 }
 
+/*
+ * a conversation: taken under the lock, made ready outside it, and only
+ * then there (used) for another proc to find in /net/tcp
+ */
 static Conv*
 newconv(void)
 {
@@ -171,26 +181,33 @@ newconv(void)
 	lock(&convlock);
 	for(i = 0; i < Nconv; i++){
 		cv = &convs[i];
-		if(!cv->used && cv->ref == 0){
-			cv->used = 1;
-			cv->ref = 1;
-			unlock(&convlock);
-			cv->st = 0;
-			cv->open = 0;
-			cv->raddr[0] = 0;
-			if(cv->in == nil)
-				cv->in = mallocz(sizeof(Ring), 1);
-			if(cv->in == nil){
-				cv->used = 0;
-				cv->ref = 0;
-				error(Enomem);
-			}
-			memset(cv->in, 0, sizeof(Ring));
-			return cv;
-		}
+		if(!cv->used && !cv->taken && cv->ref == 0)
+			break;
 	}
+	if(i == Nconv){
+		unlock(&convlock);
+		error(Enodev);
+	}
+	cv->taken = 1;
 	unlock(&convlock);
-	error(Enodev);
+
+	if(cv->in == nil && (cv->in = mallocz(sizeof(Ring), 1)) == nil){
+		lock(&convlock);
+		cv->taken = 0;
+		unlock(&convlock);
+		error(Enomem);
+	}
+	cv->st = 0;
+	cv->open = 0;
+	cv->raddr[0] = 0;
+	cv->gen++;
+
+	lock(&convlock);
+	cv->taken = 0;
+	cv->ref = 1;
+	cv->used = 1;
+	unlock(&convlock);
+	return cv;
 }
 
 static Chan*
@@ -250,22 +267,25 @@ wsclose(Chan *c)
 	lock(&convlock);
 	if(--cv->ref == 0){
 		if(cv->open)
-			platnetclose(cv-convs);
+			platnetclose(cv-convs, cv->gen);
 		cv->open = 0;
 		cv->used = 0;
 	}
 	unlock(&convlock);
 }
 
-/* wait for the word to be other than v, a second at a time: a note interrupts */
-static void
-netwait(long *w, long v)
+/* wait for the word to be other than v, a second at a time: a note interrupts; secs > 0 a limit */
+static int
+netwait(long *w, long v, int secs)
 {
 	while(*w == v){
 		if(up->notepending)
 			error(Eintr);
+		if(secs > 0 && secs-- == 0)
+			return -1;
 		platwait(w, v, 1000);
 	}
+	return 0;
 }
 
 /* a service's port: a name /lib/ndb/common gives, or its number; nil if neither */
@@ -318,8 +338,13 @@ connect(Conv *cv, char *addr)
 	strecpy(cv->raddr, cv->raddr+sizeof cv->raddr, addr);
 	cv->st = 0;
 	cv->open = 1;
-	platnetopen(cv-convs, path, cv->in, &cv->st);
-	netwait(&cv->st, 0);
+	platnetopen(cv-convs, cv->gen, path, cv->in, &cv->st);
+	/* as a TCP connect gives up: the browser may hold a WebSocket back a long time after failures */
+	if(netwait(&cv->st, 0, 60) < 0){
+		platnetclose(cv-convs, cv->gen);
+		cv->open = 0;
+		error("connection timed out");
+	}
 	if(cv->st < 0){
 		cv->open = 0;
 		error("connection refused");
@@ -332,7 +357,7 @@ wsread(Chan *c, void *a, long n, vlong off)
 	Conv *cv;
 	Ring *r;
 	char buf[128];
-	long m, i, w;
+	ulong m, i, w;
 
 	if(c->qid.type & QTDIR)
 		return devdirread(c, a, n, nil, 0, wsgen);
@@ -352,10 +377,13 @@ wsread(Chan *c, void *a, long n, vlong off)
 		snprint(buf, sizeof buf, "%s\n", cv->raddr);
 		return readstr(off, a, n, buf);
 	case Qstatus:
-		snprint(buf, sizeof buf, "%s\n", !cv->open ? "Closed" : cv->st == 0 ? "Syn_sent" :
+		snprint(buf, sizeof buf, "%s\n", !cv->open || cv->st < 0 ? "Closed" : cv->st == 0 ? "Syn_sent" :
 			cv->in->closed ? "Closed" : "Established");
 		return readstr(off, a, n, buf);
 	case Qdata:
+		/* the ring is the page's to empty until the WebSocket is open */
+		if(!cv->open || cv->st != 1)
+			return 0;
 		r = cv->in;
 		for(;;){
 			w = r->w;
@@ -363,13 +391,13 @@ wsread(Chan *c, void *a, long n, vlong off)
 				break;
 			if(r->closed || !cv->open)
 				return 0;
-			netwait(&r->w, w);
+			netwait((long*)&r->w, w, 0);
 		}
 		m = w - r->r;
 		if(m > n)
 			m = n;
 		for(i = 0; i < m; i++)
-			((uchar*)a)[i] = r->b[(r->r + i) % Nring];
+			((uchar*)a)[i] = r->b[(r->r + i) & (Nring-1)];
 		coherence();
 		r->r += m;
 		return m;
@@ -408,7 +436,7 @@ wswrite(Chan *c, void *a, long n, vlong)
 			connect(cv, cb->f[1]);
 		else if(cb->nf >= 1 && strcmp(cb->f[0], "hangup") == 0){
 			if(cv->open)
-				platnetclose(cv-convs);
+				platnetclose(cv-convs, cv->gen);
 			cv->open = 0;
 		}else
 			error(Ebadctl);
@@ -418,7 +446,7 @@ wswrite(Chan *c, void *a, long n, vlong)
 	case Qdata:
 		if(!cv->open || cv->st != 1 || cv->in->closed)
 			error(Ehungup);
-		platnetsend(cv-convs, a, n);
+		platnetsend(cv-convs, cv->gen, a, n);
 		return n;
 	}
 	error(Eperm);

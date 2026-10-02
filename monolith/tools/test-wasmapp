@@ -22,7 +22,7 @@ the screen goes to build/wasmapp-NAME.png.
                                            what it said (bytes) in
                                            build/wasmapp-P.txt, the same as FILE
 """
-import base64, json, os, re, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import base64, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEVTOOLS = 19224
@@ -352,6 +352,11 @@ def main():
 	finally:
 		chrome.terminate()
 		srv.terminate()
+		try:
+			chrome.wait(10)
+		except Exception:
+			pass
+		shutil.rmtree(tmp, ignore_errors=True)	# Chromium's profile: 12 MB each, /tmp is small
 
 
 main()

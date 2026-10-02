@@ -25,8 +25,8 @@ enum
 typedef struct Kring Kring;
 struct Kring
 {
-	long	r;
-	long	w;
+	ulong	r;		/* modulo 2^32; Nring a power of 2, the index masked */
+	ulong	w;
 	uchar	b[Nring];
 };
 
@@ -47,8 +47,8 @@ kbdproc(void*)
 	n = 0;
 	for(;;){
 		while(kring.r == kring.w)
-			platwait(&kring.w, kring.r, -1);
-		msg[n] = kring.b[kring.r % Nring];
+			platwait((long*)&kring.w, kring.r, -1);
+		msg[n] = kring.b[kring.r & (Nring-1)];
 		kring.r++;
 		if(msg[n] == 0){
 			qwrite(kbdq, msg, n+1);

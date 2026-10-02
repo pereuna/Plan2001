@@ -15,6 +15,8 @@ const PAGES = 1024, MAXPAGES = 16384;	// 64 MB to start; 3l -k's maximum
 const EXEC = { exec: true };
 // noted's: the program's notify handler's frames unwind to its caller (unote)
 const NOTED = { noted: true };
+// a program's fault: it ends with the note, as a trap would on Plan 9 - the machine goes on
+class Trap extends Error {}
 
 // a kernel function, fn(words...), from JS on this Worker: below the kernel's SP
 function kcall(env, fn, ...w) {
@@ -52,6 +54,13 @@ function unote(env) {
 	d.setUint32(top, ureg, true);
 	d.setUint32(top + 4, msg, true);
 	x.sp.value = top;
+	if (!(nt.handler > 0 && nt.handler < x.table.length)) {
+		/* not a function of this program's: as if it had no handler */
+		console.log(`KLOG platform: a note's handler ${nt.handler} is not in this program (table ${x.table.length}): ${new TextDecoder().decode(nt.msg)}`);
+		x.sp.value = sp;
+		kcall(env, nt.done, nt.p);
+		throw new Trap(new TextDecoder().decode(nt.msg));
+	}
 	try {
 		x.table.get(nt.handler)();
 	} catch (e) {
@@ -69,6 +78,7 @@ function runuser(env, K, host, pid) {
 	for (;;) {
 		const job = env.exec;
 		env.exec = null;
+		env.note = null;	/* the program before's, not this one's */
 		if (!job) throw new Error('platuser: no program');
 		runprog(env, K, host, pid, job);
 	}
@@ -284,13 +294,29 @@ function runprog(env, K, host, pid, job) {
 		env.rfmem = null;
 		h.slice = performance.now();
 		x.preempt.value = h.multi ? QUANTUM : FOREVER;
+		let trap = null;
 		try {
 			entry();
 		} catch (e) {
 			if (e === EXEC) return;
-			throw e;
+			/* the program's fault (WebAssembly's trap, a bad table index, its stack): it ends, not the machine */
+			if (!(e instanceof Trap || e instanceof WebAssembly.RuntimeError || e instanceof RangeError || e instanceof TypeError))
+				throw e;
+			trap = e instanceof Trap ? e.message : 'sys: trap: ' + e.message;
+			console.log('KLOG platform: ' + trap);
 		}
 		let c = h.cos[h.cur];
+		if (trap !== null) {
+			/* exits(trap): its message at the top of its context's stack, which it has no more use for */
+			const t = h.ctxs[c.cx], m = new TextEncoder().encode(trap.slice(0, 120) + '\0');
+			const z = (t.top - 256) & ~7;
+			new Uint8Array(mem.buffer).set(m, z);
+			x.sp.value = z - 64;
+			m32().setUint32(z - 8, z, true);
+			x.asstate.value = 0;
+			sys(8, z - 8);	/* one proc: pexit, no return; with more, its helper has it (h.block) */
+			if (!h.block) throw new Error('platform: exits returned');
+		}
 		if (h.ctxswitch !== undefined) {
 			/* another context of the same proc */
 			h.ctxs[c.cx].asptr = x.asptr.value;
@@ -500,12 +526,12 @@ function imports(env) {
 			env.post({ cursor: { x: iarg(0), y: iarg(1), clr: k.slice(arg(2), arg(2) + 32), set: k.slice(arg(3), arg(3) + 32) } });
 		},
 		platmousering: () => env.post({ mring: arg(0) }),
-		platnetopen: () => env.post({ netopen: { id: iarg(0), path: str(arg(1)), ring: arg(2), st: arg(3) } }),
+		platnetopen: () => env.post({ netopen: { id: iarg(0), gen: arg(1), path: str(arg(2)), ring: arg(3), st: arg(4) } }),
 		platnetsend: () => {
-			const b = new Uint8Array(env.mem.buffer).slice(arg(1), arg(1) + iarg(2));
-			env.post({ netsend: { id: iarg(0), b } }, [b.buffer]);
+			const b = new Uint8Array(env.mem.buffer).slice(arg(2), arg(2) + iarg(3));
+			env.post({ netsend: { id: iarg(0), gen: arg(1), b } }, [b.buffer]);
 		},
-		platnetclose: () => env.post({ netclose: iarg(0) }),
+		platnetclose: () => env.post({ netclose: { id: iarg(0), gen: arg(1) } }),
 		platkbdring: () => env.post({ kring: arg(0) }),
 		platbootargs: () => {	/* as platbootfs: its size, then into the buffer */
 			const a = new TextEncoder().encode((env.boot?.args ?? []).map((s) => s + '\0').join(''));
@@ -572,12 +598,12 @@ export async function boot(url, front = {}) {
 		kbdtimer = 0;
 		if (!kring) { if (kbdq.length) kbdtimer = setTimeout(kbdpump, 20); return; }
 		const i32 = new Int32Array(mem.buffer), u8 = new Uint8Array(mem.buffer), N = 4096;
-		let w = Atomics.load(i32, (kring + 4) >> 2);
+		let w = Atomics.load(i32, (kring + 4) >> 2) >>> 0;	/* modulo 2^32, N a power of 2 */
 		const w0 = w;
-		while (kbdq.length && w + kbdq[0].length - Atomics.load(i32, kring >> 2) <= N)
-			for (const c of kbdq.shift()) u8[kring + 8 + (w++ % N)] = c;
+		while (kbdq.length && ((w - (Atomics.load(i32, kring >> 2) >>> 0)) >>> 0) + kbdq[0].length <= N)
+			for (const c of kbdq.shift()) u8[kring + 8 + (w++ & (N - 1))] = c;
 		if (w !== w0) {
-			Atomics.store(i32, (kring + 4) >> 2, w);
+			Atomics.store(i32, (kring + 4) >> 2, w | 0);
 			Atomics.notify(i32, (kring + 4) >> 2);
 		}
 		if (kbdq.length) kbdtimer = setTimeout(kbdpump, 5);	/* the ring is full: when the kernel has read */
@@ -660,15 +686,15 @@ export async function boot(url, front = {}) {
 		mousetimer = 0;
 		if (!screen.mring) return;
 		const i32 = new Int32Array(mem.buffer), r = screen.mring >> 2;
-		let w = Atomics.load(i32, r);
+		let w = Atomics.load(i32, r) >>> 0;	/* modulo 2^32 */
 		const w0 = w;
-		while (mouseq.length && w - Atomics.load(i32, r + 1) < 64) {
-			const [x, y, b, ms] = mouseq.shift(), e = r + 2 + 4*(w % 64);
+		while (mouseq.length && ((w - (Atomics.load(i32, r + 1) >>> 0)) >>> 0) < 64) {
+			const [x, y, b, ms] = mouseq.shift(), e = r + 2 + 4*(w & 63);
 			i32[e] = x; i32[e + 1] = y; i32[e + 2] = b; i32[e + 3] = ms;
 			w++;
 		}
 		if (w !== w0) {
-			Atomics.store(i32, r, w);
+			Atomics.store(i32, r, w | 0);
 			Atomics.notify(i32, r);
 		}
 		if (mouseq.length) mousetimer = setTimeout(mousepump, 5);
@@ -710,12 +736,17 @@ export async function boot(url, front = {}) {
 	 * (r, w, closed, b[64K]), the kernel woken; past a full ring the
 	 * connection fails rather than lose bytes, as drawterm's wsock.c
 	 */
-	const net = { ws: new Map() };
-	const NRING = 64*1024;
-	net.open = ({ id, path, ring, st }) => {
-		net.close(id);
+	const net = { ws: new Map() };	/* n -> { ws, gen }: the conversation's WebSocket, which gen of n it is */
+	const NRING = 64*1024;		/* a power of 2: the counters run on modulo 2^32, the index masked */
+	net.open = ({ id, gen, path, ring, st }) => {
+		net.close({ id });	/* an older gen's, if its close has not come yet */
 		const i32 = new Int32Array(mem.buffer);
 		const word = (a, v) => { Atomics.store(i32, a >> 2, v); Atomics.notify(i32, a >> 2); };
+		/* the ring empty: only this thread writes it, and the kernel reads it only once this gen is open
+		   (front.ringstart, a test's: the counters start there - across 2^31 and 2^32) */
+		Atomics.store(i32, ring >> 2, (front.ringstart ?? 0) | 0);
+		Atomics.store(i32, (ring + 4) >> 2, (front.ringstart ?? 0) | 0);
+		Atomics.store(i32, (ring + 8) >> 2, 0);
 		let ws, opened = false;
 		try {
 			ws = new WebSocket((front.ws ?? '') + path);
@@ -724,38 +755,39 @@ export async function boot(url, front = {}) {
 			return;
 		}
 		ws.binaryType = 'arraybuffer';
-		net.ws.set(id, ws);
+		net.ws.set(id, { ws, gen });
+		const mine = () => net.ws.get(id)?.ws === ws;
 		const end = (why) => {
-			if (net.ws.get(id) !== ws) return;
+			if (!mine()) return;
 			net.ws.delete(id);
 			if (!opened) word(st, -1);
 			else { Atomics.store(i32, (ring + 8) >> 2, why); Atomics.notify(i32, (ring + 4) >> 2); }
 		};
-		ws.onopen = () => { opened = true; word(st, 1); };
+		ws.onopen = () => { if (!mine()) return; opened = true; word(st, 1); };
 		ws.onclose = () => end(1);
 		ws.onerror = () => end(2);
 		ws.onmessage = (e) => {
-			if (net.ws.get(id) !== ws) return;
+			if (!mine()) return;
 			const b = typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(e.data);
 			const u8 = new Uint8Array(mem.buffer);
-			let w = Atomics.load(i32, (ring + 4) >> 2);
-			if (w + b.length - Atomics.load(i32, ring >> 2) > NRING) {
+			let w = Atomics.load(i32, (ring + 4) >> 2) >>> 0;
+			if (((w - (Atomics.load(i32, ring >> 2) >>> 0)) >>> 0) + b.length > NRING) {
 				end(3);
 				ws.close();
 				return;
 			}
-			for (const c of b) u8[ring + 12 + (w++ % NRING)] = c;
-			Atomics.store(i32, (ring + 4) >> 2, w);
+			for (const c of b) u8[ring + 12 + (w++ & (NRING - 1))] = c;
+			Atomics.store(i32, (ring + 4) >> 2, w | 0);
 			Atomics.notify(i32, (ring + 4) >> 2);
 		};
 	};
-	net.send = ({ id, b }) => { const ws = net.ws.get(id); if (ws && ws.readyState === 1) ws.send(b); };
-	net.close = (id) => {
-		const ws = net.ws.get(id);
-		if (!ws) return;
+	net.send = ({ id, gen, b }) => { const c = net.ws.get(id); if (c && c.gen === gen && c.ws.readyState === 1) c.ws.send(b); };
+	net.close = ({ id, gen }) => {	/* gen undefined: whichever */
+		const c = net.ws.get(id);
+		if (!c || gen !== undefined && c.gen !== gen) return;
 		net.ws.delete(id);
-		ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
-		ws.close();
+		c.ws.onopen = c.ws.onclose = c.ws.onerror = c.ws.onmessage = null;
+		c.ws.close();
 	};
 
 	/* a test's: the nth Worker of a kind is not made - a fork's child, a helper, an rfork(RFMEM) child's (platform.h) */
@@ -784,7 +816,7 @@ export async function boot(url, front = {}) {
 			if (m.mring !== undefined) screen.mring = m.mring;
 			if (m.netopen) net.open(m.netopen);
 			if (m.netsend) net.send(m.netsend);
-			if (m.netclose !== undefined) net.close(m.netclose);
+			if (m.netclose) net.close(m.netclose);
 			if (m.kring !== undefined) kring = m.kring;
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
@@ -800,14 +832,14 @@ export async function boot(url, front = {}) {
 			if (!ring) return -1;
 			const b = typeof x === 'string' ? new TextEncoder().encode(x) : new Uint8Array(x);
 			const i32 = new Int32Array(mem.buffer), u8 = new Uint8Array(mem.buffer), N = 8192;
-			let w = Atomics.load(i32, (ring + 4) >> 2), n = 0;
+			let w = Atomics.load(i32, (ring + 4) >> 2) >>> 0, n = 0;	/* modulo 2^32, N a power of 2 */
 			for (const c of b) {
-				if (w - Atomics.load(i32, ring >> 2) >= N) break;
-				u8[ring + 8 + (w % N)] = c;
+				if (((w - (Atomics.load(i32, ring >> 2) >>> 0)) >>> 0) >= N) break;
+				u8[ring + 8 + (w & (N - 1))] = c;
 				w++;
 				n++;
 			}
-			Atomics.store(i32, (ring + 4) >> 2, w);
+			Atomics.store(i32, (ring + 4) >> 2, w | 0);
 			Atomics.notify(i32, (ring + 4) >> 2);
 			return n;
 		},

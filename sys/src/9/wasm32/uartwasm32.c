@@ -11,13 +11,13 @@
  * ring here (eiaring tells the platform where) and wakes eia0's kproc,
  * which gives the bytes to uartrecv.
  */
-enum { Nring = 8192 };
+enum { Nring = 8192 };	/* a power of 2: the counters run on modulo 2^32, the index is masked */
 
 typedef struct Ring Ring;
 struct Ring
 {
-	long	r;
-	long	w;
+	ulong	r;
+	ulong	w;
 	uchar	b[Nring];
 };
 
@@ -41,17 +41,17 @@ static void
 inproc(void *v)
 {
 	Uart *u;
-	long w;
+	ulong w;
 
 	u = v;
 	for(;;){
 		w = ring.w;
 		while(ring.r == w){
-			platwait(&ring.w, w, -1);
+			platwait((long*)&ring.w, w, -1);
 			w = ring.w;
 		}
 		while(ring.r != w){
-			uartrecv(u, ring.b[ring.r % Nring]);
+			uartrecv(u, ring.b[ring.r & (Nring-1)]);
 			ring.r++;
 		}
 	}
@@ -108,11 +108,11 @@ static int
 getc(Uart*)
 {
 	int c;
-	long w;
+	ulong w;
 
 	while((w = ring.w) == ring.r)
-		platwait(&ring.w, w, -1);
-	c = ring.b[ring.r % Nring];
+		platwait((long*)&ring.w, w, -1);
+	c = ring.b[ring.r & (Nring-1)];
 	ring.r++;
 	return c;
 }

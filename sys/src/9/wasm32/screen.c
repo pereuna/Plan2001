@@ -23,8 +23,8 @@ Memimage	*gscreen;
 typedef struct Mring Mring;
 struct Mring
 {
-	long	w;		/* the page's: events written */
-	long	r;		/* ours: read */
+	ulong	w;		/* the page's: events written (modulo 2^32) */
+	ulong	r;		/* ours: read */
 	long	ev[64][4];	/* x, y, buttons, msec */
 };
 static Mring	mring;
@@ -36,8 +36,8 @@ mouseproc(void*)
 
 	for(;;){
 		while(mring.r == mring.w)
-			platwait(&mring.w, mring.r, -1);
-		e = mring.ev[mring.r % nelem(mring.ev)];
+			platwait((long*)&mring.w, mring.r, -1);
+		e = mring.ev[mring.r & (nelem(mring.ev)-1)];
 		absmousetrack(e[0], e[1], e[2], e[3]);
 		mring.r++;
 	}
