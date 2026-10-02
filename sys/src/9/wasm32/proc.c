@@ -71,12 +71,103 @@ kexit(Ureg*)
 {
 }
 
+/* a proc gone (pexit): free; the memory's Worker told, if it runs the proc's program */
+static void
+procdead(Proc *p)
+{
+	if(p->memdone != nil){
+		p->hexit = 1;
+		p->hdone = 1;
+		coherence();
+		ainc(p->memdone);
+		platwake(p->memdone, 1);
+	}
+	mmurelease(p);
+	lock(&procalloc);
+	p->state = Dead;
+	p->qnext = procalloc.free;
+	procalloc.free = p;
+	up = procalloc.Lock.p = nil;
+	unlock(&procalloc);
+}
+
+/* a Worker less on p (the platform's, or the memory's Worker's: coend) */
+void
+procrelease(Proc *p)
+{
+	adec(&p->workers);
+	platwake(&p->workers, 1);
+}
+
+typedef struct Helping Helping;
+struct Helping
+{
+	Proc	*p;
+	long	up;
+};
+
+/*
+ * an rfork(RFMEM) proc's helper that is not its own Worker: the one
+ * that ran its program before the memory had more than one proc
+ * (helperspawn).  Its stack is the lower part of the proc's KSTACK; the
+ * memory's Worker keeps to the top
+ */
+static ulong
+helperstart(void *v)
+{
+	Helping *h;
+	Proc *p;
+
+	h = v;
+	p = h->p;
+	m = mallocz(sizeof(Mach), 1);
+	if(m == nil)
+		panic("helperstart: no Mach");
+	m->helper = 1;
+	up = p;
+	m->proc = p;
+	h->up = 1;
+	platwake(&h->up, 1);
+	if(setlabel(&m->sched)){
+		procdead(p);
+		return (ulong)&p->workers;
+	}
+	helper();
+	panic("helperstart");
+	return 0;
+}
+
+enum
+{
+	Memstack	= 16*1024,	/* the top of a KSTACK the memory's Worker keeps (helperstart) */
+};
+
+/* p's helper, a Worker more on p: -1 if the page could not make it */
+int
+helperspawn(Proc *p)
+{
+	Helping h;
+	long st;
+
+	h.p = p;
+	h.up = 0;
+	ainc(&p->workers);
+	platnewproc((void(*)(void*))helperstart, &h, (char*)p - Memstack, &h.up);
+	while((st = h.up) == 0)
+		platwait(&h.up, 0, -1);
+	if(st < 0){
+		procrelease(p);
+		return -1;
+	}
+	return 0;
+}
+
 /*
  * a proc's Worker starts here (platform.js, platnewproc): its Mach (m)
  * and up, then what kprocchild or forkchild put in p->sched.pc.  It
- * returns when the proc is Dead: &p->workergone, which the platform sets
- * once the Worker has left the kernel - until then the Proc, free, and
- * its KSTACK are not newproc's to give
+ * returns when the proc is Dead: &p->workers, which the platform takes
+ * 1 from once the Worker has left the kernel - until it is 0 the Proc,
+ * free, and its KSTACK are not newproc's to give
  */
 static ulong
 procstart(void *v)
@@ -93,14 +184,8 @@ procstart(void *v)
 	platwake(&p->workerup, 1);
 	if(setlabel(&m->sched)){
 		/* Moribund (pexit): the proc is free, its Worker ends */
-		mmurelease(up);
-		lock(&procalloc);
-		up->state = Dead;
-		up->qnext = procalloc.free;
-		procalloc.free = up;
-		up = procalloc.Lock.p = nil;
-		unlock(&procalloc);
-		return (ulong)&p->workergone;
+		procdead(p);
+		return (ulong)&p->workers;
 	}
 	f = (void(*)(void))p->sched.pc;
 	(*f)();
@@ -150,7 +235,7 @@ procspawn(Proc *p)
 	}
 	p->mach->machno = 0;
 	p->state = Ready;
-	p->workergone = 0;
+	p->workers = 1;
 	p->workerup = 0;
 	coherence();
 	platnewproc((void(*)(void*))procstart, p, p, &p->workerup);
@@ -158,7 +243,7 @@ procspawn(Proc *p)
 		platwait(&p->workerup, 0, -1);
 	if(st < 0){
 		p->state = New;
-		p->workergone = 1;
+		p->workers = 0;
 		return -1;
 	}
 	return 0;
@@ -236,6 +321,7 @@ newproc(void)
 {
 	char *b;
 	Proc *p;
+	long w;
 
 	lock(&procalloc);
 	p = procalloc.free;
@@ -250,7 +336,7 @@ newproc(void)
 			return nil;
 		}
 		p = (Proc*)(b + KSTACK);
-		p->workergone = 1;
+		p->workers = 0;
 		p->index = procalloc.nextindex++;
 		procalloc.tab[p->index] = p;
 	}
@@ -259,9 +345,15 @@ newproc(void)
 	p->qnext = nil;
 	unlock(&procalloc);
 
-	/* its last Worker may still be on its KSTACK, on the way out */
-	while(p->workergone == 0)
-		platwait(&p->workergone, 0, -1);
+	/* its last Workers may still be on it or its KSTACK, on the way out */
+	while((w = p->workers) != 0)
+		platwait(&p->workers, w, -1);
+	p->memdone = nil;
+	p->hcall = nil;
+	p->hreq = 0;
+	p->hdone = 0;
+	p->hexit = 0;
+	p->hdie = 0;
 
 	p->psstate = nil;
 	p->state = New;

@@ -236,6 +236,24 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   Odotus keskeytyy 9frontin tapaan (`interrupted`). Alarm-kproc kuten
   pc64:ssä. Rendezvous on 9frontin. 3l:n preemptiokohta (kutsu 105) on
   notesien tarkistuspaikka; selain preemptoi Workerit.
+- rfork(RFMEM), libthread ja preemptio (C3b, host3:n malli ytimessä):
+  saman muistin procien ohjelmat vuorottelevat muistin Workerissa
+  (platform.js `runprog`), ja niiden pinot ovat Plan 9:n tapaan yksityisiä
+  samoissa osoitteissa (alueen vaihto). Kun muistissa on useampi proc,
+  jokaisella on apuWorker (`helper`), joka tekee sen estävät kutsut ja
+  exitsin. Muistin Worker valmistelee kutsun (`sysprep`: kopiot sisään)
+  ja tekee itse nopeat ja alustaan vaikuttavat kutsut (rfork, brk, noted
+  ...). Muut se antaa apuWorkerille, jatkaa seuraavalla valmiilla procilla
+  ja viimeistelee kutsun (`sysfin`: kopiot ulos), kun apuWorker on valmis.
+  Up on kutsuvan procin sekä muistin Workerissa että apuWorkerissa. Ensin
+  ohjelmaa ajanut proc saa apuWorkerin KSTACKinsa alaosaan, koska muistin
+  Worker pitää yläosan. Procin `workers` laskee Workerit, jotka voivat
+  vielä koskea Prociin. Note, joka lopettaa muistin procin, ja noted
+  NDFLT viedään apuWorkerille, koska pexit ei kuulu muistin Workerille.
+  Kontekstit (kutsut 100–103) ja preemptio (kutsu 105, 10 ms:n viipale)
+  ovat alustan. Rajat: exec RFMEM-procista ei vielä toimi; saman muistin
+  procit käyttävät yhtä suoritinta; ohjelmaa ajavalle procille tullut note
+  toimitetaan sen seuraavassa kutsussa.
 - Juuri `#R` (`devrootfs.c`): sivun käynnistyksessä antamat tiedostot
   (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
   `#t`:n `/dev`iin sekä `#e`:n ja `#s`:n paikoilleen, avaa `#t/eia0`:n
@@ -246,11 +264,13 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   polussa ei saa olla alussa /:ta, tyhjää elementtiä eikä . tai ..
   Testit: `tools/test-9wasm32` (c2a, echo, yli 4096 tavun argumentti, fork,
   2000 forkia exitin, chdirin, execin ja waitin kanssa, rc -c,
-  interaktiivinen rc, notes ja rendezvous sekä fork, jonka lapselle sivu ei
-  tee Workeria: `?failfork=N`).
+  interaktiivinen rc, notes ja rendezvous, fork, jonka lapselle sivu ei
+  tee Workeria: `?failfork=N`, sekä host3:n rfmem-, threads- ja
+  preempt-testit, kymmenen kierrosta niitä rc:n alla ja note, joka
+  lopettaa RFMEM-procin).
 
 | | Sisältö | Valmis kun |
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
 | C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
-| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b: RFMEM, libthread ja kontekstit; C3c: kbdfs; devdraw, hiiri ja näppäimistö alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |
+| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c: kbdfs; devdraw, hiiri ja näppäimistö alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |

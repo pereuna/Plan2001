@@ -73,8 +73,21 @@ struct Conf
 #define NCOLOR 1
 struct PMMU
 {
-	long	workergone;	/* 1: no Worker is on its KSTACK any more (proc.c, platform.js) */
+	long	workers;	/* Workers that may still be on it or its KSTACK: newproc waits for 0 (proc.c, platform.js) */
 	long	workerup;	/* its Worker: 0 coming, 1 running, -1 the page could not make it */
+
+	/*
+	 * rfork(RFMEM): the memory's Worker runs the procs' programs in
+	 * turn and gives each call to the proc's helper, a Worker of the
+	 * proc's own (trap.c)
+	 */
+	long	*memdone;	/* the memory's: a helper adds 1 when a call is done; nil without RFMEM */
+	void	*hcall;		/* the call for the helper (trap.c's Call); nil: the proc ends (hdie) */
+	long	hreq;		/* 1: a call for the helper */
+	long	hdone;		/* 1: the helper has done it */
+	long	hexit;		/* 1: the proc ended on its helper */
+	int	hdie;		/* a note ends it, on its helper */
+	vlong	hret;		/* the call's result */
 };
 
 #define	inittxtflush(p)
@@ -88,6 +101,7 @@ struct Mach
 	uintptr	splpc;
 	int	splhigh;		/* no interrupts here, but port/ keeps the level (ilock) */
 	Proc*	proc;			/* current process on this processor */
+	int	helper;			/* an rfork(RFMEM) proc's helper (trap.c) */
 	PMach;
 	uintptr	stack[1];
 };

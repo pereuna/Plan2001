@@ -25,16 +25,13 @@ function kcall(env, fn, ...w) {
 	x.sp.value = k;
 }
 
-// the program on this Worker (platuser): its module, its memory its own;
-// plan9.syscall(n, a) is the kernel's syscall(n, a) in this Worker's instance
-function usys(env, fn, n, a) {
-	kcall(env, fn, n, a);
-	if (env.exec) throw EXEC;
-	if (env.noted) { env.noted = false; throw NOTED; }
-	const r = env.x.retv.value;
-	if (n === 105) env.user.x.preempt.value = 0x3fffffff;	/* the browser preempts */
-	if (env.note) unote(env);
-	return r;
+// rfork(RFMEM): the memory's last proc is gone - the Worker leaves the kernel and ends
+const MEMDONE = { memdone: true };
+
+// the kernel's Ufns (platform.h): its functions for the program's Worker
+function ufns(env, a) {
+	const d = new DataView(env.mem.buffer), w = (i) => d.getUint32(a + 4*i, true);
+	return { syscall: w(0), sysprep: w(1), sysdone: w(2), sysfin: w(3), sysret: w(4), coend: w(5) };
 }
 
 // a note (trap.c, platnote): the program's handler(ureg, msg) below its SP,
@@ -59,73 +56,341 @@ function unote(env) {
 		x.table.get(nt.handler)();
 	} catch (e) {
 		if (e !== NOTED) {
-			kcall(env, nt.done);
+			kcall(env, nt.done, nt.p);
 			throw e;
 		}
 	}
 	x.sp.value = sp;
-	kcall(env, nt.done);
+	kcall(env, nt.done, nt.p);
 }
 
-// env.exec: the program to start - { module, args, argc } from exec,
-// { module, snap, asptr } a fork's child's (its memory, rewound with 0)
-function runuser(env, fn) {
+// the program on this Worker (platuser), and each one exec makes next
+function runuser(env, K, host, pid) {
 	for (;;) {
 		const job = env.exec;
 		env.exec = null;
 		if (!job) throw new Error('platuser: no program');
-		const inst = new WebAssembly.Instance(job.module, { plan9: { syscall: (n, a) => usys(env, fn, n, a) } });
-		const u = { x: inst.exports, mem: inst.exports.memory };
-		env.user = u;
-		if (job.snap) {
-			if (job.snap.length > u.mem.buffer.byteLength)
-				u.mem.grow(Math.ceil((job.snap.length - u.mem.buffer.byteLength) / 65536));
-			new Uint8Array(u.mem.buffer).set(job.snap);
-			u.x.asptr.value = job.asptr;
-			u.x.asstate.value = 2;
-			u.x.asret.value = 0n;
-		} else {
-			// argc, argv[0] ... nil at sp; the strings above them, as Plan 9's kernel does
-			const b = new Uint8Array(u.mem.buffer), d = new DataView(u.mem.buffer);
-			let top = u.x.sp.value;
-			const ptrs = [];
-			for (let i = 0, o = 0; i < job.argc; i++) {
-				let e = o;
-				while (job.args[e]) e++;
-				top -= e - o + 1;
-				b.set(job.args.subarray(o, e + 1), top);
-				ptrs.push(top);
-				o = e + 1;
-			}
-			top &= ~7;
-			top -= 4 * (ptrs.length + 2);
-			top &= ~7;
-			d.setInt32(top, ptrs.length, true);
-			ptrs.forEach((p, i) => d.setInt32(top + 4 + 4*i, p, true));
-			d.setInt32(top + 4 + 4*ptrs.length, 0, true);
-			u.x.sp.value = top;
+		runprog(env, K, host, pid, job);
+	}
+}
+
+const QUANTUM = 20000, SLICE = 10, FOREVER = 0x3fffffff;
+
+/*
+ * a program: its module, its memory its own.  job: { module, args, argc }
+ * from exec, or a fork's child's { module, snap, asptr, base, top, fn }
+ * (its memory, its context rewound with 0).  Its procs (rfork RFMEM, the
+ * cos) take turns here; while there is one, its calls go to the kernel
+ * as they come (syscall), and with more, each is prepared here, done by
+ * the proc's helper if it blocks (sysprep, sysdone, sysfin), and the
+ * next proc that can go, goes.  Contexts (libthread's threads): a proc's
+ * stacks it switches between itself - _ctxnew(fn, arg, stk, n),
+ * _ctxswitch(id), _ctxself, _ctxfree (calls 100-103, libc/wasm32/ctx.c).
+ * Returns on exec.
+ */
+function runprog(env, K, host, pid, job) {
+	const h = { multi: false, cos: [], cur: 0, ctxs: [], regions: new Map(), memdone: 0,
+		block: 0, preempt: 0, ctxswitch: undefined, slice: 0 };
+	let x = null;
+	const inst = new WebAssembly.Instance(job.module, { plan9: { syscall: (n, a) => sys(n, a >>> 0) } });
+	x = inst.exports;
+	const mem = x.memory, tbl = x.table;
+	env.user = { x, mem };
+	const m32 = () => new DataView(mem.buffer);
+	const kw = () => env.x.retw.value;
+
+	/* a call's end on the program's side: exec, noted, a note */
+	const after = (c, r) => {
+		if (env.exec) throw EXEC;
+		if (env.noted) { env.noted = false; throw NOTED; }
+		if (x.asstate.value === 1) {	/* unwinding (fork): a note waits */
+			if (env.note) { c.note = env.note; env.note = null; }
+			return r;
 		}
+		if (!env.note && c.note) { env.note = c.note; c.note = null; }
+		if (env.note) unote(env);
+		return r;
+	};
+	const sys = (n, a) => {
+		const c = h.cos[h.cur];
+		if (n >= 100 && n <= 103)
+			return ctxcall(c, n, a);
+		if (n === 105) {
+			yieldcall(c);
+			if (h.preempt) return 0n;
+		}
+		if (!h.multi) {
+			kcall(env, K.syscall, n, a);
+			return after(c, env.x.retv.value);
+		}
+		kcall(env, K.sysprep, c.p, n, a);
+		if (kw() === 0) { h.block = 1; x.asstate.value = 1; return 0n; }	/* its helper has it: the next goes */
+		kcall(env, K.sysfin, c.p);
+		if (kw() === 1) { h.block = 1; x.asstate.value = 1; return 0n; }	/* a note ends it, on its helper */
+		kcall(env, K.sysret, c.p);
+		return after(c, env.x.retv.value);
+	};
+
+	/* the contexts' calls: 100 new, 101 switch, 102 free, 103 self */
+	const ctxcall = (c, n, a) => {
+		const d = m32(), arg = (i) => d.getUint32(a + 4*i, true);
+		switch (n) {
+		case 100: {
+			const fn = arg(0), farg = arg(1), stk = arg(2), size = arg(3);
+			let id = h.ctxs.findIndex((t) => t == null);
+			if (id < 0) id = h.ctxs.length;
+			h.ctxs[id] = { fn, arg: farg, base: stk, top: (stk + size) & ~15, asptr: stk, started: false };
+			return BigInt(id);
+		}
+		case 101: {
+			/* a context is the memory's; one not started goes with the first proc to switch to it */
+			const id = arg(0);
+			if (id == c.cx) return 0n;
+			if (!h.ctxs[id] || h.cos.some((q) => q !== c && q.cx == id && q.state != 'done')) return -1n;
+			h.ctxswitch = id;
+			x.asstate.value = 1;
+			return 0n;
+		}
+		case 102:
+			if (h.ctxs[arg(0)] && !h.cos.some((q) => q.cx == arg(0) && q.state != 'done')) {
+				h.ctxs[arg(0)].dead = true;
+				h.ctxs[arg(0)] = null;
+			}
+			return 0n;
+		case 103:
+			return BigInt(c.cx);
+		}
+		return -1n;
+	};
+
+	/* 3l's preemption point (call 105): another proc goes if this one has had its slice */
+	const done = (q) => { kcall(env, K.sysdone, q.p); return kw(); };
+	const yieldcall = (c) => {
+		x.preempt.value = h.multi ? QUANTUM : FOREVER;
+		if (!h.multi || performance.now() - h.slice < SLICE) return;
+		if (!h.cos.some((q) => q !== c && (q.state == 'ready' || q.state == 'blocked' && done(q) != 0))) return;
+		h.preempt = 1;
+		x.asstate.value = 1;
+	};
+
+	/*
+	 * A context's region: its stack [.., top) and saved frames [base, asptr).
+	 * rfork(RFMEM) procs share them at the same addresses, as Plan 9's
+	 * private stack segments: memory holds one's, the owner's; the others'
+	 * are kept here (t.saved) and swapped in when they go on.
+	 */
+	const minspOf = (t) => {
+		const d = m32();
+		let ms = t.top;
+		for (let q = t.asptr; q > t.base; ) {
+			const size = d.getInt32(q - 4, true), rec = q - size;
+			ms = Math.min(ms, d.getUint32(rec + 4, true));
+			q = rec;
+		}
+		return ms;
+	};
+	const save = (t) => {
+		const ms = minspOf(t), b = new Uint8Array(mem.buffer);
+		t.saved = { ms, stack: b.slice(ms, t.top), recs: b.slice(t.base, t.asptr) };
+	};
+	const claim = (t) => {
+		const key = t.base + ':' + t.top, r = h.regions.get(key);
+		if (!r) { h.regions.set(key, { owner: t }); return; }
+		if (r.owner === t) return;
+		if (r.owner && !r.owner.dead && r.owner.started) save(r.owner);
+		if (t.saved) {
+			const b = new Uint8Array(mem.buffer);
+			b.set(t.saved.stack, t.saved.ms);
+			b.set(t.saved.recs, t.base);
+			t.saved = null;
+		}
+		r.owner = t;
+	};
+	/* go on with c's current context: rewound, or started; the function to call */
+	const resume = (c) => {
+		const t = h.ctxs[c.cx];
+		claim(t);
+		if (!t.started) {
+			t.started = true;
+			x.asstate.value = 0;
+			const sp = (t.top - 16) & ~7;
+			m32().setUint32(sp, t.arg, true);
+			x.sp.value = sp;
+			x.asptr.value = t.base;
+			return tbl.get(t.fn);
+		}
+		x.asptr.value = t.asptr;
+		x.asstate.value = 2;
+		x.asret.value = c.ret;
+		return t.fn ? tbl.get(t.fn) : x._start;
+	};
+	/* libc's per-proc region (_perproc: _tos, privalloc's): swapped as procs take turns */
+	const pp = x.perproc ? x.perproc.value : 0, ppn = x.perprocsize ? x.perprocsize.value : 0;
+	const setpid = (v) => { if (pp && ppn >= 52) m32().setUint32(pp + 48, v, true); };	/* Tos.pid */
+	const ppsave = () => pp ? new Uint8Array(mem.buffer, pp, ppn).slice() : null;
+	const ppload = (v) => { if (pp && v) new Uint8Array(mem.buffer).set(v, pp); };
+
+	let entry = x._start;
+	if (job.snap) {
+		if (job.snap.length > mem.buffer.byteLength)
+			mem.grow(Math.ceil((job.snap.length - mem.buffer.byteLength) / 65536));
+		new Uint8Array(mem.buffer).set(job.snap);
+		h.ctxs = [{ fn: job.fn, base: job.base || x.asbase.value, top: job.top || x.stacktop.value, asptr: job.asptr, started: true }];
+		h.cos = [{ p: host, state: 'run', ret: 0n, cx: 0 }];
+		setpid(pid);
+		entry = resume(h.cos[0]);
+	} else {
+		// argc, argv[0] ... nil at sp; the strings above them, as Plan 9's kernel does
+		const b = new Uint8Array(mem.buffer), d = m32();
+		let top = x.sp.value;
+		const ptrs = [];
+		for (let i = 0, o = 0; i < job.argc; i++) {
+			let e = o;
+			while (job.args[e]) e++;
+			top -= e - o + 1;
+			b.set(job.args.subarray(o, e + 1), top);
+			ptrs.push(top);
+			o = e + 1;
+		}
+		top &= ~7;
+		top -= 4 * (ptrs.length + 2);
+		top &= ~7;
+		d.setInt32(top, ptrs.length, true);
+		ptrs.forEach((q, i) => d.setInt32(top + 4 + 4*i, q, true));
+		d.setInt32(top + 4 + 4*ptrs.length, 0, true);
+		x.sp.value = top;
+		setpid(pid);
+		h.ctxs = [{ fn: 0, base: x.asbase.value, top: x.stacktop.value, asptr: 0, started: true }];
+		h.cos = [{ p: host, state: 'run', ret: 0n, cx: 0 }];
+	}
+
+	/* an rfork(RFMEM) child of c: its stack and saved frames, at the same addresses, kept until it goes */
+	const mkchild = (c, rf) => {
+		const t = h.ctxs[c.cx];
+		const ct = { fn: t.fn, base: t.base, top: t.top, asptr: t.asptr, started: true };
+		claim(t);
+		save(ct);
+		const priv = ppsave();
+		if (priv && priv.length >= 52) new DataView(priv.buffer).setUint32(48, rf.pid, true);
+		h.ctxs.push(ct);
+		return { p: rf.p, state: 'ready', ret: 0n, cx: h.ctxs.length - 1, priv };
+	};
+
+	for (;;) {
+		h.block = 0;
+		h.preempt = 0;
+		h.ctxswitch = undefined;
+		env.fork = null;
+		env.rfmem = null;
+		h.slice = performance.now();
+		x.preempt.value = h.multi ? QUANTUM : FOREVER;
 		try {
-			for (;;) {
-				u.x._start();
-				const f = env.fork;
-				if (!f) {
-					// returned without exits: exits(nil)
-					const z = (u.x.sp.value - 8) & ~7;
-					new DataView(u.mem.buffer).setUint32(z, 0, true);
-					usys(env, fn, 8, z);
-				}
-				// fork: unwound - a copy of the memory goes with the child's Worker (ready, platnewproc)
-				env.fork = null;
-				env.forkimage = { module: job.module, snap: new Uint8Array(u.mem.buffer).slice(), asptr: u.x.asptr.value };
-				kcall(env, f.ready, f.p);
-				env.forkimage = null;
-				u.x.asstate.value = 2;
-				u.x.asret.value = env.x.retw.value < 0 ? -1n : BigInt(f.pid);
-			}
+			entry();
 		} catch (e) {
-			if (e !== EXEC) throw e;
+			if (e === EXEC) return;
+			throw e;
 		}
+		let c = h.cos[h.cur];
+		if (h.ctxswitch !== undefined) {
+			/* another context of the same proc */
+			h.ctxs[c.cx].asptr = x.asptr.value;
+			c.cx = h.ctxswitch;
+			c.ret = 0n;
+			entry = resume(c);
+			continue;
+		}
+		if (env.fork) {
+			/* fork: a copy of the memory goes with the child's Worker (ready, platnewproc); c goes on */
+			const f = env.fork, t = h.ctxs[c.cx];
+			t.asptr = x.asptr.value;
+			env.forkimage = { module: job.module, snap: new Uint8Array(mem.buffer).slice(),
+				asptr: t.asptr, base: t.base, top: t.top, fn: t.fn };
+			kcall(env, f.ready, f.p);
+			env.forkimage = null;
+			c.ret = kw() < 0 ? -1n : BigInt(f.pid);
+			entry = resume(c);
+			continue;
+		}
+		if (env.rfmem) {
+			/* rfork(RFMEM): the child a proc of this memory, its calls on its helper; c's too from now */
+			const rf = env.rfmem;
+			h.ctxs[c.cx].asptr = x.asptr.value;
+			if (!h.multi) {
+				kcall(env, rf.helperspawn, c.p);
+				if (kw() < 0) throw new Error('platform: no Worker for a helper');
+				h.multi = true;
+				h.memdone = rf.memdone;
+			}
+			const ch = mkchild(c, rf);
+			kcall(env, rf.ready, rf.p);
+			if (kw() < 0) {
+				h.ctxs.pop();
+				c.ret = -1n;
+			} else {
+				h.cos.push(ch);
+				c.ret = BigInt(rf.pid);
+			}
+			c.state = 'ready';
+		} else if (h.block) {
+			h.ctxs[c.cx].asptr = x.asptr.value;
+			c.state = 'blocked';
+		} else if (h.preempt) {
+			/* its slice is up: another goes, it is ready again */
+			h.ctxs[c.cx].asptr = x.asptr.value;
+			c.state = 'ready';
+			c.ret = 0n;
+		} else {
+			/* main or a context's function returned: exits(nil) */
+			const z = (x.sp.value - 8) & ~7;
+			m32().setUint32(z, 0, true);
+			x.asstate.value = 0;
+			sys(8, z);
+			if (!h.block) throw new Error('platform: exits returned');
+			c.state = 'blocked';
+		}
+		/* the next to go: round robin, after what the helpers finished */
+		let next = -1;
+		for (;;) {
+			const i32 = new Int32Array(env.mem.buffer);
+			const seen = Atomics.load(i32, h.memdone >> 2);
+			for (const q of h.cos) {
+				if (q.state != 'blocked')
+					continue;
+				const st = done(q);
+				if (st === 2) {
+					q.state = 'done';
+					h.ctxs[q.cx].dead = true;
+					if (q.p !== host) kcall(env, K.coend, q.p);
+				} else if (st === 1) {
+					claim(h.ctxs[q.cx]);	/* its results go to its stack: in memory first */
+					kcall(env, K.sysfin, q.p);
+					if (kw() === 1) continue;
+					kcall(env, K.sysret, q.p);
+					q.ret = env.x.retv.value;
+					if (env.note) { q.note = env.note; env.note = null; }
+					q.state = 'ready';
+				}
+			}
+			if (h.cos.every((q) => q.state == 'done')) {
+				kcall(env, K.coend, host);
+				throw MEMDONE;
+			}
+			for (let i = 1; i <= h.cos.length; i++) {
+				const j = (h.cur + i) % h.cos.length;
+				if (h.cos[j].state == 'ready') { next = j; break; }
+			}
+			if (next >= 0) break;
+			Atomics.wait(i32, h.memdone >> 2, seen);
+		}
+		if (next != h.cur) {
+			const was = h.cos[h.cur];
+			if (was.state != 'done') was.priv = ppsave();
+			ppload(h.cos[next].priv);
+		}
+		h.cur = next;
+		c = h.cos[next];
+		c.state = 'run';
+		entry = resume(c);
 	}
 }
 
@@ -148,7 +413,7 @@ function imports(env) {
 			const k = new Uint8Array(env.mem.buffer);
 			let e = arg(1);
 			while (k[e]) e++;
-			env.note = { handler: arg(0), msg: k.slice(arg(1), e), done: arg(2) };
+			env.note = { handler: arg(0), msg: k.slice(arg(1), e), done: arg(2), p: arg(3) };
 		},
 		platnoted: () => { env.noted = true; },
 		platwait: () => {
@@ -174,7 +439,7 @@ function imports(env) {
 				env.x.retw.value = -1;
 			}
 		},
-		platuser: () => runuser(env, arg(0)),
+		platuser: () => runuser(env, ufns(env, arg(0)), arg(1), arg(2)),
 		platcopyin: () => {
 			const u = env.user, a = arg(1), n = iarg(2);
 			if (!u || n < 0 || a + n > u.mem.buffer.byteLength) { env.x.retw.value = -1; return; }
@@ -194,6 +459,10 @@ function imports(env) {
 			let i = a;
 			while (i < e && b[i]) i++;
 			env.x.retw.value = i < e ? i - a : -1;
+		},
+		platrfmem: () => {
+			env.rfmem = { p: arg(0), ready: arg(1), helperspawn: arg(2), pid: arg(3), memdone: arg(4) };
+			env.user.x.asstate.value = 1;	/* unwind when the call returns */
 		},
 		platfork: () => {
 			env.fork = { p: arg(0), ready: arg(1), pid: arg(2) };
@@ -227,7 +496,7 @@ function imports(env) {
 // on a Worker: the kernel, and what this CPU runs
 function cpu({ module, mem, role, fn, arg, sp, boot, user }) {
 	const env = { mem, x: null, post: (m, t) => postMessage(m, t ?? []), user: null, exec: null, fork: null, forkimage: null,
-		note: null, noted: false, boot };
+		rfmem: null, note: null, noted: false, boot };
 	if (user) env.exec = user;	/* a fork's child */
 	try {
 		const inst = new WebAssembly.Instance(module, imports(env));
@@ -240,16 +509,20 @@ function cpu({ module, mem, role, fn, arg, sp, boot, user }) {
 			new DataView(mem.buffer).setUint32(top, arg, true);
 			env.x.sp.value = top;
 			env.x.table.get(fn)();
-			// the proc is Dead and this Worker out of the kernel: its Proc and KSTACK are free (newproc)
+			// the proc is Dead and this Worker out of the kernel: a Worker less on its Proc and KSTACK (newproc)
 			const gone = env.x.retw.value;
 			if (gone) {
 				const i32 = new Int32Array(mem.buffer);
-				Atomics.store(i32, gone >> 2, 1);
+				Atomics.sub(i32, gone >> 2, 1);
 				Atomics.notify(i32, gone >> 2);
 			}
 			close();
 		}
 	} catch (e) {
+		if (e === MEMDONE) {	/* rfork(RFMEM): the memory's procs are gone (runprog) */
+			close();
+			return;
+		}
 		postMessage({ halt: 'platform: ' + e + (e.stack ? ' ' + e.stack : '') });
 	}
 }
