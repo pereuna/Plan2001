@@ -216,6 +216,13 @@ eivät katoa. Liitetty teksti kulkee näppäiminä (`r`/`R`, muokkausnäppäimet
 ensin ylös, CR ja CRLF rivinvaihdoksi), sillä kbdfs:n `c`-polku pudottaa
 (`nbsend`) eikä mene riolle; Meta yksin on Kmod4. kbdfs heittää pois
 syötteen, jota kukaan ei lue `/dev/cons`ista - 9frontin tapa.
+Sivu (2.10.): kernel.html on koneen ruutu koko ikkunassa (ruudun koko
+ikkunan mukaan käynnistyksessä, `?screen=LxK` muu), rio täyttää sen;
+sarjakonsoli `?console=1`:llä alla. Juuri on yksi tiedosto `w3root.fs`
+(rootfs.c:n arkisto, `tools/build-bin3`), koska webterm tarjoilee vain
+litteitä tiedostoja; ilman sitä sivu kokoaa juuren `w3root.txt`:n
+listasta. Kesken: `net`-testissä auth-yhteys (`/567`) torjutaan joskus
+heti rcpu-yhteyden sulkemisen jälkeen (2/3 läpi), syy selvittämättä.
 webfs ja webcookies (profiili) tarvitsevat yleisen verkon, jota webterm ei
 anna: ne odottavat selaimen fetchin päälle tehtävää palvelua (myöhemmin).
 

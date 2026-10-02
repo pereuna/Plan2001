@@ -1,0 +1,101 @@
+#!/bin/rc
+# The public diskless sandbox on the cloud server (docs/cloud.md): run as
+# admin by tools/cloud/sandbox (with the page) or setup.rc (without), the
+# repo and the page through /mnt/term:  rc sandbox.rc REPO [SITE]
+#   webterm -n        the pages only, no WebSocket
+#   /sys/lib/sandbox  the wasm32 machine's page (SITE, tools/cloud/sandbox)
+#   acmechallenge     acmed -e: dns-01 in this machine's own zone; a name
+#                     outside it through its CNAME (Cloudflare):
+#                     _acme-challenge.plan2001.com ->
+#                     _acme-challenge.cpu.plan2001.com
+#   certrenew         Let's Encrypt for plan2001.com and *.cpu.plan2001.com
+#   tcp443            https: the sandbox only, as the last step - the
+#                     Monolith apps (*.cpu.plan2001.com) are served no more
+rfork e
+repo=$1
+site=$2
+tls=/sys/lib/tls
+fn fail { echo SANDBOX FAILED: $*; exit $1 }
+fn step { echo '###' $* }
+
+step webterm, with -n
+@{cd /tmp && cp $repo/sys/src/cmd/webterm.c . && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6} || fail webterm
+
+if(! ~ $#site 0){
+	step the page: /sys/lib/sandbox
+	mkdir -p /sys/lib/sandbox
+	rm -f /sys/lib/sandbox/*
+	cp $site/* /sys/lib/sandbox/ || fail page
+	chmod 664 /sys/lib/sandbox/*
+	ls -l /sys/lib/sandbox
+}
+test -s /sys/lib/sandbox/index.html || echo 'no page in /sys/lib/sandbox yet: tools/cloud/sandbox installs it'
+
+step the DNS challenge: /rc/bin/acmechallenge
+cat >/rc/bin/acmechallenge <<'X'
+#!/bin/rc
+# acmed -e: method, subject, token, response.  dns-01 in this machine's
+# own zone (cpu.plan2001.com); a subject outside it through its CNAME
+# there: _acme-challenge.plan2001.com -> _acme-challenge.cpu.plan2001.com
+rfork e
+if(! ~ $1 dns-01)
+	exit 'not dns-01'
+dom=$2
+if(! ~ $dom cpu.plan2001.com *.cpu.plan2001.com)
+	dom=cpu.plan2001.com
+dom=`{echo $dom | sed 's/^\*\.//'}
+{
+	echo 'dom=_acme-challenge.'^$dom^' soa='
+	echo '	txt="'^$4^'"'
+} >/lib/ndb/dnschallenge || exit 'no dnschallenge'
+echo refresh >/net/dns
+X
+chmod 775 /rc/bin/acmechallenge
+
+step the certificates: plan2001.com, *.cpu.plan2001.com
+auth/rsa2csr 'CN=plan2001.com' $tls/cpu.plan2001.com.key >$tls/acmed/plan2001.com.csr || fail csr
+cat >/rc/bin/certrenew <<'X'
+#!/bin/rc
+# Plan2001: the Let's Encrypt certificates, plan2001.com (the sandbox,
+# tcp443) and *.cpu.plan2001.com, through this machine's own ndb/dns
+# (acmechallenge), each fetched when there is none or it is older than
+# 60 days; what happens goes to /sys/log/certrenew
+rfork e
+d=/sys/lib/tls/acmed
+test -e /mnt/web/clone || webfs
+fn renew {
+	crt=$d/$1.crt
+	if(test -s $crt && ! ~ `{echo `{date -n} - `{mtime $crt | awk '{print $1}'} '>' 5184000 | hoc} 1)
+		status=''
+	if not {
+		if(auth/acmed -e /rc/bin/acmechallenge hostmaster@plan2001.com $d/$1.csr >$crt.new >[2]/tmp/certrenew.err && test -s $crt.new){
+			mv $crt.new $crt
+			echo `{date} $1 renewed >>/sys/log/certrenew
+		}
+		if not {
+			echo `{date} $1 failed: `{cat /tmp/certrenew.err} >>/sys/log/certrenew
+			rm -f $crt.new
+		}
+	}
+}
+renew plan2001.com
+renew cpu.plan2001.com
+X
+chmod 775 /rc/bin/certrenew
+test -e /sys/log/certrenew || touch /sys/log/certrenew
+certrenew
+tail -3 /sys/log/certrenew
+
+step https: the sandbox only (tcp443)
+cat >/rc/bin/service/tcp443 <<'X'
+#!/bin/rc
+# https: the public diskless sandbox only (webterm -n: no WebSocket), with
+# the Let's Encrypt certificate for plan2001.com (certrenew), else
+# *.cpu.plan2001.com's, else the development one
+crt=/sys/lib/tls/acmed/plan2001.com.crt
+test -s $crt || crt=/sys/lib/tls/acmed/cpu.plan2001.com.crt
+test -s $crt || crt=/sys/lib/tls/monolith.pem
+exec tlssrv -c $crt /bin/webterm -s -n -w /sys/lib/sandbox
+X
+chmod 775 /rc/bin/service/tcp443
+echo SANDBOX-DONE

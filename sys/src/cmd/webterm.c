@@ -32,6 +32,10 @@
  * attached|detached" (ps -a: webterm [APP STATE]; apps lists them):
  * webterm runs as none, whose processes the user cannot see.
  *
+ * With -n it serves the pages only: no WebSocket, no log - the public
+ * diskless sandbox (the wasm32 machine, monolith/web/kernel.html), which
+ * reaches no service here.
+ *
  * A browser says where its page came from (Origin); only this server's
  * own https origin (with -w) and the -o origins may open WebSockets or
  * post the log, so no other site can use a visitor's browser to reach
@@ -54,6 +58,7 @@ static char *webdir;
 static char *origins[16];	/* -o */
 static int norigins;
 static int secure;	/* -s: the connection is TLS already */
+static int pagesonly;	/* -n: the pages only, no WebSocket (the public sandbox) */
 
 /*
  * The rcpu session of an app: the client's script (as sent by drawterm) is
@@ -406,7 +411,7 @@ logline(char *hdr)
 static void
 usage(void)
 {
-	fprint(2, "usage: webterm [-s] [-w webdir] [-o origin]...\n");
+	fprint(2, "usage: webterm [-s] [-n] [-w webdir] [-o origin]...\n");
 	exits("usage");
 }
 
@@ -1050,6 +1055,9 @@ main(int argc, char **argv)
 	case 's':
 		secure = 1;
 		break;
+	case 'n':
+		pagesonly = 1;
+		break;
 	case 'o':
 		if(norigins == nelem(origins))
 			sysfatal("too many -o");
@@ -1064,7 +1072,7 @@ main(int argc, char **argv)
 	/* requests on one connection until it closes or becomes a WebSocket */
 	for(;;){
 		hdr = readhdr();
-		if(webdir != nil && strncmp(hdr, "POST /log ", 10) == 0){
+		if(webdir != nil && !pagesonly && strncmp(hdr, "POST /log ", 10) == 0){
 			if(!originok(hdr))
 				reply("403 Forbidden");
 			logline(hdr);
@@ -1082,6 +1090,8 @@ main(int argc, char **argv)
 			*e = 0;
 		up = header(hdr, "Upgrade");
 		if(up != nil && cistrcmp(up, "websocket") == 0){
+			if(pagesonly)
+				reply("403 Forbidden");
 			if(!originok(hdr))
 				reply("403 Forbidden");
 			if(secure){
