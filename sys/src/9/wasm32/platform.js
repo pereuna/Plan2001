@@ -500,6 +500,12 @@ function imports(env) {
 			env.post({ cursor: { x: iarg(0), y: iarg(1), clr: k.slice(arg(2), arg(2) + 32), set: k.slice(arg(3), arg(3) + 32) } });
 		},
 		platmousering: () => env.post({ mring: arg(0) }),
+		platnetopen: () => env.post({ netopen: { id: iarg(0), path: str(arg(1)), ring: arg(2), st: arg(3) } }),
+		platnetsend: () => {
+			const b = new Uint8Array(env.mem.buffer).slice(arg(1), arg(1) + iarg(2));
+			env.post({ netsend: { id: iarg(0), b } }, [b.buffer]);
+		},
+		platnetclose: () => env.post({ netclose: iarg(0) }),
 		platkbdring: () => env.post({ kring: arg(0) }),
 		platbootargs: () => {	/* as platbootfs: its size, then into the buffer */
 			const a = new TextEncoder().encode((env.boot?.args ?? []).map((s) => s + '\0').join(''));
@@ -552,6 +558,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 // on the page: the machine
 // front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's),
 //	canvas, screen ({ w, h }: the kernel's screen, shown on the canvas; its pointer the mouse),
+//	ws (the machine's webterm: ws://host:port, the network's WebSockets),
 //	failfork, failhelper, failrfmem (a test's: the nth fork's child, helper, rfork(RFMEM) child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
@@ -559,6 +566,22 @@ export async function boot(url, front = {}) {
 	const eia = [];
 	let ring = 0;		/* #t/eia0's input: the kernel's ring */
 	let kring = 0;		/* #b/kbd's (devkbd.c) */
+	const kbdq = [];	/* its messages the ring has had no room for yet */
+	let kbdtimer = 0;
+	const kbdpump = () => {
+		kbdtimer = 0;
+		if (!kring) { if (kbdq.length) kbdtimer = setTimeout(kbdpump, 20); return; }
+		const i32 = new Int32Array(mem.buffer), u8 = new Uint8Array(mem.buffer), N = 4096;
+		let w = Atomics.load(i32, (kring + 4) >> 2);
+		const w0 = w;
+		while (kbdq.length && w + kbdq[0].length - Atomics.load(i32, kring >> 2) <= N)
+			for (const c of kbdq.shift()) u8[kring + 8 + (w++ % N)] = c;
+		if (w !== w0) {
+			Atomics.store(i32, (kring + 4) >> 2, w);
+			Atomics.notify(i32, (kring + 4) >> 2);
+		}
+		if (kbdq.length) kbdtimer = setTimeout(kbdpump, 5);	/* the ring is full: when the kernel has read */
+	};
 	const me = import.meta.url;
 	// a proc's Worker the page could not make: -1 in its word (procspawn waits on it)
 	const failed = (job, why) => {
@@ -625,15 +648,39 @@ export async function boot(url, front = {}) {
 	};
 	/* the mouse: x, y, buttons (1 2 4; the wheel 8 16), msec into the kernel's ring */
 	let buttons = 0;
-	const mouse = (x, y, b) => {
+	/*
+	 * Events the ring has no room for wait here, in order: a move after a
+	 * waiting move with the same buttons takes its place (the pointer is
+	 * where it is now), a button or the wheel is never lost - a lost up
+	 * would leave a button down
+	 */
+	const mouseq = [];
+	let mousetimer = 0;
+	const mousepump = () => {
+		mousetimer = 0;
 		if (!screen.mring) return;
 		const i32 = new Int32Array(mem.buffer), r = screen.mring >> 2;
-		const w = Atomics.load(i32, r);
-		if (w - Atomics.load(i32, r + 1) >= 64) return;	/* full: this one goes */
-		const e = r + 2 + 4*(w % 64);
-		i32[e] = x; i32[e + 1] = y; i32[e + 2] = b; i32[e + 3] = performance.now() | 0;
-		Atomics.store(i32, r, w + 1);
-		Atomics.notify(i32, r);
+		let w = Atomics.load(i32, r);
+		const w0 = w;
+		while (mouseq.length && w - Atomics.load(i32, r + 1) < 64) {
+			const [x, y, b, ms] = mouseq.shift(), e = r + 2 + 4*(w % 64);
+			i32[e] = x; i32[e + 1] = y; i32[e + 2] = b; i32[e + 3] = ms;
+			w++;
+		}
+		if (w !== w0) {
+			Atomics.store(i32, r, w);
+			Atomics.notify(i32, r);
+		}
+		if (mouseq.length) mousetimer = setTimeout(mousepump, 5);
+	};
+	const mouse = (x, y, b, move) => {
+		if (!screen.mring) return;
+		const last = mouseq[mouseq.length - 1];
+		if (move && last && last.move && last[2] === b)
+			mouseq[mouseq.length - 1] = Object.assign([x, y, b, performance.now() | 0], { move });
+		else
+			mouseq.push(Object.assign([x, y, b, performance.now() | 0], { move }));
+		if (!mousetimer) mousepump();
 	};
 	if (canvas) {
 		const at = (e) => {
@@ -641,7 +688,11 @@ export async function boot(url, front = {}) {
 			return [Math.round((e.clientX - b.left) * canvas.width / b.width), Math.round((e.clientY - b.top) * canvas.height / b.height)];
 		};
 		const bits = (e) => (e.buttons & 1 ? 1 : 0) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
-		canvas.addEventListener('pointermove', (e) => { buttons = bits(e); mouse(...at(e), buttons); });
+		canvas.addEventListener('pointermove', (e) => {
+			const b = bits(e), moved = b === buttons;	/* buttons change on a move too (chords) */
+			buttons = b;
+			mouse(...at(e), buttons, moved);
+		});
 		canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); buttons = bits(e); mouse(...at(e), buttons); e.preventDefault(); });
 		canvas.addEventListener('pointerup', (e) => { buttons = bits(e); mouse(...at(e), buttons); });
 		canvas.addEventListener('wheel', (e) => {
@@ -652,6 +703,60 @@ export async function boot(url, front = {}) {
 		}, { passive: false });
 		canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 	}
+
+	/*
+	 * the network (devwsnet.c): conversation n a WebSocket to front.ws +
+	 * path (the machine's webterm); what it brings into the kernel's ring
+	 * (r, w, closed, b[64K]), the kernel woken; past a full ring the
+	 * connection fails rather than lose bytes, as drawterm's wsock.c
+	 */
+	const net = { ws: new Map() };
+	const NRING = 64*1024;
+	net.open = ({ id, path, ring, st }) => {
+		net.close(id);
+		const i32 = new Int32Array(mem.buffer);
+		const word = (a, v) => { Atomics.store(i32, a >> 2, v); Atomics.notify(i32, a >> 2); };
+		let ws, opened = false;
+		try {
+			ws = new WebSocket((front.ws ?? '') + path);
+		} catch (e) {
+			word(st, -1);
+			return;
+		}
+		ws.binaryType = 'arraybuffer';
+		net.ws.set(id, ws);
+		const end = (why) => {
+			if (net.ws.get(id) !== ws) return;
+			net.ws.delete(id);
+			if (!opened) word(st, -1);
+			else { Atomics.store(i32, (ring + 8) >> 2, why); Atomics.notify(i32, (ring + 4) >> 2); }
+		};
+		ws.onopen = () => { opened = true; word(st, 1); };
+		ws.onclose = () => end(1);
+		ws.onerror = () => end(2);
+		ws.onmessage = (e) => {
+			if (net.ws.get(id) !== ws) return;
+			const b = typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(e.data);
+			const u8 = new Uint8Array(mem.buffer);
+			let w = Atomics.load(i32, (ring + 4) >> 2);
+			if (w + b.length - Atomics.load(i32, ring >> 2) > NRING) {
+				end(3);
+				ws.close();
+				return;
+			}
+			for (const c of b) u8[ring + 12 + (w++ % NRING)] = c;
+			Atomics.store(i32, (ring + 4) >> 2, w);
+			Atomics.notify(i32, (ring + 4) >> 2);
+		};
+	};
+	net.send = ({ id, b }) => { const ws = net.ws.get(id); if (ws && ws.readyState === 1) ws.send(b); };
+	net.close = (id) => {
+		const ws = net.ws.get(id);
+		if (!ws) return;
+		net.ws.delete(id);
+		ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+		ws.close();
+	};
 
 	/* a test's: the nth Worker of a kind is not made - a fork's child, a helper, an rfork(RFMEM) child's (platform.h) */
 	const fails = { 1: front.failfork, 2: front.failhelper, 3: front.failrfmem }, made = { 1: 0, 2: 0, 3: 0 };
@@ -677,6 +782,9 @@ export async function boot(url, front = {}) {
 			if (m.flush) screen.flush(m.flush);
 			if (m.cursor) screen.cursor(m.cursor);
 			if (m.mring !== undefined) screen.mring = m.mring;
+			if (m.netopen) net.open(m.netopen);
+			if (m.netsend) net.send(m.netsend);
+			if (m.netclose !== undefined) net.close(m.netclose);
 			if (m.kring !== undefined) kring = m.kring;
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
@@ -704,16 +812,15 @@ export async function boot(url, front = {}) {
 			return n;
 		},
 		/* #b/kbd's messages (devkbd.c): r and a rune down, R up, c typed, each with its 0 */
+		/*
+		 * #b/kbd's messages (devkbd.c): r and a rune down, R up, c typed,
+		 * each with its 0.  None is lost: what the ring has no room for
+		 * waits here, in order, and goes in as the kernel reads
+		 */
 		kbd: (s) => {
-			if (!kring) return -1;
-			const b = new TextEncoder().encode(s);
-			const i32 = new Int32Array(mem.buffer), u8 = new Uint8Array(mem.buffer), N = 4096;
-			let w = Atomics.load(i32, (kring + 4) >> 2);
-			if (w + b.length - Atomics.load(i32, kring >> 2) > N) return 0;
-			for (const c of b) u8[kring + 8 + (w++ % N)] = c;
-			Atomics.store(i32, (kring + 4) >> 2, w);
-			Atomics.notify(i32, (kring + 4) >> 2);
-			return b.length;
+			kbdq.push(new TextEncoder().encode(s));
+			kbdpump();
+			return 1;
 		},
 		eia0inb64: (b) => window.monolith.eia0in(Uint8Array.from(atob(b), (c) => c.charCodeAt(0))),
 	};

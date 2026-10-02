@@ -26,7 +26,7 @@ import base64, json, os, re, socket, struct, subprocess, sys, tempfile, time, ur
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEVTOOLS = 19224
-HTTP = 18092
+HTTP = int(os.environ.get('HTTPPORT', '18092'))	# HTTPPORT=18080: an origin the machine's webterm takes (tools/vm-cpu)
 
 class Cdp:
 	"""The DevTools protocol over a minimal WebSocket client (text frames)."""
@@ -191,6 +191,9 @@ def main():
 					time.sleep(0.1)
 			# MOUSE: clicks on the kernel's screen, [fx, fy, button] its fractions, once it has said WAITFOR
 			clicks = json.loads(os.environ.get('MOUSE', '[]'))
+			if os.environ.get('EVAL'):	# EVAL=js: run on the page once it has settled (after SEND)
+				time.sleep(1.5)
+				cdp.js(os.environ['EVAL'])
 			if (keys or clicks) and os.environ.get('KEYDELAY'):	# KEYDELAY=s: what to click or type into comes later (rio)
 				time.sleep(float(os.environ['KEYDELAY']))
 			if clicks:

@@ -11,7 +11,8 @@
  * ended by a 0.  The runes are the browser's (e.key): the system's
  * layout is applied already, no scancodes, no kbmap.  The page writes
  * them into a ring (platkbdring); a kproc gives each message to the
- * queue whole, as a read wants it.
+ * queue whole, as a read wants it.  Nothing is dropped: a full queue
+ * stops the kproc (qwrite), a full ring keeps them on the page.
  */
 enum
 {
@@ -50,7 +51,7 @@ kbdproc(void*)
 		msg[n] = kring.b[kring.r % Nring];
 		kring.r++;
 		if(msg[n] == 0){
-			qproduce(kbdq, msg, n+1);
+			qwrite(kbdq, msg, n+1);
 			n = 0;
 		}else if(++n == sizeof msg)
 			n = 0;	/* not a message: dropped */
@@ -63,7 +64,6 @@ kbdreset(void)
 	kbdq = qopen(4*1024, Qmsg, 0, 0);
 	if(kbdq == nil)
 		panic("kbdreset");
-	qnoblock(kbdq, 1);
 	platkbdring(&kring);
 	kproc("kbdin", kbdproc, nil);
 }

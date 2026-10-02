@@ -152,7 +152,7 @@ kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 | | Sisältö | Valmis kun |
 |---|---|---|
 | D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa (valmis 2.10.) |
-| D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat |
+| D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat (valmis 2.10.) |
 | D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle |
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta |
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware |
@@ -190,6 +190,34 @@ D1 valmis (2.10.), Plan 9:n tapaan:
 - Testit: `rioclock` (clock rion ikkunassa), `riorc` (selaimen näppäimet
   rion rc-ikkunaan, äåö) ja `boot` (oletusinit: riostart, napsautus
   ikkunaan ja kirjoitus siihen); yhteensä 27.
+
+D2 valmis (2.10.): `#I` (`devwsnet.c`) on wasm32:n verkko, sidottuna
+`/net`iin. `/net/tcp/clone` ja `n/{ctl,data,local,remote,status}`:
+`connect kone!portti` avaa WebSocketin osoitteeseen `ws` + `/portti`
+(kernel.html: `?ws=`, https:llä wss samaan originiin, muuten seuraava
+portti kuten Monolithin sivulla; `tools/serve` välittää sen VM:n
+webtermille). Isäntä ei ratkaise mitään: WebSocket-palvelin on kone.
+Sivu omistaa WebSocketit, koska Workerit odottavat `Atomics.wait`issa:
+saapuvat tavut menevät keskustelun 64 kt:n renkaaseen ytimessä, ja täysi
+rengas katkaisee yhteyden (ei tavujen menetystä), lähtevät kulkevat
+viestinä sivulle. `/net/cs` vastaa kuten ndb/cs: `net` tai `tcp`, isäntä
+sellaisenaan, palvelu nimellä (`rcpu`, `ticket`, `exportfs`
+`/lib/ndb/common`ista) tai numerona; authdialin `net!...!ticket` toimii.
+Palvelut rajaa webterm (17019, 567; `-s`:llä 17030 ja `/rcpu`).
+Testi `net` (tarvitsee CPU-VM:n, `tools/vm start --disk
+~/.cache/plan2001/cpu.qcow2 --net`, origin 127.0.0.1:18080): rcpu:n
+p9any-tervehdys (dp9ik), haaste ja palvelimen tikettipyyntö takaisin,
+auth `net!cpu!ticket`illa, ja portti, jota webterm ei salli, torjutaan.
+Syöte (2.10., katselmus): mikään ei katoa ylivuodossa. Sivun näppäimistö-
+ja hiirijonot odottavat, kun ytimen rengas on täynnä; ytimen kbdin-kproc
+kirjoittaa kbdfs:n jonoon estävästi (`qwrite`). Hiiressä vain peräkkäiset
+liikkeet samoilla painikkeilla yhdistyvät, painallus, vapautus ja rulla
+eivät katoa. Liitetty teksti kulkee näppäiminä (`r`/`R`, muokkausnäppäimet
+ensin ylös, CR ja CRLF rivinvaihdoksi), sillä kbdfs:n `c`-polku pudottaa
+(`nbsend`) eikä mene riolle; Meta yksin on Kmod4. kbdfs heittää pois
+syötteen, jota kukaan ei lue `/dev/cons`ista - 9frontin tapa.
+webfs ja webcookies (profiili) tarvitsevat yleisen verkon, jota webterm ei
+anna: ne odottavat selaimen fetchin päälle tehtävää palvelua (myöhemmin).
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 
