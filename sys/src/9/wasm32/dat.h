@@ -12,6 +12,7 @@ typedef struct Label	Label;
 typedef struct Mach	Mach;
 typedef struct Page	Page;
 typedef struct PMMU	PMMU;
+typedef struct Umem	Umem;
 typedef struct Proc	Proc;
 typedef vlong		Tval;
 typedef struct Ureg	Ureg;
@@ -81,9 +82,13 @@ struct PMMU
 	 * turn and gives each call to the proc's helper, a Worker of the
 	 * proc's own (trap.c)
 	 */
-	long	*memdone;	/* the memory's: a helper adds 1 when a call is done; nil without RFMEM */
-	void	*hcall;		/* the call for the helper (trap.c's Call); nil: the proc ends (hdie) */
+	Umem	*umem;		/* the memory's group; nil without RFMEM */
+	long	*memdone;	/* &umem->done once the proc is one of its (rfmemstart) */
+	void	*hcall;		/* the call: the helper's (nil: the proc ends, hdie), or the one going on (pexit frees it) */
 	long	hreq;		/* 1: a call for the helper */
+	long	hquit;		/* 1: the helper goes (rfmemstart undone) */
+	Mach	*hmach;		/* the helper's, when it is not the proc's own Worker: kept with the Proc */
+	uchar	*hstack;	/* and its stack, KSTACK bytes */
 	long	hdone;		/* 1: the helper has done it */
 	long	hexit;		/* 1: the proc ended on its helper */
 	int	hdie;		/* a note ends it, on its helper */
@@ -94,6 +99,13 @@ struct PMMU
 #define	settxtflush(p,c)
 
 #include "../port/portdat.h"
+
+/* rfork(RFMEM): a memory's procs, and its Worker (platform.js runprog) */
+struct Umem
+{
+	Ref;
+	long	done;		/* a helper adds 1 when it has done a call */
+};
 
 struct Mach
 {

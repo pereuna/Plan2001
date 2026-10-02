@@ -6,13 +6,14 @@
 # chdir, exec and wait, rc -c, an interactive rc; C3a's notes and
 # rendezvous, and a fork whose child gets no Worker (the page's failfork);
 # C3b's rfork(RFMEM) procs, libthread and preemption (3c's host3 tests),
-# ten rounds of them under rc, and a note that ends an RFMEM proc.
+# ten rounds of them under rc, a note that ends an RFMEM proc, and an
+# rfork(RFMEM) undone when the parent's helper or the child gets no Worker.
 #   tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 t=$root/../sys/src/9/wasm32/test
 "$root/tools/build-9wasm32" >/dev/null
-[ -e "$root/build/wasm32/root/bin/c3a" ] || "$root/tools/build-bin3" >/dev/null
+[ -e "$root/build/wasm32/root/bin/c3b" ] || "$root/tools/build-bin3" >/dev/null
 run() {	# NAME ARGS [SEND [PAGEARGS]]
 	echo "test-9wasm32: $1"
 	PAGEARGS="$4" HALTWAIT=${HALTWAIT:-60} PAGE=kernel.html SERIAL=1 EXPECTTAIL=1 EXPECT="$t/$1.out" ARGS="$2" SEND="${3:-[]}" \
@@ -33,4 +34,6 @@ want rfmem $names && run rfmem '["/bin/rfmem"]'
 want threads $names && run threads '["/bin/threads"]'
 want preempt $names && run preempt '["/bin/preempt"]'
 want rfmemloop $names && HALTWAIT=200 run rfmemloop '["/bin/rc", "-c", "for(i in 1 2 3 4 5 6 7 8 9 10) { threads >/dev/null; rfmem >/dev/null; preempt >/dev/null }; echo ten rounds; threads | echo the pipe closed; ~ $status *'"'"'write on closed pipe'"'"'* && echo threads ended by its note"]'
+want failhelper $names && run failhelper '["/bin/c3b"]' '[]' '&failhelper=1'
+want failrfmem $names && run failrfmem '["/bin/c3b"]' '[]' '&failrfmem=1'
 echo "test-9wasm32: ok"

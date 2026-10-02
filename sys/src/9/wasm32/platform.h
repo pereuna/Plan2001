@@ -4,7 +4,8 @@
  */
 void	eiaout(void*, int);		/* #t/eia0: bytes to the page */
 void	eiaring(void*);			/* and from it: the page writes into this ring (uartwasm32.c) */
-void	platnewproc(void (*)(void*), void*, void*, long*);	/* fn(arg) on a Worker of its own, its stack's top; -1 in the word if the page can not make it */
+enum { Wproc, Wfork, Whelper, Wrfmem };	/* what a Worker is for: a proc, a fork's child, a helper, an rfork(RFMEM) child's (the page's tests) */
+void	platnewproc(void (*)(void*), void*, void*, long*, int);	/* fn(arg) on a Worker of its own, its stack's top; -1 in the word if the page can not make it; what for */
 int	platwait(long*, long, long);	/* Atomics.wait(addr, val, ms; -1 for ever): 0 woken, 1 timed out, 2 not val */
 int	platwake(long*, int);		/* Atomics.notify(addr, n) */
 vlong	platnsec(void);			/* nanoseconds since 1970 */
@@ -23,6 +24,7 @@ struct Ufns		/* the kernel's functions for the program's Worker (trap.c) */
 	int	(*sysfin)(Proc*);		/* its results out; 1 a note ends it on its helper */
 	vlong	(*sysret)(Proc*);		/* its result */
 	void	(*coend)(Proc*);		/* the memory's Worker is done with the proc */
+	void	(*memend)(Umem*);		/* and with the memory's group */
 };
 _Noreturn void	platuser(Ufns*, Proc*, ulong);	/* run the program (up, its pid), and each one exec makes next */
 int	platcopyin(void*, ulong, long);	/* from the program's memory: -1 not there */
@@ -30,7 +32,7 @@ int	platcopyout(ulong, void*, long);	/* to it */
 long	platustrlen(ulong, long);		/* a string's length there, at most the second; -1 none */
 int	platbrk(ulong);			/* its memory to the address at least: -1 can not */
 void	platfork(Proc*, int (*)(Proc*), ulong);	/* it unwinds, its memory the child's, the function readies the child (-1: none), both rewind (pid or -1, 0) */
-void	platrfmem(Proc*, int (*)(Proc*), int (*)(Proc*), ulong, long*);	/* rfork(RFMEM): it unwinds; the child's helper (the first function), the forking proc's if it has none (the second); both rewind; the memory's word */
+void	platrfmem(Proc*, int (*)(Proc*), ulong, Umem*, long*);	/* rfork(RFMEM): it unwinds; the function makes the child's helper and the forking proc's if it has none (-1: undone); both rewind; the memory's group and word */
 void	platnote(void*, char*, void (*)(Proc*), Proc*);	/* the proc's notify handler gets the note when the call returns; the function when it is done */
 void	platnoted(void);		/* noted(NCONT): back out of the handler */
 long	platbootfs(void*, long);	/* the files the page gave: its size, the archive into the buffer */

@@ -107,6 +107,7 @@ struct Call
 	Sys	*s;
 	vlong	r;
 	int	failed;		/* an error before the call or in it: r -1, errstr the call's */
+	int	heap;		/* malloc'd (sysprep), not on syscall's stack */
 };
 
 static int
@@ -359,10 +360,29 @@ syscall(int n, ulong a)
 	vlong r;
 
 	callprep(&c, n, a);
+	up->hcall = &c;
 	callrun(&c);
+	up->hcall = nil;
 	r = callfin(&c);
 	usernote();
 	return r;
+}
+
+/* p's call does not return (pexit): its buffers, and it if it is malloc'd */
+void
+callabort(Proc *p)
+{
+	Call *c;
+	int i;
+
+	if((c = p->hcall) == nil)
+		return;
+	p->hcall = nil;
+	for(i = 0; i < c->nb; i++)
+		free(c->b[i].k);
+	c->nb = 0;
+	if(c->heap)
+		free(c);
 }
 
 /*
@@ -401,6 +421,7 @@ sysprep(Proc *p, int n, ulong a)
 	if(c == nil)
 		panic("sysprep: no memory");
 	callprep(c, n, a);
+	c->heap = 1;
 	p->hcall = c;
 	p->hdone = 0;
 	if(c->failed || local(n)){
@@ -452,6 +473,14 @@ coend(Proc *p)
 	procrelease(p);
 }
 
+/* and with the memory's group */
+static void
+memend(Umem *u)
+{
+	if(decref(u) == 0)
+		free(u);
+}
+
 /* an rfork(RFMEM) proc's helper: its calls, on a Worker of its own */
 void
 helper(void)
@@ -462,6 +491,11 @@ helper(void)
 		while(up->hreq == 0)
 			platwait(&up->hreq, 0, -1);
 		up->hreq = 0;
+		if(up->hquit){
+			/* the rfork that made it was undone (rfmemstart) */
+			up->hquit = 0;
+			return;
+		}
 		c = up->hcall;
 		if(c == nil){
 			/* a note ends it (usernote, noted NDFLT): popnote's pexit, or the last note's */
@@ -488,4 +522,5 @@ Ufns ufns = {
 	sysfin,
 	sysret,
 	coend,
+	memend,
 };

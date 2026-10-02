@@ -246,14 +246,22 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   ...). Muut se antaa apuWorkerille, jatkaa seuraavalla valmiilla procilla
   ja viimeistelee kutsun (`sysfin`: kopiot ulos), kun apuWorker on valmis.
   Up on kutsuvan procin sekä muistin Workerissa että apuWorkerissa. Ensin
-  ohjelmaa ajanut proc saa apuWorkerin KSTACKinsa alaosaan, koska muistin
-  Worker pitää yläosan. Procin `workers` laskee Workerit, jotka voivat
-  vielä koskea Prociin. Note, joka lopettaa muistin procin, ja noted
+  ohjelmaa ajaneen procin apuWorkerilla on oma Machinsa ja pinonsa, jotka
+  säilyvät Procin mukana (`hmach`, `hstack`), sillä muistin Worker pitää
+  KSTACKin. Procin `workers` laskee Workerit, jotka voivat vielä koskea
+  Prociin. Ensimmäinen rfork(RFMEM) on transaktio (`rfmemstart`): ensin
+  vanhemman apuWorker ja sitten lapsen Worker, ja vasta sen jälkeen vanhempi
+  liittyy muistin ryhmään (`Umem`, viitelaskettu). Jos Workeria ei synny,
+  lapsi puretaan, apuWorker lopetetaan (`helperquit`), ja vanhempi saa -1:n
+  ja jatkaa kuten ennen. Note, joka lopettaa muistin procin, ja noted
   NDFLT viedään apuWorkerille, koska pexit ei kuulu muistin Workerille.
+  Pexit vapauttaa kesken jääneen kutsun puskurit (`callabort`).
   Kontekstit (kutsut 100–103) ja preemptio (kutsu 105, 10 ms:n viipale)
   ovat alustan. Rajat: exec RFMEM-procista ei vielä toimi; saman muistin
   procit käyttävät yhtä suoritinta; ohjelmaa ajavalle procille tullut note
-  toimitetaan sen seuraavassa kutsussa.
+  toimitetaan sen seuraavassa kutsussa; preemptiokohdat ovat taaksepäin
+  hyppäävien haarojen edessä, joten pitkä rekursio ilman silmukkaa voi
+  pitää muistin Workerin.
 - Juuri `#R` (`devrootfs.c`): sivun käynnistyksessä antamat tiedostot
   (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
   `#t`:n `/dev`iin sekä `#e`:n ja `#s`:n paikoilleen, avaa `#t/eia0`:n
@@ -266,8 +274,9 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   2000 forkia exitin, chdirin, execin ja waitin kanssa, rc -c,
   interaktiivinen rc, notes ja rendezvous, fork, jonka lapselle sivu ei
   tee Workeria: `?failfork=N`, sekä host3:n rfmem-, threads- ja
-  preempt-testit, kymmenen kierrosta niitä rc:n alla ja note, joka
-  lopettaa RFMEM-procin).
+  preempt-testit, kymmenen kierrosta niitä rc:n alla, note, joka
+  lopettaa RFMEM-procin, ja rfork(RFMEM), jonka vanhemman apuWorkerille
+  tai lapselle sivu ei tee Workeria: `?failhelper=N`, `?failrfmem=N`).
 
 | | Sisältö | Valmis kun |
 |---|---|---|
