@@ -216,13 +216,43 @@ eivät katoa. Liitetty teksti kulkee näppäiminä (`r`/`R`, muokkausnäppäimet
 ensin ylös, CR ja CRLF rivinvaihdoksi), sillä kbdfs:n `c`-polku pudottaa
 (`nbsend`) eikä mene riolle; Meta yksin on Kmod4. kbdfs heittää pois
 syötteen, jota kukaan ei lue `/dev/cons`ista - 9frontin tapa.
+Katselmuksen korjaukset (2.10.):
+- Renkaiden laskurit (verkko, eia0, näppäimistö, hiiri) ovat
+  etumerkittömiä modulo 2^32 ja renkaat kahden potensseja: indeksi on
+  maski sekä C:ssä että JS:ssä (`>>> 0`, `& (N-1)`). Ennen 2 Gt:n
+  liikenne olisi tehnyt JS:n Int32-laskurista negatiivisen ja kirjoittanut
+  ytimen muistiin renkaan eteen. Testi: `?ringstart=` aloittaa
+  verkkorenkaan laskurit 2^31:n ja 2^32:n alta, ja liikenne kulkee rajan
+  yli.
+- `/net/tcp/n` näkyy vasta, kun keskustelu on valmis: `newconv` ottaa
+  paikan lukon alla (`taken`), alustaa sen ja vasta sitten julkaisee
+  (`used`).
+- Keskustelun WebSocket on sivun (n, gen): uusi gen joka kerta, ja
+  open, send ja close kantavat sen, joten vanhan WebSocketin close, data
+  tai loppu ei koske uuteen. Renkaan tyhjentää sivu uuden genin avauksessa,
+  ja vain sivu kirjoittaa sitä, kaikki samassa säikeessä; ydin lukee vasta,
+  kun avaus on kuitattu. Avaus luopuu 60 s:n jälkeen kuten TCP:n connect,
+  sillä selain voi pidätellä WebSocketia pitkään epäonnistumisten jälkeen.
+  Testi `netloop`: neljä procia avaa ja sulkee rcpu-yhteyden 20 kertaa,
+  eikä yhdessäkään ole toisen tavuja. VM:n webterm sulkee nopeista
+  yhteyksistä noin kolmanneksen tai jättää hiljaiseksi (alarm rajaa
+  luvun); se on palvelimen asia.
+- Ohjelman virhe (WebAssemblyn trap, kelvoton taulun indeksi, pinon
+  loppuminen) lopettaa vain ohjelman: `sys: trap: ...` exitsinä kuten
+  Plan 9:ssä, kone jatkaa (testi `fault`). Uusi ohjelma aloittaa ilman
+  edellisen ohjelman odottavaa notea, ja note, jonka käsittelijä ei ole
+  ohjelman taulussa, lopettaa ohjelman eikä konetta. (plan2001.com:ssa
+  `echo` sai rc:n käsittelijän (240, echon taulussa 170); syytä ei saatu
+  toistettua.)
+
 Sivu (2.10.): kernel.html on koneen ruutu koko ikkunassa (ruudun koko
 ikkunan mukaan käynnistyksessä, `?screen=LxK` muu), rio täyttää sen;
 sarjakonsoli `?console=1`:llä alla. Juuri on yksi tiedosto `w3root.fs`
 (rootfs.c:n arkisto, `tools/build-bin3`), koska webterm tarjoilee vain
 litteitä tiedostoja; ilman sitä sivu kokoaa juuren `w3root.txt`:n
-listasta. Kesken: `net`-testissä auth-yhteys (`/567`) torjutaan joskus
-heti rcpu-yhteyden sulkemisen jälkeen (2/3 läpi), syy selvittämättä.
+listasta. `net`-testissä auth-yhteys (`/567`) torjutaan joskus heti
+rcpu-yhteyden jälkeen: VM:n webterm sulkee osan nopeista yhteyksistä
+(mitattu myös suoraan Linuxista, 26/80).
 webfs ja webcookies (profiili) tarvitsevat yleisen verkon, jota webterm ei
 anna: ne odottavat selaimen fetchin päälle tehtävää palvelua (myöhemmin).
 

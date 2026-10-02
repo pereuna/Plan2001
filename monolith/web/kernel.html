@@ -109,6 +109,7 @@ boot('9wasm32.wasm', {
 	ws: q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
 		: `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`),
 	failfork: Number(q.get('failfork')) || 0,
+	ringstart: Number(q.get('ringstart')) || 0,	/* a test's: the network rings' counters start there */
 	failhelper: Number(q.get('failhelper')) || 0,
 	failrfmem: Number(q.get('failrfmem')) || 0,
 });
