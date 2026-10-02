@@ -17,7 +17,9 @@
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
-const q = new URLSearchParams(location.search), args = q.getAll('arg');
+// init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test)
+const q = new URLSearchParams(location.search);
+const args = q.has('noinit') ? [] : q.getAll('arg').length ? q.getAll('arg') : ['/bin/rc', '/boot/init'];
 
 // the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c)
 async function rootfs() {
@@ -35,14 +37,22 @@ async function rootfs() {
 	return a;
 }
 
-// typing: a line at a time, echoed here (no kbdfs yet), to #t/eia0
-let line = '';
+// typing: each key to #t/eia0 as it comes - kbdfs (/boot/init) echoes and edits.
+// Characters are the browser's (e.key: the system's layout, äåö as they are), not scancodes
+const keys = { Enter: '\n', Backspace: '\b', Delete: '\x7f', Tab: '\t', Escape: '\x1b' };
 document.addEventListener('keydown', (e) => {
-	if (!window.monolith || e.ctrlKey || e.metaKey || e.altKey) return;
-	if (e.key === 'Enter') { pre.textContent += '\n'; window.monolith.eia0in(line + '\n'); line = ''; }
-	else if (e.key === 'Backspace') { if (line) { line = line.slice(0, -1); pre.textContent = pre.textContent.slice(0, -1); } }
-	else if (e.key.length === 1) { line += e.key; pre.textContent += e.key; }
-	else return;
+	if (!window.monolith || e.metaKey || e.altKey) return;
+	let k = keys[e.key];
+	if (e.ctrlKey && e.key.length === 1 && /[a-z@\[\\\]^_]/i.test(e.key))
+		k = String.fromCharCode(e.key.toUpperCase().charCodeAt(0) & 0x1f);
+	else if (!e.ctrlKey && e.key.length === 1)
+		k = e.key;
+	if (k === undefined) return;
+	window.monolith.eia0in(k);
+	e.preventDefault();
+});
+document.addEventListener('paste', (e) => {
+	if (window.monolith) window.monolith.eia0in(e.clipboardData.getData('text'));
 	e.preventDefault();
 });
 
