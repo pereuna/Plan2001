@@ -61,9 +61,6 @@ LEGACY = [
 		'BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi)'),
 	(r'^/%s/bin/(9660srv|disk/mk9660|disk/dump9660)$' % ARCH, 'ISO9660: the medium is a USB disk'),
 	(r'^/sys/src/boot/(pc|iso)(/|$)', 'BIOS loaders: Plan2001 boots by UEFI only'),
-	# the trace VM's profile starts rio; Plan2001's windows are browser tabs
-	(r'^/%s/bin/rio$|^/rc/bin/(window|wloc)$|^/sys/src/cmd/rio(/|$)' % ARCH,
-		'no rio: Plan2001 programs run in browser tabs (Monolith)'),
 ]
 SRCMAP = {	# binary -> source, where the name alone does not say it
 	'cwfs64x': '/sys/src/cmd/cwfs',

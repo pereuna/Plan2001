@@ -14,7 +14,7 @@ l3=$root/build/cc-native/3l
 "$root/tools/build-libc3" >/dev/null
 "$root/tools/build-3c3" >/dev/null	# libbio too
 INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
-libs="$out/lib/libbio.a $out/lib/libc.a"
+libs="$out/lib/libbio.a $out/lib/libregexp.a $out/lib/libauth.a $out/lib/libc.a"
 rm -rf "$out/root" "$out/o/cmd"
 mkdir -p "$out/root/bin" "$out/root/rc/lib" "$out/o/cmd/rc"
 fail=0
@@ -27,14 +27,17 @@ for f in code exec getflags glob here io lex pcmd pfnc simple subr trap tree var
 done
 [ $fail = 0 ] && "$l3" -o "$out/root/bin/rc" "$out"/o/cmd/rc/*.3 $libs || fail=1
 cp "$src/rc/rcmain.plan9" "$out/root/rc/lib/rcmain"
+# rc's own commands (/rc/bin, after /bin): rio's window and wloc
+mkdir -p "$out/root/rc/bin"
+cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc/bin/"
 # the wasm32 kernel's init (sys/src/9/wasm32/init)
 mkdir -p "$out/root/boot"
-cp "$P/sys/src/9/wasm32/init" "$out/root/boot/init"
+cp "$P/sys/src/9/wasm32/init" "$P/sys/src/9/wasm32/console" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
 # the one-file commands
-for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns; do	# not yet: sed (libregexp), mount (libauth)
+for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns sed mount pwd ps; do
 	if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/$c.3" "$c.c") >"$out/o/cmd/$c.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/$c" "$out/o/cmd/$c.3" $libs >>"$out/o/cmd/$c.err" 2>&1; then
 		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1
@@ -46,6 +49,53 @@ if ! (cd "$src/aux/kbdfs" && "$cc3" -FVw $INC -o "$out/o/cmd/kbdfs.3" kbdfs.c) >
    ! "$l3" -o "$out/root/bin/aux/kbdfs" "$out/o/cmd/kbdfs.3" "$out/lib/lib9p.a" "$out/lib/libauth.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/kbdfs.err" 2>&1; then
 	echo "build-bin3: kbdfs:"; head -5 "$out/o/cmd/kbdfs.err"; fail=1
 fi
+# ramfs (glenda's profile: /tmp), syscall (the profile's test of /tmp): 9front's
+if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/ramfs.3" ramfs.c) >"$out/o/cmd/ramfs.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/ramfs" "$out/o/cmd/ramfs.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/ramfs.err" 2>&1; then
+	echo "build-bin3: ramfs:"; head -5 "$out/o/cmd/ramfs.err"; fail=1
+fi
+if ! (cd "$src/syscall" && "$cc3" -FVw $INC -o "$out/o/cmd/syscall.3" syscall.c) >"$out/o/cmd/syscall.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/syscall" "$out/o/cmd/syscall.3" $libs >>"$out/o/cmd/syscall.err" 2>&1; then
+	echo "build-bin3: syscall:"; head -5 "$out/o/cmd/syscall.err"; fail=1
+fi
+# plumber and plumb (glenda's profile), stats (her riostart): 9front's
+mkdir -p "$out/o/cmd/plumber"
+for f in plumber fsys match rules; do
+	(cd "$src/plumb" && "$cc3" -FVw $INC -o "$out/o/cmd/plumber/$f.3" $f.c) >"$out/o/cmd/plumber.err" 2>&1 || { echo "build-bin3: plumber/$f.c:"; head -5 "$out/o/cmd/plumber.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/plumber" "$out"/o/cmd/plumber/*.3 "$out/lib/libplumb.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/plumber.err" 2>&1 || { echo "build-bin3: plumber:"; tail -5 "$out/o/cmd/plumber.err"; fail=1; }
+if ! (cd "$src/plumb" && "$cc3" -FVw $INC -o "$out/o/cmd/plumb.3" plumb.c) >"$out/o/cmd/plumb.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/plumb" "$out/o/cmd/plumb.3" "$out/lib/libplumb.a" $libs >>"$out/o/cmd/plumb.err" 2>&1; then
+	echo "build-bin3: plumb:"; head -5 "$out/o/cmd/plumb.err"; fail=1
+fi
+if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/stats.3" stats.c) >"$out/o/cmd/stats.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/stats" "$out/o/cmd/stats.3" "$out/lib/libdraw.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/stats.err" 2>&1; then
+	echo "build-bin3: stats:"; head -5 "$out/o/cmd/stats.err"; fail=1
+fi
+mkdir -p "$out/root/sys/lib/plumb"
+cp "$P"/subset/9front/sys/lib/plumb/basic "$P"/subset/9front/sys/lib/plumb/fileaddr "$out/root/sys/lib/plumb/"
+# glenda: her profile (the repo's) starts rio on a terminal with 9front's riostart; the
+# font it names, and its subfonts from the subset's tree (tools/subset/derive: binary,
+# not in the repo; without them rio has the default font)
+mkdir -p "$out/root/usr/glenda/lib" "$out/root/usr/glenda/bin/rc" "$out/root/usr/glenda/bin/wasm32" "$out/root/usr/glenda/tmp" "$out/root/lib/font/bit/vga"
+cp "$P/usr/glenda/lib/profile" "$out/root/usr/glenda/lib/profile"
+cp "$P/subset/9front/usr/glenda/bin/rc/riostart" "$out/root/usr/glenda/bin/rc/riostart"
+cp "$P/subset/9front/usr/glenda/lib/plumbing" "$out/root/usr/glenda/lib/plumbing"
+cp "$P/subset/9front/lib/font/bit/vga/unicode.font" "$out/root/lib/font/bit/vga/"
+if [ -d "$P/build/subset/amd64/src/lib/font/bit/vga" ]; then
+	cp "$P"/build/subset/amd64/src/lib/font/bit/vga/vga.* "$out/root/lib/font/bit/vga/"
+else
+	echo "build-bin3: no subfonts (tools/subset/derive): rio gets the default font"
+fi
+# rio: 9front's, the wasm32 machine's local terminal (docs/architecture.md, D1)
+mkdir -p "$out/o/cmd/rio"
+for f in "$src"/rio/*.c; do
+	if ! (cd "$src/rio" && "$cc3" -FVw $INC -o "$out/o/cmd/rio/$(basename "${f%.c}").3" "$(basename "$f")") >"$out/o/cmd/rio.err" 2>&1; then
+		echo "build-bin3: rio/$(basename "$f"):"; head -5 "$out/o/cmd/rio.err"; fail=1
+	fi
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/rio" "$out"/o/cmd/rio/*.3 "$out/lib/libcomplete.a" "$out/lib/libframe.a" "$out/lib/libplumb.a" \
+	"$out/lib/libdraw.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/rio.err" 2>&1 || { echo "build-bin3: rio:"; tail -5 "$out/o/cmd/rio.err"; fail=1; }
 # graphical programs: 9front's, unchanged
 mkdir -p "$out/o/cmd/clock"
 if ! (cd "$root/third_party/9apps" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" clock.c) >"$out/o/cmd/clock.err" 2>&1 ||
@@ -68,6 +118,6 @@ for t in forkloop c3a c3b c3d; do
 		echo "build-bin3: $t:"; head -5 "$out/o/cmd/$t.err"; fail=1
 	fi
 done
-(cd "$out/root" && find . -type f | sed 's|^\./||' | sort) >"$out/root.txt"
+(cd "$out/root" && { find . -type f; find . -type d -empty | sed 's|$|/|'; } | sed 's|^\./||' | sort) >"$out/root.txt"	# an empty directory: its name and a /
 echo "build-bin3: $out/root ($(grep -c '^bin/' "$out/root.txt") programs, $(du -sh "$out/root" | cut -f1))"
 [ $fail = 0 ]

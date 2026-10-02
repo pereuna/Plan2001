@@ -25,8 +25,5 @@ echo listening: 53 443 567 17019 17030 17443
 ls -l /srv/compute | grep -s '^--rw-rw-rw-' || fail /srv/compute not open to users
 mount -c /srv/compute /n/cloudcheck && cat /n/cloudcheck/status && unmount /n/cloudcheck
 grep -s 'wg0 pub' '#W/wg0/status' || fail no wg0
-for(f in /usr/admin/bin/rc/riostart /usr/glenda/bin/rc/riostart /amd64/bin/rio)
-	test -e $f && fail $f is there
-echo no rio
 rm -rf /tmp/cloudcheck
 echo CHECK-DONE

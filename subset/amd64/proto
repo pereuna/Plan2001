@@ -147,12 +147,14 @@ amd64	d775 sys sys
 		plumber	775 sys sys
 		pr	775 sys sys
 		ps	775 sys sys
+		pwd	775 sys sys
 		ramfs	775 sys sys
 		rc	775 sys sys
 		read	775 sys sys
 		reform	d775 sys sys
 			audio	775 sys sys
 			pm	775 sys sys
+		rio	775 sys sys
 		rm	775 sys sys
 		sam	775 sys sys
 		sed	775 sys sys
@@ -160,6 +162,7 @@ amd64	d775 sys sys
 		sort	775 sys sys
 		split	775 sys sys
 		srv	775 sys sys
+		stats	775 sys sys
 		swap	775 sys sys
 		syscall	775 sys sys
 		tar	775 sys sys
@@ -183,6 +186,115 @@ lib	d775 sys sys
 		bit	d775 sys sys
 			vga	d775 sys sys
 				unicode.font	664 sys sys
+				vga.0000-007F	664 sys sys
+				vga.00A0-021F	664 sys sys
+				vga.0222-0233	664 sys sys
+				vga.0250-02AD	664 sys sys
+				vga.02B0-02CF	664 sys sys
+				vga.02D8-02DD	664 sys sys
+				vga.02EE-02EE	664 sys sys
+				vga.0300-0301	664 sys sys
+				vga.0303-0303	664 sys sys
+				vga.0309-0309	664 sys sys
+				vga.0312-0314	664 sys sys
+				vga.0323-0323	664 sys sys
+				vga.0340-0341	664 sys sys
+				vga.0374-0375	664 sys sys
+				vga.037A-037A	664 sys sys
+				vga.037E-037E	664 sys sys
+				vga.0384-038A	664 sys sys
+				vga.038C-038C	664 sys sys
+				vga.038E-03A1	664 sys sys
+				vga.03A3-03CE	664 sys sys
+				vga.03D0-03D7	664 sys sys
+				vga.03DA-03F3	664 sys sys
+				vga.0400-0486	664 sys sys
+				vga.0488-04CE	664 sys sys
+				vga.04D0-04F5	664 sys sys
+				vga.04F8-04F9	664 sys sys
+				vga.0500-050F	664 sys sys
+				vga.0530-0556	664 sys sys
+				vga.0559-055F	664 sys sys
+				vga.0561-0587	664 sys sys
+				vga.0589-058A	664 sys sys
+				vga.0591-05A1	664 sys sys
+				vga.05A3-05B9	664 sys sys
+				vga.05BB-05C4	664 sys sys
+				vga.05D0-05EA	664 sys sys
+				vga.05F0-05F4	664 sys sys
+				vga.060C-060C	664 sys sys
+				vga.061B-061B	664 sys sys
+				vga.061F-061F	664 sys sys
+				vga.0621-063A	664 sys sys
+				vga.0640-0655	664 sys sys
+				vga.0660-066D	664 sys sys
+				vga.0670-06ED	664 sys sys
+				vga.06F0-06FE	664 sys sys
+				vga.10D3-10D3	664 sys sys
+				vga.10D7-10D7	664 sys sys
+				vga.10DA-10DA	664 sys sys
+				vga.10DD-10DD	664 sys sys
+				vga.10E6-10E6	664 sys sys
+				vga.1E00-1E9B	664 sys sys
+				vga.1EA0-1EF9	664 sys sys
+				vga.1F00-1F07	664 sys sys
+				vga.2000-2027	664 sys sys
+				vga.2030-2046	664 sys sys
+				vga.2048-204D	664 sys sys
+				vga.2070-2070	664 sys sys
+				vga.2074-208F	664 sys sys
+				vga.20A0-20AF	664 sys sys
+				vga.2100-213A	664 sys sys
+				vga.2153-2183	664 sys sys
+				vga.2190-21F3	664 sys sys
+				vga.2200-22F1	664 sys sys
+				vga.2300-2300	664 sys sys
+				vga.2302-2302	664 sys sys
+				vga.2308-230B	664 sys sys
+				vga.2310-2310	664 sys sys
+				vga.2318-2318	664 sys sys
+				vga.231A-231B	664 sys sys
+				vga.2320-2321	664 sys sys
+				vga.2329-232A	664 sys sys
+				vga.239B-23BD	664 sys sys
+				vga.23CE-23CE	664 sys sys
+				vga.23ED-23EF	664 sys sys
+				vga.23F4-23FA	664 sys sys
+				vga.2409-240D	664 sys sys
+				vga.2423-2424	664 sys sys
+				vga.2426-2426	664 sys sys
+				vga.2468-2468	664 sys sys
+				vga.2500-2595	664 sys sys
+				vga.25A0-25F7	664 sys sys
+				vga.2600-2602	664 sys sys
+				vga.2605-260D	664 sys sys
+				vga.2610-2613	664 sys sys
+				vga.2620-2620	664 sys sys
+				vga.2622-2622	664 sys sys
+				vga.2626-2626	664 sys sys
+				vga.2628-262B	664 sys sys
+				vga.262E-2637	664 sys sys
+				vga.2639-2653	664 sys sys
+				vga.2660-2667	664 sys sys
+				vga.2669-266F	664 sys sys
+				vga.29FA-29FA	664 sys sys
+				vga.FB00-FB05	664 sys sys
+				vga.FB50-FBB1	664 sys sys
+				vga.FBD3-FBE9	664 sys sys
+				vga.FBFC-FBFF	664 sys sys
+				vga.FC5B-FC63	664 sys sys
+				vga.FC90-FC90	664 sys sys
+				vga.FCF2-FCF4	664 sys sys
+				vga.FD3C-FD3F	664 sys sys
+				vga.FDF2-FDF2	664 sys sys
+				vga.FE50-FE52	664 sys sys
+				vga.FE54-FE66	664 sys sys
+				vga.FE68-FE6B	664 sys sys
+				vga.FE70-FE72	664 sys sys
+				vga.FE74-FE74	664 sys sys
+				vga.FE76-FEFC	664 sys sys
+				vga.FEFF-FEFF	664 sys sys
+				vga.FFFD-FFFD	664 sys sys
 	namespace	664 sys sys
 	ndb	d775 sys sys
 		local	664 sys sys
@@ -227,6 +339,8 @@ rc	d775 sys sys
 		srvtls	775 sys sys
 		ssam	775 sys sys
 		termrc	775 sys sys
+		window	775 sys sys
+		wloc	775 sys sys
 	lib	d775 sys sys
 		rcmain	664 sys sys
 sys	d775 sys sys
@@ -285,6 +399,9 @@ sys	d775 sys sys
 tmp	d555 sys sys
 usr	d775 sys sys
 	glenda	d755 glenda glenda
+		bin	d775 glenda glenda
+			rc	d775 glenda glenda
+				riostart	775 glenda glenda
 		lib	d775 glenda glenda
 			L.webcookies	l600 glenda glenda
 			plumbing	664 glenda glenda

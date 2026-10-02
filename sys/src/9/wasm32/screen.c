@@ -125,8 +125,18 @@ setcursor(Cursor *c)
 	platcursor(c->offset.x, c->offset.y, c->clr, c->set);
 }
 
+/*
+ * 9front's mouse settings (accelerated, linear, res, swap, ...): the
+ * page's pointer is the browser's, as the system has it - nothing to set
+ */
 void
-mousectl(Cmdbuf*)
+mousectl(Cmdbuf *cb)
 {
+	static char *ok[] = { "accelerated", "linear", "res", "swap", "reset", "hwaccel", "intellimouse", "ps2", "ps2intellimouse", "serial", "wheel" };
+	int i;
+
+	for(i = 0; i < nelem(ok); i++)
+		if(strcmp(cb->f[0], ok[i]) == 0)
+			return;
 	error(Ebadctl);
 }

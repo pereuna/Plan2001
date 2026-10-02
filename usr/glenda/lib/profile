@@ -31,10 +31,12 @@ case terminal
 	echo -n 'res 3' > '#m/mousectl'
 	prompt=('term% ' '	')
 	fn term%{ $* }
-	# Plan2001 has no rio: an rc prompt here, windows through Monolith
-	# (the browser drawterm) over the network
+	# Plan2001's USB install medium (plan2001=install in its plan9.ini):
+	# an rc prompt; else rio, as 9front's
 	if(~ $plan2001 install)
 		echo 'Plan2001 install medium: inst/start installs'
+	if not
+		rio -i riostart
 case cpu
 	bind /mnt/term/dev/cons /dev/cons
 	bind -q /mnt/term/dev/consctl /dev/consctl

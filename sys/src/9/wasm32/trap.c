@@ -26,6 +26,7 @@
  *	W	a buffer the call reads and writes, its length next: all of it
  *		copied out
  *	p	an int[2] the call writes (pipe)
+ *	A	an argv: its strings, to the nil, copied in (exec)
  */
 enum
 {
@@ -34,6 +35,8 @@ enum
 	Nbufs	= 4,
 	Maxbuf	= 16*1024*1024,
 	Maxstr	= 8192,
+	Maxargv	= 1024,
+	Maxargvsize	= 64*1024,
 };
 
 typedef uintptr Syscall(va_list);
@@ -60,7 +63,7 @@ static Sys systab[] =
 [CLOSE]		sysclose, nil, "i",
 [DUP]		sysdup, nil, "ii",
 [ALARM]		sysalarm, nil, "i",
-[EXEC]		sysexec, nil, "si",
+[EXEC]		sysexec, nil, "sA",
 [EXITS]		sysexits, nil, "S",
 [FAUTH]		sysfauth, nil, "is",
 [OPEN]		sysopen, nil, "si",
@@ -155,6 +158,38 @@ callstr(Call *c, ulong u)
 	return callbuf(c, u, n, 1, 0, 0);
 }
 
+/* an argv: the strings to its nil, the kernel's array of them */
+static char**
+callargv(Call *c, ulong u)
+{
+	char **argv, *s;
+	ulong a;
+	long n, used;
+	int i;
+
+	argv = callbuf(c, 0, (Maxargv+1)*sizeof(char*) + Maxargvsize, 0, 0, 0);
+	s = (char*)(argv + Maxargv+1);
+	used = 0;
+	for(i = 0; ; i++){
+		if(i == Maxargv)
+			error(Etoobig);
+		if(platcopyin(&a, u + i*BY2WD, BY2WD) < 0)
+			error(Ebadarg);
+		if(a == 0)
+			break;
+		n = platustrlen(a, Maxargvsize-used-1);
+		if(n < 0)
+			error(Etoobig);
+		if(platcopyin(s+used, a, n) < 0)
+			error(Ebadarg);
+		s[used+n] = 0;
+		argv[i] = s+used;
+		used += n+1;
+	}
+	argv[i] = nil;
+	return argv;
+}
+
 /* the program's words to the kernel's */
 static void
 marshal(Call *c, char *a)
@@ -191,6 +226,10 @@ marshal(Call *c, char *a)
 			break;
 		case 'p':
 			c->k[i] = (ulong)callbuf(c, c->u[i], 2*sizeof(int), 0, 1, 0);
+			i++;
+			break;
+		case 'A':
+			c->k[i] = (ulong)callargv(c, c->u[i]);
 			i++;
 			break;
 		}
@@ -397,7 +436,6 @@ local(int n)
 {
 	switch(n){
 	case RFORK:
-	case EXEC:
 	case BRK_:
 	case NOTIFY:
 	case NOTED:
@@ -507,6 +545,22 @@ helper(void)
 				up->lastnote == nil || up->lastnote->flag != NDebug);
 		}
 		callrun(c);
+		if(c->n == EXEC && !c->failed){
+			/*
+			 * exec: the proc leaves the memory, its new program
+			 * runs on this Worker (platexec gave it here); to the
+			 * memory's Worker it is gone
+			 */
+			callabort(up);
+			up->hexit = 1;
+			up->hdone = 1;
+			coherence();
+			ainc(up->memdone);
+			platwake(up->memdone, 1);
+			umemrelease(up);
+			m->helper = 0;
+			platuser(&ufns, up, up->pid);
+		}
 		up->hdone = 1;
 		coherence();
 		ainc(up->memdone);

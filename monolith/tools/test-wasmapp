@@ -191,6 +191,8 @@ def main():
 					time.sleep(0.1)
 			# MOUSE: clicks on the kernel's screen, [fx, fy, button] its fractions, once it has said WAITFOR
 			clicks = json.loads(os.environ.get('MOUSE', '[]'))
+			if (keys or clicks) and os.environ.get('KEYDELAY'):	# KEYDELAY=s: what to click or type into comes later (rio)
+				time.sleep(float(os.environ['KEYDELAY']))
 			if clicks:
 				want = os.environ.get('WAITFOR', '')
 				end = time.time() + 30
@@ -231,6 +233,8 @@ def main():
 				if k == 'Enter':	# what was typed ahead echoes at once: the next line after the answer
 					quiet(0.8)
 			end = time.time() + float(os.environ.get('HALTWAIT', '60'))	# HALTWAIT=s: a long test
+			if os.environ.get('RUNS'):	# RUNS=s: a machine that goes on (rio): look after s
+				end = time.time() + float(os.environ['RUNS'])
 			while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
 				try:
 					cdp.js('1')
@@ -256,7 +260,10 @@ def main():
 			if want is not None and got != want:
 				sys.stdout.write(got.decode(errors='backslashreplace'))
 				raise SystemExit(f'FAIL: {name}: its eia0 is not {os.environ["EXPECT"]} (build/wasmapp-{name}.txt)')
-			if not halt or 'platform:' in halt[0]:
+			if os.environ.get('RUNS'):
+				if halt:
+					raise SystemExit(f'FAIL: {name}: it halted: {halt} (build/wasmapp-{name}.log)')
+			elif not halt or 'platform:' in halt[0]:
 				raise SystemExit(f'FAIL: {name}: {halt or "did not halt"} (build/wasmapp-{name}.log)')
 			if os.environ.get('EXPECTJS'):	# EXPECTJS=expr: true on the page at the end
 				if not cdp.js(os.environ['EXPECTJS']):
