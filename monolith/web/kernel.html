@@ -9,10 +9,12 @@
 	@media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #ddd; } }
 	body { margin: 0; background: var(--bg); color: var(--fg); font: 14px monospace; }
 	pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; }
+	canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #777; touch-action: none; }
 </style>
 </head>
 <body>
-<!-- Plan2001's wasm32 kernel (sys/src/9/wasm32): its serial port on the page -->
+<!-- Plan2001's wasm32 kernel (sys/src/9/wasm32): its screen (?screen=WxH), and its serial port on the page -->
+<canvas id="screen" width="800" height="600"></canvas>
 <pre id="eia0"></pre>
 <script type="module">
 import { boot } from './platform.js';
@@ -37,22 +39,36 @@ async function rootfs() {
 	return a;
 }
 
-// typing: each key to #t/eia0 as it comes - kbdfs (/boot/init) echoes and edits.
-// Characters are the browser's (e.key: the system's layout, äåö as they are), not scancodes
-const keys = { Enter: '\n', Backspace: '\b', Delete: '\x7f', Tab: '\t', Escape: '\x1b' };
+// the keyboard: #b/kbd (devkbd.c) for kbdfs - each key down (r) and up (R)
+// as Plan 9's rune. Characters are the browser's (e.key: the system's
+// layout applied, äåö as they are), not scancodes: no kbmap
+const K = { Enter: '\n', Backspace: '\b', Tab: '\t', Escape: '\x1b', Delete: '\x7f',
+	Shift: '\uf016', Control: '\uf017', Alt: '\uf015', AltGraph: '\uf867', Meta: '\uf868',
+	ArrowUp: '\uf00e', ArrowDown: '\uf800', ArrowLeft: '\uf011', ArrowRight: '\uf012',
+	Home: '\uf00d', End: '\uf018', PageUp: '\uf00f', PageDown: '\uf013', Insert: '\uf014' };
+const down = new Map();	/* e.code: the rune its down sent, for its up */
 document.addEventListener('keydown', (e) => {
-	if (!window.monolith || e.metaKey || e.altKey) return;
-	let k = keys[e.key];
-	if (e.ctrlKey && e.key.length === 1 && /[a-z@\[\\\]^_]/i.test(e.key))
-		k = String.fromCharCode(e.key.toUpperCase().charCodeAt(0) & 0x1f);
-	else if (!e.ctrlKey && e.key.length === 1)
-		k = e.key;
-	if (k === undefined) return;
-	window.monolith.eia0in(k);
+	if (!window.monolith || e.metaKey) return;
+	const r = K[e.key] ?? ([...e.key].length === 1 ? e.key : undefined);
+	if (r === undefined) return;
+	down.set(e.code, r);
+	window.monolith.kbd('r' + r + '\0');
 	e.preventDefault();
 });
+document.addEventListener('keyup', (e) => {
+	if (!window.monolith) return;
+	const r = down.get(e.code);
+	if (r === undefined) return;
+	down.delete(e.code);
+	window.monolith.kbd('R' + r + '\0');
+	e.preventDefault();
+});
+window.addEventListener('blur', () => {	/* keys let go elsewhere */
+	for (const r of down.values()) window.monolith?.kbd('R' + r + '\0');
+	down.clear();
+});
 document.addEventListener('paste', (e) => {
-	if (window.monolith) window.monolith.eia0in(e.clipboardData.getData('text'));
+	if (window.monolith) for (const c of e.clipboardData.getData('text')) window.monolith.kbd('c' + (c === '\r' ? '' : c) + '\0');
 	e.preventDefault();
 });
 
@@ -61,6 +77,8 @@ boot('9wasm32.wasm', {
 	halt: (why) => { pre.textContent += '\n[halted: ' + why + ']\n'; },
 	fs: args.length ? await rootfs() : undefined,
 	args,
+	canvas: document.getElementById('screen'),
+	screen: (([w, h]) => ({ w: Number(w) || 800, h: Number(h) || 600 }))((q.get('screen') ?? '').split('x')),
 	failfork: Number(q.get('failfork')) || 0,
 	failhelper: Number(q.get('failhelper')) || 0,
 	failrfmem: Number(q.get('failrfmem')) || 0,

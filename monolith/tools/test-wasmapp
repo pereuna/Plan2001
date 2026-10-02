@@ -22,7 +22,7 @@ the screen goes to build/wasmapp-NAME.png.
                                            what it said (bytes) in
                                            build/wasmapp-P.txt, the same as FILE
 """
-import base64, json, os, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import base64, json, os, re, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEVTOOLS = 19224
@@ -170,6 +170,47 @@ def main():
 						break
 					time.sleep(0.1)
 				cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
+			# KEYS: typed on the page as a person types (the browser's key events), after it has settled
+			keys = json.loads(os.environ.get('KEYS', '[]'))
+			if keys:
+				last, since, end = None, time.time(), time.time() + 30
+				while time.time() < end:
+					try:
+						o = cdp.js('window.monolith && window.monolith.eia0b64()')
+					except RuntimeError:
+						o = None
+					if o != last:
+						last, since = o, time.time()
+					elif o and time.time() - since > 1.5:
+						break
+					time.sleep(0.1)
+			# MOUSE: clicks on the kernel's screen, [fx, fy, button] its fractions, once it has said WAITFOR
+			clicks = json.loads(os.environ.get('MOUSE', '[]'))
+			if clicks:
+				want = os.environ.get('WAITFOR', '')
+				end = time.time() + 30
+				while time.time() < end:
+					try:
+						if want in base64.b64decode(cdp.js('window.monolith.eia0b64()') or '').decode(errors='replace'):
+							break
+					except RuntimeError:
+						pass
+					time.sleep(0.2)
+				time.sleep(0.5)
+				for fx, fy, btn in clicks:
+					r = cdp.js("(() => { const b = document.getElementById('screen').getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; })()")
+					x, y = r[0] + fx*r[2], r[1] + fy*r[3]
+					bname = {1: 'left', 2: 'middle', 4: 'right'}[btn]
+					cdp.call('Input.dispatchMouseEvent', type='mouseMoved', x=x, y=y)
+					cdp.call('Input.dispatchMouseEvent', type='mousePressed', x=x, y=y, button=bname, buttons={1: 1, 2: 4, 4: 2}[btn], clickCount=1)	# the DOM's: 1 left, 2 right, 4 middle
+					time.sleep(0.2)
+					cdp.call('Input.dispatchMouseEvent', type='mouseReleased', x=x, y=y, button=bname, buttons=0, clickCount=1)
+					time.sleep(0.3)
+			for k in keys:
+				time.sleep(0.05 if len(k) == 1 else 0.6)
+				ev = {'key': k, 'code': k} if len(k) > 1 else {'key': k, 'text': k, 'code': 'Key' + k}
+				cdp.call('Input.dispatchKeyEvent', type='keyDown', **ev)
+				cdp.call('Input.dispatchKeyEvent', type='keyUp', **{x: ev[x] for x in ('key', 'code')})
 			end = time.time() + float(os.environ.get('HALTWAIT', '60'))	# HALTWAIT=s: a long test
 			while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
 				try:
@@ -190,11 +231,27 @@ def main():
 			if want is not None and os.environ.get('EXPECTTAIL'):
 				i = got.find(want.split(b'\n')[0])
 				got = got[i:] if i >= 0 else got
+			if want is not None and os.environ.get('MASKPIDS'):	# "prog pid: msg" (wait, notes): the pid N
+				mask = lambda b: re.sub(rb"([A-Za-z0-9_.]+) [0-9]+: ", rb"\1 N: ", b)
+				got, want = mask(got), mask(want)
 			if want is not None and got != want:
 				sys.stdout.write(got.decode(errors='backslashreplace'))
 				raise SystemExit(f'FAIL: {name}: its eia0 is not {os.environ["EXPECT"]} (build/wasmapp-{name}.txt)')
 			if not halt or 'platform:' in halt[0]:
 				raise SystemExit(f'FAIL: {name}: {halt or "did not halt"} (build/wasmapp-{name}.log)')
+			if os.environ.get('EXPECTJS'):	# EXPECTJS=expr: true on the page at the end
+				if not cdp.js(os.environ['EXPECTJS']):
+					raise SystemExit(f'FAIL: {name}: not true on the page: {os.environ["EXPECTJS"]}')
+			if os.environ.get('DRAWS'):	# DRAWS=N: the kernel's screen has N colours at least
+				time.sleep(0.5)
+				png = base64.b64decode(cdp.call('Page.captureScreenshot', format='png')['data'])
+				out = os.path.join(root, f'build/wasmapp-{name}.png')
+				open(out, 'wb').write(png)
+				n, _ = cdp.js(SIG)
+				fl = cdp.js('window.monolith.flushes')
+				print(f'test-wasmapp: {name}: {fl} flushes, {n} colours, {out}')
+				if not fl or n < int(os.environ['DRAWS']):
+					raise SystemExit(f'FAIL: {name}: the screen has {n} colours, {fl} flushes ({out})')
 			print(f'PASS: {name}, Plan2001\'s wasm32 kernel, in the browser')
 			return
 		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, 'the first flush')

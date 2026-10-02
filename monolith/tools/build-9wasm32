@@ -21,7 +21,7 @@ port=$P/subset/9front/sys/src/9/port
 INC="-I$P/wasm32/include -I$k -I$port -I$P/subset/9front/sys/include"
 # 9front's port/ that wasm32 uses (proc.c is wasm32's own)
 PORT="alloc xalloc allocb chan dev pgrp qio qlock taslock parse portclock tod print alarm auth mul64fract sysfile
-	devroot devcons devuart devpipe devenv devdup devsrv devmnt"
+	devroot devcons devuart devpipe devenv devdup devsrv devmnt devdraw devmouse"
 fail=0
 for s in "$k"/*.c $(for f in $PORT; do echo "$port/$f.c"; done); do
 	o=$out/o/$(basename "$(dirname "$s")")-$(basename "${s%.c}").3
@@ -31,5 +31,7 @@ for s in "$k"/*.c $(for f in $PORT; do echo "$port/$f.c"; done); do
 done
 [ $fail = 0 ] || exit 1
 rm -f "$out/9wasm32.wasm"
-"$l3" -k -v -E main -o "$out/9wasm32.wasm" "$out"/o/*.3 "$root/build/wasm32/lib/libc.a" 2>&1 | grep -v '^3l: [0-9]* preemption'
+"$l3" -k -v -E main -o "$out/9wasm32.wasm" "$out"/o/*.3 \
+	"$root/build/wasm32/lib/libmemlayer.a" "$root/build/wasm32/lib/libmemdraw.a" "$root/build/wasm32/lib/libdraw.a" \
+	"$root/build/wasm32/lib/libc.a" 2>&1 | grep -v '^3l: [0-9]* preemption'
 ls -l "$out/9wasm32.wasm"

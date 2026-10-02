@@ -486,6 +486,21 @@ function imports(env) {
 			if (arg(0)) new Uint8Array(env.mem.buffer).set(a.subarray(0, iarg(1)), arg(0));
 			env.x.retw.value = a.length;
 		},
+		platscreen: () => {
+			const sc = env.boot?.screen;
+			if (!sc) return;
+			const d = dv();
+			d.setInt32(arg(0), sc.w, true);
+			d.setInt32(arg(1), sc.h, true);
+		},
+		platfb: () => env.post({ fb: { addr: arg(0), stride: iarg(1), w: iarg(2), h: iarg(3) } }),
+		platflush: () => env.post({ flush: [iarg(0), iarg(1), iarg(2), iarg(3)] }),
+		platcursor: () => {
+			const k = new Uint8Array(env.mem.buffer);
+			env.post({ cursor: { x: iarg(0), y: iarg(1), clr: k.slice(arg(2), arg(2) + 32), set: k.slice(arg(3), arg(3) + 32) } });
+		},
+		platmousering: () => env.post({ mring: arg(0) }),
+		platkbdring: () => env.post({ kring: arg(0) }),
 		platbootargs: () => {	/* as platbootfs: its size, then into the buffer */
 			const a = new TextEncoder().encode((env.boot?.args ?? []).map((s) => s + '\0').join(''));
 			if (arg(0)) new Uint8Array(env.mem.buffer).set(a.subarray(0, iarg(1)), arg(0));
@@ -536,12 +551,14 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 
 // on the page: the machine
 // front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's),
+//	canvas, screen ({ w, h }: the kernel's screen, shown on the canvas; its pointer the mouse),
 //	failfork, failhelper, failrfmem (a test's: the nth fork's child, helper, rfork(RFMEM) child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
 	const mem = new WebAssembly.Memory({ initial: PAGES, maximum: MAXPAGES, shared: true });
 	const eia = [];
 	let ring = 0;		/* #t/eia0's input: the kernel's ring */
+	let kring = 0;		/* #b/kbd's (devkbd.c) */
 	const me = import.meta.url;
 	// a proc's Worker the page could not make: -1 in its word (procspawn waits on it)
 	const failed = (job, why) => {
@@ -552,6 +569,90 @@ export async function boot(url, front = {}) {
 		Atomics.notify(i32, job.up >> 2);
 		return true;
 	};
+	/*
+	 * the screen (screen.c): the kernel's framebuffer, XRGB32 in the shared
+	 * memory, drawn on front.canvas where it changed, once a frame; the
+	 * canvas's pointer the mouse, into the kernel's ring
+	 */
+	const screen = { f: null, dirty: null, mring: 0, img: null, flushes: 0 };
+	const canvas = front.canvas;
+	screen.fb = (fb) => {
+		screen.f = fb;
+		if (!canvas) return;
+		canvas.width = fb.w;
+		canvas.height = fb.h;
+		screen.img = canvas.getContext('2d').createImageData(fb.w, fb.h);
+	};
+	const paint = () => {
+		const r = screen.dirty, f = screen.f;
+		screen.dirty = null;
+		if (!r || !f || !canvas) return;
+		const src = new Uint8Array(mem.buffer), dst = screen.img.data;
+		for (let y = r[1]; y < r[3]; y++) {
+			let s = f.addr + y*f.stride + r[0]*4, d = (y*f.w + r[0])*4;
+			for (let x = r[0]; x < r[2]; x++, s += 4, d += 4) {
+				dst[d] = src[s + 2];
+				dst[d + 1] = src[s + 1];
+				dst[d + 2] = src[s];
+				dst[d + 3] = 255;
+			}
+		}
+		canvas.getContext('2d').putImageData(screen.img, 0, 0, r[0], r[1], r[2] - r[0], r[3] - r[1]);
+		screen.flushes++;
+	};
+	screen.flush = (r) => {
+		const d = screen.dirty;
+		screen.dirty = d ? [Math.min(d[0], r[0]), Math.min(d[1], r[1]), Math.max(d[2], r[2]), Math.max(d[3], r[3])] : r;
+		if (!d) requestAnimationFrame(paint);
+	};
+	/* Plan 9's cursor (16x16: set black, clr white) as the canvas's */
+	screen.cursor = (c) => {
+		if (!canvas) return;
+		const cc = document.createElement('canvas');
+		cc.width = cc.height = 16;
+		const g = cc.getContext('2d'), im = g.createImageData(16, 16);
+		for (let i = 0; i < 256; i++) {
+			const byte = i >> 3, bit = 0x80 >> (i & 7);
+			const set = c.set[byte] & bit, clr = c.clr[byte] & bit;
+			if (set || clr) {
+				const v = set ? 0 : 255;
+				im.data.set([v, v, v, 255], 4*i);
+			}
+		}
+		g.putImageData(im, 0, 0);
+		const hx = Math.min(15, Math.max(0, -c.x)), hy = Math.min(15, Math.max(0, -c.y));
+		canvas.style.cursor = `url(${cc.toDataURL()}) ${hx} ${hy}, auto`;
+	};
+	/* the mouse: x, y, buttons (1 2 4; the wheel 8 16), msec into the kernel's ring */
+	let buttons = 0;
+	const mouse = (x, y, b) => {
+		if (!screen.mring) return;
+		const i32 = new Int32Array(mem.buffer), r = screen.mring >> 2;
+		const w = Atomics.load(i32, r);
+		if (w - Atomics.load(i32, r + 1) >= 64) return;	/* full: this one goes */
+		const e = r + 2 + 4*(w % 64);
+		i32[e] = x; i32[e + 1] = y; i32[e + 2] = b; i32[e + 3] = performance.now() | 0;
+		Atomics.store(i32, r, w + 1);
+		Atomics.notify(i32, r);
+	};
+	if (canvas) {
+		const at = (e) => {
+			const b = canvas.getBoundingClientRect();
+			return [Math.round((e.clientX - b.left) * canvas.width / b.width), Math.round((e.clientY - b.top) * canvas.height / b.height)];
+		};
+		const bits = (e) => (e.buttons & 1 ? 1 : 0) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
+		canvas.addEventListener('pointermove', (e) => { buttons = bits(e); mouse(...at(e), buttons); });
+		canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); buttons = bits(e); mouse(...at(e), buttons); e.preventDefault(); });
+		canvas.addEventListener('pointerup', (e) => { buttons = bits(e); mouse(...at(e), buttons); });
+		canvas.addEventListener('wheel', (e) => {
+			const p = at(e), w = e.deltaY < 0 ? 8 : 16;
+			mouse(...p, buttons | w);
+			mouse(...p, buttons);
+			e.preventDefault();
+		}, { passive: false });
+		canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+	}
+
 	/* a test's: the nth Worker of a kind is not made - a fork's child, a helper, an rfork(RFMEM) child's (platform.h) */
 	const fails = { 1: front.failfork, 2: front.failhelper, 3: front.failrfmem }, made = { 1: 0, 2: 0, 3: 0 };
 	const spawn = (job) => {
@@ -572,12 +673,18 @@ export async function boot(url, front = {}) {
 			if (m.spawn) spawn({ module, mem, role: 'proc', boot: { args: front.args }, ...m.spawn });
 			if (m.log !== undefined) console.log('KLOG ' + m.log);
 			if (m.ring !== undefined) ring = m.ring;
+			if (m.fb) screen.fb(m.fb);
+			if (m.flush) screen.flush(m.flush);
+			if (m.cursor) screen.cursor(m.cursor);
+			if (m.mring !== undefined) screen.mring = m.mring;
+			if (m.kring !== undefined) kring = m.kring;
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
 		w.onerror = (e) => { if (!failed(job, e.message)) console.log('KERNEL-HALT platform: worker: ' + e.message); };
 		w.postMessage(job, job.user ? [job.user.snap.buffer] : []);
 	};
 	window.monolith = {
+		get flushes() { return screen.flushes; },
 		eia0bytes: () => { const b = new Uint8Array(eia.reduce((n, c) => n + c.length, 0)); let o = 0; for (const c of eia) { b.set(c, o); o += c.length; } return b; },
 		eia0out: () => new TextDecoder().decode(window.monolith.eia0bytes()),
 		eia0b64: () => { let s = ''; for (const c of window.monolith.eia0bytes()) s += String.fromCharCode(c); return btoa(s); },
@@ -596,7 +703,19 @@ export async function boot(url, front = {}) {
 			Atomics.notify(i32, (ring + 4) >> 2);
 			return n;
 		},
+		/* #b/kbd's messages (devkbd.c): r and a rune down, R up, c typed, each with its 0 */
+		kbd: (s) => {
+			if (!kring) return -1;
+			const b = new TextEncoder().encode(s);
+			const i32 = new Int32Array(mem.buffer), u8 = new Uint8Array(mem.buffer), N = 4096;
+			let w = Atomics.load(i32, (kring + 4) >> 2);
+			if (w + b.length - Atomics.load(i32, kring >> 2) > N) return 0;
+			for (const c of b) u8[kring + 8 + (w++ % N)] = c;
+			Atomics.store(i32, (kring + 4) >> 2, w);
+			Atomics.notify(i32, (kring + 4) >> 2);
+			return b.length;
+		},
 		eia0inb64: (b) => window.monolith.eia0in(Uint8Array.from(atob(b), (c) => c.charCodeAt(0))),
 	};
-	spawn({ module, mem, role: 'boot', boot: { fs: front.fs, args: front.args } });
+	spawn({ module, mem, role: 'boot', boot: { fs: front.fs, args: front.args, screen: front.screen } });
 }

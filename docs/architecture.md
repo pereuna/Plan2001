@@ -279,6 +279,22 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   libauth käännetään 3c:llä. `newproc` ohittaa vapaat Procit, joihin
   jokin Worker vielä viittaa (esimerkiksi kbdfs:n ensimmäinen proc, kun
   sen muisti jatkaa), eikä jää odottamaan niitä.
+- Ruutu, hiiri ja näppäimistö (C3d): 9frontin devdraw ja devmouse sekä
+  libmemdraw ja libmemlayer ytimessä. `screen.c`: kuvapuskuri on XRGB32
+  ytimen jaetussa muistissa (`?screen=LxK`, oletus 800x600), ja
+  `flushmemscreen` kertoo sivulle muuttuneen alueen; sivu piirtää sen
+  canvasille kerran ruudunpäivityksessä suoraan jaetusta muistista.
+  Kursori on canvasin CSS-kursori Cursorin bittikartoista. Canvasin
+  osoitin on hiiri: tapahtumat (x, y, painikkeet 1 2 4, rulla 8 16)
+  rengaspuskurin kautta kprocille, joka kutsuu `absmousetrack`ia.
+  Näppäimistö on `#b/kbd` (`devkbd.c`) kbdfs:lle: näppäin alas `r`, ylös
+  `R` ja liitetty merkki `c`, kukin selaimen merkkinä. Init sitoo `#i`,
+  `#m` ja `#b` `/dev`iin. Ytimen kellonaika asetetaan käynnistyksessä
+  alustan kellosta (`todset`), ja `/boot/init` kopioi
+  `/adm/timezone/local`in `/env/timezone`en. 9frontin clock piirtää
+  ytimen päällä. Testiajo: `DRAWS`, `KEYS` (selaimen omat
+  näppäintapahtumat), `MOUSE`, `EXPECTJS` ja `MASKPIDS` (wait-viestien
+  pid:t). Kesken: `keys`-testissä näppäin katoaa joskus.
   Sivun syötteet (initin argumentit, `#R`:n arkisto) tarkistetaan: koko
   kysytään ensin, jokaisella merkkijonolla on oltava 0 alueen sisällä, ja
   polussa ei saa olla alussa /:ta, tyhjää elementtiä eikä . tai ..
@@ -295,4 +311,4 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
 |---|---|---|
 | C1 | 3l:n ydintila (tuotu jaettu muisti, passiivinen data ja `_init`, platform-tuonnit, setlabel/gotolabel), alustan käynnistys ja kproc Workerina, eia0 | 3c:llä käännetty ydin tulostaa #t/eia0:aan, kproc ja sleep/wakeup toimivat (tekstitesti) |
 | C2 | 9frontin `port/`: chan, dev, qio, alloc, pgrp, devroot, devcons, devpipe, devenv, devdup, devmnt, devsrv, sysfile; järjestelmäkutsut prep- ja fin-vaiheiden kautta | ydin ajaa rc:n juurilevyltä, test-host3:n tekstitestit ilman drawtermia (C2a 1.10.: port/ toimii; C2b 1.10.: exec, fork, wait, putket ja interaktiivinen rc #t/eia0:ssa ilman drawtermia) |
-| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c (2.10.): kbdfs, `#p`, /boot/init; seuraavaksi devdraw, hiiri ja näppäimistö alustan ajureina | clock ja testisarja; drawterm poistuu selainpuolelta |
+| C3 | C3a (2.10.): Workerin luonnin kuittaus, notes, rendezvous; C3b (2.10.): RFMEM, libthread, kontekstit ja preemptio; C3c (2.10.): kbdfs, `#p`, /boot/init; C3d (2.10., välietappi): devdraw, hiiri ja näppäimistö alustan ajureina, clock piirtää | clock ja testisarja; drawterm poistuu selainpuolelta |
