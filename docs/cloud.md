@@ -327,3 +327,27 @@ uuden imagen esiin ehjänä. Kone haki heti oman Let's Encrypt
   `/mnt/term`in kautta tunnelista) 43 s.
 - Edellytys: `/sys/include/bootinfo.h` palvelimella, koska crsrv antaa
   CR:ille järjestelmän otsakkeet.
+
+## Julkinen sandbox: https://plan2001.com (2.10.)
+
+Portti 443 tarjoilee vain diskless-sandboxin: wasm32-koneen sivun
+(`monolith/web/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
+tiedostona, myös gzipattuina) hakemistosta `/sys/lib/sandbox`. Kone
+käynnistyy selaimessa rioon koko ikkunaan, eikä mitään tallenneta.
+`webterm -n` tarjoilee vain sivut: ei WebSocketteja eikä lokia, joten
+Monolithin sovellukset (`*.cpu.plan2001.com`) ja julkinen rcpu on ajettu
+alas. Ylläpito jatkuu WireGuard-tunnelin kautta.
+
+- **Asennus:** `tools/cloud/sandbox` rakentaa sivun ja ajaa palvelimella
+  `tools/cloud/sandbox.rc`:n tunnelin yli (`tools/cloud/wg-admin up`).
+  Skripti kääntää webtermin, asentaa sivun, kirjoittaa
+  `/rc/bin/acmechallenge`, `certrenew`in ja `tcp443`:n (viimeisenä).
+  `setup.rc` kutsuu samaa skriptiä ilman sivua.
+- **Varmenne plan2001.com:lle:** `acmed -e /rc/bin/acmechallenge`
+  kirjoittaa dns-01-haasteen koneen omaan vyöhykkeeseen. Nimi
+  `_acme-challenge.plan2001.com` on Cloudflaressa CNAME nimelle
+  `_acme-challenge.cpu.plan2001.com`, joten Let's Encrypt löytää haasteen
+  sieltä. Sama TLS-avain kuin `*.cpu.plan2001.com`:n varmenteella (se on
+  jo factotumissa). `certrenew` uusii molemmat.
+- **tcp443:** `tlssrv -c plan2001.com.crt /bin/webterm -s -n -w
+  /sys/lib/sandbox` (ennen varmennetta `*.cpu`:n tai kehitys-CA:n).
