@@ -9,7 +9,7 @@
  * on the other machines
  */
 extern	Dev	rootdevtab, consdevtab, envdevtab, pipedevtab, dupdevtab;
-extern	Dev	srvdevtab, mntdevtab, uartdevtab, rootfsdevtab, procdevtab, drawdevtab, mousedevtab, kbddevtab, wsnetdevtab, tlsdevtab, sdwdevtab;
+extern	Dev	srvdevtab, mntdevtab, uartdevtab, rootfsdevtab, procdevtab, drawdevtab, mousedevtab, kbddevtab, wsnetdevtab, tlsdevtab, sdwdevtab, webauthndevtab;
 
 Dev*	devtab[] = {
 	&rootdevtab,
@@ -28,6 +28,7 @@ Dev*	devtab[] = {
 	&wsnetdevtab,
 	&tlsdevtab,
 	&sdwdevtab,
+	&webauthndevtab,
 	nil,
 };
 

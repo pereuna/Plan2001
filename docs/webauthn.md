@@ -5,6 +5,13 @@ Tavoite: plan2001.com:n pääsivulla käyttäjä joko luo tunnuksen
 tunnuksilla. Kirjautumisen jälkeen hänen wasm32-koneensa saa avaimensa ja
 on pääte pilven CPU-palvelimelle.
 
+Päätökset (4.10.):
+- Yksi salasana sekä dp9ik:lle että secstorelle.
+- Kirjautumisvalikko on koneessa (Plan 9 -ohjelma), ja sivulla on vain
+  WebAuthn-painike.
+- plan2001.com ja `cpu.plan2001.com` ovat sama kone, ja sovellukset ovat
+  muodossa `APP.plan2001.com`.
+
 ## Periaate: WebAuthn avaa avaimet, Plan 9 tunnistaa
 
 Plan 9:n tunnistus pysyy sellaisenaan: dp9ik auth-palvelinta vastaan,
@@ -211,10 +218,28 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 
 ## Vaiheet ja testit
 
-1. **Laite:** `devwebauthn`, platform.js ja painike. Testi: Chromiumin
-   virtuaalinen autentikaattori (DevTools Protocol
-   `WebAuthn.addVirtualAuthenticator`, PRF päällä). `test-wasmapp` voi
-   luoda passkeyn ja kirjautua ilman ihmistä.
+1. **Laite:** `devwebauthn`, platform.js ja painike (tehty 4.10.).
+   - `#W/webauthn`: kone kirjoittaa pyynnön, ja kirjoitus odottaa sivun
+     vastausta. Note keskeyttää odotuksen, ja silloin sivun painike
+     poistuu. Vastaus luetaan samasta fd:stä alusta alkaen.
+   - Sivu tarkistaa, että rp on sen oma host tai sen yläpuolinen
+     verkkotunnus.
+   - Passkey on ES256 ja resident key. PRF:n tulos tulee sekä luonnissa
+     (`prfok`) että kirjautumisessa (`prf=`).
+   - Vastaus sisältää palvelimen tarkistusta varten myös `pubkey`
+     (SPKI), `attest`, `auth`, `client` ja `sig`. Muoto on base64url
+     ilman täytettä.
+   - Testi `webauthn` (`test/d5.c`): Chromiumin virtuaalinen
+     autentikaattori (DevTools Protocol `WebAuthn.addVirtualAuthenticator`,
+     PRF päällä), sivu localhostissa ja painikkeiden klikkaus
+     `test-wasmapp`illa (`WEBAUTHN`, `PAGEHOST`). Testi:
+     - luo passkeyn ja kirjautuu sillä,
+     - tarkistaa, että PRF on 32 tavua, sama samalla suolalla ja eri
+       toisella,
+     - tarkistaa, että user handle tulee ilman tunnistetta,
+     - peruu pyynnön sivulla,
+     - tarkistaa, että toisen verkkotunnuksen ja vääränlaisen pyynnön
+       laite tai sivu hylkää.
 2. **Kääre ja salasana:**
    - `auth/passkey` ja `auth/signup` koneella.
    - `tools/test-authsrv`iin signupd:n ja passkeyd:n Python-vastineet.

@@ -47,3 +47,5 @@ void	platmousering(void*);
 void	platnetopen(int, ulong, char*, void*, long*);	/* conversation n, its gen: the path (/17019), its ring (r, w, closed, b[64K]; the page empties it), its word (1 open, -1 not) */
 void	platnetsend(int, ulong, void*, long);	/* bytes out, if (n, gen) is still the page's */
 void	platnetclose(int, ulong);		/* hang up (n, gen) */		/* the page's mouse events into the ring: w, r, ev[64][4] (x, y, buttons, msec) */
+/* WebAuthn (devwebauthn.c): request gen to the page, which shows a button; its answer into buf (at most n), then its length in the word (-1 none); a nil request takes the page's button away */
+void	platwebauthn(ulong, char*, char*, long, long*);

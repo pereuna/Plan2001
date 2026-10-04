@@ -634,6 +634,7 @@ function imports(env) {
 		},
 		platnetclose: () => env.post({ netclose: { id: iarg(0), gen: arg(1) } }),
 		platkbdring: () => env.post({ kring: arg(0) }),
+		platwebauthn: () => env.post({ webauthn: { gen: arg(0), req: arg(1) ? str(arg(1)) : null, buf: arg(2), n: iarg(3), word: arg(4) } }),
 	};
 	// a function the kernel wants and the platform has not: say which
 	const platform = new Proxy(fns, { get: (o, k) => k === 'memory' ? env.mem : o[k] ?? (() => { throw new Error('platform: ' + String(k) + ' not here'); }) });
@@ -953,6 +954,80 @@ export async function boot(url, front = {}) {
 	 * (r, w, closed, b[64K]), the kernel woken; past a full ring the
 	 * connection fails rather than lose bytes, as drawterm's wsock.c
 	 */
+	/*
+	 * WebAuthn (devwebauthn.c, docs/webauthn.md): the machine's request
+	 * shows a button - the browser wants a gesture for a passkey - and its
+	 * click asks navigator.credentials, with the PRF extension; the answer
+	 * goes into the kernel's buffer, then its length into the word.  A new
+	 * request or the kernel's cancel (req null) takes the old one's
+	 * button away, and its late answer is not written.  rp is the page's
+	 * host or a domain above it
+	 */
+	const passkey = (() => {
+		let cur = null, ui = null;
+		const enc = (b) => { let s = ''; for (const c of new Uint8Array(b)) s += String.fromCharCode(c); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+		const dec = (s) => { const t = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)); return Uint8Array.from(t, (c) => c.charCodeAt(0)); };
+		const hide = () => { ui?.remove(); ui = null; };
+		const answer = (r, text) => {
+			if (cur !== r) return;
+			cur = null;
+			hide();
+			const b = new TextEncoder().encode(text), i32 = new Int32Array(mem.buffer);
+			if (b.length > r.n) { Atomics.store(i32, r.word >> 2, -1); Atomics.notify(i32, r.word >> 2); return; }
+			new Uint8Array(mem.buffer).set(b, r.buf);
+			Atomics.store(i32, r.word >> 2, b.length);
+			Atomics.notify(i32, r.word >> 2);
+		};
+		const ask = async (r, q) => {
+			const salt = q.salt ? dec(q.salt) : null, ext = salt ? { prf: { eval: { first: salt } } } : {};
+			const challenge = q.challenge ? dec(q.challenge) : crypto.getRandomValues(new Uint8Array(32));
+			if (r.kind === 'create') {
+				const c = await navigator.credentials.create({ publicKey: {
+					rp: { id: q.rp, name: 'Plan2001' },
+					user: { id: dec(q.user), name: q.name, displayName: q.name },
+					challenge, pubKeyCredParams: [{ type: 'public-key', alg: -7 }],	/* ES256: libsec's P-256 */
+					authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+					attestation: 'none', extensions: ext } });
+				const x = c.getClientExtensionResults().prf, pk = c.response.getPublicKey?.();
+				return 'ok id=' + enc(c.rawId) + ' prf=' + (x?.results?.first ? enc(x.results.first) : 'none') +
+					' prfok=' + (x?.enabled ? 1 : 0) + (pk ? ' pubkey=' + enc(pk) : '') +
+					' client=' + enc(c.response.clientDataJSON) + ' attest=' + enc(c.response.attestationObject);
+			}
+			const allow = q.allow ? q.allow.split(',').map((id) => ({ type: 'public-key', id: dec(id) })) : [];
+			const c = await navigator.credentials.get({ publicKey: { rpId: q.rp, challenge, allowCredentials: allow,
+				userVerification: 'preferred', extensions: ext } });
+			const x = c.getClientExtensionResults().prf, u = c.response.userHandle;
+			return 'ok id=' + enc(c.rawId) + ' prf=' + (x?.results?.first ? enc(x.results.first) : 'none') +
+				(u ? ' user=' + enc(u) : '') + ' auth=' + enc(c.response.authenticatorData) +
+				' client=' + enc(c.response.clientDataJSON) + ' sig=' + enc(c.response.signature);
+		};
+		return {
+			request(m) {
+				if (cur) answer(cur, 'error superseded');
+				hide();
+				if (m.req === null) { cur = null; return; }	/* the kernel's cancel */
+				const r = { ...m, kind: m.req.split(' ')[0] }, q = {};
+				for (const w of m.req.split(' ').slice(1)) { const i = w.indexOf('='); if (i > 0) q[w.slice(0, i)] = w.slice(i + 1); }
+				cur = r;
+				const host = location.hostname;
+				if (!q.rp || !(host === q.rp || host.endsWith('.' + q.rp))) { answer(r, 'error rp ' + (q.rp ?? '') + ' is not this page\'s'); return; }
+				if (r.kind === 'create' && (!q.user || !q.name)) { answer(r, 'error create wants user and name'); return; }
+				if (!window.PublicKeyCredential) { answer(r, 'error no WebAuthn in this browser'); return; }
+				ui = document.createElement('div');
+				ui.id = 'webauthn';
+				ui.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);z-index:10;display:flex;gap:12px;padding:16px;background:#ffffea;border:2px solid #000;font:16px sans-serif';
+				const go = document.createElement('button'), no = document.createElement('button');
+				go.id = 'webauthn-go';
+				go.textContent = r.kind === 'create' ? 'Create a passkey for ' + q.name : 'Sign in with a passkey';
+				no.id = 'webauthn-cancel';
+				no.textContent = 'Cancel';
+				go.onclick = () => { go.disabled = true; ask(r, q).then((t) => answer(r, t), (e) => answer(r, 'error ' + (e?.name || e))); };
+				no.onclick = () => answer(r, 'error cancelled');
+				ui.append(go, no);
+				document.body.append(ui);
+			},
+		};
+	})();
 	const net = { ws: new Map() };	/* n -> its conversation: { gen, ws, opened, session } */
 	const NRING = 64*1024;		/* a power of 2: the counters run on modulo 2^32, the index masked */
 	/*
@@ -1168,6 +1243,7 @@ export async function boot(url, front = {}) {
 			if (m.netsend) net.send(m.netsend);
 			if (m.netclose) net.close(m.netclose);
 			if (m.kring !== undefined) kring = m.kring;
+			if (m.webauthn) passkey.request(m.webauthn);
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }
 		};
 		w.onerror = (e) => { if (!failed(job, e.message)) console.log('KERNEL-HALT platform: worker: ' + e.message); };

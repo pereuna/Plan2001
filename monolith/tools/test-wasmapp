@@ -16,6 +16,13 @@ is no longer in the browser.)
   THEN='["arg", ...]'                      once it halts, the page again in the same
                                            browser (its OPFS) with these args;
                                            EXPECT is the second load's
+  WEBAUTHN='["go", "cancel", ...]'         a virtual authenticator (the DevTools
+                                           protocol's, with PRF) for the page's
+                                           passkeys (devwebauthn.c), and its
+                                           buttons clicked in this order: go
+                                           (the request's) or cancel
+  PAGEHOST=localhost                       the page from this host (WebAuthn
+                                           takes no IP address for its rp)
 """
 import base64, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
@@ -131,7 +138,7 @@ def main():
 			except Exception:
 				time.sleep(0.2)
 		page = os.environ.get('PAGE') or 'kernel.html'
-		url = f'http://127.0.0.1:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
+		url = f'http://{os.environ.get("PAGEHOST", "127.0.0.1")}:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
 		def withargs(url, args):
 			for a in args:	# ARGS='["-c", "echo hi"]'
 				url += '&arg=' + urllib.parse.quote(a, safe='')
@@ -148,6 +155,29 @@ def main():
 		cdp = Cdp(t['webSocketDebuggerUrl'])
 		cdp.call('Page.enable')
 		cdp.call('Runtime.enable')
+		# WEBAUTHN: the browser's passkeys are a virtual authenticator's, its PRF on; the page's
+		# buttons (devwebauthn.c's requests) clicked as a person would, in the order given
+		webauthn = json.loads(os.environ.get('WEBAUTHN', 'null'))
+		if webauthn is not None:
+			cdp.call('WebAuthn.enable', enableUI=False)
+			cdp.call('WebAuthn.addVirtualAuthenticator', options={'protocol': 'ctap2', 'ctap2Version': 'ctap2_1',
+				'transport': 'internal', 'hasResidentKey': True, 'hasUserVerification': True,
+				'isUserVerified': True, 'hasPrf': True, 'automaticPresenceSimulation': True})
+		def passkeys():
+			"""the next button the page shows, clicked"""
+			if not webauthn:
+				return
+			bid = 'webauthn-go' if webauthn[0] == 'go' else 'webauthn-cancel'
+			try:
+				r = cdp.js(f"(() => {{ const b = document.getElementById('{bid}'); if (!b || b.disabled) return null; const r = b.getBoundingClientRect(); return [r.left + r.width/2, r.top + r.height/2]; }})()")
+			except RuntimeError:
+				return
+			if not r:
+				return
+			webauthn.pop(0)
+			cdp.call('Input.dispatchMouseEvent', type='mouseMoved', x=r[0], y=r[1])
+			cdp.call('Input.dispatchMouseEvent', type='mousePressed', x=r[0], y=r[1], button='left', buttons=1, clickCount=1)
+			cdp.call('Input.dispatchMouseEvent', type='mouseReleased', x=r[0], y=r[1], button='left', buttons=0, clickCount=1)
 		if page:
 			# SEND: typed into #t/eia0 when it has settled (an interactive rc)
 			sends = json.loads(os.environ.get('SEND', '[]'))
@@ -252,6 +282,7 @@ def main():
 					cdp.js('1')
 				except RuntimeError:
 					pass
+				passkeys()
 				time.sleep(0.2)
 			# THEN='[args]': once it has halted, the page loaded again in the same browser
 			# (its origin's storage, OPFS: the machine's disk) with these; EXPECT is the second's

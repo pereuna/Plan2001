@@ -60,7 +60,7 @@ varaavat oman imagensa.
 `plat*`-kutsuista poistuivat `platbootfs`, `platbootargs`, `platscreen`
 ja `platfb`: niiden tieto on nyt BootInfossa. Jäljelle jäävät platform.h:n
 laitteet (konsoli, Workerit, Atomics, verkko, näppäimistö, hiiri,
-`platflush`, `platcursor`) ja `platnsec`/`platrandom`, joita kernel
+`platflush`, `platcursor`, WebAuthn `platwebauthn` - docs/webauthn.md) ja `platnsec`/`platrandom`, joita kernel
 käyttää ajon aikana kellona ja satunnaislukulähteenä.
 
 ## Kernelin puoli

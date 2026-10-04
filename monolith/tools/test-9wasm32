@@ -109,6 +109,11 @@ want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status;
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
 # password gives needkey; with no auth server, no tickets
 fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
+# WebAuthn (devwebauthn.c, docs/webauthn.md): the page's passkeys through #W, the browser's virtual
+# authenticator with PRF (test-wasmapp WEBAUTHN), the page at localhost (no IP address as rp): a passkey
+# made and got - PRF the same for the same salt, another for another - the user handle without its id,
+# a request cancelled on the page, another domain's refused, a request that is neither
+want webauthn $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "cancel"]' run webauthn '["/bin/d5", "localhost"]'
 if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
