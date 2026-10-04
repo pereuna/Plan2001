@@ -343,6 +343,9 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
        signature), mikä todistaa, että allekirjoitus tarkistetaan.
    - `tools/vm-cpu`: `passkeyd -r ${PASSKEY_RP:-localhost}
      -o PASSKEY_ORIGINS`.
+   - Koko sarja vaiheen 4 kanssa (4.10.): `test-9wasm32` ok ja
+     `test-native` ok, 59 PASS kumpikin. VM-testit, kuten `signupvm`,
+     ohitettiin, koska VM:ää ei ole.
 5. **plan2001.com:**
    - Sivu kirjautumisineen, kutsukoodit ja nimiavaruusrajat.
    - Sandbox jää kirjautumattomille.
