@@ -120,8 +120,16 @@ boot('9wasm32.wasm', {
 	canvas: document.getElementById('screen'),
 	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight) }))((q.get('screen') ?? '').split('x')),
 	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */
-	ws: q.get('ws') || (location.protocol === 'https:' ? `wss://${location.host}`
-		: `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`),
+	/*
+	 * the machine's network: this origin's own webterm, nothing a URL can
+	 * change - an app's rcpu has no TLS of its own inside the WebSocket
+	 * (aux/wsrcpu), so the page must not be pointed elsewhere (the review's:
+	 * ?ws= was a man in the middle).  https: wss on this host; http only
+	 * on loopback, the next port (tools/serve's relay: development and tests)
+	 */
+	ws: location.protocol === 'https:' ? `wss://${location.host}`
+		: /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname) ? `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`
+		: 'ws://0.0.0.0:0',	/* none */
 	failfork: Number(q.get('failfork')) || 0,
 	ringstart: Number(q.get('ringstart')) || 0,	/* a test's: the network rings' counters start there */
 	failhelper: Number(q.get('failhelper')) || 0,

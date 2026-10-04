@@ -189,7 +189,7 @@ rcpuserver(char *addr)
 	sysfatal("exec: %r");
 }
 
-/* webterm's appscript, the app's namespace file and image a test command */
+/* webterm's appscript, the app's namespace file and image a test command (%s) */
 static char appscript[] =
 	"n=`{read} && ! ~ $#n 0 && read -c $n >/dev/null || exit\n"
 	"mount -nc /fd/0 /mnt/term || exit\n"
@@ -198,9 +198,7 @@ static char appscript[] =
 	"	</dev/cons >/dev/cons >[2=1] aux/kbdfs -dq -m /mnt/term/dev\n"
 	"	bind -q /mnt/term/dev/cons /dev/cons\n"
 	"}\n"
-	"</dev/cons >/dev/cons >[2=1] service=cpu app=test rc -c 'echo app $app: service $service; cat /mnt/term/env/sysname; echo; "
-		"test -e /mnt/term/dev/kbd || echo no kbd: the console is the keyboard; test -e /mnt/term/dev/draw/new && echo the terminal draws; "
-		"cp /mnt/term/bin/rc /mnt/term/mnt/ram/rc && wc -c </mnt/term/bin/rc && wc -c </mnt/term/mnt/ram/rc; echo app done' &\n"
+	"</dev/cons >/dev/cons >[2=1] service=cpu app=test rc -c '%s' &\n"
 	"mainproc=$apid\n"
 	"rm -f /mnt/term/env/rfailed\n"
 	"noteproc=()\n"
@@ -213,8 +211,23 @@ static char appscript[] =
 	"~ $#noteproc 0 || echo -n hangup >/proc/$noteproc/notepg\n"
 	"echo -n hangup >/proc/$pid/notepg\n";
 
+/* -w: the terminal's namespace, its keyboard, draw, and a file copied both ways */
+static char appone[] =
+	"echo app $app: service $service; cat /mnt/term/env/sysname; echo; "
+	"test -e /mnt/term/dev/kbd || echo no kbd: the console is the keyboard; test -e /mnt/term/dev/draw/new && echo the terminal draws; "
+	"cp /mnt/term/bin/rc /mnt/term/mnt/ram/rc && wc -c </mnt/term/bin/rc && wc -c </mnt/term/mnt/ram/rc; echo app done";
+
+/*
+ * -W: sixteen copies at once, both ways - the session holds 16 writes when
+ * its page is dropped, more than the page's 64 KiB ring: the resume's one
+ * frame waits in the page's queue (the review's)
+ */
+static char appmany[] =
+	"for(i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16) { cp /mnt/term/bin/echo /mnt/term/mnt/ram/e$i & }; "
+	"wait; for(i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16) wc -c </mnt/term/mnt/ram/e$i; echo app done";
+
 static void
-appserver(char *addr)
+appserver(char *addr, char *cmd)
 {
 	int fd;
 	AuthInfo *ai;
@@ -229,7 +242,7 @@ appserver(char *addr)
 	dup(fd, 0);
 	dup(fd, 1);
 	close(fd);
-	execl("/bin/rc", "rc", "-c", appscript, nil);
+	execl("/bin/rc", "rc", "-c", smprint(appscript, cmd), nil);
 	sysfatal("exec: %r");
 }
 
@@ -380,7 +393,11 @@ main(int argc, char **argv)
 	}
 
 	if(argc == 3 && strcmp(argv[1], "-w") == 0){
-		appserver(argv[2]);
+		appserver(argv[2], appone);
+		exits(nil);
+	}
+	if(argc == 3 && strcmp(argv[1], "-W") == 0){
+		appserver(argv[2], appmany);
 		exits(nil);
 	}
 

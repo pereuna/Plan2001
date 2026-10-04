@@ -200,9 +200,9 @@ D1 valmis (2.10.), Plan 9:n tapaan:
 D2 valmis (2.10.): `#I` (`devwsnet.c`) on wasm32:n verkko, sidottuna
 `/net`iin. `/net/tcp/clone` ja `n/{ctl,data,local,remote,status}`:
 `connect kone!portti` avaa WebSocketin osoitteeseen `ws` + `/portti`
-(kernel.html: `?ws=`, https:llä wss samaan originiin, muuten seuraava
-portti kuten Monolithin sivulla; `tools/serve` välittää sen VM:n
-webtermille). Isäntä ei ratkaise mitään: WebSocket-palvelin on kone.
+(kernel.html: https:llä wss samaan originiin, http:llä vain loopbackilla
+seuraava portti, jonka `tools/serve` välittää VM:n webtermille; `?ws=`
+poistettiin D7:n katselmuksessa). Isäntä ei ratkaise mitään: WebSocket-palvelin on kone.
 Sivu omistaa WebSocketit, koska Workerit odottavat `Atomics.wait`issa:
 saapuvat tavut menevät keskustelun 64 kt:n renkaaseen ytimessä, ja täysi
 rengas katkaisee yhteyden (ei tavujen menetystä), lähtevät kulkevat
@@ -496,6 +496,40 @@ portissa ja että kaikki Monolithin JS poistetaan nyt.
   9ptermin ja natiivin drawtermin. `test-wasmapp` ajaa vain koneen sivua,
   ja sen käynnistysodotus ei enää odota olematonta tiedostoa, joten joka
   testi on noin 10 s nopeampi.
+- Katselmus (4.10.), korjattu:
+  - P0: kernel.html hyväksyi `?ws=`n. Sovelluksen `/rcpu`:ssa ei ole omaa
+    TLS:ää (`aux/wsrcpu`: p9any, sitten raaka virta), joten sivun voi
+    ohjata hyökkääjän WebSocketille, joka välittää authin oikealle
+    webtermille ja näkee istunnon. Nyt verkko on aina sivun oma origin:
+    https:llä `wss://` + host, http:llä vain loopbackilla seuraava portti
+    (`tools/serve`, testit), muuten ei verkkoa. Webterm vaatii myös
+    `Origin`in `/rcpu`:lle ja `/resume`lle.
+  - P1: webtermin istunto varasi 8 Mt ja useita procseja ennen authia, eikä
+    yhteydettömän istunnon ajastin koskenut kiinnitettyyn,
+    autentikoimattomaan istuntoon. Nyt puskuri kasvaa vasta datan mukana
+    (`Highwater` on yläraja), auth kertoo onnistumisestaan putkella, ja
+    istunto päättyy, jos authia ei ole tullut 30 sekunnissa
+    (`Authwait`) tai auth-lapsi kuolee. Istuntoja on yhtä aikaa
+    enintään 32 (`Maxsessions`, laskettu `/srv`:n istuntomerkinnöistä
+    ennen `wsaccept`ia).
+  - P1: jatkossa webterm lähettää koko jonon yhtenä kehyksenä (enintään
+    8 Mt), mutta sivu kirjoitti sen suoraan 64 KiB:n ytimen renkaaseen ja
+    katkaisi istunnon, kun se ei mahtunut. Nyt sivulla on jono, josta
+    tavut menevät renkaaseen sitä mukaa kuin ydin lukee. Istunto kuittaa
+    vain renkaaseen menneen, joten webtermin `Highwater` rajaa myös sivun
+    jonoa (`QMAX`, tavallisella yhteydellä `QMAXRAW` 1 Mt). Testi
+    `appresume`: 16 rinnakkaista kopiota, ja test-authsrv pysäyttää sivun
+    sekunniksi ennen katkaisua, joten jatko lähettää 98696 tavua yhtenä
+    kehyksenä. Ilman korjausta istunto katkeaa.
+  - P1: sivu piti kuittaamattomat lähetyksensä ilman rajaa. Nyt renkaassa
+    on sana `sendq`, jossa on sivun hallussa olevat tavut (lähettämättä
+    tai kuittaamatta). devwsnet:n kirjoittaja odottaa, kun sana ylittää
+    `Sendhigh`in (1 Mt), kuten täyden putken kohdalla, eikä odota
+    QLockin alla. Testi `sendq`: istunto, joka ei koskaan kuittaa
+    (test-authsrv:n sink). Sivu pitää enintään noin 1 Mt, ja kirjoittaja
+    odottaa. Ilman korjausta sivu pitää 3,7 Mt.
+  - Webtermin korjaukset on käännetty natiivilla 6c:llä, mutta niitä ei
+    ole ajettu oikeassa 9frontissa.
 - Laskentapooli (crsrv, rcc) jää palvelimelle, mutta selaimen CR on poissa
   D8:aan asti. Tarkistamatta: rc-httpd, select-handler ja webterm `-r`
   oikeassa 9frontissa (webterm käännetty natiivilla 6c:llä vain

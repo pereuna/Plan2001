@@ -419,6 +419,8 @@ enum {
 	Keep	= 10*60,
 	Ackevery	= 16*1024,
 	Highwater	= 8*1024*1024,
+	Authwait	= 30,		/* seconds for p9any: a session that has not authenticated by then ends */
+	Maxsessions	= 32,		/* sessions on this machine at once, authenticated or not */
 	Lowwater	= 4*1024*1024,
 };
 
@@ -434,7 +436,10 @@ struct Session {
 	int	att;		/* the attachment, -1 none */
 	int	gen;
 	long	since;		/* without an attachment since */
-	uchar	*buf;		/* to the page, unacknowledged: [base, base+nbuf), Highwater */
+	uchar	*buf;		/* to the page, unacknowledged: [base, base+nbuf), at most Highwater */
+	long	cap;		/* buf's size: it grows as rcpu sends, not up front (the review's) */
+	int	authed;		/* p9any done: the rcpu child said so */
+	long	start;
 	vlong	base;
 	long	nbuf;
 	vlong	rcvd;		/* bytes from the page */
@@ -508,6 +513,26 @@ allowed(char *app, char *service)
 		if(strcmp(f[i], service) == 0)
 			return 1;
 	return 0;
+}
+
+/* the sessions on this machine now: their ctl entries in /srv (webterm.HASH, srvname) */
+static int
+sessions(void)
+{
+	Dir *d;
+	int fd, i, n, k;
+
+	if((fd = open("/srv", OREAD)) < 0)
+		return 0;
+	k = 0;
+	while((n = dirread(fd, &d)) > 0){
+		for(i = 0; i < n; i++)
+			if(strncmp(d[i].name, "webterm.", 8) == 0 && strlen(d[i].name) == 8+16)
+				k++;
+		free(d);
+	}
+	close(fd);
+	return k;
 }
 
 static void
@@ -616,6 +641,18 @@ sessiondown(Session *s)
 		if((n = read(s->sfd, buf, m)) <= 0)
 			break;
 		qlock(&s->lk);
+		if(s->nbuf + n > s->cap){
+			m = s->cap ? 2*s->cap : 64*1024;
+			while(m < s->nbuf + n)
+				m *= 2;
+			if(m > Highwater)
+				m = Highwater;
+			if((s->buf = realloc(s->buf, m)) == nil){
+				qunlock(&s->lk);
+				break;
+			}
+			s->cap = m;
+		}
 		memmove(s->buf+s->nbuf, buf, n);
 		s->nbuf += n;
 		fd = s->att;
@@ -779,7 +816,8 @@ sessiontimer(Session *s)
 	for(;;){
 		sleep(2000);
 		qlock(&s->lk);
-		if(s->att < 0 && time(0) - s->since > Keep){
+		if(s->att < 0 && time(0) - s->since > Keep
+		|| !s->authed && time(0) - s->start > Authwait){
 			qunlock(&s->lk);
 			sessionend(s);
 		}
@@ -881,9 +919,11 @@ rcpu(char *hdr, char *app)
 	AuthInfo *ai;
 	uchar rnd[16];
 	char name[64], path[80], *origin, *script;
-	int p[2], c[2], st[2], fd;
+	int p[2], c[2], st[2], ap[2], fd;
 
-	if(pipe(p) < 0 || pipe(c) < 0 || pipe(st) < 0)
+	if(sessions() >= Maxsessions)
+		reply("503 Service Unavailable");
+	if(pipe(p) < 0 || pipe(c) < 0 || pipe(st) < 0 || pipe(ap) < 0)
 		reply("500 Internal Server Error");
 	origin = header(hdr, "Origin");
 	origin = strdup(origin != nil ? origin : "");
@@ -899,12 +939,15 @@ rcpu(char *hdr, char *app)
 		dup(p[1], 1);
 		dup(p[1], 2);	/* not the network: tlssrv's TLS is on 0 and 1 only */
 		close(p[1]);
+		close(ap[0]);
 		ai = auth_proxy(0, nil, "proto=p9any role=server");
 		if(ai == nil)
 			exits("auth_proxy");
 		if(auth_chuid(ai, nil) < 0)
 			exits("auth_chuid");
 		auth_freeAI(ai);
+		write(ap[1], "a", 1);	/* to the session: authenticated (its Authwait ends) */
+		close(ap[1]);
 		close(st[0]);
 		switch(rfork(RFPROC|RFFDG|RFNOTEG)){
 		case 0:
@@ -919,7 +962,9 @@ rcpu(char *hdr, char *app)
 	}
 	close(p[1]);
 	close(st[1]);
+	close(ap[1]);
 	ses.st = st[0];
+	ses.start = time(0);
 
 	genrandom(rnd, sizeof rnd);
 	hex(ses.token, rnd, sizeof rnd);
@@ -936,8 +981,6 @@ rcpu(char *hdr, char *app)
 	ses.since = time(0);
 	ses.attached.l = &ses.lk;
 	ses.room.l = &ses.lk;
-	if((ses.buf = malloc(Highwater)) == nil)
-		exits("no memory");
 
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
 	case -1:
@@ -958,12 +1001,21 @@ rcpu(char *hdr, char *app)
 			sessionup(&ses);
 		if(rfork(RFPROC|RFMEM) == 0)
 			sessiontimer(&ses);
+		if(rfork(RFPROC|RFMEM) == 0){
+			/* the rcpu child's word: authenticated, or gone without (then the session goes) */
+			if(read(ap[0], name, 1) == 1){
+				ses.authed = 1;
+				exits(nil);
+			}
+			sessionend(&ses);
+		}
 		sessionctl(&ses, c[0]);
 		sessionend(&ses);
 	}
 	close(p[0]);
 	close(c[0]);
 	close(st[0]);
+	close(ap[0]);
 	close(fd);
 	attach(ses.token, 0, origin);
 }
@@ -1012,6 +1064,9 @@ main(int argc, char **argv)
 			if(secure){
 				/* the origin's app and what its policy allows */
 				app = strdup(hostapp(hdr));
+				/* the sessions are a browser page's: no page, no session */
+				if((strcmp(path, "/rcpu") == 0 || strncmp(path, "/resume/", 8) == 0) && header(hdr, "Origin") == nil)
+					reply("403 Forbidden");
 				if(strcmp(path, "/rcpu") == 0 && allowed(app, "rcpu"))
 					rcpu(hdr, app);
 				if(strncmp(path, "/resume/", 8) == 0 && allowed(app, "rcpu"))

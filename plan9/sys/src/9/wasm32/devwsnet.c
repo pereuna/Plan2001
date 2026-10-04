@@ -33,6 +33,7 @@ enum
 {
 	Nconv	= 64,
 	Nring	= 64*1024,
+	Sendhigh	= 1024*1024,	/* what the page may hold for a conversation before its writer waits */
 
 	Qtop	= 1,
 	Qcs,
@@ -55,7 +56,8 @@ struct Ring
 {
 	ulong	r;		/* ours: read; modulo 2^32, Nring a power of 2 (the index masked) */
 	ulong	w;		/* the page's: bytes written */
-	long	closed;		/* the page's: 1 the WebSocket closed, 2 it failed, 3 the ring was full */
+	long	closed;		/* the page's: 1 the WebSocket closed, 2 it failed, 3 too much came */
+	long	sendq;		/* the page's: bytes it holds of ours - not sent yet, or (webterm's session) not acknowledged */
 	uchar	b[Nring];
 };
 
@@ -318,6 +320,29 @@ netwait(long *w, long v, int secs)
 	return 0;
 }
 
+/*
+ * Backpressure to the page: past Sendhigh of ours in the page (sendq) the
+ * writer waits for it to go down, as for a full pipe - the page would hold
+ * it all otherwise, without limit (the review's).  Not under the
+ * conversation's QLock: a hangup does not wait for it; a note interrupts.
+ */
+static void
+sendwait(Conv *cv)
+{
+	Ring *r;
+	ulong g;
+	long v;
+
+	r = cv->in;
+	g = cv->gen;
+	while(r != nil && (v = r->sendq) > Sendhigh){
+		if(!cv->open || cv->gen != g || r->closed)
+			return;
+		netnote();
+		platwait(&r->sendq, v, 1000);
+	}
+}
+
 /* a service's port: a name /lib/ndb/common gives, or its number, or a path (/rcpu: the name's); nil if none */
 static char*
 service(char *p)
@@ -524,6 +549,7 @@ wswrite(Chan *c, void *a, long n, vlong)
 		free(cb);
 		return n;
 	case Qdata:
+		sendwait(cv);
 		/* with the gen of the connection open now: a hangup and connect wait */
 		qlock(cv);
 		if(!cv->open || cv->st != 1 || cv->in->closed){

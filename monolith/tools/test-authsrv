@@ -230,7 +230,7 @@ class Authsrv:
 			else:
 				return
 
-DROPAT = 48*1024		# bytes to the page, then its WebSocket dropped once (each session)
+DROPAT = 256*1024		# bytes to the page, then its WebSocket dropped once (each session)
 ACKEVERY = 16*1024
 
 class Session:
@@ -243,8 +243,16 @@ class Session:
 		self.sent = 0				# to the page, all of it
 		self.att = None				# (write, text, close) of the attachment
 		self.dropped = False
+		self.holding = False
 		self.done = False
 		self.gen = 0
+
+	def drop(self):
+		print(f'test-authsrv: session {self.token[:8]}: dropping the page, {len(self.buf)} bytes not acknowledged', flush=True)
+		self.holding = False
+		if self.att:
+			self.att[2]()
+			self.att = None
 
 	def trim(self, n):
 		if self.base < n <= self.base + len(self.buf):
@@ -261,13 +269,14 @@ class Session:
 				if op in (0, 1, 2) and data:
 					self.buf.extend(data)
 					self.sent += len(data)
-					if self.att:
+					if self.att and not self.holding:
 						self.att[0](data)
 						if not self.dropped and self.sent >= DROPAT:
-							self.dropped = True
-							print(f'test-authsrv: session {self.token[:8]}: dropping the page at {self.sent}', flush=True)
-							self.att[2]()
-							self.att = None
+							# a stall, then the drop (a phone's browser in the background): what
+							# rcpu sends meanwhile stays here, the resume's backlog in one frame
+							self.dropped = self.holding = True
+							print(f'test-authsrv: session {self.token[:8]}: holding the page at {self.sent}', flush=True)
+							asyncio.get_running_loop().call_later(1, self.drop)
 		except (asyncio.IncompleteReadError, ConnectionError, EOFError):
 			pass
 		self.done = True
@@ -284,6 +293,8 @@ class Session:
 		if self.gen == 1:
 			text('s ' + self.token)
 		text(f'r {self.rcvd}')
+		if self.gen > 1:
+			print(f'test-authsrv: session {self.token[:8]}: backlog {len(self.buf)} bytes in one frame', flush=True)
 		if self.buf:
 			write(bytes(self.buf))
 		try:
@@ -355,11 +366,10 @@ async def ws(r, w, users):
 		del buf[:n]
 		return out
 	def write(data, op=0x82):
-		for i in range(0, len(data), 65535):
-			d = data[i:i+65535]
-			n = len(d)
-			h = bytes([op, n]) if n < 126 else bytes([op, 126]) + struct.pack('>H', n)
-			w.write(h + d)
+		"""one frame, as webterm sends one (a resume's whole backlog too)"""
+		n = len(data)
+		h = bytes([op, n]) if n < 126 else bytes([op, 126]) + struct.pack('>H', n) if n < 65536 else bytes([op, 127]) + struct.pack('>Q', n)
+		w.write(h + data)
 	def text(t):
 		write(t.encode(), 0x81)
 	def close():
@@ -376,8 +386,19 @@ async def ws(r, w, users):
 		return
 	if path == '/rcpu':	# a session, joined to the app's server waiting
 		try:
-			sf, sw_, sww, sdone = await asyncio.wait_for(appservers.get(), 30)
+			sf, sw_, sww, sdone = await asyncio.wait_for(appservers.get(), 5)
 		except asyncio.TimeoutError:
+			# none: a sink - a session that takes the page's bytes and never acknowledges them
+			print('test-authsrv: /rcpu: a sink', flush=True)
+			text('s ' + os.urandom(16).hex())
+			text('r 0')
+			try:
+				while True:
+					op, data = await frame()
+					if op == 8:
+						break
+			except (asyncio.IncompleteReadError, ConnectionError):
+				pass
 			close()
 			return
 		ses = Session(sf, sw_, sww, sdone)

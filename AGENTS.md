@@ -94,7 +94,7 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
 - D3 tunnistus: `crypto dp9ik dp9iknoas` (+ `dp9ikvm` VM:llä)
 - D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask` (+ `rcpuvm` VM:llä)
-- D7 sovelluksen origin: `app` (webterm:n `/rcpu`-istunto, katkos ja jatko)
+- D7 sovelluksen origin: `app appresume sendq` (webterm:n `/rcpu`-istunto, katkos ja jatko, iso jatko-jono, sivun takaisinkytkentä)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)
 
 Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),

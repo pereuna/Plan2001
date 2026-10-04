@@ -968,6 +968,17 @@ export async function boot(url, front = {}) {
 	 * connection.
 	 */
 	const ACKEVERY = 16*1024, KEEP = 10*60*1000;
+	/*
+	 * What comes faster than the kernel reads waits in the conversation's
+	 * queue and goes into its ring as the kernel makes room - a resumed
+	 * session sends its whole backlog at once, up to webterm's 8 MB.  A
+	 * session acknowledges only what is in the ring, so webterm's
+	 * high-water mark bounds the queue too: past QMAX the other end is not
+	 * keeping to it and the connection fails (QMAXRAW for a plain one).
+	 * The other way the kernel waits: sendq in the ring is what the page
+	 * holds of its bytes (devwsnet.c's Sendhigh).
+	 */
+	const QMAX = 9*1024*1024, QMAXRAW = 1024*1024;
 	net.open = ({ id, gen, path, ring, st }) => {
 		net.close({ id });	/* an older gen's, if its close has not come yet */
 		const i32 = new Int32Array(mem.buffer);
@@ -977,8 +988,10 @@ export async function boot(url, front = {}) {
 		Atomics.store(i32, ring >> 2, (front.ringstart ?? 0) | 0);
 		Atomics.store(i32, (ring + 4) >> 2, (front.ringstart ?? 0) | 0);
 		Atomics.store(i32, (ring + 8) >> 2, 0);
-		const s = path === '/rcpu' ? { token: null, rcvd: 0, acked: 0, sent: [], base: 0, ready: false, since: 0 } : null;
-		const c = { gen, ws: null, opened: false, session: s };
+		Atomics.store(i32, (ring + 12) >> 2, 0);
+		const s = path === '/rcpu' ? { token: null, rcvd: 0, delivered: 0, acked: 0, sent: [], sentlen: 0, base: 0, ready: false, since: 0 } : null;
+		const c = { gen, ws: null, opened: false, session: s, q: [], qlen: 0, pump: 0, sendq: 0 };
+		c.ring = ring;
 		net.ws.set(id, c);
 		const mine = () => net.ws.get(id) === c;
 		const end = (why) => {
@@ -987,24 +1000,47 @@ export async function boot(url, front = {}) {
 			if (!c.opened) word(st, -1);
 			else { Atomics.store(i32, (ring + 8) >> 2, why); Atomics.notify(i32, (ring + 4) >> 2); }
 		};
-		/* into the kernel's ring; past a full ring the connection fails rather than lose bytes */
-		const put = (b) => {
+		/* the queue into the kernel's ring, as much as it has room for; again soon while some is left */
+		const deliver = () => {
+			c.pump = 0;
+			if (!mine()) return;
 			const u8 = new Uint8Array(mem.buffer);
 			let w = Atomics.load(i32, (ring + 4) >> 2) >>> 0;
-			if (((w - (Atomics.load(i32, ring >> 2) >>> 0)) >>> 0) + b.length > NRING) {
+			let room = NRING - ((w - (Atomics.load(i32, ring >> 2) >>> 0)) >>> 0), n = 0;
+			while (c.q.length && room > 0) {
+				const b = c.q[0], k = Math.min(b.length, room);
+				for (let i = 0; i < k; i++) u8[ring + 16 + (w++ & (NRING - 1))] = b[i];
+				room -= k;
+				n += k;
+				if (k === b.length) c.q.shift(); else c.q[0] = b.subarray(k);
+			}
+			if (n) {
+				c.qlen -= n;
+				Atomics.store(i32, (ring + 4) >> 2, w | 0);
+				Atomics.notify(i32, (ring + 4) >> 2);
+				if (s) {
+					s.delivered += n;
+					if (s.delivered - s.acked >= ACKEVERY && c.ws?.readyState === 1) { s.acked = s.delivered; c.ws.send('a ' + s.acked); }
+				}
+			}
+			if (c.q.length) c.pump = setTimeout(deliver, 5);
+		};
+		const put = (b) => {
+			if (c.qlen + b.length > (s ? QMAX : QMAXRAW)) {
 				end(3);
-				c.ws.close();
+				c.ws?.close();
 				return false;
 			}
-			for (const x of b) u8[ring + 12 + (w++ & (NRING - 1))] = x;
-			Atomics.store(i32, (ring + 4) >> 2, w | 0);
-			Atomics.notify(i32, (ring + 4) >> 2);
+			c.q.push(b);
+			c.qlen += b.length;
+			if (!c.pump) deliver();
 			return true;
 		};
 		/* the session has the page's bytes up to n: what it sent before that is not kept */
 		const trim = (n) => {
-			while (s.sent.length && s.base + s.sent[0].length <= n) s.base += s.sent.shift().length;
-			if (s.sent.length && n > s.base) { s.sent[0] = s.sent[0].subarray(n - s.base); s.base = n; }
+			while (s.sent.length && s.base + s.sent[0].length <= n) { s.sentlen -= s.sent[0].length; s.base += s.sent.shift().length; }
+			if (s.sent.length && n > s.base) { s.sentlen -= n - s.base; s.sent[0] = s.sent[0].subarray(n - s.base); s.base = n; }
+			net.sendq(c, ring, s.sentlen);
 		};
 		const control = (ws, t) => {
 			if (t.startsWith('s ')) s.token = t.slice(2);
@@ -1050,20 +1086,41 @@ export async function boot(url, front = {}) {
 				if (s && typeof e.data === 'string') { control(ws, e.data); return; }
 				const b = typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(e.data);
 				if (!put(b) || !s) return;
-				s.rcvd += b.length;
-				if (s.rcvd - s.acked >= ACKEVERY) { s.acked = s.rcvd; ws.send('a ' + s.acked); }
+				s.rcvd += b.length;	/* had: a resume starts after it; acknowledged once in the ring (deliver) */
 			};
 		};
 		connect(path);
+	};
+	/* how much the page holds of the kernel's bytes for c: its writer waits past devwsnet's Sendhigh */
+	net.sendq = (c, ring, n) => {
+		if (n === c.sendq) return;
+		const i32 = new Int32Array(mem.buffer);
+		c.sendq = n;
+		net.sendqmax = Math.max(net.sendqmax ?? 0, n);	/* a test's: the most the page has held */
+		Atomics.store(i32, (ring + 12) >> 2, n);
+		Atomics.notify(i32, (ring + 12) >> 2);
+	};
+	/* a plain connection: what the WebSocket has not sent yet, looked at again until it is gone */
+	const rawq = (c) => {
+		c.rawt = 0;
+		if (net.ws.get(c.id) !== c) return;
+		const n = c.ws?.bufferedAmount ?? 0;
+		net.sendq(c, c.ring, n);
+		if (n) c.rawt = setTimeout(() => rawq(c), 20);
 	};
 	net.send = ({ id, gen, b }) => {
 		const c = net.ws.get(id);
 		if (!c || c.gen !== gen) return;
 		if (c.session) {
 			c.session.sent.push(b);	/* until the session acknowledges it */
+			c.session.sentlen += b.length;
+			net.sendq(c, c.ring, c.session.sentlen);
 			if (c.session.ready && c.ws?.readyState === 1) c.ws.send(b);
-		} else if (c.ws?.readyState === 1)
+		} else if (c.ws?.readyState === 1) {
 			c.ws.send(b);
+			c.id = id;
+			if (!c.rawt) rawq(c);
+		}
 	};
 	net.close = ({ id, gen }) => {	/* gen undefined: whichever */
 		const c = net.ws.get(id);
@@ -1109,6 +1166,7 @@ export async function boot(url, front = {}) {
 	};
 	window.monolith = {
 		get flushes() { return screen.flushes; },
+		get sendqmax() { return net.sendqmax ?? 0; },
 		eia0bytes: () => { const b = new Uint8Array(eia.reduce((n, c) => n + c.length, 0)); let o = 0; for (const c of eia) { b.set(c, o); o += c.length; } return b; },
 		eia0out: () => new TextDecoder().decode(window.monolith.eia0bytes()),
 		eia0b64: () => { let s = ''; for (const c of window.monolith.eia0bytes()) s += String.fromCharCode(c); return btoa(s); },
