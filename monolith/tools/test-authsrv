@@ -15,8 +15,10 @@ and the next /rcpu is joined to it inside webterm's session protocol -
 text frames s TOKEN, r N, a N, e from it, a N and x from the page; what
 the page has not acknowledged is kept, and the page's WebSocket is
 dropped once after DROPAT bytes to it, so the page attaches again
-(/resume/TOKEN/N) and the session goes on.
-  tools/test-authsrv PORT USER=PASSWORD...
+(/resume/TOKEN/N) and the session goes on.  And /5356, a secstore server
+(9front's secstored, written apart from it: pak.c, SConn.c), its users'
+files in memory as the clients put them.
+  tools/test-authsrv PORT USER=PASSWORD... [secstore:USER=PASSWORD...]
 """
 import asyncio, base64, hashlib, hmac, os, struct, sys
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -230,6 +232,146 @@ class Authsrv:
 			else:
 				return
 
+# secstore (9front's auth/secstore: pak.c, SConn.c, secstored.c): PAK, then
+# records of 2 bytes count (0x80|n) and, once the secret is set, a SHA1 MAC
+# and RC4; GET, PUT, RM, BYE on the user's files, kept as the client sent
+# them (encrypted with its password: this server cannot read them)
+SSQ = int('E0F0EF284E10796C5A2A511E94748BA03C795C13', 16)
+SSP = int('C41CFBE4D4846F67A3DF7DE9921A49D3B42DC33728427AB159CEC8CBB'
+	'DB12B5F0C244F1A734AEB9840804EA3C25036AD1B61AFF3ABBC247CD4B384224567A86'
+	'3A6F020E7EE9795554BCD08ABAD7321AF27E1E92E3DB1C6E7E94FAAE590AE9C48F96D9'
+	'3D178E809401ABE8A534A1EC44359733475A36A70C7B425125062B1142D', 16)
+SSR = int('DF310F4E54A5FEC5D86D3E14863921E834113E060F90052AD332B3241'
+	'CEF2497EFA0303D6344F7C819691A0F9C4A773815AF8EAECFB7EC1D98F039F17A32A7E'
+	'887D97251A927D093F44A55577F4D70444AEBD06B9B45695EC23962B175F266895C67D'
+	'21C4656848614D888A4', 16)
+SSG = int('2F1C308DC46B9A44B52DF7DACCE1208CCEF72F69C743ADD4D23271734'
+	'44ED6E65E074694246E07F9FD4AE26E0FDDD9F54F813C40CB9BCD4338EA6F242AB94CD'
+	'410E676C290368A16B1A3594877437E516C53A6EEE5493A038A017E955E218E7819734'
+	'E3E2A6E0BAE08B14258F8C03CC1B30E0DDADFCF7CEDF0727684D3D255F1', 16)
+SSMAXMSG = 4096
+
+def mp64(x):
+	"""mptoa(x, 64): enc64 of its big-endian bytes"""
+	return base64.b64encode(x.to_bytes((x.bit_length()+7)//8 or 1, 'big')).decode()
+
+def ss_Hi(C, password):
+	"""pak.c's PAK_Hi: H = (hmac_sha1s of ver,C,sha1(password))^r mod p, its inverse"""
+	cp = b'secstore' + C.encode() + hashlib.sha1(password.encode()).digest()
+	buf = b''.join(hmac.new(bytes([ord('A')+i]), cp, hashlib.sha1).digest() for i in range(7))
+	H = pow(int.from_bytes(buf, 'big') % SSP, SSR, SSP)
+	return pow(H, -1, SSP)
+
+def ss_short(mess, *a):
+	"""pak.c's shorthash: sha1 of mess, C, S, m, mu, sigma, Hi, twice"""
+	h = hashlib.sha1()
+	for _ in range(2):
+		for x in (mess,) + a:
+			h.update(x.encode())
+	return h.digest()
+
+class RC4:
+	def __init__(self, key):
+		S = list(range(256))
+		j = 0
+		for i in range(256):
+			j = (j + S[i] + key[i % len(key)]) & 255
+			S[i], S[j] = S[j], S[i]
+		self.S, self.i, self.j = S, 0, 0
+	def crypt(self, data):
+		S, i, j, out = self.S, self.i, self.j, bytearray()
+		for c in data:
+			i = (i + 1) & 255
+			j = (j + S[i]) & 255
+			S[i], S[j] = S[j], S[i]
+			out.append(c ^ S[(S[i] + S[j]) & 255])
+		self.i, self.j = i, j
+		return bytes(out)
+
+class Secstore:
+	def __init__(self, users):
+		self.users = users	# user: secstore password
+		self.files = {}		# (user, name): bytes as the client put them
+
+	async def run(self, read, write):
+		st = {'alg': False, 'inseq': 0, 'outseq': 0}
+		def mac(secret, data, seq):
+			return hashlib.sha1(secret + data + seq.to_bytes(4, 'big')).digest()
+		def put(data):
+			n = len(data) + (20 if st['alg'] else 0)
+			hdr = bytes([0x80 | n >> 8, n & 255])
+			if st['alg']:
+				d = mac(st['outsec'], data, st['outseq'])
+				write(hdr + st['outrc4'].crypt(d) + st['outrc4'].crypt(data))
+			else:
+				write(hdr + data)
+			st['outseq'] += 1
+		async def get():
+			c = await read(2)
+			if not c[0] & 0x80:
+				raise EOFError
+			n = (c[0] & 0x7f) << 8 | c[1]
+			if st['alg']:
+				d = st['inrc4'].crypt(await read(20))
+				data = st['inrc4'].crypt(await read(n - 20))
+				if not hmac.compare_digest(d, mac(st['insec'], data, st['inseq'])):
+					raise EOFError
+			else:
+				data = await read(n)
+			st['inseq'] += 1
+			return data
+		def err(m):
+			put(b'!' + m.encode())
+		m1 = (await get()).decode()
+		if not m1.startswith('secstore\tPAK\nC='):
+			return err('protocol should start with ver alg')
+		f = m1.split('\n')
+		C, hexm = f[1][2:], f[2][2:]
+		if C not in self.users:
+			return err('no account')
+		m = int.from_bytes(base64.b64decode(hexm), 'big') % SSP
+		Hi = ss_Hi(C, self.users[C])
+		y = int.from_bytes(os.urandom(30), 'big') % SSQ or 1
+		mu = pow(SSG, y, SSP)
+		sigma = pow(m * Hi % SSP, y, SSP)
+		S = 'relay'
+		a = (C, S, hexm, mp64(mu), mp64(sigma), mp64(Hi))
+		ks = base64.b64encode(ss_short('server', *a)).decode()
+		put(f'mu={a[3]}\nk={ks}\nS={S}\n'.encode())
+		kc = (await get()).decode()
+		if kc != "k'=" + base64.b64encode(ss_short('client', *a)).decode() + '\n':
+			print(f'test-authsrv: secstore {C}: wrong password', flush=True)
+			return
+		sk = ss_short('session', *a)
+		st['outsec'] = hmac.new(b'one', sk, hashlib.sha1).digest()
+		st['insec'] = hmac.new(b'two', sk, hashlib.sha1).digest()
+		st['outrc4'], st['inrc4'] = RC4(st['outsec'][:16]), RC4(st['insec'][:16])
+		st['alg'] = True
+		put(b'OK')
+		while True:
+			msg = (await get()).decode()
+			if msg.startswith('GET '):
+				b = self.files.get((C, msg[4:]))
+				if b is None:
+					put(b'-1')
+					continue
+				put(str(len(b)).encode())
+				for i in range(0, len(b), SSMAXMSG):
+					put(b[i:i+SSMAXMSG])
+				print(f'test-authsrv: secstore {C}: GET {msg[4:]}', flush=True)
+			elif msg.startswith('PUT '):
+				n, b = int((await get()).decode()), b''
+				while len(b) < n:
+					b += await get()
+				self.files[(C, msg[4:])] = b
+				print(f'test-authsrv: secstore {C}: PUT {msg[4:]}', flush=True)
+			elif msg.startswith('RM '):
+				self.files.pop((C, msg[3:]), None)
+			elif msg.startswith('BYE'):
+				return
+			else:
+				return err('unrecognized operation')
+
 DROPAT = 256*1024		# bytes to the page, then its WebSocket dropped once (each session)
 ACKEVERY = 16*1024
 
@@ -337,7 +479,7 @@ async def ws(r, w, users):
 		await asyncio.sleep(3600)
 		w.close()
 		return
-	if path not in ('/567', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
+	if path not in ('/567', '/5356', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
 		w.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
 		w.close()
 		return
@@ -452,7 +594,10 @@ async def ws(r, w, users):
 		w.close()
 		return
 	try:
-		await Authsrv(users).run(read, write)
+		if path == '/5356':
+			await secstore.run(read, write)
+		else:
+			await Authsrv(users).run(read, write)
 	except (EOFError, asyncio.IncompleteReadError, ConnectionError, ValueError) as e:
 		if isinstance(e, ValueError):
 			print(f'test-authsrv: {e}', flush=True)
@@ -468,7 +613,9 @@ async def main():
 	listeners = asyncio.Queue()
 	appservers = asyncio.Queue()
 	port = int(sys.argv[1])
-	users = dict(a.split('=', 1) for a in sys.argv[2:])
+	global secstore
+	users = dict(a.split('=', 1) for a in sys.argv[2:] if not a.startswith('secstore:'))
+	secstore = Secstore(dict(a[9:].split('=', 1) for a in sys.argv[2:] if a.startswith('secstore:')))
 	srv = await asyncio.start_server(lambda r, w: ws(r, w, users), '127.0.0.1', port)
 	async with srv:
 		await srv.serve_forever()

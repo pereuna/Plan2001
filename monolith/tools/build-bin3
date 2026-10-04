@@ -33,7 +33,7 @@ mkdir -p "$out/root/rc/bin"
 cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc/bin/"
 # the wasm32 kernel's init (plan9/sys/src/9/wasm32/init)
 mkdir -p "$out/root/boot"
-cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$out/root/boot/"
+cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$P/plan9/sys/src/9/wasm32/secstore" "$out/root/boot/"
 # an app's origin: its machine is the app's terminal (Plan2001's, D7: docs/app-origins.md)
 cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
@@ -62,6 +62,15 @@ done
 	$seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/factotum.err" 2>&1 || { echo "build-bin3: factotum:"; tail -5 "$out/o/cmd/factotum.err"; fail=1; }
 # and as /boot/factotum, as 9front's bootfs has it: libauth's auth_getkey runs it (factotum -g) to ask for a key
 [ $fail = 0 ] && cp "$out/root/bin/auth/factotum" "$out/root/boot/factotum"
+# auth/secstore: 9front's client, factotum's keys from the secstore server
+# (docs/architecture.md, "Avainten paikka"); its files as its mkfile's
+# $O.secstore (secstored is the cloud's, amd64)
+mkdir -p "$out/o/cmd/secstore"
+for f in secstore pak password SConn util; do
+	(cd "$src/auth/secstore" && "$cc3" -FVw $INC -o "$out/o/cmd/secstore/$f.3" $f.c) >"$out/o/cmd/secstore/$f.err" 2>&1 || { echo "build-bin3: secstore/$f.c:"; head -5 "$out/o/cmd/secstore/$f.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/auth/secstore" "$out"/o/cmd/secstore/*.3 $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/secstore.err" 2>&1 ||
+	{ echo "build-bin3: secstore:"; tail -5 "$out/o/cmd/secstore.err"; fail=1; }
 # tlsclient, exportfs: 9front's, rcpu's (D4: rconnect's tlsclient -a, the client's exportfs -r /)
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/tlsclient.3" tlsclient.c) >"$out/o/cmd/tlsclient.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/tlsclient" "$out/o/cmd/tlsclient.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/tlsclient.err" 2>&1; then

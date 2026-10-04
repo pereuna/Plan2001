@@ -103,7 +103,8 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
-- D3 tunnistus: `crypto dp9ik dp9iknoas` (+ `dp9ikvm` VM:llä)
+- D3 tunnistus: `crypto dp9ik dp9iknoas secstore` (+ `dp9ikvm` VM:llä;
+  `secstore`: factotumin avaimet `test-authsrv`in secstoresta)
 - D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask` (+ `rcpuvm` VM:llä)
 - D7 sovelluksen origin: `app appresume sendq` (webterm:n `/rcpu`-istunto, katkos ja jatko, iso jatko-jono, sivun takaisinkytkentä)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)

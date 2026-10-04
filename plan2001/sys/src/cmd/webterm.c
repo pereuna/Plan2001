@@ -33,6 +33,10 @@
  * attached|detached" (ps -a: webterm [APP STATE]; apps lists them):
  * webterm runs as none, whose processes the user cannot see.
  *
+ * The policy word secstore is GET /5356, the secstore server: factotum's
+ * keys for the wasm32 machine (its /boot/init, docs/architecture.md
+ * "Avainten paikka"), secstored on this machine.
+ *
  * The policy word cpu is rcpu as rcpu itself: GET /17019, the client's
  * own script inside its TLS - the wasm32 terminal's rcpu (term.MACHINE,
  * whose user runs what she likes anyway); an app's origin has only its
@@ -1096,7 +1100,8 @@ main(int argc, char **argv)
 				if(strcmp(path, "/17019") == 0 && allowed(app, "cpu"))
 					websocket(hdr, path+1);
 				if(strcmp(path, "/567") == 0 && allowed(app, "rcpu")
-				|| strcmp(path, "/17030") == 0 && allowed(app, "cr"))
+				|| strcmp(path, "/17030") == 0 && allowed(app, "cr")
+				|| strcmp(path, "/5356") == 0 && allowed(app, "secstore"))
 					websocket(hdr, path+1);
 				reply("403 Forbidden");
 			}

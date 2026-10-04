@@ -109,8 +109,8 @@ want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status;
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
 # password gives needkey; with no auth server, no tickets
 fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names; then
-	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword >/dev/null 2>&1 &
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names; then
+	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
 	want dp9ik $names && MONOLITH_WEBTERM=18099 HALTWAIT=120 run dp9ik '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo '"'"'delkey user=glenda'"'"' >/mnt/factotum/ctl; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=wrong'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
@@ -146,6 +146,14 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	want rcpuask $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpuask "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; $rsrv; sleep 2; {$rcmd >[2=1] | sed '/short write in reply/d'} </dev/cons >/dev/cons >[2=1]; {echo rcpu status \$status; cat /mnt/factotum/ctl; echo done} >/dev/cons")" \
 		'[["user[glenda]: ", "\n"], ["password: ", "gpassword\n"]]'
+	# factotum's keys from secstore (docs/architecture.md, "Avainten paikka"): glenda's dp9ik key and
+	# a mail password put with secstore -p (encrypted with her secstore password; test-authsrv's
+	# /5356 keeps them as they came), then /boot/secstore (/boot/init's) gets them into factotum -
+	# a wrong password first, asked again; factotum's keys before and after (d3 -p would agree
+	# without glenda's key: its pipe test takes bootes's)
+	want secstore $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run secstore "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$fkeys; ramfs -m /mnt/ram; cd /mnt/ram; {echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'; echo 'key proto=pass service=mail user=glenda !password=mpassword'} >factotum; echo spassword | auth/secstore -i -s tcp!relay!5356 -p factotum >[2=1]; rm factotum; echo before:; cat /mnt/factotum/ctl; secstore=tcp!relay!5356 rc /boot/secstore; echo after:; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["secstore password: ", "wrong\n"], ["secstore password: ", "spassword\n"]]'
 	kill $aspid; trap - EXIT
 fi
 want dp9iknoas $names && MONOLITH_WEBTERM=18098 HALTWAIT=120 run dp9iknoas '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'

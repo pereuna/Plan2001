@@ -1,0 +1,11 @@
+#!/bin/rc
+# factotum's keys from secstore (/boot/secstore, from /boot/init), as
+# 9front's bootrc loads them: if $secstore or $auth (BootInfo's config)
+# names a server, auth/secstore -G factotum into /mnt/factotum/ctl, its
+# password asked on the console; again after a wrong one, none (an empty
+# line) to go on without (docs/architecture.md, "Avainten paikka")
+x=secstore
+if(~ $#$x 0) x=auth
+if(! ~ $#$x 0 && test -x /bin/auth/secstore && test -f /mnt/factotum/ctl)
+	auth/secstore -G factotum -s^$$x </dev/cons >/mnt/factotum/ctl >[2]/dev/cons
+status=''

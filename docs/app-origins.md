@@ -61,9 +61,11 @@ joten jokaisella on omat palvelunsa (`policy`):
 |---|---|---|
 | `rcpu` | terminal | WebSocketit `/rcpu`, `/resume/…`, `/567` (auth): graafinen istunto |
 | `cr` | compute-provider | WebSocket `/17030`: selain tarjoaa laskentaa pooliin (CR) |
+| `cpu` | wasm32-pääte | WebSocket `/17019`: päätteen oma rcpu omassa TLS:ssään |
+| `secstore` | avaimet | WebSocket `/5356`: secstore, josta koneen `/boot/init` hakee factotumin avaimet (`docs/architecture.md`, "Avainten paikka") |
 | `compute` | compute-consumer | istunnon nimiavaruuteen `/compute` (webterm antaa `$computepool=1` sovelluksen namespace-tiedostolle) |
 
-Kyvyt ovat erillisiä: yksi ei anna toista. `term.kone` = `rcpu compute`,
+Kyvyt ovat erillisiä: yksi ei anna toista. `term.kone` = `rcpu cpu compute secstore`,
 `compute.kone` = `cr`, editorit = `rcpu`.
 
 `cad.kone` ei saa avata `/17030`:aa, ellei sen policy salli sitä.

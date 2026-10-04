@@ -7,6 +7,7 @@ wasm32
 /mnt/term/boot/factotum
 /mnt/term/boot/init
 /mnt/term/boot/rconnect.app
+/mnt/term/boot/secstore
 the terminal draws
 remote done
 rcpu status 

@@ -96,6 +96,7 @@ static struct {
 	"rcpu",		"17019",
 	"ticket",	"567",
 	"exportfs",	"17007",
+	"secstore",	"5356",
 	"rcpuws",	"/rcpu",	/* webterm's rcpu session for an app's origin: GET /rcpu (aux/wsrcpu, D7) */
 };
 

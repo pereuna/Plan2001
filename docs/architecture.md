@@ -617,10 +617,25 @@ pilven pääte ja itsenäinen kone jakaisi samaa avainnippua.
 
 Työjärjestys:
 1. Tämä päätös (4.10.).
-2. `auth/secstore` wasm32:n juureen. `secstored` pilven amd64-koneelle
-   (osajoukon derive VM:ssä).
-3. `/boot/init`: secstore-salasanan kysely ja nipun haku factotumiin.
-   Testi: `tools/test-authsrv`iin secstore-pää.
+2. `auth/secstore` wasm32:n juureen (tehty 4.10.: `build-bin3`,
+   `native-wasm32`). `secstored` pilven amd64-koneelle on tekemättä:
+   VM ja osajoukon derive (`secureidcheck.c` puuttuu osajoukosta).
+3. `/boot/init`: secstore-salasanan kysely ja nipun haku factotumiin
+   (tehty 4.10.). `/boot/secstore` tekee saman kuin 9frontin bootrc:
+   jos `$secstore` tai `$auth` (BootInfon config) nimeää palvelimen,
+   `auth/secstore -G factotum` vie avaimet `/mnt/factotum/ctl`:iin, ja
+   salasana kysytään konsolilla. Väärän salasanan jälkeen se kysytään
+   uudelleen, ja tyhjällä rivillä jatketaan ilman avaimia. devwsnet
+   tuntee palvelunimen `secstore` (5356). Webtermin politiikkasana
+   `secstore` sallii `/5356`:n ja on `term`-sovelluksen politiikassa.
+   Webterm yhdistää oman koneensa secstoreen, joten erillinen
+   secstore-kone tarvitsee myöhemmin osoitteen. Sivu ei vielä anna
+   `secstore=`-riviä; sen antaa pilven sivusto (kohta 6) tai
+   `?conf=secstore=…`.
+   Testi `secstore`: `tools/test-authsrv`in `/5356` on secstore-palvelin
+   Pythonilla, kirjoitettu erikseen 9frontin C:stä (PAK, SConn:n RC4 ja
+   SHA1-MAC). Koneen oikea 9front-asiakas ja se ovat yhtä mieltä
+   (`secstore -p`, sitten `/boot/secstore`). Testi kaatuu ilman hakua.
 4. Salattu OPFS-välimuisti itsenäiselle koneelle.
 5. Profiilin `case cpu`: päätteen factotum cpu-istuntoon.
 6. Pilven amd64: auth, secstore ja cpu yhdellä koneella, ja selaimet sitä

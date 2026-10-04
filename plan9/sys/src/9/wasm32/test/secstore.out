@@ -1,0 +1,13 @@
+ticks in it: ok
+relay
+secstore: saved 121 bytes
+before:
+key proto=dp9ik dom=plan2001 user=bootes !password?
+secstore password: 
+secstore password: 
+relay
+after:
+key proto=dp9ik dom=plan2001 user=bootes !password?
+key proto=dp9ik dom=plan2001 user=glenda !password?
+key proto=pass service=mail user=glenda !password?
+done
