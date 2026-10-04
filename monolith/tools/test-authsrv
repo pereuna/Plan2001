@@ -386,7 +386,7 @@ aeskeys = {}		# user: the auth server's AES key (signupd's)
 passkeys = {}		# credential id (b64url): (user, public key, wrap)
 RESERVED = {'glenda', 'bootes', 'adm', 'sys', 'none', 'upas', 'nobody', 'root', 'admin'}
 
-async def lines(read, write, serve):
+async def linesvc(read, write, serve):
 	buf = b''
 	while True:
 		while b'\n' not in buf:
@@ -648,9 +648,9 @@ async def ws(r, w, users):
 		if path == '/5356':
 			await secstore.run(read, write)
 		elif path == '/17040':
-			await lines(read, write, signupd)
+			await linesvc(read, write, signupd)
 		elif path == '/17041':
-			await lines(read, write, passkeyd)
+			await linesvc(read, write, passkeyd)
 		else:
 			await Authsrv(users).run(read, write)
 	except (EOFError, asyncio.IncompleteReadError, ConnectionError, ValueError) as e:

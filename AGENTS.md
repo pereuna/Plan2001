@@ -109,7 +109,8 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
   `seckeys`: niiden salattu kopio levyllä ja haku siitä ilman verkkoa)
 - D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask rcpukeys` (+ `rcpuvm`
   VM:llä; `rcpukeys`: cpu-istunnon factotum on päätteen)
-- WebAuthn: `webauthn` (`#W`, virtuaalinen autentikaattori, docs/webauthn.md)
+- WebAuthn: `webauthn signup passkeyoffline` (`#W`, virtuaalinen
+  autentikaattori, `test-authsrv`in signupd ja passkeyd, docs/webauthn.md)
 - D7 sovelluksen origin: `app appresume sendq` (webterm:n `/rcpu`-istunto, katkos ja jatko, iso jatko-jono, sivun takaisinkytkentä)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)
 

@@ -362,10 +362,10 @@ signup(char *name)
 
 	if(!validname(name))
 		sysfatal("a name is a-z, then a-z and 0-9, 2 to 27 of them");
-	pass = readcons("password", nil, 1);
+	pass = readcons("account password", nil, 1);
 	if(pass == nil || strlen(pass) < 10)
 		sysfatal("a password is at least 10 characters");
-	again = readcons("again", nil, 1);
+	again = readcons("account password again", nil, 1);
 	if(again == nil || strcmp(again, pass) != 0)
 		sysfatal("the passwords differ");
 	memset(again, 0, strlen(again));

@@ -194,6 +194,7 @@ def main():
 						if i >= 0:
 							seen = i + len(want)
 							break
+						passkeys()	# the prompt may come after a passkey's button
 						time.sleep(0.1)
 					cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
 					continue

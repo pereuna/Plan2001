@@ -240,11 +240,40 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
      - peruu pyynnön sivulla,
      - tarkistaa, että toisen verkkotunnuksen ja vääränlaisen pyynnön
        laite tai sivu hylkää.
-2. **Kääre ja salasana:**
-   - `auth/passkey` ja `auth/signup` koneella.
-   - `tools/test-authsrv`iin signupd:n ja passkeyd:n Python-vastineet.
-   - Testit: uusi tunnus, kirjautuminen passkeylla, salasanalla ja
-     offline-levyllä.
+2. **Kääre ja salasana** (tehty 4.10.):
+   - **`auth/passkey`** (plan2001/, yksi ohjelma, jossa `signup` ja
+     `login`):
+     - signup lähettää signupd:lle rivin: nimi, `passtokey`n AES-avain
+       (hex), secstoren Hi (`mptoa` 64, kuten pak.c:n `PAK_Hi`), secstoren
+       `factotum`-tiedosto, passkeyn id ja julkinen avain (SPKI) sekä
+       kääre. Secstoren tiedosto on salattu kuten `secstore -p`:n
+       `putfile`: AES-CBC(IV | tiedosto | X*16), avain
+       sha1("aescbc file" | salasana).
+     - PRF:n suola on `plan2001 passkey v1`.
+     - Kääre on AES-256-GCM: iv[12] | salattu "nimi\nsalasana" |
+       tag[16], AAD on suola ja avain `hkdf(PRF, "plan2001 passkey wrap
+       v1")` (SHA-256).
+     - Jos PRF ei tule luonnissa, signup kysyy passkeyn kerran.
+   - **`aux/seckeys`:** `-u` (toisen käyttäjän secstore) ja `-I` (nimi
+     ja salasana syötteestä).
+   - **`/boot/login`** (plan2001/): valikko (passkey, salasana, uusi
+     tunnus, vieras). Levyn kanssa kääre (`lib/passkey.wrap`) ja
+     avainkopio pidetään glendan kodissa. init ajaa sen, kun sivusto
+     tarjoaa kirjautumisen (`GET /login`, `login=1`); muuten
+     `/boot/secstore`.
+   - devwsnet tuntee palvelut `signup` (17040) ja `passkey` (17041).
+   - **`tools/test-authsrv`:** signupd ja passkeyd Pythonilla.
+     Auth-palvelin tuntee uudet käyttäjät AES-avaimesta, ja secstore
+     tuntee ne Hi:stä.
+   - Testit:
+     - `signup`: tunnus luodaan, passkey avaa salasanan ja avain tulee
+       secstoresta, sitten salasanalla.
+     - `passkeyoffline`: levyn kanssa kirjaudutaan kerran verkossa, sitten
+       ilman `/net`iä (tyhjä hakemisto sen päällä). Kääre tulee levyltä
+       ja avaimet aescbc-kopiosta.
+   - Tekemättä: uuden tunnuksen dp9ik-avainta ei vielä kokeilla
+     auth-palvelinta vastaan (rcpu uutena käyttäjänä), eikä passkeyn
+     lisäystä tai salasanan vaihtoa ole.
 3. **Palvelin:** signupd ja passkeyd 9frontissa, `tools/vm-cpu`
    asentaa ne. VM-testi: tunnus luodaan selaimesta, ja rcpu toimii.
 4. **Tarkistus (passkeyd vaihe 2):** ES256, challenge ja signCount.

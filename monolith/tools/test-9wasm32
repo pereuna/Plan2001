@@ -114,7 +114,7 @@ fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9
 # made and got - PRF the same for the same salt, another for another - the user handle without its id,
 # a request cancelled on the page, another domain's refused, a request that is neither
 want webauthn $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "cancel"]' run webauthn '["/bin/d5", "localhost"]'
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want passkeyoffline $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -176,6 +176,17 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	want seckeys $names && MONOLITH_WEBTERM=18099 HALTWAIT=200 run seckeys "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$fkeys; mntgen -s slashn /n; rc /boot/disk; ramfs -m /mnt/ram; cd /mnt/ram; {echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'; echo 'key proto=pass service=mail user=glenda !password=mpassword'} >factotum; echo spassword | auth/secstore -i -s tcp!relay!5356 -p factotum >[2=1]; rm factotum; $sk; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["secstore password: ", "spassword\n"], ["secstore password: ", "wrong\n"], ["secstore password: ", "spassword\n"]]'
+	# Plan2001's accounts (docs/webauthn.md, auth/passkey; test-authsrv's signupd and passkeyd, the
+	# browser's virtual authenticator): an account made - its password and passkey; the passkey opens
+	# its password, which gets its key from secstore; then the password alone.  And with the disk:
+	# the wrap and the keys' copy kept, so the passkey opens the keys with no network at all
+	pk="mntgen -s slashmnt /mnt; mntgen -s slashn /n; auth/factotum -n -sfactotum; secstore=tcp!relay!5356"
+	want signup $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go"]' HALTWAIT=200 run signup "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$pk; auth/passkey -s relay signup alice; auth/passkey -s relay login | aux/seckeys -I; cat /mnt/factotum/ctl; echo 'delkey user=alice' >/mnt/factotum/ctl; aux/seckeys -u alice; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["account password: ", "alice-password-1\n"], ["again: ", "alice-password-1\n"], ["secstore password: ", "alice-password-1\n"]]'
+	want passkeyoffline $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyoffline "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$pk; rc /boot/disk; ramfs -m /mnt/ram; mkdir /mnt/ram/nonet; c=/usr/glenda/lib/factotum.aes; w=/usr/glenda/lib/passkey.wrap; auth/passkey -s relay signup bob; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c; echo 'delkey user=bob' >/mnt/factotum/ctl; @{rfork n; bind /mnt/ram/nonet /net; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c}; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["account password: ", "bob-password-12\n"], ["again: ", "bob-password-12\n"]]'
 	kill $aspid; trap - EXIT
 fi
 want dp9iknoas $names && MONOLITH_WEBTERM=18098 HALTWAIT=120 run dp9iknoas '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
