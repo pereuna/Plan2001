@@ -274,8 +274,44 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
    - Tekemättä: uuden tunnuksen dp9ik-avainta ei vielä kokeilla
      auth-palvelinta vastaan (rcpu uutena käyttäjänä), eikä passkeyn
      lisäystä tai salasanan vaihtoa ole.
-3. **Palvelin:** signupd ja passkeyd 9frontissa, `tools/vm-cpu`
-   asentaa ne. VM-testi: tunnus luodaan selaimesta, ja rcpu toimii.
+3. **Palvelin** (koodi 4.10., VM-ajo Codexilla):
+   - **`aux/signupd`** (plan2001/) on aux/listenin suodin: rivi fd 0:sta
+     ja vastaus fd 1:een. Se ajaa `service.auth/tcp17040`:na
+     hostownerina, jotta se voi kirjoittaa keyfs:ään ja `/adm`:iin.
+     - Tarkistaa rivin: nimi (muoto ja varatut), AES-avain (32 hex-merkkiä),
+       Hi:n, secstoren tiedoston, id:n, julkisen avaimen ja kääreen merkistöt
+       ja pituudet sekä että nimi tai id ei ole jo käytössä.
+     - Kutsukoodi: jos `/adm/webauthn/invites` on olemassa, rivillä on oltava
+       sen koodi, ja käytetty koodi poistetaan tiedostosta.
+     - Luo tunnuksen:
+       - keyfs: `mkdir /mnt/keys/NIMI` ja `aeskey` (16 tavua; DES pois,
+         koska p9sk1 ei ole käytössä),
+       - secstore: `who/NIMI` kuten secuserin `putPW` (`exp 0`, `PAK-Hi`)
+         ja `store/NIMI/factotum`,
+       - passkey: `/adm/webauthn/ID` (`name`, `pubkey`, `wrap`,
+         `created`),
+       - `-c`:llä koti tiedostopalvelimen konsolin `newuser`illa.
+     - Epäonnistuminen kesken purkaa jo tehdyn.
+     - Polut voi vaihtaa (`-k`, `-s`, `-w`, `-c`, `-i`), joten sama ohjelma
+       ajetaan testissä ramfs:n hakemistoja vastaan.
+   - **`aux/passkeyd`** (`service.auth/tcp17041`): `wrap ID` saa vastaukseksi
+     `ok NIMI KÄÄRE`.
+   - **webterm:** politiikkasanat `signup` (`/17040`) ja `login` (`/17041`)
+     term-sovellukselle, ja samat portit ilman `-s`:ää testisivuille.
+   - **`tools/vm-cpu`:**
+     - kääntää ja asentaa signupd:n ja passkeyd:n,
+     - luo `/adm/webauthn`in (700),
+     - kirjoittaa sivuston `login`-tiedoston,
+     - lisää WebSocket-origineihin `http://localhost:18080` (passkey vaatii
+       localhostin).
+   - Testit:
+     - `signupd` (paikallinen): oikeat C-ohjelmat wasm32-koneessa
+       ramfs:ää vastaan. Tunnuksen tiedostot, kääre, varattu, käytetty ja
+       viallinen pyyntö, keskeytyksen purku ja kutsukoodit.
+     - `signupvm` (VM): tunnus selaimesta oikealle signupd:lle,
+       passkey-kirjautuminen (passkeyd ja secstored), ja rcpu VM:lle uutena
+       käyttäjänä. Tämä on myös uuden tunnuksen dp9ik-avaimen testi oikeaa
+       auth-palvelinta vastaan.
 4. **Tarkistus (passkeyd vaihe 2):** ES256, challenge ja signCount.
    Testi: väärä origin, väärä allekirjoitus ja toistettu challenge
    hylätään.

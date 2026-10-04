@@ -33,6 +33,10 @@
  * attached|detached" (ps -a: webterm [APP STATE]; apps lists them):
  * webterm runs as none, whose processes the user cannot see.
  *
+ * The policy words signup and login are GET /17040 and /17041, signupd
+ * and passkeyd (aux/listen's service.auth): Plan2001's accounts and their
+ * passkeys (docs/webauthn.md).
+ *
  * The policy word secstore is GET /5356, the secstore server: factotum's
  * keys for the wasm32 machine (its /boot/init, docs/architecture.md
  * "Avainten paikka"), secstored on this machine.
@@ -59,7 +63,7 @@ enum {
 	Iosize	= 32*1024,
 };
 
-static char *services[] = { "17019", "567", "5356", nil };	/* without -s: rcpu, auth, secstore */
+static char *services[] = { "17019", "567", "5356", "17040", "17041", nil };	/* without -s: rcpu, auth, secstore, signupd, passkeyd */
 static char *origins[16];	/* -o */
 static int norigins;
 static int secure;	/* -s: the connection is TLS already */
@@ -1101,7 +1105,9 @@ main(int argc, char **argv)
 					websocket(hdr, path+1);
 				if(strcmp(path, "/567") == 0 && allowed(app, "rcpu")
 				|| strcmp(path, "/17030") == 0 && allowed(app, "cr")
-				|| strcmp(path, "/5356") == 0 && allowed(app, "secstore"))
+				|| strcmp(path, "/5356") == 0 && allowed(app, "secstore")
+				|| strcmp(path, "/17040") == 0 && allowed(app, "signup")
+				|| strcmp(path, "/17041") == 0 && allowed(app, "login"))
 					websocket(hdr, path+1);
 				reply("403 Forbidden");
 			}

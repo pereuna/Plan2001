@@ -3,7 +3,7 @@
  * the passkey opens the account's password, which gets factotum's keys
  * from secstore; Plan 9's authentication is as it was.
  *
- *	auth/passkey [-s server] signup NAME
+ *	auth/passkey [-s server] signup NAME [INVITE]
  *		the password asked twice; a passkey made (#W, the page's
  *		WebAuthn: its PRF output); to signupd what the server keeps,
  *		none of it the password: the auth server's key (passtokey),
@@ -60,7 +60,7 @@ estrdup(char *s)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-s server] signup name\n       %s [-s server] [-c file] login\n", argv0, argv0);
+	fprint(2, "usage: %s [-s server] signup name [invite]\n       %s [-s server] [-c file] login\n", argv0, argv0);
 	exits("usage");
 }
 
@@ -353,7 +353,7 @@ validname(char *s)
 }
 
 static void
-signup(char *name)
+signup(char *name, char *code)
 {
 	char *pass, *again, *ans, *id, *pk, *hi, *file, *line, *user, *salt;
 	uchar prfout[32], w[Nwrap], *sf;
@@ -397,8 +397,8 @@ signup(char *name)
 	sf = secfile(file, pass, &nsf);
 	memset(file, 0, strlen(file));
 	memset(pass, 0, strlen(pass));
-	line = smprint("signup %s %.*H %s %s %s %s %s\n", name, AESKEYLEN, ak.aes, hi,
-		b64(sf, nsf), id, pk, b64u(w, nw));
+	line = smprint("signup %s %.*H %s %s %s %s %s%s%s\n", name, AESKEYLEN, ak.aes, hi,
+		b64(sf, nsf), id, pk, b64u(w, nw), code ? " " : "", code ? code : "");
 	memset(&ak, 0, sizeof ak);
 	if((ans = call("signup", line)) == nil)
 		sysfatal("%r");
@@ -479,8 +479,8 @@ main(int argc, char **argv)
 		sysfatal("no server: -s or $cpu");
 	if((rp = getenv("passkeyrp")) == nil && (rp = getenv("cpu")) == nil)
 		sysfatal("no rp: $passkeyrp or $cpu");
-	if(argc == 2 && strcmp(argv[0], "signup") == 0)
-		signup(argv[1]);
+	if((argc == 2 || argc == 3) && strcmp(argv[0], "signup") == 0)
+		signup(argv[1], argc == 3 ? argv[2] : nil);
 	if(argc == 1 && strcmp(argv[0], "login") == 0)
 		login(cache);
 	usage();

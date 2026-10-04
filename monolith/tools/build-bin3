@@ -85,6 +85,13 @@ if ! (cd "$P/plan2001/sys/src/cmd/auth" && "$cc3" -FTVw $INC -o "$out/o/cmd/pass
    ! "$l3" -o "$out/root/bin/auth/passkey" "$out/o/cmd/passkey.3" $seclibs $libs "$out/lib/libsec.a" "$out/lib/libmp.a" >>"$out/o/cmd/passkey.err" 2>&1; then
 	echo "build-bin3: passkey:"; head -5 "$out/o/cmd/passkey.err"; fail=1
 fi
+# aux/signupd, aux/passkeyd: the CPU server's (docs/webauthn.md), here for their test (signupd)
+for c in signupd passkeyd; do
+	if ! (cd "$P/plan2001/sys/src/cmd/aux" && "$cc3" -FTVw $INC -o "$out/o/cmd/$c.3" $c.c) >"$out/o/cmd/$c.err" 2>&1 ||
+	   ! "$l3" -o "$out/root/bin/aux/$c" "$out/o/cmd/$c.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$c.err" 2>&1; then
+		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1
+	fi
+done
 # tlsclient, exportfs: 9front's, rcpu's (D4: rconnect's tlsclient -a, the client's exportfs -r /)
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/tlsclient.3" tlsclient.c) >"$out/o/cmd/tlsclient.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/tlsclient" "$out/o/cmd/tlsclient.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/tlsclient.err" 2>&1; then

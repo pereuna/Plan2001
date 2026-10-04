@@ -29,7 +29,9 @@ while(){
 	case n
 		echo -n 'name (a-z, then a-z and 0-9): '
 		n=`{read}
-		if(! ~ $#n 0 && auth/passkey signup $n){
+		echo -n 'invite code (none: empty): '
+		i=`{read}
+		if(! ~ $#n 0 && auth/passkey signup $n $i){
 			echo 'sign in with the new passkey'
 			passkey && exit
 		}
