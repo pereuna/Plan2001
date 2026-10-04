@@ -107,6 +107,12 @@ Suurimmat ryhmät: ohjelmat `/amd64/bin` (levytyökalut, tiedostopalvelimet,
    `<`-mallit ja `LIB=`. Tiedostot haetaan VM:stä kierroksittain.
 6. **Legacy pois** (`LEGACY` tiedostossa `derive.py`): sääntö voittaa kaikki
    löytötavat, ja pois jätetty kirjataan perusteineen.
+7. **Kielletyt pois** (`DENY` tiedostossa `derive.py`, 4.10.2026): 9frontin
+   vitsi- ja sitaattikokoelmat (`/lib/theo`, `/lib/troll`, `/lib/bullshit`,
+   `/lib/human` ...), niitä vain tulostavat skriptit (`/rc/bin/theo`,
+   `troll`, `bullshit`, `nietzsche`) ja `/sys/games/lib/fortunes`. Pohja on
+   9frontin koodi korjauksineen ilman näitä; pelit kuuluvat mukaan. Sääntö
+   voittaa myös `extra`n, ja pois jätetty kirjataan `files`iin kuten legacy.
 
 ### Löydöt
 

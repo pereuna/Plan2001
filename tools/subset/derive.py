@@ -62,6 +62,17 @@ LEGACY = [
 	(r'^/%s/bin/(9660srv|disk/mk9660|disk/dump9660)$' % ARCH, 'ISO9660: the medium is a USB disk'),
 	(r'^/sys/src/boot/(pc|iso)(/|$)', 'BIOS loaders: Plan2001 boots by UEFI only'),
 ]
+# 9front's jokes and quotation collections, and the scripts that only print
+# them: Plan2001 keeps 9front's code and fixes but not these.  No program
+# needs them; the rule wins over tools/subset/extra too.  Games stay.
+DENY = [
+	(r'^/lib/(bullshit|theo|troll|rob|ken|rsc|uriel|dougfacts|glass|greg|roa'
+		r'|faust|strangelove|constitution|gettysburg|1oct1993|human'
+		r'|plentyofroom|mammals|volcanoes)$', "9front's jokes and quotations: not in Plan2001"),
+	(r'^/rc/bin/(bullshit|theo|troll|nietzsche)$', "prints 9front's jokes and quotations: not in Plan2001"),
+	(r'^/sys/games/lib/fortunes$', "9front's quotations: not in Plan2001"),
+]
+EXCLUDE = LEGACY + DENY
 SRCMAP = {	# binary -> source, where the name alone does not say it
 	'cwfs64x': '/sys/src/cmd/cwfs',
 	'9660srv': '/sys/src/cmd/9660srv',
@@ -147,7 +158,7 @@ def runtime(b):
 	def add(p, how, why):
 		if not p or p not in tree.files or IGNORE.match(p) or p in have:
 			return False
-		for rx, reason in LEGACY:
+		for rx, reason in EXCLUDE:
 			if re.search(rx, p):
 				tree.excluded.setdefault(p, '%s (%s: %s)' % (reason, how, why))
 				return False
@@ -252,7 +263,7 @@ def sources(b):
 	def add(p, how, why):
 		if p in need:
 			return
-		for rx, reason in LEGACY:
+		for rx, reason in EXCLUDE:
 			if re.search(rx, p):
 				tree.excluded.setdefault(p, '%s (%s: %s)' % (reason, how, why))
 				return
