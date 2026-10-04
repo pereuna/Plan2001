@@ -4,8 +4,7 @@ app test: service cpu
 wasm32
 no kbd: the console is the keyboard
 the terminal draws
- 616512
- 616512
+rc copied there and back
 app done
 app test: 
 done

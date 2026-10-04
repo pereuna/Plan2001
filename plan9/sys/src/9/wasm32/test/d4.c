@@ -219,7 +219,8 @@ static char appscript[] =
 static char appone[] =
 	"echo app $app: service $service; cat /mnt/term/env/sysname; echo; "
 	"test -e /mnt/term/dev/kbd || echo no kbd: the console is the keyboard; test -e /mnt/term/dev/draw/new && echo the terminal draws; "
-	"cp /mnt/term/bin/rc /mnt/term/mnt/ram/rc && wc -c </mnt/term/bin/rc && wc -c </mnt/term/mnt/ram/rc; echo app done";
+	"cp /mnt/term/bin/rc /mnt/term/mnt/ram/rc; n=`{wc -c </mnt/term/bin/rc}; m=`{wc -c </mnt/term/mnt/ram/rc}; "
+	"if(~ $m $n) echo rc copied there and back; if not echo rc: $n bytes, the copy $m; echo app done";
 
 /*
  * -W: sixteen copies at once, both ways - the session holds 16 writes when
@@ -228,7 +229,8 @@ static char appone[] =
  */
 static char appmany[] =
 	"for(i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16) { cp /mnt/term/bin/echo /mnt/term/mnt/ram/e$i & }; "
-	"wait; for(i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16) wc -c </mnt/term/mnt/ram/e$i; echo app done";
+	"wait; n=`{wc -c </mnt/term/bin/echo}; for(i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16) { m=`{wc -c </mnt/term/mnt/ram/e$i}; ~ $m $n || echo e$i: $m bytes, not $n }; "
+	"echo 16 copies of echo; echo app done";
 
 static void
 appserver(char *addr, char *cmd)
