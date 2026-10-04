@@ -68,18 +68,33 @@ want boot $names && RUNS=40 DRAWS=10 KEYDELAY=12 MOUSE='[[0.4, 0.4, 1]]' KEYS='[
 want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
 	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
 want crypto $names && run crypto '["/bin/d3"]'
+want tls $names && run tls '["/bin/d4"]'
+# rfork(RFMEM) procs in rendezvous ended by their group's kill, with and without a handler (exportfs's ending)
+want notekill $names && run notekill '["/bin/rc", "-c", "echo mem nohandler; d4 -k mn; echo fork handler; d4 -k h; echo mem handler; d4 -k; echo done"]'
 want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status; fault; echo the machine goes on"]'
 # D3's dp9ik through factotum: glenda and bootes over a pipe, the tickets from
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
 # password gives needkey; with no auth server, no tickets
 fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
-if want dp9ik $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
-	MONOLITH_WEBTERM=18099 HALTWAIT=120 run dp9ik '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo '"'"'delkey user=glenda'"'"' >/mnt/factotum/ctl; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=wrong'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
+	want dp9ik $names && MONOLITH_WEBTERM=18099 HALTWAIT=120 run dp9ik '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo '"'"'delkey user=glenda'"'"' >/mnt/factotum/ctl; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=wrong'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
 	# /net/tcp reconnected: a gen each connect, a reader woken by a hangup (d3 -n)
-	MONOLITH_WEBTERM=18099 HALTWAIT=300 run netre '["/bin/rc", "-c", "d3 -n 20 4; echo done"]'
+	want netre $names && MONOLITH_WEBTERM=18099 HALTWAIT=300 run netre '["/bin/rc", "-c", "d3 -n 20 4; echo done"]'
+	# D4's rcpu, the machine's own (rcpu, rconnect, tlsclient -a, exportfs) to an rcpu server in the
+	# same machine (d4 -s: tlssrv -a and tcp17019's script) through test-authsrv's relay: bootes's
+	# factotum in its own namespace, glenda's here - her key given, or asked for on the console
+	# (rcpuask: auth_getkey, /boot/factotum -g).  exportfs says "short write" when the server has
+	# gone at the end: left out
+	rsrv="mntgen -s slashmnt /mnt; @{rfork n; auth/factotum -n; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl; exec d4 -s tcp!relay!17999} & auth/factotum -n -sfactotum"
+	rcmd="rcpu -h relay -c 'echo remote: service \$service; cat /mnt/term/env/sysname; echo; ls /mnt/term/boot; test -e /mnt/term/dev/draw/new && echo the terminal draws; echo remote done'"
+	want rcpu $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpu "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"$rsrv; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; $rcmd >[2=1] | sed '/short write in reply/d'; echo rcpu status \$status; echo done")"
+	want rcpuask $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpuask "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; $rsrv; sleep 2; {$rcmd >[2=1] | sed '/short write in reply/d'} </dev/cons >/dev/cons >[2=1]; {echo rcpu status \$status; cat /mnt/factotum/ctl; echo done} >/dev/cons")" \
+		'[["user[glenda]: ", "\n"], ["password: ", "gpassword\n"]]'
 	kill $aspid; trap - EXIT
 fi
 want dp9iknoas $names && MONOLITH_WEBTERM=18098 HALTWAIT=120 run dp9iknoas '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
@@ -88,6 +103,13 @@ if want dp9ikvm $names; then
 		HTTPPORT=18080 HALTWAIT=120 run dp9ikvm '["/bin/rc", "-c", "mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password='"$(cat ~/.cache/plan2001/cpu.pass)"''"'"' >/mnt/factotum/ctl; d3 -r cpu; echo done"]'
 	else
 		echo "test-9wasm32: dp9ikvm: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
+if want rcpuvm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null && [ -f ~/.cache/plan2001/cpu.pass ]; then
+		HTTPPORT=18080 HALTWAIT=150 run rcpuvm '["/bin/rc", "-c", "mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password='"$(cat ~/.cache/plan2001/cpu.pass)"''"'"' >/mnt/factotum/ctl; rcpu -h cpu -c '"'"'echo remote: service $service; test -e /mnt/term/dev/draw/new && echo the terminal draws; cat /mnt/term/env/sysname; echo'"'"' >[2=1] | sed '"'"'/short write in reply/d'"'"'; echo rcpu status $status; echo done"]'
+	else
+		echo "test-9wasm32: rcpuvm: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
 	fi
 fi
 if want net $names; then

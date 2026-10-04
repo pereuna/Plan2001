@@ -6,6 +6,9 @@ tickets), for the users and passwords given; any other path is refused.
 Written apart from 9front's C, from its mpc sources (libauthsrv/*.mp)
 and authsrv.c: the wasm32 machine's factotum and this agree only if
 both are right.  tools/serve's relay (MONOLITH_WEBTERM=PORT) reaches it.
+And a relay for rcpu inside one machine, which cannot listen: /17999
+waits, and the next /17019 (an rcpu client) is joined to it, bytes both
+ways (sys/src/9/wasm32/test/d4.c's server).
   tools/test-authsrv PORT USER=PASSWORD...
 """
 import asyncio, base64, hashlib, hmac, os, struct, sys
@@ -196,23 +199,25 @@ class Authsrv:
 			hostid = cstr(tr[1+ANAMELEN+DOMLEN+CHALLEN:1+2*ANAMELEN+DOMLEN+CHALLEN])
 			uid = cstr(tr[1+2*ANAMELEN+DOMLEN+CHALLEN:])
 			if typ == AuthPAK:
+				# authsrv's slots: akey (authid) and hkey (hostid) apart, even for one user
 				write(bytes([AuthOK]))
 				self.slots = {}
-				ids = ([authid] if hostid and authid else []) + ([hostid] if hostid else [uid] if uid else [])
-				for u in ids:
+				ids = ([('a', authid)] if hostid and authid else []) + ([('h', hostid)] if hostid else [('u', uid)] if uid else [])
+				for slot, u in ids:
 					k = self.key(u)
 					write(k.paknew())
 					k.pakfinish(await read(PAKYLEN))
-					self.slots[u] = k
+					self.slots[slot] = (u, k)
 			elif typ == AuthTreq:
-				if not uid or authid not in self.slots or hostid not in self.slots or hostid != uid:
-					err = b'DES is disabled' if authid not in self.slots or hostid not in self.slots else b'no speaks for'
+				a, h = self.slots.get('a'), self.slots.get('h')
+				if not uid or a is None or h is None or a[0] != authid or h[0] != hostid or hostid != uid:
+					err = b'DES is disabled' if a is None or h is None or a[0] != authid or h[0] != hostid else b'no speaks for'
 					write(bytes([AuthErr]) + err.ljust(AERRLEN, b'\0'))
 					return
 				name = lambda s: s.encode().ljust(ANAMELEN, b'\0')
 				body = chal + name(uid) + name(uid) + os.urandom(NONCELEN)
-				write(bytes([AuthOK]) + form1(AuthTc, body, self.slots[hostid].pakkey)
-					+ form1(AuthTs, body, self.slots[authid].pakkey))
+				write(bytes([AuthOK]) + form1(AuthTc, body, h[1].pakkey)
+					+ form1(AuthTs, body, a[1].pakkey))
 				print(f'test-authsrv: tr-ok {uid}@{hostid} -> {uid}@{authid}', flush=True)
 				self.slots = {}
 			else:
@@ -229,7 +234,7 @@ async def ws(r, w, users):
 	path = lines[0].split()[1]
 	hdr = {l.split(':', 1)[0].strip().lower(): l.split(':', 1)[1].strip() for l in lines[1:] if ':' in l}
 	print(f'test-authsrv: {path}', flush=True)
-	if path != '/567':
+	if path not in ('/567', '/17019', '/17999'):
 		w.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
 		w.close()
 		return
@@ -258,9 +263,46 @@ async def ws(r, w, users):
 		del buf[:n]
 		return out
 	def write(data):
-		n = len(data)
-		h = bytes([0x82, n]) if n < 126 else bytes([0x82, 126]) + struct.pack('>H', n)
-		w.write(h + data)
+		for i in range(0, len(data), 65535):
+			d = data[i:i+65535]
+			n = len(d)
+			h = bytes([0x82, n]) if n < 126 else bytes([0x82, 126]) + struct.pack('>H', n)
+			w.write(h + d)
+	if path == '/17999':	# an rcpu server waits for a client
+		done = asyncio.Event()
+		await listeners.put((frame, write, w, done))
+		await done.wait()
+		w.close()
+		return
+	if path == '/17019':	# an rcpu client: joined to the server waiting
+		try:
+			pframe, pwrite, pw, pdone = await asyncio.wait_for(listeners.get(), 30)
+		except asyncio.TimeoutError:
+			w.close()
+			return
+		async def pump(src, dst, dw):
+			try:
+				while True:
+					op, data = await src()
+					if op == 8:
+						return
+					if op in (0, 1, 2) and data:
+						dst(data)
+						await dw.drain()
+			except (asyncio.IncompleteReadError, ConnectionError):
+				return
+		ts = [asyncio.create_task(pump(frame, pwrite, pw)), asyncio.create_task(pump(pframe, write, w))]
+		await asyncio.wait(ts, return_when=asyncio.FIRST_COMPLETED)
+		for t in ts:
+			t.cancel()
+		for x in (w, pw):
+			try:
+				x.write(b'\x88\x00')
+			except ConnectionError:
+				pass
+		pdone.set()
+		w.close()
+		return
 	try:
 		await Authsrv(users).run(read, write)
 	except (EOFError, asyncio.IncompleteReadError, ConnectionError, ValueError) as e:
@@ -274,6 +316,8 @@ async def ws(r, w, users):
 	w.close()
 
 async def main():
+	global listeners
+	listeners = asyncio.Queue()
 	port = int(sys.argv[1])
 	users = dict(a.split('=', 1) for a in sys.argv[2:])
 	srv = await asyncio.start_server(lambda r, w: ws(r, w, users), '127.0.0.1', port)

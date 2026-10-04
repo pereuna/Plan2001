@@ -269,3 +269,6 @@
 /lib/font/bit/vga/vga.FFFD-FFFD	glenda's profile sets font=/lib/font/bit/vga/unicode.font, which names it (rio, the terminal): the analysis does not read fonts
 /amd64/bin/stats	glenda's riostart runs it in rio's first window: the analysis does not follow $home
 /usr/glenda/lib/plumbing	glenda's profile starts plumber on a terminal, which reads $home/lib/plumbing
+/rc/bin/rcpu	the wasm32 terminal's rcpu to a cpu server (docs/architecture.md, D4): the user runs it
+/rc/bin/rconnect	rcpu's: it dials, authenticates (tlsclient -a) and sends the script
+/amd64/bin/exportfs	rcpu's client serves the terminal's namespace with it (exportfs -r /)

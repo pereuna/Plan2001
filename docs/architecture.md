@@ -153,8 +153,8 @@ kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 |---|---|---|
 | D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa (valmis 2.10.) |
 | D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat (valmis 2.10.) |
-| D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (toteutettu 4.10.; testattu erillistä auth-palvelinta vastaan, VM-testi `dp9ikvm` ajamatta) |
-| D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta |
+| D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (valmis 4.10.; VM:ssä testattu) |
+| D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta (toteutettu 4.10. `/17019`:n TLS-PSK-polulla; koneen sisäinen rcpu testattu, VM tarkistamatta; `/rcpu` tekemättä) |
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware |
 | D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli |
 | D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia |
@@ -310,6 +310,59 @@ D3 toteutettu (4.10.), VM-testi ajamatta: tunnistus 9frontin koodilla.
   auth-palvelin, salasana `~/.cache/plan2001/cpu.pass`) on kirjoitettu,
   mutta ajamatta: kehitysympäristössä ei ollut CPU-VM:ää. Se on D3:n
   "valmis kun" -ehto, joten D3 on valmis, kun `dp9ikvm` menee läpi.
+  (VM:ssä testattu ja kunnossa, käyttäjä 4.10.)
+
+D4 toteutettu (4.10.), VM:n rio ruudulla tarkistamatta: rcpu 9frontin
+ohjelmilla, `/17019`-polulla TLS-PSK:n kanssa kuten 9frontissa.
+- Ydin: 9frontin `port/devtls.c` (`#a`, `/net/tls`, sidottu `/net`in
+  perään kuten bootrc) ja libsec ytimeen; satunnaisuus on alustan
+  (`genrandom`). Testi `tls` (`d4`): asiakas ja palvelin putken yli
+  ennalta jaetulla avaimella (pskID `p9secret`, kuten rcpu dp9ik:n
+  salaisuudella), rivi kumpaankin suuntaan ja megatavu, sha256 sama
+  molemmissa päissä; väärä avain torjutaan.
+- Ohjelmat: `tlsclient`, `exportfs`, `read`, `test`, `chmod` ja
+  `/rc/bin/{rcpu,rconnect}` 9frontin sellaisinaan; factotum myös
+  `/boot/factotum`ina (libauthin `auth_getkey` ajaa sen `-g`:llä
+  avainta kysymään, kuten 9frontin bootfs:ssä).
+- Osajoukko: `tools/subset/extra`an `/rc/bin/rcpu`, `/rc/bin/rconnect` ja
+  `/amd64/bin/exportfs` perusteluineen; lähteet `subset/9front`iin
+  9frontin gitistä - näihin polkuihin ei ole muutoksia julkaisun 11952
+  jälkeen (ja jo osajoukossa olevat devtls.c, tlsclient.c, tlshand.c ja
+  devpipe.c ovat gitissä tavu tavulta samat). derive.py:n `SRCMAP`:
+  `/amd64/bin/test`in lähde on `test.c`, ei hakemisto `/sys/src/cmd/test/`
+  (9frontin testisarja, joka oli osajoukossa väärin perustein).
+  `subset/amd64/files`in rivit on lisätty käsin make.py:n muodossa:
+  `tools/subset/derive` ja `make.py` VM:ssä vahvistavat ne ja tuovat
+  rconnectin staattisen analyysin riippuvuudet (aan, tlssrv ...), ja
+  `subset/amd64/proto` päivittyy samalla.
+- Ydin, 9frontin tapaan: `/proc/n/args` kirjoitettava (rconnect kirjoittaa
+  siihen isännän); devwsnet:n odotukset ottavat noten kuten `sleep`
+  (`notepending` nollaksi, Eintr): ennen se jäi asetetuksi, ja mountin
+  lukija tällä yhteydellä keskeytyi joka kerta uudelleen - devmnt lähetti
+  tuhansia Tflusheja ja ydinkeko täyttyi (`no memory for allocb`).
+- Sivu (platform.js): rfork(RFMEM)-procin note, joka tuli procin ollessa
+  estettynä, jäi odottamaan seuraavan kutsun loppua - ja jos seuraava
+  kutsu esti taas (exportfs:n orjat rendezvousissa), ei koskaan. Nyt se
+  menee käsittelijälle seuraavan kutsun alussa. exportfs:n `fatal`
+  (`kill` ryhmälle) lopettaa orjat, ja rcpu:n tulos voi kulkea putkessa.
+  Testi `notekill`.
+- Testit `rcpu` ja `rcpuask`: koneen oma rcpu (rconnect, tlsclient -a,
+  exportfs) koneen sisäiselle rcpu-palvelimelle (`d4 -s`: tlssrv -a ja
+  9frontin `tcp17019`:n skripti, oma noteryhmä ja nimiavaruus kuten
+  aux/listenin palveluilla) `tools/test-authsrv`in releen kautta (`/17019` yhdistetään
+  odottavaan `/17999`:een), liput auth-palvelimelta (glenda ja bootes).
+  Etäkomento ajetaan `service=cpu`:lla, ja se näkee terminaalin
+  nimiavaruuden: `/mnt/term/env/sysname`, `/mnt/term/boot`, terminaalin
+  `/dev/draw/new`. `rcpuask`: avainta ei ole, factotum kysyy sen
+  konsolilla (`!Adding key`, `user[glenda]:`, `password:`), kaiutonta
+  salasanaa, ja avain jää factotumiin. exportfs sanoo lopussa `short write
+  in reply`, kun palvelin on jo mennyt; testit jättävät sen pois.
+- Testi `rcpuvm` (CPU-VM:n oikea rcpu: palvelu `cpu`, terminaalin draw
+  näkyy) on kirjoitettu, ajamatta. D4:n "valmis kun" tarkistetaan
+  käsin: selaimen koneen rion ikkunassa `rcpu -h cpu`, salasana
+  kysyttäessä, ja VM:ssä `rio` (tai `clock`) piirtää ikkunaan.
+- Vielä tekemättä: wss-polku `/rcpu` ilman TLS-PSK:ta (webterm `-s`)
+  https-sivulle, jossa yhteys on jo salattu.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 

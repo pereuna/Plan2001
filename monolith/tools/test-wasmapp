@@ -14,7 +14,7 @@ the screen goes to build/wasmapp-NAME.png.
   PAGE=kernel.html SERIAL=1 EXPECT=FILE tools/test-wasmapp kernel
                                            Plan2001's wasm32 kernel (sys/src/9/wasm32):
                                            until it halts (KERNEL-HALT), its eia0
-  SERIAL=1 [SEND='["line\n", ...]'] [SENDFILE=F] [EXPECT=FILE]
+  SERIAL=1 [SEND='["line\n", ["prompt", "line\n"], ...]'] [SENDFILE=F] [EXPECT=FILE]
                                            its console #t/eia0, the platform's
                                            serial port: text, not pixels; SEND
                                            typed there a line at a time when its
@@ -157,7 +157,20 @@ def main():
 			sends = json.loads(os.environ.get('SEND', '[]'))
 			if sends:
 				wait(cdp, 'window.monolith && window.monolith.eia0in("") >= 0', 60, 'eia0')
+			seen = 0
 			for line in sends:
+				if isinstance(line, list):	# [text, line]: typed once eia0 has said text since the last one (a prompt)
+					want, line = line
+					end = time.time() + 60
+					while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
+						o = cdp.js('window.monolith.eia0out()') or ''
+						i = o.find(want, seen)
+						if i >= 0:
+							seen = i + len(want)
+							break
+						time.sleep(0.1)
+					cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
+					continue
 				last, since, end = None, time.time(), time.time() + 30
 				while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
 					try:

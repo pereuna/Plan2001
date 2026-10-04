@@ -8,7 +8,7 @@
 /*
  * #p: wasm32's procs, what it has of them - no segments, registers or
  * text to debug.  /proc/n/ctl (kill, private, noswap), note, notepg
- * (kbdfs's interrupt), status, args.  One user: no permissions to check yet.
+ * (kbdfs's interrupt), status, args (written: what ps shows, as 9front's).  One user: no permissions to check yet.
  */
 enum
 {
@@ -31,7 +31,7 @@ static Dirtab procdir[] =
 	"note",		{Qnote},	0,	0222,
 	"notepg",	{Qnotepg},	0,	0222,
 	"status",	{Qstatus},	0,	0444,
-	"args",		{Qargs},	0,	0444,
+	"args",		{Qargs},	0,	0660,
 };
 
 static int
@@ -142,6 +142,9 @@ procread(Chan *c, void *a, long n, vlong off)
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 		return readstr(off, a, n, buf);
 	case Qargs:
+		/* what the proc wrote there (9front's: rconnect writes the host), else its name */
+		if(p->setargs && p->args != nil)
+			return readstr(off, a, n, p->args);
 		return readstr(off, a, n, p->text != nil ? p->text : "");
 	}
 	error(Egreg);
@@ -180,6 +183,11 @@ procwrite(Chan *c, void *a, long n, vlong)
 	case Qnote:
 		if(!postnote(p, 1, buf, NUser))
 			error("note not posted");
+		break;
+	case Qargs:
+		kstrdup(&p->args, buf);
+		p->nargs = 0;
+		p->setargs = 1;
 		break;
 	default:
 		error(Egreg);

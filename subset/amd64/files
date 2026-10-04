@@ -108,6 +108,7 @@
 /amd64/bin/disk/prep	runtime	static	run by /rc/bin/inst/partdisk	-
 /amd64/bin/dossrv	runtime	dynamic	installer after copydist	-
 /amd64/bin/echo	runtime	boot	bootfs.proto	-
+/amd64/bin/exportfs	runtime	iterative	rcpu's client serves the terminal's namespace with it (exportfs -r /)	-
 /amd64/bin/gefs	runtime	static	run by /rc/bin/inst/mountgefs	-
 /amd64/bin/grep	runtime	boot	bootfs.proto	-
 /amd64/bin/hjfs	runtime	static	run by /rc/bin/inst/mounthjfs	-
@@ -307,6 +308,8 @@
 /rc/bin/kill	runtime	dynamic	boot + installer up to copydist	2db5c00b3e36218989b6163e477c5695
 /rc/bin/nusbrc	runtime	static	run by /sys/src/9/boot/bootrc	ed1da5df805689cd978933b615c1b092
 /rc/bin/psu	runtime	dynamic	boot + installer up to copydist	7a8e44a5ab67e64288e6e7b649f56404
+/rc/bin/rconnect	runtime	iterative	rcpu's: it dials, authenticates (tlsclient -a) and sends the script	a17343a1c535e11f7297ca457bc7e254
+/rc/bin/rcpu	runtime	iterative	the wasm32 terminal's rcpu to a cpu server (docs/architecture.md, D4): the user runs it	a7a8ef12f003f83cc8d3368ed29c9e78
 /rc/bin/reboot	runtime	static	run by /rc/bin/fshalt	0be3e1536f27ce214219eb3ff415ce64
 /rc/bin/scram	runtime	dynamic	boot + installer up to copydist	c24b2f1e33ec50892e5679f824695674
 /rc/bin/screenrc	runtime	dynamic	boot + installer up to copydist	9f44b319bb179d35959dc9e00200fd98
@@ -1609,6 +1612,12 @@
 /sys/src/cmd/dossrv/xfile.c	source	source	builds /amd64/bin/dossrv	8fabd75eb83a118c2aff2102cc7da152
 /sys/src/cmd/dossrv/xfssrv.c	source	source	builds /amd64/bin/dossrv	4770172b7cd8bc530610aa4fec344fcb
 /sys/src/cmd/echo.c	source	source	builds /amd64/bin/echo	ffdece04354cb9462b434a494fd4a8d8
+/sys/src/cmd/exportfs/exportfs.c	source	source	builds /amd64/bin/exportfs	618832704965ab2550273f1e4812948e
+/sys/src/cmd/exportfs/exportfs.h	source	source	builds /amd64/bin/exportfs	3b6173da875057273db58fae9ec4cc74
+/sys/src/cmd/exportfs/exportsrv.c	source	source	builds /amd64/bin/exportfs	8d419edf26f5a31b0f33468e6863bbe8
+/sys/src/cmd/exportfs/io.c	source	source	builds /amd64/bin/exportfs	bc8e46bec4bc4efe1ccf2a6b0a256d30
+/sys/src/cmd/exportfs/mkfile	source	source	builds /amd64/bin/exportfs	3e8ebb77853a5c322cd49b81f4ac2bed
+/sys/src/cmd/exportfs/pattern.c	source	source	builds /amd64/bin/exportfs	78c57e327040fd4ce3bc056384c52b85
 /sys/src/cmd/gefs/blk.c	source	source	builds /amd64/bin/gefs	7abab1349514136556170af715093008
 /sys/src/cmd/gefs/cache.c	source	source	builds /amd64/bin/gefs	b9b6f7fcbf19d725ce99eb9ff8f05793
 /sys/src/cmd/gefs/check.c	source	source	builds /amd64/bin/gefs	db15a06b0e12dc9a32bdae7d12620413
@@ -1851,36 +1860,7 @@
 /sys/src/cmd/syscall/syscall.c	source	source	builds /amd64/bin/syscall	2acf60e2fc9a7d00330749d5cddfead3
 /sys/src/cmd/syscall/tab.h	source	source	builds /amd64/bin/syscall	616071a287b98b5a64cd636775fd44be
 /sys/src/cmd/tar.c	source	source	builds /amd64/bin/tar	34a7fc94a5ef7c6d1c11b5c05c46447b
-/sys/src/cmd/test/date.rc	source	source	builds /amd64/bin/test	3555716f1821c6a9c44283e537d07f25
-/sys/src/cmd/test/mkfile	source	source	builds /amd64/bin/test	36516a1136e63489747f6dde4016c4ae
-/sys/src/cmd/test/patch/basic.expected	source	source	builds /amd64/bin/test	d632eba71107bf7bc3ec423eab256d78
-/sys/src/cmd/test/patch/basic.in	source	source	builds /amd64/bin/test	7e9efb32fda683ecfeef326db5253c6d
-/sys/src/cmd/test/patch/basic.patch	source	source	builds /amd64/bin/test	33efad8020767b32b645b8fc6d42895b
-/sys/src/cmd/test/patch/create.expected	source	source	builds /amd64/bin/test	f4699b80440c0403b31fce987f9cd8af
-/sys/src/cmd/test/patch/create.patch	source	source	builds /amd64/bin/test	acd5992ac2ce0ea8211901ab083ebc1a
-/sys/src/cmd/test/patch/delete.expected	source	source	builds /amd64/bin/test	3b0332e02daabf31651a5a0d81ba830a
-/sys/src/cmd/test/patch/delete.patch	source	source	builds /amd64/bin/test	7d7feb6bf862105b08cb621698fa9896
-/sys/src/cmd/test/patch/header.expected	source	source	builds /amd64/bin/test	d632eba71107bf7bc3ec423eab256d78
-/sys/src/cmd/test/patch/header.in	source	source	builds /amd64/bin/test	7e9efb32fda683ecfeef326db5253c6d
-/sys/src/cmd/test/patch/header.patch	source	source	builds /amd64/bin/test	7d57398e0a41cd9b66b0bf2f32a04515
-/sys/src/cmd/test/patch/mkfile	source	source	builds /amd64/bin/test	996574001056d0165fd1dc5d6da360df
-/sys/src/cmd/test/patch/multifile.patch	source	source	builds /amd64/bin/test	532bc3fc3ca4fe1b309c4b337aa79088
-/sys/src/cmd/test/patch/multifile1.expected	source	source	builds /amd64/bin/test	115ce3bf252e9d120ac519dfbf1225e8
-/sys/src/cmd/test/patch/multifile1.in	source	source	builds /amd64/bin/test	7e9efb32fda683ecfeef326db5253c6d
-/sys/src/cmd/test/patch/multifile1.in.tmp	source	source	builds /amd64/bin/test	7e9efb32fda683ecfeef326db5253c6d
-/sys/src/cmd/test/patch/multifile2.expected	source	source	builds /amd64/bin/test	3c62ab31484a5c9c9b520f0cfc2e8d21
-/sys/src/cmd/test/patch/multifile2.in	source	source	builds /amd64/bin/test	720115b184a96bf4759dc5ae60f4e885
-/sys/src/cmd/test/patch/multifile2.in.tmp	source	source	builds /amd64/bin/test	720115b184a96bf4759dc5ae60f4e885
-/sys/src/cmd/test/patch/nop.expected	source	source	builds /amd64/bin/test	3b0332e02daabf31651a5a0d81ba830a
-/sys/src/cmd/test/patch/patch.rc	source	source	builds /amd64/bin/test	5d168a7e6543b26e2b7f13dffc200eff
-/sys/src/cmd/test/patch/rej.expected	source	source	builds /amd64/bin/test	5bf885cd7cc1a721c1620edd6cdb8477
-/sys/src/cmd/test/patch/rej.in	source	source	builds /amd64/bin/test	5f3ae1cc2a1e606bbccb03d717e6a10d
-/sys/src/cmd/test/patch/rej.patch	source	source	builds /amd64/bin/test	46173203b4a20333a7a38b359c395a30
-/sys/src/cmd/test/patch/rej.rexpected	source	source	builds /amd64/bin/test	c74ea268be7e0172b4dc402787b51ac0
-/sys/src/cmd/test/patch/rej.rout	source	source	builds /amd64/bin/test	c74ea268be7e0172b4dc402787b51ac0
-/sys/src/cmd/test/ramfs.rc	source	source	builds /amd64/bin/test	67c8b6514644481d6771e5cb6d61143a
-/sys/src/cmd/test/test.rc	source	source	builds /amd64/bin/test	e714bdbd0d8fbf4e4f351d6ee046360a
-/sys/src/cmd/test/zones.rc	source	source	builds /amd64/bin/test	a8040590f183162199c497adfd675928
+/sys/src/cmd/test.c	source	source	builds /amd64/bin/test	42c5254496375be08883c545cb803761
 /sys/src/cmd/tlsclient.c	source	source	builds /amd64/bin/tlsclient	a6a2af622863ad1adfe3a1b8de4428b7
 /sys/src/cmd/touch.c	source	source	builds /amd64/bin/touch	a68b187a2eb96a8d92769d159d34b2b0
 /sys/src/cmd/unmount.c	source	source	builds /amd64/bin/unmount	02e0b1da94865dd79b7fc1c4d76edd2d

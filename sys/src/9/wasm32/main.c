@@ -114,6 +114,7 @@ inituser(void)
 	kcall(sysbind, "#p", "/proc", MREPL);
 	kcall(sysbind, "#d", "/fd", MREPL);
 	kcall(sysbind, "#I", "/net", MREPL);
+	kcall(sysbind, "#a", "/net", MAFTER);	/* tls (rcpu's tlsclient), as 9front's bootrc */
 	kcall(sysbind, "#i", "/dev", MAFTER);
 	kcall(sysbind, "#m", "/dev", MAFTER);
 	kcall(sysbind, "#b", "/dev", MAFTER);

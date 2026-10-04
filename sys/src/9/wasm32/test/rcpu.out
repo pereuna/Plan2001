@@ -1,0 +1,10 @@
+ticks in it: ok
+remote: service cpu
+wasm32
+/mnt/term/boot/console
+/mnt/term/boot/factotum
+/mnt/term/boot/init
+the terminal draws
+remote done
+rcpu status 
+done
