@@ -19,7 +19,7 @@ tls=/sys/lib/tls
 fn fail { echo SANDBOX FAILED: $*; exit $1 }
 fn step { echo '###' $* }
 
-step rc-httpd: Plan2001's site
+step rc-httpd: the Plan2001 site
 mkdir -p /rc/bin/rc-httpd/handlers
 cp $repo/plan2001/rc/bin/rc-httpd/select-handler /rc/bin/rc-httpd/select-handler || fail select-handler
 cp $repo/plan2001/rc/bin/rc-httpd/handlers/plan2001-static /rc/bin/rc-httpd/handlers/plan2001-static || fail plan2001-static

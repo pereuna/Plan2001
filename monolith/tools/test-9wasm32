@@ -84,10 +84,12 @@ want tls $names && run tls '["/bin/d4"]'
 # /proc/n/args written and read by procs that come and go (devproc's debug lock), and exec's own args again
 want procargs $names && run procargs "[\"/bin/rc\", \"-c\", \"d4 -a; rc -c 'echo -n somehost >/proc/\$pid/args; cat /proc/\$pid/args; echo; exec cat /proc/\$pid/args'; echo; echo done\"]"
 want notekill $names && run notekill '["/bin/rc", "-c", "echo mem nohandler; d4 -k mn; echo fork handler; d4 -k h; echo mem handler; d4 -k; echo done"]'
-# D6's disk (#S/sdW0, OPFS; /boot/disk: hjfs on it, glenda's home): a file written, hjfs synced and
-# the disk flushed; the page loaded again in the same browser (THEN) - the file is there
-want disk $names && HALTWAIT=120 THEN='["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; cat /usr/glenda/persist; ls /n/disk/usr/glenda; sed -n 1p /dev/sdW0/ctl; echo done"]' \
-	run disk '["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; echo kept over a reload >/usr/glenda/persist; echo sync >>/srv/disk.cmd; sleep 2; echo flush >/dev/sdW0/ctl; echo written"]'
+# D6's disk (#S/sdW0, OPFS; /boot/disk: hjfs on it, all of glenda's home): files written, one in a
+# directory the root has too (lib), her profile changed; hjfs synced and the disk flushed; the page
+# loaded again in the same browser (THEN) - the files are there, the root's skeleton too, and her
+# profile is hers (the skeleton fills in, never replaces)
+want disk $names && HALTWAIT=120 THEN='["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; cat /usr/glenda/persist /usr/glenda/lib/deep; ls /n/disk/usr/glenda/lib; sed -n \u0027$p\u0027 /usr/glenda/lib/profile; sed -n 1p /dev/sdW0/ctl; echo done"]' \
+	run disk '["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; echo kept over a reload >/usr/glenda/persist; echo deeper >/usr/glenda/lib/deep; echo \u0027# mine\u0027 >>/usr/glenda/lib/profile; echo sync >>/srv/disk.cmd; sleep 2; echo flush >/dev/sdW0/ctl; echo written"]'
 # the disk Worker fails (its flush throws, when the disk is idle after a write): the disk is dead, I/O gives an
 # error and the machine goes on - not a kernel waiting for ever; a page's *sdW0= does not replace the firmware's
 want diskdead $names && run diskdead '["/bin/rc", "-c", "sed -n 2p /dev/sdW0/ctl; echo x >/dev/sdW0/data; echo written; sleep 2; read -c 1 </dev/sdW0/data; echo status $status; sed -n 4p /dev/sdW0/ctl; echo the machine goes on"]' \

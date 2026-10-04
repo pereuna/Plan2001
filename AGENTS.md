@@ -97,7 +97,10 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
 - D7 sovelluksen origin: `app appresume sendq` (webterm:n `/rcpu`-istunto, katkos ja jatko, iso jatko-jono, sivun takaisinkytkentä)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)
 
-Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),
+Muut: `tools/rccheck` (rc-skriptien jäsennys plan9portin rc:llä, aja kun
+muutat rc-skriptiä: `/boot`, rc-httpd, `tools/*.rc`; heittomerkki
+viestissä, kuten `Plan2001's`, avaa lainauksen),
+`tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),
 `tools/subset/check` ja `tools/subset/test` (VM: osajoukko ja asennus).
 
 ### Uusi testi

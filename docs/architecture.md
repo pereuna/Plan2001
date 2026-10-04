@@ -451,11 +451,21 @@ tiedostopalvelin.
   `?conf=` ei voi korvata laitekuvausta. Testi `diskdead`: flush
   epäonnistuu, luku antaa i/o-virheen, levy on `dead` ja kone jatkaa.
   Väärennetty `*sdW0` ei vaikuta. Ilman korjausta luku jää odottamaan.
-- Rajat: liitos on vain kotihakemiston yläpuolella (bind -bc), joten
-  uusi tiedosto juuren arkiston alihakemistoon (esim. `lib/`) ei mene
-  levylle. hjfs synkkaa 10 sekunnin välein, joten sivun sulkeminen
-  heti kirjoituksen jälkeen voi hukata viimeisimmät muutokset. Factotumin
-  avaimet OPFS:ään (secstore) tulevat myöhemmin.
+- Rajat (alkuperäiset): liitos oli vain kotihakemiston yläpuolella
+  (bind -bc), ja hjfs synkkasi 10 sekunnin välein. Factotumin avaimet
+  OPFS:ään (secstore) tulevat myöhemmin.
+- Viimeistely (4.10.): koko kotihakemisto on levyllä. `/boot/disk` bindaa
+  levyn `/usr/glenda`n juuren kotihakemiston päälle, ja juuren
+  `/usr/glenda` täydentää siitä puuttuvat tiedostot kuten newuser:
+  uusi levy saa kaiken, vanha uudet tiedostot, eikä mitään käyttäjän
+  omaa korvata. Kopiot ovat käyttäjän muokattavia (664, `bin`issä 775),
+  koska juuren tiedostot ovat kaikki 0555. `/boot/disk` synkkaa hjfs:n
+  2 sekunnin välein, joten suljettu sivu menettää enintään sen verran.
+  Levy-Worker kirjoittaa tiedostoon neljännessekunnin sisällä
+  viimeisestä kirjoituksesta. Testi `disk`: tiedosto `lib/`-hakemistossa,
+  johon juurellakin on tiedostoja, ja muokattu profiili säilyvät
+  uudelleenlatauksen yli, ja juuren tiedostot ovat mukana. Vanhalla
+  skriptillä testi kaatuu.
 
 D7 toteutettu (4.10.), VM:ssä ja pilvessä tarkistamatta: selaimessa on
 vain wasm32-kone. Käyttäjä päätti, että rc-httpd tarjoaa sivut samassa
@@ -588,9 +598,15 @@ klustereissa. Lähteet ja yksityiskohdat tarkistetaan suunnittelun alussa.
 - Natiivi käännös (`docs/plan9-fork.md`): 3a/3c/3l sekä wasm32-ydin ja
   -kirjastot 9frontin mk:lla, ja CPUS-rekisteröinti
   `plan9/patches/`issa.
-- Avoimet kohdat: factotumin avaimet OPFS:ään (D3), koko kotihakemisto
-  levylle (D6:n bind -bc kattaa vain ylimmän tason) ja synkkaus ennen kuin
-  sivu suljetaan (hjfs 10 s), sekä wss:n `/rcpu`-polku päätteelle (D4).
+- Avoimet kohdat: factotumin avaimet OPFS:ään (D3) ja wss:n
+  `/rcpu`-polku päätteelle (D4). Koko kotihakemisto levylle ja 2 s:n
+  synkkaus tehtiin 4.10. (D6, yllä).
+- rc-skriptien jäsennys ilman 9frontia: `tools/rccheck` (plan9portin rc,
+  `PLAN9=...`) jäsentää koneen `/boot`-skriptit, rc-httpd:n sivuston,
+  sovellukset, asentimen ja `tools/*.rc`/`tools/cloud/*.rc`:n
+  ajamatta niitä. Se löysi kaksi oikeaa virhettä: `sandbox.rc`:n
+  `Plan2001's` (D7) ja `setup.rc`:n `(the pool's ...)`, joiden heittomerkki
+  avasi lainauksen loppuskriptiin asti.
 - Testisarja pysyy vihreänä (`tools/test-9wasm32`), ja jokainen korjaus
   saa testin, joka kaatuu ilman korjausta.
 
