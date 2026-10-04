@@ -34,6 +34,9 @@ ln -sfn "$root/build/wasm32/kernel/9wasm32.wasm" "$site/9wasm32.wasm"
 ln -sfn "$root/../plan9/sys/src/9/wasm32/platform.js" "$site/platform.js"
 ln -sfn "$root/../plan9/sys/src/9/wasm32/kernel.html" "$site/kernel.html"
 ln -sfn "$root/../plan9/sys/src/9/wasm32/kernel.html" "$site/index.html"
+# the site's secstore (kernel.html: GET /secstore), as the CPU server's
+# (tools/vm-cpu) names its own: MONOLITH_SECSTORE=dialstring, else none
+[ -z "${MONOLITH_SECSTORE:-}" ] || echo "$MONOLITH_SECSTORE" >"$site/secstore"
 
 cd "$site"
 pids=

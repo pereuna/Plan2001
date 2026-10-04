@@ -109,7 +109,7 @@ want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status;
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
 # password gives needkey; with no auth server, no tickets
 fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -160,6 +160,10 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	rsrvh="${rsrv/@\{rfork n;/@\{rfork n; home=/usr/glenda;}"
 	want rcpukeys $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpukeys "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"$rsrvh; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; rcpu -h relay -c 'echo remote:; cat /mnt/factotum/ctl; echo remote done' >[2=1] | sed '/short write in reply/d'; echo done")"
+	# the page gives the site's secstore (GET /secstore, tools/serve's MONOLITH_SECSTORE) to the
+	# machine in BootInfo's config, as /boot/secstore takes it; none without
+	want pagesecstore $names && MONOLITH_SECSTORE='tcp!relay!5356' run pagesecstore '["/bin/rc", "-c", "echo secstore $secstore; echo done"]'
+	want pagesecstore $names && run pagesecstore0 '["/bin/rc", "-c", "echo secstore $secstore; echo done"]'
 	# the keys' copy on the machine's disk (aux/seckeys, /boot/secstore): from secstore with the disk,
 	# the copy is in glenda's home - aescbc's, not the keys; then without secstore (test-authsrv
 	# refuses /5399: the dial fails) the keys from the copy, a wrong password first

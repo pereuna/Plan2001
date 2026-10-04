@@ -56,8 +56,15 @@ start)
 		esac
 	done
 	running && { echo "vm: already running (tools/vm stop first)" >&2; exit 1; }
-	[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
-		echo "vm: no access to /dev/kvm (add yourself to group kvm and log in again)" >&2; exit 1; }
+	# KVM; without it QEMU's own emulation (TCG), many times slower: a container
+	# without /dev/kvm (VM_ACCEL=tcg says so; 9run's timeouts: VM_TIMEOUT_SCALE)
+	accel=(-accel kvm -cpu host)
+	if [ "${VM_ACCEL:-}" = tcg ] || ! { [ -r /dev/kvm ] && [ -w /dev/kvm ]; }; then
+		[ "${VM_ACCEL:-}" = tcg ] || {
+			echo "vm: no access to /dev/kvm (add yourself to group kvm and log in again); VM_ACCEL=tcg to emulate" >&2; exit 1; }
+		accel=(-accel tcg,thread=multi -cpu max)
+		echo "vm: no KVM: emulated (TCG), slow" >&2
+	fi
 	mkdir -p "$vm"; rm -f "$vm"/*.sock "$vm/qemu.pid"
 	if [ -z "$disk" ]; then
 		[ -f "$cache/base.qcow2" ] || { echo "vm: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
@@ -92,7 +99,7 @@ start)
 		nic=(-netdev "user,id=n0,net=10.0.0.0/24,host=10.0.0.1,dhcpstart=10.0.0.223$fwd"
 			-device virtio-net-pci,netdev=n0,disable-modern=on,mac=${OCI_MAC:-02:00:17:00:36:f7})
 	fi
-	qemu-system-x86_64 -name plan2001-vm -accel kvm -cpu host -machine q35 -m $mem -smp 2 \
+	qemu-system-x86_64 -name plan2001-vm "${accel[@]}" -machine q35 -m $mem -smp 2 \
 		-drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" -drive if=pflash,format=raw,file="$vm/vars.fd" \
 		-display none -vga none "${nic[@]}" -rtc base=utc \
 		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \

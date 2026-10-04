@@ -16,8 +16,8 @@ for p in qemu-system-x86 qemu-utils ovmf mtools python3 curl; do
 	dpkg -s "$p" >/dev/null 2>&1 || missing="$missing $p"
 done
 [ -z "$missing" ] || { echo "vm-setup: missing packages; run: sudo apt install$missing" >&2; exit 1; }
-[ -r /dev/kvm ] && [ -w /dev/kvm ] || {
-	echo "vm-setup: no access to /dev/kvm (sudo adduser $USER kvm, then log in again)" >&2; exit 1; }
+[ -r /dev/kvm ] && [ -w /dev/kvm ] || [ "${VM_ACCEL:-}" = tcg ] || {
+	echo "vm-setup: no access to /dev/kvm (sudo adduser $USER kvm, then log in again; VM_ACCEL=tcg to emulate)" >&2; exit 1; }
 for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
 	[ -f "$f" ] || { echo "vm-setup: $f missing (package ovmf)" >&2; exit 1; }
 done

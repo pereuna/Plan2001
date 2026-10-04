@@ -5,6 +5,11 @@
 # console the way 9front sets up a standalone cpu+auth server:
 #   auth/wrkey          host owner glenda, authdom plan2001, into nvram
 #   auth/changeuser     glenda in keyfs, with the same password
+#   auth/secuser        glenda's secstore account (docs/architecture.md,
+#                       "Avainten paikka"), her secstore password generated
+#                       into cpu.secpass in the cache; secstored on 5356
+#                       (/rc/bin/service.auth/tcp5356) and the site's
+#                       secstore file (GET /secstore, kernel.html)
 #   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
 #                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
 #   plan9.ini           service=cpu
@@ -53,7 +58,7 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
 vm=$root/build/vm
-cpu=$cache/cpu.qcow2 passf=$cache/cpu.pass
+cpu=$cache/cpu.qcow2 passf=$cache/cpu.pass secpassf=$cache/cpu.secpass
 run9() { "$here/9run" -d "$vm" "$@"; }
 redact() { sed "s/$pass/<password>/g"; }
 halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog - >/dev/null; }
@@ -128,6 +133,12 @@ webterm() {
 	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s monolith.key /cfg/cirno/cpustart || echo 'cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl' >>/cfg/cirno/cpustart"
 	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /rc/bin/rc-httpd/rc-httpd' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
+	# secstore (docs/architecture.md, "Avainten paikka"): secstored on 5356, as 9front's
+	# auth server runs it, and the site says so (GET /secstore: kernel.html gives the
+	# terminal's machine its dial string; webterm's /5356 is this machine's)
+	echo "vm-cpu: secstored, the site's secstore"
+	run9 -t 30 "test -e /rc/bin/service.auth/tcp5356 || { echo '#!/bin/rc'; echo 'exec /bin/auth/secstored' } >/rc/bin/service.auth/tcp5356; chmod 775 /rc/bin/service.auth/tcp5356"
+	run9 -t 30 "echo 'tcp!secstore!5356' >/sys/lib/plan2001/web/secstore && chmod 644 /sys/lib/plan2001/web/secstore"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"
 		run9 -t 60 "cp /tmp/web/* /sys/lib/plan2001/web/ && chmod 644 /sys/lib/plan2001/web/* && ls -l /sys/lib/plan2001/web"
@@ -177,6 +188,9 @@ if [ -f "$cpu" ]; then
 fi
 [ -s "$passf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$passf"); }
 pass=$(cat "$passf")
+# glenda's secstore password (secstore's own, not her login's)
+[ -s "$secpassf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$secpassf"); }
+secpass=$(cat "$secpassf")
 
 new=$cpu.part
 rm -f "$new"; qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$new"
@@ -206,6 +220,16 @@ User's full name: *	''
 Department #: *	''
 User's email address: *	''
 Sponsor's email address: *	''
+term% 	!done
+EOF
+echo; echo "vm-cpu: glenda's secstore account (auth/secuser)"
+run9 -t 60 -s 'auth/secuser glenda' --dialog - <<EOF | redact | sed "s/$secpass/<secstore password>/g"
+glenda password: *	$secpass
+retype password: *	$secpass
+expires .*: *	''
+Enabled or Disabled .*: *	''
+require STA\\? .*: *	''
+comments .*: *	''
 term% 	!done
 EOF
 echo; echo "vm-cpu: ndb and plan9.ini"

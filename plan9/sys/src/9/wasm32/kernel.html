@@ -39,7 +39,15 @@ const args = q.has('noinit') ? [] : q.getAll('arg').length ? q.getAll('arg') : [
  */
 const app = await fetch('app', { cache: 'no-store' }).then((r) => r.ok ? r.text() : 'term').catch(() => 'term');
 const appname = /^[a-z0-9-]{1,32}$/.test(app.trim()) ? app.trim() : 'term';
-const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '');
+/*
+ * the server's secstore, if it has one (GET /secstore: its dial string, a file of the site):
+ * the terminal's /boot/init gets factotum's keys from it (/boot/secstore; docs/architecture.md,
+ * "Avainten paikka"); without it no password is asked
+ */
+const sec = appname === 'term' ? await fetch('secstore', { cache: 'no-store' }).then((r) => r.ok ? r.text() : '').catch(() => '') : '';
+const secstore = /^[a-z0-9.!-]{1,64}$/.test(sec.trim()) ? sec.trim() : '';
+const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
+	(secstore ? 'secstore=' + secstore + '\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
 
 // the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c);

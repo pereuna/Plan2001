@@ -3,7 +3,7 @@
  * drawterm in a browser (Monolith).  aux/listen runs it for each
  * connection (/rc/bin/service/tcp17080), the connection on fd 0 and 1.
  *
- * GET /17019 is rcpu, GET /567 is auth; with -s GET /17030 is the compute
+ * GET /17019 is rcpu, GET /567 is auth, GET /5356 secstore; with -s GET /17030 is the compute
  * pool too (crsrv: a browser tab as a compute resource); nothing else.  The WebSocket
  * carries the service's bytes unchanged in binary frames, so drawterm's
  * own auth and TLS run inside it as over TCP.
@@ -59,7 +59,7 @@ enum {
 	Iosize	= 32*1024,
 };
 
-static char *services[] = { "17019", "567", nil };	/* without -s: rcpu, auth */
+static char *services[] = { "17019", "567", "5356", nil };	/* without -s: rcpu, auth, secstore */
 static char *origins[16];	/* -o */
 static int norigins;
 static int secure;	/* -s: the connection is TLS already */

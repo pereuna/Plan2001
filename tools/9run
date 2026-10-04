@@ -246,11 +246,11 @@ def parse(text):
 def main(a):
 	if a[:1] == ['--relay'] and len(a) == 2:
 		return relay(a[1])
-	d, timeout, dlg, first, scr = 'build/vm', 300, None, None, None
+	d, timeout, dlg, first, scr = 'build/vm', 300 * float(os.environ.get('VM_TIMEOUT_SCALE', '1')), None, None, None
 	while a and a[0].startswith('-') and a[0] != '-':
 		o = a.pop(0)
 		if o == '-d': d = a.pop(0)
-		elif o == '-t': timeout = float(a.pop(0))
+		elif o == '-t': timeout = float(a.pop(0)) * float(os.environ.get('VM_TIMEOUT_SCALE', '1'))	# an emulated VM (tools/vm: VM_ACCEL=tcg)
 		elif o == '-s': first = a.pop(0)
 		elif o == '--dialog': dlg = a.pop(0)
 		elif o == '--script': scr = a.pop(0)
