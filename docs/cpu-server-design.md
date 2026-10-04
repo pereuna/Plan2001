@@ -220,7 +220,7 @@ Päätteeseen upotettu jako-painike (iframe tai host.js) on tekemättä.
 
 **Päivitys ilman uudelleenkäynnistystä:** `tools/cpu-live SOCK` päivittää
 käynnissä olevan CPU-palvelimen 9pterm-istunnon kautta: sivut (+ .gz),
-`lib/app`, webterm (aux/listen ajaa sen yhteyskohtaisesti), rcc ja crsrv,
+`plan2001/lib/app`, webterm (aux/listen ajaa sen yhteyskohtaisesti), rcc ja crsrv,
 joka käynnistetään uudelleen `cpustart`in argumenteilla. CR:t yhdistävät
 itse uudelleen, ja kesken olevat työt epäonnistuvat asiakkailleen.
 Pilvessä ydintä ei tarvitse vaihtaa.
@@ -249,13 +249,13 @@ selaimen kautta.
   `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
   libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,
   `6c.wasm` 218 kt). Välilehti on ohimenevä: kun se sulkeutuu, CR katoaa.
-- **CPU-palvelin:** `crsrv` (`sys/src/cmd/crsrv.c`) kuuntelee CR:iä
+- **CPU-palvelin:** `crsrv` (`plan2001/sys/src/cmd/crsrv.c`) kuuntelee CR:iä
   (tcp 17030; selaimen yhteys tulee webtermin WebSocketin `/17030` kautta) ja
   tarjoaa poolin nimiavaruuteen: `/srv/compute` → palvelimen `/global/compute`
-  ja sovelluksen nimiavaruudessa `/compute` (`lib/app/term/namespace`):
+  ja sovelluksen nimiavaruudessa `/compute` (`plan2001/lib/app/term/namespace`):
   `status`, `cc` (työt) ja jokaiselle CR:lle `N/{type,api,workers,owner,state,jobs}`.
   CR saa liittyessään palvelimen otsikot (`/sys/include`, `/amd64/include`).
-- **Käyttäjä:** `rcc` (`sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk
+- **Käyttäjä:** `rcc` (`plan2001/sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk
   'CC=rcc'`. Työ sisältää lähteen ja sen hakemistojen `.h`-tiedostot, eli
   data tulee käyttäjän nimiavaruudesta. CR kääntää samannimisessä
   hakemistossa kuin käyttäjä, joten objekti on sama kuin palvelimen `6c`:n.

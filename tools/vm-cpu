@@ -8,18 +8,18 @@
 #   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
 #                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
 #   plan9.ini           service=cpu
-#   webterm             sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
+#   webterm             plan2001/sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
 #                       for the browser drawterm, on port 17080 (aux/listen)
 #   crsrv, rcc          the compute pool (docs/cpu-server-design.md): crsrv
 #                       at boot (/srv/compute, CRs on tcp 17030, browsers
 #                       through webterm /17030), rcc (6c in the pool)
-#   apps                lib/app/APP/{image,namespace,policy}: an origin's app
+#   apps                plan2001/lib/app/APP/{image,namespace,policy}: an origin's app
 #                       (https://APP.MACHINE, docs/app-origins.md) and
-#                       rc/bin/apps
+#                       plan2001/rc/bin/apps
 #   Plan2001 system     as on the cloud server (docs/cloud.md): the
 #                       Plan2001 kernel and loader as a pair in 9fat
 #                       (build/amd64: tools/build.sh or tools/kbuild9p.rc),
-#                       glenda's profile from usr/glenda/lib/profile
+#                       glenda's profile from plan2001/usr/glenda/lib/profile
 #                       (a terminal starts rio, as 9front's)
 #   tlssrv + webterm    the same on port 17443 as https/wss, serving the
 #                       page too from /sys/lib/monolith (--web DIR), with a
@@ -28,7 +28,7 @@
 #                       https://.../plan2001-ca.crt; openssl);
 #                       CPU_CERT_SANS names the machine, default
 #                       127.0.0.1, localhost and APP.localhost for the apps
-#                       in lib/app (Chrome sends *.localhost to loopback);
+#                       in plan2001/lib/app (Chrome sends *.localhost to loopback);
 #                       with PLAN2001_LAN=IP (tools/vm) also IP and
 #                       APP.IP.nip.io, for the local network (nip.io
 #                       resolves them to IP); PLAN2001_PUBLIC=IP the same
@@ -64,12 +64,12 @@ certs() {
 	local ca=$cache/ca sans=$CPU_CERT_SANS a
 	if [ -z "$sans" ]; then
 		sans=IP:127.0.0.1,DNS:localhost
-		for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").localhost; done
+		for a in "$root"/plan2001/lib/app/*/; do sans=$sans,DNS:$(basename "$a").localhost; done
 		# the local network's address (PLAN2001_LAN) and a public one
 		# (PLAN2001_PUBLIC: the cloud, docs/cloud.md)
 		for ip in $PLAN2001_LAN $PLAN2001_PUBLIC; do
 			sans=$sans,IP:$ip
-			for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$ip.nip.io; done
+			for a in "$root"/plan2001/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$ip.nip.io; done
 		done
 	fi
 	mkdir -p "$ca"; chmod 700 "$ca"
@@ -136,8 +136,8 @@ stage=$(mktemp -d)
 for f in "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi"; do
 	[ -s "$f" ] || { echo "vm-cpu: no $f (tools/build.sh)" >&2; exit 1; }
 done
-cp "$root/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/rc/bin/apps" "$root/sys/src/cmd/crsrv.c" "$root/sys/src/cmd/rcc.c" "$root/usr/glenda/lib/profile" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
-cp -r "$root/lib/app" "$stage/app"
+cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/usr/glenda/lib/profile" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
+cp -r "$root/plan2001/lib/app" "$stage/app"
 webfiles=
 if [ -n "$web" ]; then
 	mkdir "$stage/web"

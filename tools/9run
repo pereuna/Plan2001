@@ -26,7 +26,7 @@ the log and writes the FIFO.  Found by trial (see docs/status.md):
     connecting, stall the guest's output while connected and not reading,
     and see characters doubled in QEMU's own logfile - hence one relay
 If DIR/target says 'tcp HOST PORT KEY', the relay talks to a real machine
-instead: the Plan2001 medium's remote (usr/glenda/lib/profile), a shell on
+instead: the Plan2001 medium's remote (plan2001/usr/glenda/lib/profile), a shell on
 a TCP connection that wants KEY first.  No line discipline there, so the
 relay turns typed returns into newlines, and no UART to pace for.
 

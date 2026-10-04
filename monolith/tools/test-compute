@@ -6,7 +6,7 @@ spread over browser tabs.
   CRKEY=FILE tools/test-compute ...      crsrv -k: the key the pages give (#key=)
   CORRUPT=N tools/test-compute ...       the first N tabs return wrong objects
                                           (with crsrv -v 2of3 the build must still match)
-  KERNEL=1 tools/test-compute ...         the kernel (sys/src/9/pc64) instead of
+  KERNEL=1 tools/test-compute ...         the kernel (plan9/sys/src/9/pc64) instead of
                                           acme; its objects are listed where
                                           they differ (build dates)
 

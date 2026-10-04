@@ -19,7 +19,7 @@ fn fail { echo SANDBOX FAILED: $*; exit $1 }
 fn step { echo '###' $* }
 
 step webterm, with -n
-@{cd /tmp && cp $repo/sys/src/cmd/webterm.c . && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6} || fail webterm
+@{cd /tmp && cp $repo/plan2001/sys/src/cmd/webterm.c . && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6} || fail webterm
 
 if(! ~ $#site 0){
 	step the page: /sys/lib/sandbox

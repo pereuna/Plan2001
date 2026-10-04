@@ -4,7 +4,7 @@
 # $1 (a /mnt/term path), without a reboot:
 #   pages      monolith/web's cr.html, cr.js, cr-worker.js into
 #              /sys/lib/monolith (and their .gz, which webterm prefers)
-#   apps       lib/app (policies and namespace files: the next session)
+#   apps       plan2001/lib/app (policies and namespace files: the next session)
 #   webterm    compiled and installed: aux/listen runs it per connection
 #   rcc        compiled and installed
 #   crsrv      compiled, installed and restarted with the arguments of its
@@ -34,10 +34,10 @@ if(want pages){
 	echo pages: cr.html cr.js cr-worker.js
 }
 if(want apps){
-	for(a in `{ls $repo/lib/app}){
+	for(a in `{ls $repo/plan2001/lib/app}){
 		a=`{basename $a}
 		mkdir -p /lib/app/$a
-		for(f in `{ls $repo/lib/app/$a}){
+		for(f in `{ls $repo/plan2001/lib/app/$a}){
 			cp $f /lib/app/$a/ || fail apps
 		}
 		chmod 664 /lib/app/$a/*
@@ -47,7 +47,7 @@ if(want apps){
 }
 for(p in webterm rcc crsrv){
 	if(want $p){
-		@{ cd $t && cp $repo/sys/src/cmd/$p.c . && 6c -FTVw $p.c && 6l -o $p $p.6 } || fail $p
+		@{ cd $t && cp $repo/plan2001/sys/src/cmd/$p.c . && 6c -FTVw $p.c && 6l -o $p $p.6 } || fail $p
 		cp $t/$p /amd64/bin/$p || fail install $p
 		echo $p: installed
 	}

@@ -13,7 +13,7 @@ cc3=$root/build/cc-native/3c
 l3=$root/build/cc-native/3l
 "$root/tools/build-libc3" >/dev/null
 "$root/tools/build-3c3" >/dev/null	# libbio too
-INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
+INC="-I$P/plan9/wasm32/include -I$P/subset/9front/sys/include"
 libs="$out/lib/libbio.a $out/lib/libregexp.a $out/lib/libauth.a $out/lib/libc.a"
 seclibs="$out/lib/libauthsrv.a $out/lib/libsec.a $out/lib/libmp.a $out/lib/libndb.a $out/lib/libip.a"	# D3
 rm -rf "$out/root" "$out/o/cmd"
@@ -31,9 +31,9 @@ cp "$src/rc/rcmain.plan9" "$out/root/rc/lib/rcmain"
 # rc's own commands (/rc/bin, after /bin): rio's window and wloc
 mkdir -p "$out/root/rc/bin"
 cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc/bin/"
-# the wasm32 kernel's init (sys/src/9/wasm32/init)
+# the wasm32 kernel's init (plan9/sys/src/9/wasm32/init)
 mkdir -p "$out/root/boot"
-cp "$P/sys/src/9/wasm32/init" "$P/sys/src/9/wasm32/console" "$out/root/boot/"
+cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
@@ -106,7 +106,7 @@ cp "$P"/subset/9front/sys/lib/plumb/basic "$P"/subset/9front/sys/lib/plumb/filea
 # font it names, and its subfonts from the subset's tree (tools/subset/derive: binary,
 # not in the repo; without them rio has the default font)
 mkdir -p "$out/root/usr/glenda/lib" "$out/root/usr/glenda/bin/rc" "$out/root/usr/glenda/bin/wasm32" "$out/root/usr/glenda/tmp" "$out/root/lib/font/bit/vga"
-cp "$P/usr/glenda/lib/profile" "$out/root/usr/glenda/lib/profile"
+cp "$P/plan2001/usr/glenda/lib/profile" "$out/root/usr/glenda/lib/profile"
 cp "$P/subset/9front/usr/glenda/bin/rc/riostart" "$out/root/usr/glenda/bin/rc/riostart"
 cp "$P/subset/9front/usr/glenda/lib/plumbing" "$out/root/usr/glenda/lib/plumbing"
 cp "$P/subset/9front/lib/font/bit/vga/unicode.font" "$out/root/lib/font/bit/vga/"
@@ -134,14 +134,14 @@ fi
 # 3c's tests that run in the browser (tools/test-wasmapp host3)
 for t in libc/hello draw/dclock host3/rfmem libc/fork host3/threads host3/bytes host3/preempt; do
 	n=$(basename $t)
-	if ! (cd "$P/sys/src/cmd/3c/test/$(dirname $t)" && "$cc3" -FVw $INC -o "$out/o/cmd/$n.3" "$n.c") >"$out/o/cmd/$n.err" 2>&1 ||
+	if ! (cd "$P/plan9/sys/src/cmd/3c/test/$(dirname $t)" && "$cc3" -FVw $INC -o "$out/o/cmd/$n.3" "$n.c") >"$out/o/cmd/$n.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/$n" "$out/o/cmd/$n.3" "$out/lib/libthread.a" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/$n.err" 2>&1; then
 		echo "build-bin3: $n:"; head -5 "$out/o/cmd/$n.err"; fail=1
 	fi
 done
 # the kernel's tests (tools/test-9wasm32)
 for t in forkloop c3a c3b c3d d2 d3 d4 fault; do
-	if ! (cd "$P/sys/src/9/wasm32/test" && "$cc3" -FVw $INC -o "$out/o/cmd/$t.3" "$t.c") >"$out/o/cmd/$t.err" 2>&1 ||
+	if ! (cd "$P/plan9/sys/src/9/wasm32/test" && "$cc3" -FVw $INC -o "$out/o/cmd/$t.3" "$t.c") >"$out/o/cmd/$t.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/$t" "$out/o/cmd/$t.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$t.err" 2>&1; then
 		echo "build-bin3: $t:"; head -5 "$out/o/cmd/$t.err"; fail=1
 	fi

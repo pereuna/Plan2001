@@ -22,7 +22,7 @@ fn step { echo '###' $* }
 step homes: Plan2001 profile
 for(u in admin glenda){
 	mkdir -p /usr/$u/lib /usr/$u/tmp /usr/$u/bin/rc /usr/$u/bin/amd64 >[2]/dev/null
-	cp $repo/usr/glenda/lib/profile /usr/$u/lib/profile || fail profile $u
+	cp $repo/plan2001/usr/glenda/lib/profile /usr/$u/lib/profile || fail profile $u
 }
 
 step kernel and loader into 9fat, as a pair
@@ -34,7 +34,7 @@ ls -l /n/9fat/9pc64 /n/9fat/efi/boot/bootx64.efi
 unmount /n/9fat
 
 step Plan2001 system headers (the pool's CRs get /sys/include from crsrv)
-cp $repo/sys/include/bootinfo.h /sys/include/bootinfo.h || fail bootinfo.h
+cp $repo/plan9/sys/include/bootinfo.h /sys/include/bootinfo.h || fail bootinfo.h
 step the compute pool and the browser side
 rc $repo/tools/cpu-live.rc $repo pages apps webterm rcc crsrv || fail cpu-live
 
@@ -75,7 +75,7 @@ step DNS: authoritative for cpu.plan2001.com
 	echo '	mb=hostmaster@plan2001.com'
 	echo '	caa=letsencrypt.org'
 	echo 'dom=cpu.plan2001.com ip='^$public
-	for(a in `{ls $repo/lib/app}){
+	for(a in `{ls $repo/plan2001/lib/app}){
 		a=`{basename $a}
 		echo 'dom='^$a^'.cpu.plan2001.com ip='^$public
 	}

@@ -19,7 +19,7 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   ole päällekkäin kernelin boot-alueen kanssa, ja kernelin muistialue on varattu
   `EfiLoaderCode`na (firmware merkitsee vapaan muistin NX:ksi).
 - **Vaihe B — rakenteinen `BootInfo`.** Loader kokoaa versioidun `BootInfo`-rakenteen
-  (`sys/include/bootinfo.h`) `plan9.ini`-tekstin sijaan: muistikartta, ACPI RSDP,
+  (`plan9/sys/include/bootinfo.h`) `plan9.ini`-tekstin sijaan: muistikartta, ACPI RSDP,
   framebuffer.
 - **Vaihe 1 — UEFI-tietojen laajempi käyttö (lisäävä, mitään ei vielä poistettu).**
   - BootServices-muisti (koodi ja data) on nyt käyttökelpoista RAM-muistia
@@ -495,7 +495,7 @@ sarjakonsolin tekstillä.
 ## Plan2001 Boot ABI v1 (25.9.2026)
 
 Loaderin ja kernelin välinen sopimus on nyt Plan2001:n oma
-(`docs/boot-abi.md`, `sys/include/bootinfo.h`): **RDI = BootInfo-blobin
+(`docs/boot-abi.md`, `plan9/sys/include/bootinfo.h`): **RDI = BootInfo-blobin
 fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitetta.
 
 - Blob on `header | plan9.ini | loader log | muistikartta` yhdessä
@@ -539,7 +539,7 @@ ARM64 otetaan huomioon heti ja RISC-V tulevaisuuden mahdollisuutena.
 Rajaperiaate: **BootInfo on koneesta riippumaton protokolla. Entry, MMU,
 trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 
-- **Boot ABI kahtia:** data-ABI `docs/boot-abi.md` ja `sys/include/bootinfo.h`
+- **Boot ABI kahtia:** data-ABI `docs/boot-abi.md` ja `plan9/sys/include/bootinfo.h`
   (yhteinen), entry-ABI `docs/boot-abi-amd64.md` (RDI). ARM64 (X0) ja RV64
   (a0, a1 = hart) on kirjattu tuleviksi. `tscfreq` on AMD64:n kenttä, muilla 0.
 - **Kernel:** `bootinfo.c`, `bootargs.c` ja `bootfb.c` siirretty `pc/` → `port/`.
@@ -600,7 +600,7 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 - **Loader:** `aa64.s` upstreamista (X0 = BootInfo). Uusi arch-hook
   `archdataround()`, koska `7l` pyöristää datan 64 KB:iin. Firmwarelle ei
   anneta bss-osoitteita (ARM64:llä loader siirtyy muistissa). `FdtMax` on 2 MB.
-- **Kernel** (`sys/src/9/arm64/`, upstreamin tiedostot ensin muuttamattomina,
+- **Kernel** (`plan9/sys/src/9/arm64/`, upstreamin tiedostot ensin muuttamattomina,
   commit `36245f4`): X0 → `bootinfopa`, `bootearlymap()` samaan osoitteeseen
   kuin `kmapram()`, `meminit()` UEFI-kartasta (8 pankkia, blob leikattuna pois),
   `DTBADDR`/`CONFADDR`/`writeconf` pois ja `reboot()` → `panic`.
@@ -629,7 +629,7 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   (`up->nerrlab == 0`, bisect).
 - 9run: syötepalat 8 → 4 merkkiä ja 10 → 20 ms, koska UART pudotti
   satunnaisesti merkin.
-- webterm (`sys/src/cmd/webterm.c`): WebSocket rcpuun (`/17019`) ja authiin
+- webterm (`plan2001/sys/src/cmd/webterm.c`): WebSocket rcpuun (`/17019`) ja authiin
   (`/567`) portissa 17080, Monolithin vaihe 2a. `tools/vm-cpu` kääntää ja
   asentaa sen (`--update` olemassa olevaan cpu.qcow2:een), ja `tools/vm
   --net` ohjaa 127.0.0.1:17080:n siihen.
@@ -654,10 +654,10 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   (`$home/bin/rc`). QEMU-testeissä ei ole framebufferia, joten rio
   kaatui heti ja init antoi rc:n; siksi tämä ei näkynyt.
 - Korjaus: asennusmedia antaa `term%`-kehotteen ilman riota. Repon
-  `usr/glenda/lib/profile` (9frontin profiili + ehto) sidotaan medialle, ja
+  `plan2001/usr/glenda/lib/profile` (9frontin profiili + ehto) sidotaan medialle, ja
   median plan9.ini:ssä on `plan2001=install`. 9frontin `inst/bootsetup`
   kopioi käynnissä olevan järjestelmän plan9.ini-muuttujat uudelle levylle,
-  joten repon `rc/bin/inst/bootsetup` (sidotaan medialle) jättää myös
+  joten repon `plan2001/rc/bin/inst/bootsetup` (sidotaan medialle) jättää myös
   `plan2001=`n pois; asennetulla levyllä rio käynnistyy kuten ennen.
   `tools/subset/test` tarkistaa tämän.
 - Avoin: `riostart` asennetulle järjestelmälle (osajoukon `extra`).
@@ -678,7 +678,7 @@ Monolithia varten (drawterm selaimessa, pereuna/monolith):
   Syy: `partdisk` on 9frontissa valmis, jos jollakin levyllä on plan9-osio
   ja ESP, ja `prepdisk`, jos jollakin on `nvram` - asennusmedialla on
   molemmat. Testit kiersivät tämän (`vm-install` valitsi partdisk ja
-  prepdisk itse). Korjaus repon `rc/bin/inst/`issa (`defs`: `mediumdisk`,
+  prepdisk itse). Korjaus repon `plan2001/rc/bin/inst/`issa (`defs`: `mediumdisk`,
   `mediumroot` bootrc:n `$bootargs`ista):
   - media ei tee partdiskistä eikä prepdiskistä valmista, ellei
     partdisk ole valinnut sitä (`instdisk`); media näkyy listoissa
@@ -722,7 +722,7 @@ kumpaankin suuntaan 208 katkoksen läpi, md5 täsmää.
   se ei ole pelkkä liitos, vaan ajaa `fstype`n jokaiselle osiolle kaikilla
   levyillä etsiessään FAT/ISO-jakelua. Plan2001:n medialla jakelu on media
   itse (`/`), kuten 9frontin ISO kertoo `cdboot`illa. Repon
-  `rc/bin/inst/mountdist`: medialta asennettaessa oletus `/` ilman levyjen
+  `plan2001/rc/bin/inst/mountdist`: medialta asennettaessa oletus `/` ilman levyjen
   läpikäyntiä (`cdboot`ia ei voi laittaa plan9.ini:hin, koska
   `boot/local.rc` käyttää sitä bootlaitteen valintaan).
 - Pitkät vaiheet näyttävät elävänsä: `defs`in `busy` tulostaa pisteen 2 s

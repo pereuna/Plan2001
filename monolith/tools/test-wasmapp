@@ -12,7 +12,7 @@ the screen goes to build/wasmapp-NAME.png.
                                            RUNS=1: it goes on (clock), PASS
                                            if it is still running and drew
   PAGE=kernel.html SERIAL=1 EXPECT=FILE tools/test-wasmapp kernel
-                                           Plan2001's wasm32 kernel (sys/src/9/wasm32):
+                                           Plan2001's wasm32 kernel (plan9/sys/src/9/wasm32):
                                            until it halts (KERNEL-HALT), its eia0
   SERIAL=1 [SEND='["line\n", ["prompt", "line\n"], ...]'] [SENDFILE=F] [EXPECT=FILE]
                                            its console #t/eia0, the platform's

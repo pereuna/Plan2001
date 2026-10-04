@@ -120,7 +120,7 @@ hyväksyvät varoituksen kerran kutakin originia kohden.
 Haara `origin-apps` (29.9.): kohdat 1–10 tehty, `monolith/tools/test-apps`
 PASS (myös `--drop`) ja `monolith/tools/test-compute` PASS compute-originista.
 Toteutus: webterm (`hostapp`, `allowed`, oma rcpu-skripti `appscript`,
-istunnon `origin`), sovelluspohjat `lib/app/`, `tools/vm-cpu` (asennus,
+istunnon `origin`), sovelluspohjat `plan2001/lib/app/`, `tools/vm-cpu` (asennus,
 `*.localhost`-nimet varmenteeseen). Testi tarkistaa lisäksi, että sivu, joka
 pyytää drawtermilla `-c 'sleep 777'`, saa silti originin sovelluksen.
 Kohdat 9–10: `crsrv` on palvelimen nimiavaruudessa `/global/compute`

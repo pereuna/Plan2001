@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001's wasm32 kernel (../sys/src/9/wasm32, docs/architecture.md
+# Plan2001's wasm32 kernel (../plan9/sys/src/9/wasm32, docs/architecture.md
 # phase C): its C by 3c, linked by 3l -k with wasm32's libc ->
 # build/wasm32/kernel/9wasm32.wasm; the page kernel.html and platform.js
 # boot it (tools/serve).
@@ -7,7 +7,7 @@
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 P=$(cd "$root/.." && pwd)
-k=$P/sys/src/9/wasm32
+k=$P/plan9/sys/src/9/wasm32
 out=$root/build/wasm32/kernel
 cc3=$root/build/cc-native/3c
 l3=$root/build/cc-native/3l
@@ -18,7 +18,7 @@ mkdir -p "$out/o"
 rm -f "$out"/o/*.3
 port=$P/subset/9front/sys/src/9/port
 # port/'s "../port/x.h": found through -I$port; wasm32's mem.h, dat.h, fns.h first
-INC="-I$P/wasm32/include -I$k -I$port -I$P/subset/9front/sys/include"
+INC="-I$P/plan9/wasm32/include -I$k -I$port -I$P/subset/9front/sys/include"
 # 9front's port/ that wasm32 uses (proc.c is wasm32's own)
 PORT="alloc xalloc allocb chan dev pgrp qio qlock taslock parse portclock tod print alarm auth mul64fract sysfile
 	devroot devcons devuart devpipe devenv devdup devsrv devmnt devdraw devmouse devtls"

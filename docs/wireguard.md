@@ -1,7 +1,7 @@
 # WireGuard: #W
 
 Plan2001:n ytimessä on WireGuard omana laitteenaan `#W`
-(`sys/src/9/ip/devwg.c`). Se ei ole Linuxin ajurin portti, vaan
+(`plan2001/sys/src/9/ip/devwg.c`). Se ei ole Linuxin ajurin portti, vaan
 WireGuard-protokollan (Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s) oma
 toteutus 9frontin IP-pinon päälle. IP-pino näkee sen mediumina `wg`,
 samaan tapaan kuin `ether`-mediumin. Krypto tulee libsecistä: `x25519`,
@@ -74,7 +74,7 @@ Siksi `#W` tekee UDP- ja IP-otsakkeet itse ja antaa paketin
 `ipoput4`/`ipoput6`:lle reittivihjeen kanssa.
 
 Reitin hakee `v4lookupskip`/`v6lookupskip`. Se on Plan2001:n lisäys
-9frontin `ip/iproute.c`:hen (overlay `sys/src/9/ip/iproute.c`): pisimmän
+9frontin `ip/iproute.c`:hen (overlay `plan2001/sys/src/9/ip/iproute.c`): pisimmän
 etuliitteen haku, joka ohittaa reitit, jotka menevät ulos wg-mediumin
 rajapinnasta. Lähdeosoite on sen rajapinnan osoite, jonka reitti antaa.
 

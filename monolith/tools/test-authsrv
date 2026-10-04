@@ -8,7 +8,7 @@ and authsrv.c: the wasm32 machine's factotum and this agree only if
 both are right.  tools/serve's relay (MONOLITH_WEBTERM=PORT) reaches it.
 And a relay for rcpu inside one machine, which cannot listen: /17999
 waits, and the next /17019 (an rcpu client) is joined to it, bytes both
-ways (sys/src/9/wasm32/test/d4.c's server).  /17998 never answers.
+ways (plan9/sys/src/9/wasm32/test/d4.c's server).  /17998 never answers.
   tools/test-authsrv PORT USER=PASSWORD...
 """
 import asyncio, base64, hashlib, hmac, os, struct, sys

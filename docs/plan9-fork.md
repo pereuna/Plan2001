@@ -1,10 +1,13 @@
 # Plan 9 -fork, 9Front-2001 ja Plan2001 (päätös 4.10.2026)
 
 Plan2001:n kehitys eriytetään yleisestä Plan 9 -forkista. Tämä dokumentti
-kirjaa päätöksen, kerrokset, sijoitussäännöt ja siirtosuunnitelman.
-Siirto tehdään omana työnään, kun keskeneräiset haarat (Codex) on
-yhdistetty; siihen asti tiedostot ovat nykyisillä paikoillaan, ja alla
-oleva taulukko kertoo jokaisen kohteen.
+kirjaa päätöksen, kerrokset, sijoitussäännöt ja siirron. Siirto on tehty
+4.10.2026: alla olevan taulukon "Ennen"-sarake on historia, "Uusi" on
+tiedoston paikka nyt. `tools/overlay DIR` kokoaa `plan9/`:n ja
+`plan2001/`:n yhdeksi puuksi 9frontin juuren muodossa (`-f`: vain fork);
+VM-build (`tools/build.sh`) lähettää sen VM:lle `sys/`ina. Koottu puu
+oli siirron jälkeen tavu tavulta sama kuin entinen `sys/`, `rc/`, `usr/`,
+`lib/` ja `wasm32/` (lisänä `kernel.html` wasm32:n hakemistossa).
 
 ## Kerrokset
 
@@ -62,12 +65,12 @@ Kokonaista kopiota ei tehdä, jotta 9frontin päivitys pysyy helppona
 
 ## Siirtotaulukko
 
-Nykyinen polku → uusi polku. Merkinnät: ✓ selvä, ? tarkistetaan
-siirrossa.
+Polku ennen siirtoa → uusi polku. ? = sijoitus voidaan vielä harkita
+uudelleen (nyt taulukon mukaan).
 
 ### `plan9/` (fork)
 
-| Nyt | Uusi | |
+| Ennen | Uusi | |
 |---|---|---|
 | `wasm32/include/`, `wasm32/mkfile` | `plan9/wasm32/` | ✓ |
 | `sys/src/cmd/3a`, `3c`, `3l` | `plan9/sys/src/cmd/` | ✓ |
@@ -84,7 +87,7 @@ siirrossa.
 
 ### `plan2001/` (overlay)
 
-| Nyt | Uusi | |
+| Ennen | Uusi | |
 |---|---|---|
 | `sys/src/cmd/aux/kbdfs/kbdfs.c` (rivieditori, historia) | `plan2001/sys/src/cmd/aux/kbdfs/` | ✓ |
 | `sys/src/9/port/devcons.c` (ESC-rivit pois kmesgistä, rivieditorin takia) | `plan2001/sys/src/9/port/` | ✓ |
@@ -96,10 +99,11 @@ siirrossa.
 
 ### Kernelin konfiguraatio
 
-`pc64`-conf jaetaan kahtia. `plan9/sys/src/9/pc64/pc64` sisältää forkin
-laitteet (bootinfo, bootarch, bootfb ilman wg:tä), ja `plan2001/` lisää
-omansa, esimerkiksi omana conf-tiedostonaan, joka on pc64 ja `wg`.
-Mekanismi päätetään siirrossa. Tavoite on, että `plan9/`:n conf kääntyy
+`pc64`-conf on jaettu kahtia: `plan9/sys/src/9/pc64/pc64` on forkin
+(bootinfo, bootarch, bootfb, ei `wg`:tä), ja `plan2001/sys/src/9/pc64/pc64`
+on sen kopio, johon on lisätty `wg`. Koska tiedosto on molemmissa,
+overlayssa voittaa `plan2001/`:n. Kun forkin confiin tulee muutos, sama
+muutos on tehtävä myös Plan2001:n kopioon. Näin `plan9/`:n conf kääntyy
 9frontissa ilman Plan2001:n laitteita.
 
 ## Mitä natiivi käännös vielä vaatii
@@ -125,6 +129,9 @@ Tilanne 4.10.2026:
   tarvitsee sitä.
 
 ## Siirron vaiheet
+
+Vaiheet 1, 2 ja 4 on tehty 4.10.2026. VM:llä ajettavat osat (`build.sh`,
+`mkusb`, `subset/test`, `check`) ja vaihe 3 ovat tekemättä.
 
 1. Keskeneräiset haarat (Codex) yhdistetään ensin, jotta polkujen
    muutos ei riitele niiden kanssa.

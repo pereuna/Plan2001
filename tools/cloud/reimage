@@ -1,7 +1,7 @@
 #!/bin/bash
 # Rewrite the Plan2001 cloud server's whole disk with an image, over the
 # network, without Oracle's image import (what dd over ssh to a rescue
-# system is elsewhere): sys/src/9/boot/reimage.rc and aux/reimage.
+# system is elsewhere): plan2001/sys/src/9/boot/reimage.rc and aux/reimage.
 #   tools/cloud/reimage IMAGE.qcow2
 #   HOST=IP PORT=N   where the boot environment takes it (82.70.55.84, 443)
 #   ADMIN=IP AUTH=DIAL  the running system for admin (10.201.0.1 over the

@@ -1,0 +1,18 @@
+#!/bin/bash
+# The repo's Plan 9 files as one tree, in 9front's root layout: the fork
+# (plan9/) and Plan2001's own over it (plan2001/) - what is laid over a
+# 9front tree to make Plan2001 (docs/plan9-fork.md).  A file in both is
+# plan2001/'s (its kernel configuration pc64 adds wg to the fork's).
+# With -f only the fork: what goes into 9Front-2001 or a 9front.
+#   tools/overlay [-f] DIR      DIR made anew
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+layers="plan9 plan2001"
+[ "$1" = -f ] && { layers=plan9; shift; }
+[ $# = 1 ] || { echo "usage: tools/overlay [-f] DIR" >&2; exit 2; }
+out=$1
+rm -rf "$out"; mkdir -p "$out"
+for l in $layers; do
+	# the fork's patches to 9front's own files are not files of the tree
+	(cd "$root/$l" && git ls-files | grep -v '^patches/' | tar cf - -T -) | tar xf - -C "$out"
+done

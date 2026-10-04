@@ -45,10 +45,10 @@ IGNORE = re.compile(r'^/usr/glenda/(trace/|tmp/|snap\.rc$|export\.rc$)'
 	r'|^/dist/')
 # rc words that are not commands
 RCWORDS = set('if not for in while switch case fn eval exec exit shift cd builtin . ~ ! @ wait whatis rfork flag status'.split())
-# rc functions of the installer (rc/bin/inst/defs) that run their arguments
+# rc functions of the installer (plan2001/rc/bin/inst/defs) that run their arguments
 # as a command, and exec: the command is the next word (logprog chgrp ...)
 WRAPPERS = {'logprog', 'busy', 'exec'}
-# Plan2001's own versions of 9front files (the repo's rc/ and usr/, bound
+# Plan2001's own versions of 9front files (the repo's plan2001/rc/ and plan2001/usr/, bound
 # over the VM's on the medium by tools/subset/mkusb): read those, not the VM's
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OVERLAYS = ('/rc/', '/usr/')
@@ -107,8 +107,8 @@ class Tree:
 	def script(self, path):
 		"""Text of an rc script, or None."""
 		p = self.text + path
-		if path.startswith(OVERLAYS) and os.path.isfile(REPO + path):
-			p = REPO + path
+		if path.startswith(OVERLAYS) and os.path.isfile(REPO + '/plan2001' + path):
+			p = REPO + '/plan2001' + path
 		if not os.path.isfile(p):
 			return None
 		t = open(p, 'rb').read()

@@ -1,7 +1,7 @@
 # Ohje koodiagenteille (Codex, Claude): testaus ennen pushia
 
 Tämä repo on Plan2001: 9front-pohjainen järjestelmä, jonka wasm32-ydin
-ajaa 9frontin ohjelmia selaimessa (3c/3l-kääntäjä, `sys/src/9/wasm32`).
+ajaa 9frontin ohjelmia selaimessa (3c/3l-kääntäjä, `plan9/sys/src/9/wasm32`).
 Suunnitelma ja vaiheet: `docs/architecture.md` (vaihe D). Lue se ennen
 isoja muutoksia.
 
@@ -17,11 +17,12 @@ Plan2001 eriytetään yleisestä Plan 9 -forkista:
 - `plan2001/`: legacyä rikkovat muutokset ja Plan2001:n palvelut,
   overlayna 9Front-2001:n päälle.
 
-Siirto uusiin hakemistoihin on vielä tekemättä. Tee uudet tiedostot
-nykyisiin paikkoihin, mutta valitse ne `docs/plan9-fork.md`:n
-sijoitussääntöjen mukaan. Kerro commitissa, kumpaan kerrokseen muutos
-kuuluu. Älä tuo forkiin legacyä rikkovaa muutosta. Älä myöskään tee
-9frontin tiedostosta kokonaista kopiota, vaan diff `patches/`iin.
+Siirto on tehty 4.10.2026. Uusi tiedosto menee `plan9/`:ään tai
+`plan2001/`:een `docs/plan9-fork.md`:n sijoitussääntöjen mukaan, ja
+commitissa kerrotaan, kumpaan kerrokseen muutos kuuluu. Älä tuo forkiin
+legacyä rikkovaa muutosta. Älä myöskään tee 9frontin tiedostosta
+kokonaista kopiota, vaan diff `plan9/patches/`iin. `tools/overlay DIR`
+kokoaa molemmat kerrokset yhdeksi 9front-juureksi (`-f`: vain fork).
 
 ## Säännöt, joita ei rikota
 
@@ -33,10 +34,10 @@ kuuluu. Älä tuo forkiin legacyä rikkovaa muutosta. Älä myöskään tee
   `python3 tools/subset/make.py build/subset/amd64 .` ja `tools/subset/check`
   (ks. `docs/install-subset.md`). Jos VM:ää ei ole, kerro se commitissa:
   käyttäjä ajaa derivoinnin.
-- **Korjaus 9frontin koodiin** on diff `patches/9front/`iin (upstreamia
+- **Korjaus 9frontin koodiin** on diff `plan9/patches/9front/`iin (upstreamia
   varten) ja paikattu tiedosto repon `sys/`-puuhun saman polun alle
   (build laittaa `sys/`in VM:n `/sys/src`:n päälle). Ohje:
-  `patches/9front/README`.
+  `plan9/patches/9front/README`.
 - **Vitsit ja sitaatit eivät tule mukaan**: `DENY` tiedostossa
   `tools/subset/derive.py`. Pelit tulevat.
 - Tee työ omassa haarassasi; älä pushaa toisen haaraan.
@@ -94,8 +95,8 @@ Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),
 
 ### Uusi testi
 
-- Testiohjelma `sys/src/9/wasm32/test/NIMI.c` (lisää `build-bin3`:n
-  testilistaan), odotettu tuloste `sys/src/9/wasm32/test/NIMI.out`,
+- Testiohjelma `plan9/sys/src/9/wasm32/test/NIMI.c` (lisää `build-bin3`:n
+  testilistaan), odotettu tuloste `plan9/sys/src/9/wasm32/test/NIMI.out`,
   ajo `tools/test-9wasm32`iin (`want NIMI $names && run NIMI '[argv]'`).
 - `.out` alkaa rivistä `ticks in it: ok` ja **sen rivinvaihto on `\r\n`**
   (ytimen konsoli), muut rivit `\n`. Python tekstitilassa kadottaa `\r`:n:

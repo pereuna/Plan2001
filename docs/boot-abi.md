@@ -3,7 +3,7 @@
 Sopimus siitä, miten loader luovuttaa koneen kernelille. Sopimus on kaksiosainen:
 
 1. **Data-ABI** (tämä dokumentti): BootInfo-blob, **sama kaikille ISA:ille**.
-   Koneluettava puoli on `sys/include/bootinfo.h`, jota loader ja kernel
+   Koneluettava puoli on `plan9/sys/include/bootinfo.h`, jota loader ja kernel
    käyttävät.
 2. **Entry-ABI**: CPU:n tila ja rekisterit hypyn hetkellä, **ISA-kohtainen**:
 
@@ -14,7 +14,7 @@ Sopimus siitä, miten loader luovuttaa koneen kernelille. Sopimus on kaksiosaine
 | RV64 | `a0` = BootInfo PA, `a1` = boot-hartin id | `docs/boot-abi-riscv64.md` | tulevaisuus |
 
 Periaate: **loader kertoo osoitteen, kernel ei arvaa.** Kummassakaan osassa
-ei ole yhtään kiinteää fyysistä osoitetta. UEFI-loader (`sys/src/boot/efi`) on
+ei ole yhtään kiinteää fyysistä osoitetta. UEFI-loader (`plan9/sys/src/boot/efi`) on
 vain yksi ohjelma, joka tuottaa BootInfo v1:n ja käynnistää kernelin.
 Tuleva kexec, VM-loader tai verkkoboot voi tehdä saman.
 
@@ -100,7 +100,7 @@ esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muut
 
 | | Yhteinen | ISA:n (AMD64) |
 |---|---|---|
-| Kernel (AMD64; ARM64 vastaavasti `arm64/bootarch.c`, `arm64/mem.c`) | `sys/src/9/port/bootinfo.c`: headerin, `arch`in ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootfdt()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`, FDT:stä `*ncpu` ja `/chosen`-bootargsit. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
+| Kernel (AMD64; ARM64 vastaavasti `arm64/bootarch.c`, `arm64/mem.c`) | `plan9/sys/src/9/port/bootinfo.c`: headerin, `arch`in ja osioiden validointi, `bootmem()`, `bootconfig()`, `bootfdt()`, `bootmemclass()` (UEFI-tyyppi → RAM/ACPI/varattu), RNG-siemen, epoch. `port/bootargs.c`: plan9.ini, `*acpi`, `*bootscreen`, FDT:stä `*ncpu` ja `/chosen`-bootargsit. `port/bootfb.c`: merkit ja lokin toisto. | `pc64/bootarch.c`: `bootearlymap(pa, size)` (blobin mappaus ennen muistinhallintaa) ja `fbmap(pa, size)` (framebufferin cache-tapa). Entry: `pc64/l.s`. Muistin tyypit ja PC:n muistikartta: `pc/memory.c`. |
 | Loader | `efi.c`, `sub.c`: boot-taltio, plan9.ini, kernelin a.out, blob, ACPI RSDP, DTB:n kopio, muistikartta, `ExitBootServices`. | `archx64.c` / `archaa64.c`: `archconf()` (`arch`, TSC), `archentry()`, `archdataround()`, `archblobok()`, `archcheck()`, `archjump()`. Asm: `x64.s` / `aa64.s`. |
 
 Uusi ISA toteuttaa kernelissä `bootearlymap()`- ja `fbmap()`-hookit,

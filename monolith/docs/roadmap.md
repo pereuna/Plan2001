@@ -118,7 +118,7 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
 
 ## Vaihe 2a: oma transportti (27.9.)
 
-- Plan2001: `sys/src/cmd/webterm.c`, aux/listenin palvelu portissa 17080
+- Plan2001: `plan2001/sys/src/cmd/webterm.c`, aux/listenin palvelu portissa 17080
   (`tools/vm-cpu` kääntää ja asentaa sen VM:ssä). `GET /17019` on rcpu ja
   `GET /567` auth, muita ei. Tavut kulkevat muuttumattomina binäärikehyksissä,
   joten drawtermin auth ja TLS toimivat sen sisällä kuten TCP:n yli.

@@ -53,7 +53,7 @@ sellaisenaan, ja mitä Plan2001:n pitää siksi olla.
    paikkamerkillä "QEMU TARGET", ja 9frontin `sdvirtio` käytti aina LUN 0:aa
    (`scsiverify`: `r->lun = 0; /* ??? */`): UEFI löysi levyn ja latasi
    kernelin, mutta kernel ei nähnyt osioita (`/dev/sd00/fscache: file does
-   not exist`). Korjaus: `sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
+   not exist`). Korjaus: `plan9/sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
    ensimmäisen LUNin (0–7), jonka INQUIRY sanoo laitteen olevan kytketty.
    Harjoitus: `tools/vm … --oci` laittaa levyn LUN 1:een (`OCI_LUN`).
 9. **Loaderin ja kernelin on oltava pari.** CPU-palvelin oli 9frontin
@@ -175,7 +175,7 @@ joka käynnisti terminaalissa `rio -i riostart`:n (rio itse oli jo poistettu).
 - kopioi Plan2001:n ytimen ja loaderin parina 9fat:iin
   (`9pc64`, `efi/boot/bootx64.efi`); ne tulevat `build/amd64`:sta
   (`tools/build.sh` tai `tools/kbuild9p.rc`);
-- asentaa glenda-profiilin repon `usr/glenda/lib/profile`:sta, jossa ei
+- asentaa glenda-profiilin repon `plan2001/usr/glenda/lib/profile`:sta, jossa ei
   ole rio:ta: terminaalissa on rc-kehote, ja ikkunat tulevat
   Monolithin kautta;
 - poistaa `riostart`:in ja `rio`:n.
@@ -331,7 +331,7 @@ uuden imagen esiin ehjänä. Kone haki heti oman Let's Encrypt
 ## Julkinen sandbox: https://plan2001.com (2.10.)
 
 Portti 443 tarjoilee vain diskless-sandboxin: wasm32-koneen sivun
-(`monolith/web/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
+(`plan9/sys/src/9/wasm32/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
 tiedostona, myös gzipattuina) hakemistosta `/sys/lib/sandbox`. Kone
 käynnistyy selaimessa rioon koko ikkunaan, eikä mitään tallenneta.
 `webterm -n` tarjoilee vain sivut: ei WebSocketteja eikä lokia, joten

@@ -5,7 +5,7 @@ yhteinen kaikille ISA:ille: `docs/boot-abi.md`.
 
 ## Entry
 
-Loader hyppää kernelin entryyn (`_efi64`, `sys/src/9/pc64/l.s`) seuraavassa tilassa:
+Loader hyppää kernelin entryyn (`_efi64`, `plan9/sys/src/9/pc64/l.s`) seuraavassa tilassa:
 
 | | |
 |---|---|
@@ -28,7 +28,7 @@ eivätkä kernelin imagessa. Koko fyysisen muistin identiteettimappausta ei
 vaadita: kernel ei lue blobia loaderin tauluilla, vaan mappaa sen itse.
 Esimerkiksi tuleva kexec voi siis rakentaa minimaaliset taulut.
 
-UEFI-loader (`sys/src/boot/efi/archx64.c`) varmistaa lisäksi, että kernelin
+UEFI-loader (`plan9/sys/src/boot/efi/archx64.c`) varmistaa lisäksi, että kernelin
 muistialue on varattu `EfiLoaderCode`na ja että firmwaren sivutaulut eivät
 ole kernelin boot-alueella (`archcheck()`). Nämä ovat UEFI-loaderin omia
 ehtoja, eivät ABI:n.
@@ -38,13 +38,13 @@ ehtoja, eivät ABI:n.
 - `_efi64` tallentaa `RDI`:n muuttujaan `bootinfopa` ensimmäisenä.
 - Kernelin omat varhaiset sivutaulut kattavat vain kernelin itsensä, eikä
   `rampage()`ia voi vielä käyttää, koska se tarvitsee muistikartan, joka on
-  blobissa. Siksi `bootearlymap()` (`sys/src/9/pc64/bootarch.c`) mappaa
+  blobissa. Siksi `bootearlymap()` (`plan9/sys/src/9/pc64/bootarch.c`) mappaa
   blobin kernelin omaan virtuaali-ikkunaan `BOOTMAPVA` (`KZERO`:n
   PML4-slotti, PDP-indeksi 1, jonka kaikki prosessorit jakavat) kahdella
   omalla sivutaulusivulla. Fyysinen osoite voi olla mikä tahansa.
 - `fbmap()` (sama tiedosto) mappaa framebufferin `vmap()`illa ja asettaa
   sille PAT-attribuutiksi write-combining.
-- Validoinnin ja muun käytön hoitaa yhteinen `sys/src/9/port/bootinfo.c`.
+- Validoinnin ja muun käytön hoitaa yhteinen `plan9/sys/src/9/port/bootinfo.c`.
 - **Kernelin sisäinen raja** (ei ABI:n osa): blob ≤ 2 MB (`BOOTMAPSIZE`,
   yhden sivutaulun kattama alue).
 - **Framebuffer-merkit:** UEFI-loader piirtää kolme merkkiä (EBS alku,
