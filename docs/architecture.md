@@ -636,7 +636,26 @@ Työjärjestys:
    Pythonilla, kirjoitettu erikseen 9frontin C:stä (PAK, SConn:n RC4 ja
    SHA1-MAC). Koneen oikea 9front-asiakas ja se ovat yhtä mieltä
    (`secstore -p`, sitten `/boot/secstore`). Testi kaatuu ilman hakua.
-4. Salattu OPFS-välimuisti itsenäiselle koneelle.
+4. Salattu OPFS-välimuisti itsenäiselle koneelle (tehty 4.10.).
+   `aux/seckeys` (forkin, `plan9/sys/src/cmd/aux/seckeys`) on
+   `/boot/secstore`n työkalu, kun kone on käynnistetty levyn kanssa:
+   - Se kysyy salasanan kerran (readcons, ei kaiutusta) ja antaa sen
+     putkella `auth/secstore -i -G factotum`ille ja `auth/aescbc -i`:lle.
+     Salasana ja selväkieliset avaimet eivät käy levyllä eivätkä
+     ympäristössä.
+   - Verkon kanssa avaimet tulevat secstoresta factotumiin, ja kopio
+     (`aescbc -e`, sama salasana, aescbc:n HMAC) kirjoitetaan
+     glendan kotiin `lib/factotum.aes` (levyllä, kokonaan uutena).
+   - Ilman secstorea (yhteys ei aukea) avaimet luetaan kopiosta
+     (`aescbc -d`). Väärä salasana kysytään uudelleen (3 kertaa), ja
+     tyhjällä rivillä jatketaan ilman avaimia.
+   - Ilman levyä kopiota ei ole, ja toiminta on kuten 9frontin bootrc:ssä.
+   Testi `seckeys`: haku levyn kanssa, kopion alku on aescbc:n otsake
+   eikä avaimia, sitten avaimet pois factotumista ja `/5399`:n kautta
+   ilman secstorea kopiosta (ensin väärä salasana).
+   Avoinna: kopio päivittyy vain bootissa, kun avaimet haetaan. Uuden
+   avaimen vienti secstoreen (`secstore -p`) ja kopioon on käyttäjän
+   tehtävä.
 5. Profiilin `case cpu`: päätteen factotum cpu-istuntoon.
 6. Pilven amd64: auth, secstore ja cpu yhdellä koneella, ja selaimet sitä
    vastaan.

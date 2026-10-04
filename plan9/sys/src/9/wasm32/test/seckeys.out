@@ -1,14 +1,16 @@
 ticks in it: ok
+disk: a new disk, hjfs -r
 relay
 secstore: saved 121 bytes
-before:
-key proto=dp9ik dom=plan2001 user=bootes !password?
-secstore password: 
-aux/seckeys: wrong password
 secstore password: 
 relay
 aux/seckeys: 2 keys from secstore
-after:
+AES CBC SHA1  2
+secstore password: 
+/bin/auth/aescbc: decrypted file failed to authenticate
+aux/seckeys: wrong password
+secstore password: 
+aux/seckeys: no secstore: 2 keys from the copy
 key proto=dp9ik dom=plan2001 user=bootes !password?
 key proto=dp9ik dom=plan2001 user=glenda !password?
 key proto=pass service=mail user=glenda !password?

@@ -36,7 +36,7 @@ rm -f "$bin/mk" "$bin/rc.mk"
 libs="libc libthread libmp libsec libbio libregexp libString libauth libauthsrv lib9p libip libndb libdraw libmemdraw libmemlayer libframe libcomplete libplumb libcontrol"
 one="basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns sed mount pwd ps read test chmod tlsclient mntgen ramfs stats"
 [ ! -e "$tree/sys/src/cmd/clock.c" ] || one="$one clock"	# the subset's once derive brings it (tools/subset/extra)
-cmds="cmd/rc cmd/hjfs cmd/rio cmd/aux/kbdfs cmd/auth/factotum cmd/auth/secstore:secstore.install cmd/exportfs cmd/plumb cmd/syscall cmd:$(echo $one | sed 's/\([^ ]*\)/\1.install/g; s/ /,/g')"
+cmds="cmd/rc cmd/hjfs cmd/rio cmd/aux/kbdfs cmd/auth/factotum cmd/auth/secstore:secstore.install,aescbc.install cmd/aux/seckeys cmd/exportfs cmd/plumb cmd/syscall cmd:$(echo $one | sed 's/\([^ ]*\)/\1.install/g; s/ /,/g')"
 dirs=${*:-$libs 9/wasm32 $cmds}
 unshare -m --propagation private bash -s "$tree" "$bin" "$PLAN9" $dirs <<'X'
 set -e
@@ -68,7 +68,8 @@ for d in "$@"; do
 	case $d in *:*) t=${d#*:} t=${t//,/ } d=${d%%:*} ;; esac
 	echo "native-wasm32: /sys/src/$d: mk $t"
 	mkdir -p /wasm32/bin/aux /wasm32/bin/auth
-	cd "/sys/src/$d" && mk $t
+	cd "/sys/src/$d" || { echo "native-wasm32: no /sys/src/$d" >&2; exit 1; }
+	mk $t
 done
 X
 echo "native-wasm32: ok"

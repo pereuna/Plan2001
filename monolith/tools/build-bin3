@@ -71,6 +71,15 @@ for f in secstore pak password SConn util; do
 done
 [ $fail = 0 ] && "$l3" -o "$out/root/bin/auth/secstore" "$out"/o/cmd/secstore/*.3 $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/secstore.err" 2>&1 ||
 	{ echo "build-bin3: secstore:"; tail -5 "$out/o/cmd/secstore.err"; fail=1; }
+# auth/aescbc (9front's) and aux/seckeys (the fork's: /boot/secstore): the keys' encrypted copy on the machine's disk
+if ! (cd "$src/auth/secstore" && "$cc3" -FVw $INC -o "$out/o/cmd/aescbc.3" aescbc.c) >"$out/o/cmd/aescbc.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/auth/aescbc" "$out/o/cmd/aescbc.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/aescbc.err" 2>&1; then
+	echo "build-bin3: aescbc:"; head -5 "$out/o/cmd/aescbc.err"; fail=1
+fi
+if ! (cd "$P/plan9/sys/src/cmd/aux/seckeys" && "$cc3" -FTVw $INC -o "$out/o/cmd/seckeys.3" seckeys.c) >"$out/o/cmd/seckeys.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/aux/seckeys" "$out/o/cmd/seckeys.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/seckeys.err" 2>&1; then
+	echo "build-bin3: seckeys:"; head -5 "$out/o/cmd/seckeys.err"; fail=1
+fi
 # tlsclient, exportfs: 9front's, rcpu's (D4: rconnect's tlsclient -a, the client's exportfs -r /)
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/tlsclient.3" tlsclient.c) >"$out/o/cmd/tlsclient.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/tlsclient" "$out/o/cmd/tlsclient.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/tlsclient.err" 2>&1; then
