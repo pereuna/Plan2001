@@ -51,7 +51,8 @@
 #   tools/vm-cpu --update [--web DIR]
 #                           reinstall webterm, the certificate and the page
 #                           files in DIR (index.html, platform.js, 9wasm32.wasm,
-#                           w3root.fs); leaves it running
+#                           w3root.fs), secstored and glenda's secstore
+#                           account if she has none; leaves it running
 # Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
 # and open https://127.0.0.1:17443/ (the wasm32 terminal: rcpu -h cirno)
 set -e
@@ -63,6 +64,24 @@ run9() { "$here/9run" -d "$vm" "$@"; }
 redact() { sed "s/$pass/<password>/g"; }
 halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog - >/dev/null; }
 
+# glenda's secstore account (auth/secuser), if she has none; her secstore
+# password in cpu.secpass (secstore's own, not her login's)
+secaccount() {
+	local secpass prompt
+	[ -s "$secpassf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$secpassf"); }
+	secpass=$(cat "$secpassf")
+	run9 -t 30 "test -e /adm/secstore/who/glenda" >/dev/null 2>&1 && { echo "vm-cpu: glenda's secstore account exists"; return; }
+	echo "vm-cpu: glenda's secstore account (auth/secuser)"
+	run9 -t 60 -s 'auth/secuser glenda' --dialog - <<EOF | sed "s/$secpass/<secstore password>/g"
+glenda password: *	$secpass
+retype password: *	$secpass
+expires .*: *	''
+Enabled or Disabled .*: *	''
+require STA\\? .*: *	''
+comments .*: *	''
+$PROMPT9 	!done
+EOF
+}
 web=
 [ "$1" = --update ] && [ "$2" = --web ] && { web=$3; [ -d "$web" ] || { echo "vm-cpu: no $web" >&2; exit 1; }; }
 
@@ -175,6 +194,7 @@ if [ "$1" = --update ]; then
 	"$here/vm" start --disk "$cpu" --net
 	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
 	webterm
+	PROMPT9='cirno#' secaccount
 	halt9
 	"$here/vm" stop
 	"$here/vm" start --disk "$cpu" --net
@@ -188,9 +208,6 @@ if [ -f "$cpu" ]; then
 fi
 [ -s "$passf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$passf"); }
 pass=$(cat "$passf")
-# glenda's secstore password (secstore's own, not her login's)
-[ -s "$secpassf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$secpassf"); }
-secpass=$(cat "$secpassf")
 
 new=$cpu.part
 rm -f "$new"; qemu-img create -q -f qcow2 -b "$cache/base.qcow2" -F qcow2 "$new"
@@ -222,16 +239,7 @@ User's email address: *	''
 Sponsor's email address: *	''
 term% 	!done
 EOF
-echo; echo "vm-cpu: glenda's secstore account (auth/secuser)"
-run9 -t 60 -s 'auth/secuser glenda' --dialog - <<EOF | redact | sed "s/$secpass/<secstore password>/g"
-glenda password: *	$secpass
-retype password: *	$secpass
-expires .*: *	''
-Enabled or Disabled .*: *	''
-require STA\\? .*: *	''
-comments .*: *	''
-term% 	!done
-EOF
+PROMPT9='term%' secaccount
 echo; echo "vm-cpu: ndb and plan9.ini"
 run9 -t 60 "grep -v '^(ipnet=plan2001|sys=cirno )' /lib/ndb/local >/tmp/ndb"
 run9 -t 60 "echo 'ipnet=plan2001 ip=10.0.2.0 ipmask=255.255.255.0 ipgw=10.0.2.2 dns=10.0.2.3 auth=cirno authdom=plan2001 cpu=cirno' >>/tmp/ndb"

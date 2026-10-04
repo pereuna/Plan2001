@@ -665,7 +665,38 @@ Työjärjestys:
    istunnon `/mnt/factotum/ctl` näyttää päätteen avaimen (glendan).
    Ilman bindausta näkyy bootesin avain (tarkistettu).
 6. Pilven amd64: auth, secstore ja cpu yhdellä koneella, ja selaimet sitä
-   vastaan.
+   vastaan (koodi 4.10., VM-ajo kesken).
+   - `tools/vm-cpu` tekee glendan secstore-tilin (`auth/secuser`;
+     secstore-salasana `cpu.secpass` välimuistissa, eri kuin
+     kirjautumissalasana). Se käynnistää `secstored`in portissa 5356
+     (`/rc/bin/service.auth/tcp5356`) ja kirjoittaa sivustolle
+     `secstore`-tiedoston. `--update` tekee saman olemassa olevalle
+     `cpu.qcow2`:lle, jos tiliä ei ole.
+   - Sivu (`kernel.html`) kysyy terminaalille `GET /secstore`. Jos tiedosto
+     on olemassa, sivu antaa sen sisällön BootInfon configiin
+     (`secstore=`), ja `/boot/secstore` hakee avaimet. Ilman tiedostoa
+     salasanaa ei kysytä. Testit `pagesecstore` ja `pagesecstore0`
+     (`tools/serve`: `MONOLITH_SECSTORE`).
+   - webterm sallii `/5356`:n myös ilman `-s`:ää (portti 17080), kuten
+     auth:n.
+   - `tools/vm` toimii ilman KVM:ää (`VM_ACCEL=tcg`, hidas), ja
+     `tools/9run`in aikarajat kertoo `VM_TIMEOUT_SCALE`.
+   - VM-testi `secstorevm`:
+     1. Kone vie glendan dp9ik-avaimen VM:n secstoreen (`secstore -p`).
+     2. `/boot/secstore` hakee sen tyhjään factotumiin.
+     3. rcpu VM:lle tunnistautuu sillä.
+     4. Istunnon factotum on päätteen: siinä on vain glendan avain, ei
+        VM:n omia avaimia, kuten TLS:n RSA-avainta.
+   - Ajo, jossa on KVM (Codex):
+     ```
+     tools/vm-setup                  # jos base.qcow2 puuttuu
+     tools/build.sh                  # build/amd64/9pc64, bootx64.efi
+     (cd monolith && tools/pages)    # sivu: build/pages
+     tools/vm-cpu --update --web monolith/build/pages  # tai ilman cpu.qcow2:ta: tools/vm-cpu
+     tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
+     (cd monolith && tools/test-9wasm32 secstorevm rcpuvm dp9ikvm net)
+     tools/vm stop
+     ```
 
 ## D8 odottaa: laskentapooli suunnitellaan uudelleen (päätös 4.10.2026)
 
