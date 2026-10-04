@@ -283,13 +283,26 @@ wsclose(Chan *c)
 	unlock(&convlock);
 }
 
+/*
+ * a note interrupts a wait here as sleep's does: notepending taken,
+ * Eintr - left set, every wait after would end at once (a mount's
+ * reader on this conversation flushed its rpc again and again)
+ */
+static void
+netnote(void)
+{
+	if(up->notepending){
+		up->notepending = 0;
+		interrupted();
+	}
+}
+
 /* wait for the word to be other than v, a second at a time: a note interrupts; secs > 0 a limit */
 static int
 netwait(long *w, long v, int secs)
 {
 	while(*w == v){
-		if(up->notepending)
-			error(Eintr);
+		netnote();
 		if(secs > 0 && secs-- == 0)
 			return -1;
 		platwait(w, v, 1000);
@@ -351,9 +364,7 @@ connect(Conv *cv, char *addr)
 		if(cv->readers == 0)
 			break;
 		unlock(&convlock);
-		if(up->notepending)
-			error(Eintr);
-		tsleep(&up->sleep, return0, nil, 20);
+		tsleep(&up->sleep, return0, nil, 20);	/* a note: sleep's Eintr */
 	}
 	cv->gen++;
 	cv->st = 0;
@@ -436,8 +447,7 @@ wsread(Chan *c, void *a, long n, vlong off)
 				break;
 			if(r->closed || !cv->open || cv->gen != g)
 				goto out;
-			if(up->notepending)
-				error(Eintr);
+			netnote();
 			platwait((long*)&r->w, w, 1000);
 		}
 		m = w - r->r;

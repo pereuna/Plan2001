@@ -123,6 +123,18 @@ function runprog(env, K, host, pid, job) {
 	};
 	const sys = (n, a) => {
 		const c = h.cos[h.cur];
+		/*
+		 * a note that came while the proc was blocked (its call finished
+		 * by its helper, it went on rewound: no after() for that call)
+		 * goes to its handler now, before its next call - else a proc
+		 * that blocks again (exportfs's slaves in rendezvous) never has it
+		 */
+		if (h.multi && c.note && x.asstate.value === 0) {
+			env.note = c.note;
+			c.note = null;
+			unote(env);
+			if (x.asstate.value === 1) return 0n;	/* the handler blocked, or its noted(NDFLT) ends the proc */
+		}
 		if (n >= 100 && n <= 103)
 			return ctxcall(c, n, a);
 		if (n === 105) {
