@@ -611,6 +611,10 @@ Periaatteet:
   päätteen factotum, ei kunkin selaimen levy. Solmut saavat lippunsa
   sitä kautta.
 
+Kirjautuminen plan2001.com:iin (WebAuthn, passkey ja salasana) rakentuu
+tämän päälle: passkey avaa saman salasanan, jolla avaimet haetaan
+secstoresta (suunnitelma: docs/webauthn.md).
+
 Hylätty: avaimet pelkästään OPFS:ään. Ne olisivat silloin yhdessä
 selaimessa: uusi laite tai tyhjennetty profiili kadottaisi ne, eivätkä
 pilven pääte ja itsenäinen kone jakaisi samaa avainnippua.
