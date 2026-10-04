@@ -540,6 +540,32 @@ portissa ja että kaikki Monolithin JS poistetaan nyt.
     odottaa. Ilman korjausta sivu pitää 3,7 Mt.
   - Webtermin korjaukset on käännetty natiivilla 6c:llä, mutta niitä ei
     ole ajettu oikeassa 9frontissa.
+- Katselmus 2 (4.10.), korjattu:
+  - P1: jatkossa vanhan liitoksen lukija saattoi kirjoittaa jo lukemansa
+    kehyksen rcpu:hun sen jälkeen, kun uusi liitos oli sanonut `r N`. Sivu
+    lähetti saman kehyksen uudelleen, ja tavut tulivat kahdesti 9P-virtaan.
+    Nyt kehys menee rcpu:hun ja `rcvd`:hen yhdessä `uplk`:n alla, ja vain
+    jos liitos on yhä istunnon (`gen`). sessionctl ottaa saman lukon ennen
+    kuin lähettää `r rcvd`. Kehys on siis joko laskussa tai sivu lähettää
+    sen uudelleen, ei koskaan molempia. Lukko on oma, koska `s->lk`:n alla
+    estynyt kirjoitus rcpu:hun lukitsisi sessiondownin.
+  - P1: istuntoraja oli laskenta ja myöhempi luonti, joten yhtä aikaa
+    tulleet yhteydet näkivät kaikki tilaa. Nyt istunto varaa jonkin 32
+    paikasta, `/srv/webterm.slot.N`. Varaus on atominen, koska devsrv:n
+    create tarkistaa ja luo saman lukon alla (Eexist). Paikka häviää
+    istunnon viimeisen procin mukana (ORCLOSE).
+  - P1: `sendq` oli sivun jälkikäteen kirjoittama määrä. Nopea kirjoittaja
+    ehti jonottaa viestejä ennen kuin määrä näkyi, ja yksi iso write meni
+    yhtenä viestinä. Nyt ydin lähettää kirjoituksen enintään 64 KiB:n
+    paloina ja varaa jokaisen palan atomisesti (`cmpswap`) ennen
+    `platnetsend`iä. Se odottaa, jos varaus veisi määrän yli `Sendhigh`in.
+    Sivu vähentää sen, mitä se ei enää pidä (session kuittaama tai
+    WebSocketin `bufferedAmount`ista lähtenyt). Raja on Sendhigh plus yksi
+    pala. Testi `sendq`: yksi 4 Mt:n write (`d4 -B`) kuittaamattomaan
+    istuntoon, ja sivu pitää enintään 1 Mt + 64 KiB. Vanhalla koodilla
+    testi kaatuu.
+  - Webtermin kaksi korjausta on käännetty natiivilla 6c:llä, ajamatta
+    oikeassa 9frontissa.
 - Laskentapooli (crsrv, rcc) jää palvelimelle, mutta selaimen CR on poissa
   D8:aan asti. Tarkistamatta: rc-httpd, select-handler ja webterm `-r`
   oikeassa 9frontissa (webterm käännetty natiivilla 6c:llä vain

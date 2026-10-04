@@ -975,8 +975,10 @@ export async function boot(url, front = {}) {
 	 * session acknowledges only what is in the ring, so webterm's
 	 * high-water mark bounds the queue too: past QMAX the other end is not
 	 * keeping to it and the connection fails (QMAXRAW for a plain one).
-	 * The other way the kernel waits: sendq in the ring is what the page
-	 * holds of its bytes (devwsnet.c's Sendhigh).
+	 * The other way the kernel reserves: it adds a piece to sendq in the
+	 * ring before it sends it and waits past Sendhigh (devwsnet.c); the page
+	 * takes off what it no longer holds - acknowledged by the session, or
+	 * gone from a plain WebSocket's bufferedAmount.
 	 */
 	const QMAX = 9*1024*1024, QMAXRAW = 1024*1024;
 	net.open = ({ id, gen, path, ring, st }) => {
@@ -990,7 +992,7 @@ export async function boot(url, front = {}) {
 		Atomics.store(i32, (ring + 8) >> 2, 0);
 		Atomics.store(i32, (ring + 12) >> 2, 0);
 		const s = path === '/rcpu' ? { token: null, rcvd: 0, delivered: 0, acked: 0, sent: [], sentlen: 0, base: 0, ready: false, since: 0 } : null;
-		const c = { gen, ws: null, opened: false, session: s, q: [], qlen: 0, pump: 0, sendq: 0 };
+		const c = { gen, ws: null, opened: false, session: s, q: [], qlen: 0, pump: 0 };
 		c.ring = ring;
 		net.ws.set(id, c);
 		const mine = () => net.ws.get(id) === c;
@@ -1038,9 +1040,10 @@ export async function boot(url, front = {}) {
 		};
 		/* the session has the page's bytes up to n: what it sent before that is not kept */
 		const trim = (n) => {
+			const was = s.sentlen;
 			while (s.sent.length && s.base + s.sent[0].length <= n) { s.sentlen -= s.sent[0].length; s.base += s.sent.shift().length; }
 			if (s.sent.length && n > s.base) { s.sentlen -= n - s.base; s.sent[0] = s.sent[0].subarray(n - s.base); s.base = n; }
-			net.sendq(c, ring, s.sentlen);
+			net.release(c, was - s.sentlen);
 		};
 		const control = (ws, t) => {
 			if (t.startsWith('s ')) s.token = t.slice(2);
@@ -1091,36 +1094,42 @@ export async function boot(url, front = {}) {
 		};
 		connect(path);
 	};
-	/* how much the page holds of the kernel's bytes for c: its writer waits past devwsnet's Sendhigh */
-	net.sendq = (c, ring, n) => {
-		if (n === c.sendq) return;
-		const i32 = new Int32Array(mem.buffer);
-		c.sendq = n;
-		net.sendqmax = Math.max(net.sendqmax ?? 0, n);	/* a test's: the most the page has held */
-		Atomics.store(i32, (ring + 12) >> 2, n);
-		Atomics.notify(i32, (ring + 12) >> 2);
+	/* k bytes of the kernel's the page no longer holds for c: off its reservation (never below 0), its writer woken */
+	net.release = (c, k) => {
+		if (k <= 0) return;
+		const i32 = new Int32Array(mem.buffer), a = (c.ring + 12) >> 2;
+		let v;
+		do v = Atomics.load(i32, a);
+		while (Atomics.compareExchange(i32, a, v, Math.max(0, v - k)) !== v);
+		Atomics.notify(i32, a);
 	};
-	/* a plain connection: what the WebSocket has not sent yet, looked at again until it is gone */
+	/* a test's: the most the kernel has had reserved in the page, as the page sees it */
+	const seen = (c) => { net.sendqmax = Math.max(net.sendqmax ?? 0, Atomics.load(new Int32Array(mem.buffer), (c.ring + 12) >> 2)); };
+	/* a plain connection: what has left the WebSocket's buffer is let go, looked at again until all has */
 	const rawq = (c) => {
 		c.rawt = 0;
 		if (net.ws.get(c.id) !== c) return;
-		const n = c.ws?.bufferedAmount ?? 0;
-		net.sendq(c, c.ring, n);
-		if (n) c.rawt = setTimeout(() => rawq(c), 20);
+		const out = c.posted - (c.ws?.bufferedAmount ?? 0);
+		net.release(c, out - c.released);
+		c.released = out;
+		if (c.posted > c.released) c.rawt = setTimeout(() => rawq(c), 20);
 	};
 	net.send = ({ id, gen, b }) => {
 		const c = net.ws.get(id);
 		if (!c || c.gen !== gen) return;
+		seen(c);
 		if (c.session) {
-			c.session.sent.push(b);	/* until the session acknowledges it */
+			c.session.sent.push(b);	/* until the session acknowledges it (trim lets it go) */
 			c.session.sentlen += b.length;
-			net.sendq(c, c.ring, c.session.sentlen);
 			if (c.session.ready && c.ws?.readyState === 1) c.ws.send(b);
 		} else if (c.ws?.readyState === 1) {
 			c.ws.send(b);
 			c.id = id;
+			c.posted = (c.posted ?? 0) + b.length;
+			c.released ??= 0;
 			if (!c.rawt) rawq(c);
-		}
+		} else
+			net.release(c, b.length);	/* nowhere to go: not held */
 	};
 	net.close = ({ id, gen }) => {	/* gen undefined: whichever */
 		const c = net.ws.get(id);

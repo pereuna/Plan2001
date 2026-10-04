@@ -26,6 +26,10 @@
  * puts webterm's session around it, and joins it to the machine's
  * /boot/app path (rcpu, /boot/rconnect.app, aux/wsrcpu).
  *
+ * d4 -B dialstring bytes: that many bytes in one write - devwsnet sends it
+ * in reserved pieces, so the page never holds much more than its Sendhigh
+ * however large the write (the review's).
+ *
  * d4 -a: /proc/n/args written and read at once, by procs that come and
  * go - devproc takes the proc's debug lock and looks at its pid under
  * it (the review's: a write could free args under a reader, or land in
@@ -392,6 +396,21 @@ main(int argc, char **argv)
 		exits(nil);
 	}
 
+	if(argc == 4 && strcmp(argv[1], "-B") == 0){
+		int fd;
+		long n;
+		uchar *b;
+
+		n = atol(argv[3]);
+		if((b = mallocz(n, 1)) == nil)
+			sysfatal("no memory for %ld", n);
+		if((fd = dial(argv[2], nil, nil, nil)) < 0)
+			sysfatal("dial %s: %r", argv[2]);
+		if(write(fd, b, n) != n)
+			sysfatal("write: %r");
+		print("written\n");
+		exits(nil);
+	}
 	if(argc == 3 && strcmp(argv[1], "-w") == 0){
 		appserver(argv[2], appone);
 		exits(nil);

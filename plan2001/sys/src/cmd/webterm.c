@@ -431,6 +431,7 @@ struct Session {
 	Rendez	room;		/* the buffer is below Lowwater again */
 	int	full;		/* at Highwater, until below Lowwater */
 	QLock	wlk;		/* frames to the attachment */
+	QLock	uplk;		/* a frame from the page into rcpu, and rcvd with it, against an attach (the review's) */
 	char	token[33];
 	int	sfd;		/* rcpu */
 	int	att;		/* the attachment, -1 none */
@@ -515,24 +516,26 @@ allowed(char *app, char *service)
 	return 0;
 }
 
-/* the sessions on this machine now: their ctl entries in /srv (webterm.HASH, srvname) */
+/*
+ * One of Maxsessions slots for a new session: /srv/webterm.slot.N, made
+ * only if it is not there (devsrv's create looks and makes under one
+ * lock), so taking one is atomic - a count of /srv and a create later was
+ * not (the review's: connections at once all saw room).  The slot goes
+ * when the session's last process does (ORCLOSE, its fd in each of them).
+ * -1: none free.
+ */
 static int
-sessions(void)
+slot(void)
 {
-	Dir *d;
-	int fd, i, n, k;
+	char path[40];
+	int i, fd;
 
-	if((fd = open("/srv", OREAD)) < 0)
-		return 0;
-	k = 0;
-	while((n = dirread(fd, &d)) > 0){
-		for(i = 0; i < n; i++)
-			if(strncmp(d[i].name, "webterm.", 8) == 0 && strlen(d[i].name) == 8+16)
-				k++;
-		free(d);
+	for(i = 0; i < Maxsessions; i++){
+		snprint(path, sizeof path, "/srv/webterm.slot.%d", i);
+		if((fd = create(path, OWRITE|ORCLOSE, 0600)) >= 0)
+			return fd;
 	}
-	close(fd);
-	return k;
+	return -1;
 }
 
 static void
@@ -714,6 +717,19 @@ sessionup(Session *s)
 			switch(op){
 			case 0:
 			case 2:
+				/*
+				 * the frame goes into rcpu and into rcvd together, and only
+				 * while this attachment is the session's: an attach takes
+				 * uplk before it says "r rcvd", so a frame is in that count
+				 * or the page sends it again - never both (the review's:
+				 * the old attachment's frame went in after "r N")
+				 */
+				qlock(&s->uplk);
+				if(s->gen != gen){
+					qunlock(&s->uplk);
+					free(p);
+					goto replaced;
+				}
 				if(write(s->sfd, p, n) != n)
 					sessionend(s);
 				qlock(&s->lk);
@@ -722,6 +738,7 @@ sessionup(Session *s)
 				if(ack)
 					s->acked = s->rcvd;
 				qunlock(&s->lk);
+				qunlock(&s->uplk);
 				if(ack)
 					text(s, fd, "a %lld", s->acked);
 				break;
@@ -743,6 +760,7 @@ sessionup(Session *s)
 			if(op == 8)
 				break;
 		}
+	replaced:
 		detach(s, gen);
 	}
 }
@@ -778,9 +796,11 @@ sessionctl(Session *s, int ctl)
 		if(fd < 0)
 			continue;
 		have = strtoll(f[3], nil, 10);
+		qlock(&s->uplk);	/* no frame of the old attachment half in: rcvd is what rcpu has */
 		qlock(&s->lk);
 		if(have < s->base || have > s->base + s->nbuf){
 			qunlock(&s->lk);
+			qunlock(&s->uplk);
 			close(fd);		/* cannot continue from there */
 			continue;
 		}
@@ -803,6 +823,7 @@ sessionctl(Session *s, int ctl)
 		label(s);
 		rwakeup(&s->attached);
 		qunlock(&s->lk);
+		qunlock(&s->uplk);
 	}
 }
 
@@ -919,10 +940,11 @@ rcpu(char *hdr, char *app)
 	AuthInfo *ai;
 	uchar rnd[16];
 	char name[64], path[80], *origin, *script;
-	int p[2], c[2], st[2], ap[2], fd;
+	int p[2], c[2], st[2], ap[2], fd, sl;
 
-	if(sessions() >= Maxsessions)
+	if((sl = slot()) < 0)
 		reply("503 Service Unavailable");
+	USED(sl);	/* held, by this process and the session's, until they are gone */
 	if(pipe(p) < 0 || pipe(c) < 0 || pipe(st) < 0 || pipe(ap) < 0)
 		reply("500 Internal Server Error");
 	origin = header(hdr, "Origin");

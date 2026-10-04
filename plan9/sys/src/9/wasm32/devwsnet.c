@@ -34,6 +34,7 @@ enum
 	Nconv	= 64,
 	Nring	= 64*1024,
 	Sendhigh	= 1024*1024,	/* what the page may hold for a conversation before its writer waits */
+	Sendchunk	= 64*1024,	/* a write goes to the page in pieces of at most this, each reserved first */
 
 	Qtop	= 1,
 	Qcs,
@@ -57,7 +58,7 @@ struct Ring
 	ulong	r;		/* ours: read; modulo 2^32, Nring a power of 2 (the index masked) */
 	ulong	w;		/* the page's: bytes written */
 	long	closed;		/* the page's: 1 the WebSocket closed, 2 it failed, 3 too much came */
-	long	sendq;		/* the page's: bytes it holds of ours - not sent yet, or (webterm's session) not acknowledged */
+	long	sendq;		/* bytes of ours the page holds or will: we add before we send (sendreserve), it takes off what it has let go */
 	uchar	b[Nring];
 };
 
@@ -321,26 +322,45 @@ netwait(long *w, long v, int secs)
 }
 
 /*
- * Backpressure to the page: past Sendhigh of ours in the page (sendq) the
- * writer waits for it to go down, as for a full pipe - the page would hold
- * it all otherwise, without limit (the review's).  Not under the
- * conversation's QLock: a hangup does not wait for it; a note interrupts.
+ * Backpressure to the page: a piece is reserved in sendq before it is sent
+ * - an atomic add, so no message is on its way the count does not have
+ * (the review's: a count the page kept after the fact let a fast writer
+ * queue without limit) - and the writer waits while the reservation would
+ * take sendq past Sendhigh, as at a full pipe; with sendq 0 a piece always
+ * goes, so the page holds at most Sendhigh+Sendchunk.  The page takes off
+ * what it no longer holds: sent (a plain WebSocket) or acknowledged
+ * (webterm's session).  Not under the conversation's QLock: a hangup does
+ * not wait for it; a note interrupts.
  */
 static void
-sendwait(Conv *cv)
+sendreserve(Conv *cv, Ring *r, ulong g, long n)
 {
-	Ring *r;
-	ulong g;
 	long v;
 
-	r = cv->in;
-	g = cv->gen;
-	while(r != nil && (v = r->sendq) > Sendhigh){
-		if(!cv->open || cv->gen != g || r->closed)
+	for(;;){
+		v = r->sendq;
+		if(v > 0 && v + n > Sendhigh){
+			if(!cv->open || cv->gen != g || r->closed)
+				error(Ehungup);
+			netnote();
+			platwait(&r->sendq, v, 1000);
+			continue;
+		}
+		if(cmpswap(&r->sendq, v, v + n))
 			return;
-		netnote();
-		platwait(&r->sendq, v, 1000);
 	}
+}
+
+/* a reservation not sent after all */
+static void
+sendrelease(Ring *r, long n)
+{
+	long v;
+
+	do
+		v = r->sendq;
+	while(!cmpswap(&r->sendq, v, v > n ? v - n : 0));
+	platwake(&r->sendq, 1);
 }
 
 /* a service's port: a name /lib/ndb/common gives, or its number, or a path (/rcpu: the name's); nil if none */
@@ -509,6 +529,9 @@ wswrite(Chan *c, void *a, long n, vlong)
 {
 	Conv *cv;
 	Cmdbuf *cb;
+	Ring *r;
+	ulong g;
+	long done, m;
 
 	if(QTYPE(c->qid) == Qcs){
 		char q[128];
@@ -549,15 +572,25 @@ wswrite(Chan *c, void *a, long n, vlong)
 		free(cb);
 		return n;
 	case Qdata:
-		sendwait(cv);
-		/* with the gen of the connection open now: a hangup and connect wait */
-		qlock(cv);
-		if(!cv->open || cv->st != 1 || cv->in->closed){
-			qunlock(cv);
+		/* in pieces, each reserved in the page first; with the gen of the connection open now */
+		r = cv->in;
+		g = cv->gen;
+		if(r == nil)
 			error(Ehungup);
+		for(done = 0; done < n; done += m){
+			m = n - done;
+			if(m > Sendchunk)
+				m = Sendchunk;
+			sendreserve(cv, r, g, m);
+			qlock(cv);
+			if(!cv->open || cv->st != 1 || r->closed || cv->gen != g){
+				qunlock(cv);
+				sendrelease(r, m);
+				error(Ehungup);
+			}
+			platnetsend(cv-convs, cv->gen, (uchar*)a + done, m);
+			qunlock(cv);
 		}
-		platnetsend(cv-convs, cv->gen, a, n);
-		qunlock(cv);
 		return n;
 	}
 	error(Eperm);

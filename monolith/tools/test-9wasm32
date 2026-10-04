@@ -128,10 +128,11 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	asrvw="${asrv/d4 -w/d4 -W}"
 	want appresume $names && MONOLITH_WEBTERM=18099 HALTWAIT=200 run appresume "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"$asrvw; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; app=test cpu=relay rc /boot/app >[2=1]; echo done")"
-	# backpressure: a session that never acknowledges (test-authsrv's sink /rcpu) - the page holds about
-	# devwsnet's Sendhigh of the writer's bytes and the writer waits, not 3.7 MB in the page (the review's)
-	want sendq $names && MONOLITH_WEBTERM=18099 HALTWAIT=60 EXPECTJS='window.monolith.sendqmax > 900000 && window.monolith.sendqmax < 1200000' \
-		run sendq '["/bin/rc", "-c", "{n=`{read}; echo connect relay!rcpuws >/net/tcp/$n/ctl && {cat /bin/rc /bin/rc /bin/rc /bin/rc /bin/rc /bin/rc >/net/tcp/$n/data & sleep 8; echo the writer waits}} <>/net/tcp/clone; echo done"]'
+	# backpressure: a session that never acknowledges (test-authsrv's sink /rcpu), one write of 4 MB
+	# (d4 -B) - the kernel reserves each 64 KiB piece in the page before it sends it, so the page holds
+	# at most Sendhigh and a piece and the writer waits (the review's: before, 4 MB in one message)
+	want sendq $names && MONOLITH_WEBTERM=18099 HALTWAIT=60 EXPECTJS='window.monolith.sendqmax > 900000 && window.monolith.sendqmax <= 1114112' \
+		run sendq '["/bin/rc", "-c", "d4 -B tcp!relay!rcpuws 4000000 & sleep 8; echo the writer waits; echo done"]'
 	want rcpuask $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpuask "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; $rsrv; sleep 2; {$rcmd >[2=1] | sed '/short write in reply/d'} </dev/cons >/dev/cons >[2=1]; {echo rcpu status \$status; cat /mnt/factotum/ctl; echo done} >/dev/cons")" \
 		'[["user[glenda]: ", "\n"], ["password: ", "gpassword\n"]]'
