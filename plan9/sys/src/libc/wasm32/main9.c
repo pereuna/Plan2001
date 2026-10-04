@@ -26,6 +26,8 @@ struct {
 	void	*priv[NPRIVATES];
 } _perproc;
 
+extern	void	main(int, char**);	/* the program's: libc.h does not declare it, and -T wants it */
+
 void
 _main(int argc, char *arg0)
 {

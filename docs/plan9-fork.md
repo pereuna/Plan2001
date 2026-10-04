@@ -109,32 +109,64 @@ overlayssa voittaa `plan2001/`:n. Kun forkin confiin tulee muutos, sama
 muutos on tehtävä myös Plan2001:n kopioon. Näin `plan9/`:n conf kääntyy
 9frontissa ilman Plan2001:n laitteita.
 
-## Mitä natiivi käännös vielä vaatii
+## Natiivi käännös
 
-Tilanne 4.10.2026:
-- **pc64 ja UEFI-lataaja** kääntyvät jo VM:n 9frontissa overlaylla
-  (`tools/build.rc`). Siirrossa overlay-järjestys on `plan9/`, sitten
-  `plan2001/`.
-- **3a, 3c ja 3l:** mkfilet ovat olemassa, mutta niitä ei ole kokeiltu
-  Plan 9:ssä, eikä 3c:tä ole käännetty Plan 9:ssä (`docs/wasm32.md`).
-- **wasm32-ydin** käännetään nyt bash-skriptillä Linuxissa
-  (`monolith/tools/build-9wasm32`). Natiivi käännös vaatii
-  `plan9/sys/src/9/wasm32/mkfile`n ja confin.
-- **libc/wasm32 ja libthread/wasm32** käännetään nyt `build-libc3`:lla.
-  Ne on liitettävä 9frontin mkfileihin (`libc/mkfile`:n `CPUS`,
-  `libthread`in arkkitehtuuritiedostot).
-- **9frontin arkkitehtuurirekisteröinti** tehdään diffeinä
-  `plan9/patches/`iin: `/sys/src/mkfile`:n ja muiden CPUS-listat
-  (wasm32, objtype-kirjain `3`).
-- **Juuren arkisto** (`#R`, `root.fs`) tehdään nyt Pythonilla
-  `build-bin3`:ssa. Natiivisti tarvitaan Plan 9 -työkalu.
+Tilanne 4.10.2026: **wasm32 kääntyy 9frontin omilla mkfileillä.**
+`tools/9front-2001` kokoaa 9Front-2001:n (`build/9front-2001`):
+`subset/9front`, sen päälle `plan9/patches/9front/*.diff` ja sitten
+`plan9/`. Kokoaja tarkistaa, että forkin kopio jokaisesta paikatusta
+tiedostosta on täsmälleen diff ajettuna julkaisuun. Siinä puussa
+`objtype=wasm32 mk install` kääntää:
+- kirjastot `libc` … `libcontrol` (`build-libc3`:n kirjastot, jäsenmäärät
+  samat),
+- ytimen: `cd /sys/src/9/wasm32 && mk install` → `/wasm32/9wasm32.wasm`
+  (`plan9/sys/src/9/wasm32/mkfile`; conf-tiedostoa ja mkdevc:tä ei ole,
+  koska `devtab.c` on konfiguraatio),
+- juuren 9front-ohjelmat: `rc`, `hjfs`, `rio`, `aux/kbdfs`,
+  `auth/factotum`, `exportfs`, `plumb`, `syscall` ja yhden tiedoston
+  komennot (`cd /sys/src/cmd && mk cat.install …`).
+
+Mitä siihen tarvittiin:
+- **3c ja 3l:** 3c kirjoittaa `#pragma lib`in objektiin (ANAME, D_FILE,
+  numero 0, kuten 9frontin muut kääntäjät), ja 3l lataa ne kirjastot
+  (`$O` → `3`, `/$objtype/lib/…`). Siksi mkonen `$LD -o … $OFILES` riittää.
+- **Diffit** (`plan9/patches/9front/README`):
+  `libc/9syscall/mkfile` tekee wasm32:n systeemikutsut C:nä (`_trap`), ja
+  `libthread/mkfile` ottaa wasm32:n oman koneosan (`wasm32/`).
+- **Forkin uudet mkfilet:** `libc/wasm32/mkfile` sekä tyhjät
+  `libmp/wasm32/mkfile` ja `libsec/wasm32/mkfile` (ei assembler-osia).
+- **CPUS:** wasm32:ta ei lisätä 9frontin CPUS-listoihin. `mk installall`
+  kääntää CPUS:n kaikki koneet, eivätkä kaikki 9frontin ohjelmat käänny
+  wasm32:lle (APE, `vmx`, ytimet). wasm32 käännetään erikseen:
+  `objtype=wasm32 mk install` niissä hakemistoissa, joita kone käyttää.
+
+**Kokeiltu Linuxissa, ei vielä oikeassa 9frontissa.** `tools/native-wasm32`
+ajaa 9frontin mkfilet Linuxissa: plan9portin mk, rc, sed, awk ja grep
+(`PLAN9=…`), Linuxilla käännetyt 3c ja 3l, sekä puu bindattuna `/sys`:iin
+ja `/wasm32`:een omassa mount-nimiavaruudessa (`unshare`). Isännän työkaluja
+(`mpc`, `mklatin`) sillä ei ole, joten se käyttää julkaisun valmiiksi
+tekemiä tiedostoja. Kokoaja ajoittaa ne lähteitään uudemmiksi, kuten ne
+ovat 9front-koneella. `tools/test-native` panee natiivin ytimen ja
+ohjelmat `build-bin3`:n juureen ja ajaa `test-9wasm32`:n niillä.
+
+Vielä tekemättä:
+- **Ajo 9frontissa:** VM:ssä `objtype=wasm32 mk install` puussa, jossa
+  `plan9/` on overlaynä (3c:n ja 3l:n käännös Plan 9:llä, `docs/wasm32.md`).
+- **Juuren arkisto** (`#R`, `root.fs`) tehdään yhä Pythonilla
+  `build-bin3`:ssa. Natiivisti tarvitaan Plan 9 -työkalu (esim.
+  `mkfile`-kohde `/sys/src/9/wasm32`:een).
+- **Plan2001:n ohjelmat** (`aux/wsrcpu`) ja testiohjelmat käännetään
+  vain `build-bin3`:lla.
 - **APE** (`/sys/src/ape`) tulee forkiin vasta, kun jokin ohjelma
   tarvitsee sitä.
+- **pc64 ja UEFI-lataaja** kääntyvät VM:n 9frontissa overlayllä
+  (`tools/build.rc`), kuten ennenkin.
 
 ## Siirron vaiheet
 
-Vaiheet 1, 2 ja 4 on tehty 4.10.2026. VM:llä ajettavat osat (`build.sh`,
-`mkusb`, `subset/test`, `check`) ja vaihe 3 ovat tekemättä.
+Vaiheet 1–4 on tehty 4.10.2026. Vaiheen 3 kokoajaa käyttävät natiivi
+käännös ja sen testi, mutta VM-build ei vielä. VM:llä ajettavat osat
+(`build.sh`, `mkusb`, `subset/test`, `check`) ovat tekemättä.
 
 1. Keskeneräiset haarat (Codex) yhdistetään ensin, jotta polkujen
    muutos ei riitele niiden kanssa.
@@ -144,9 +176,10 @@ Vaiheet 1, 2 ja 4 on tehty 4.10.2026. VM:llä ajettavat osat (`build.sh`,
    `plan2001/`sta), `tools/subset/mkusb*`, `monolith/tools/build-*`,
    `test-9wasm32` ja `tools/cloud/*`.
 3. Tehdään 9Front-2001:n kokoaja, joka luo `build/9front-2001/`n:
-   `subset/9front` + `plan9/` + `plan9/patches` ajettuna. VM-build
-   käyttää samaa järjestystä.
+   `subset/9front` + `plan9/` + `plan9/patches` ajettuna (`tools/9front-2001`,
+   4.10.2026). VM-build käyttää samaa järjestystä.
 4. Testit: `tools/test-9wasm32` kokonaan, VM:ssä `tools/build.sh`,
    `tools/subset/mkusb`, `tools/subset/test` ja `check`, sekä
    `test-3c`.
-5. Natiivi käännös (yllä oleva lista) tehdään omana vaiheenaan.
+5. Natiivi käännös: wasm32 Linuxin harnessilla 4.10.2026 (yllä), oikea
+   9front vielä tekemättä.

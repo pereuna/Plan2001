@@ -13,6 +13,9 @@
 
 static	char**	libs;
 static	int	nlibs;
+static	int	maxlibs;
+static	char*	pragmalib;	/* per lib: 1 if only #pragma lib named it (missing: no error, the undefined say so) */
+void	addlib(char*);
 
 static void
 usage(void)
@@ -50,7 +53,9 @@ main(int argc, char *argv[])
 	}ARGEND
 	if(argc == 0)
 		usage();
-	libs = emalloc(argc*sizeof(char*));
+	maxlibs = argc + 16;
+	libs = emalloc(maxlibs*sizeof(char*));
+	pragmalib = emalloc(maxlibs);
 	for(; argc > 0; argc--, argv++) {
 		f = *argv;
 		n = strlen(f);
@@ -307,6 +312,10 @@ loadobj(uchar *buf, long n, char *name)
 				memset(o.syms+o.nsyms, 0, o.nsyms*sizeof(Sym*));
 				o.nsyms *= 2;
 			}
+			if(t == D_FILE) {	/* #pragma lib (3c's outlibs) */
+				addlib(s);
+				continue;
+			}
 			o.syms[num] = lookup(s, t == D_STATIC ? version : 0);
 			continue;
 		}
@@ -504,7 +513,8 @@ memberdefs(Member *m)
 			while(p < ep && *p)
 				p++;
 			p++;
-			names[num] = t == D_STATIC ? nil : s;
+			if(t != D_FILE)
+				names[num] = t == D_STATIC ? nil : s;
 			continue;
 		}
 		/* k k2 lineno, then from: type index reg sym */
@@ -548,58 +558,138 @@ needed(Member *m)
 	return 0;
 }
 
+/*
+ * a library a program's #pragma lib names: /$objtype/lib/NAME (the loader's
+ * own place, as Plan 9's), or NAME if it is a path; not if one of that
+ * name is there already - given on the command line, as tools/build-*
+ * give theirs with their paths
+ */
+void
+addlib(char *name)
+{
+	char *path, *b, *ob, *ot, *d, buf[256];
+	int i;
+
+	/* $O is the object's letter, as Plan 9's loaders read it (cc.h: ../cc/cc.a$O) */
+	for(d = buf; *name && d < buf+sizeof buf-2; name++)
+		if(name[0] == '$' && name[1] == 'O') {
+			*d++ = '3';
+			name++;
+		} else
+			*d++ = *name;
+	*d = 0;
+	name = buf;
+	if(name[0] == '/' || strncmp(name, "./", 2) == 0 || strncmp(name, "../", 3) == 0)
+		path = strdup(name);
+	else {
+		ot = getenv("objtype");
+		path = smprint("/%s/lib/%s", ot != nil && *ot ? ot : "wasm32", name);	/* ot not freed: POSIX's getenv is not malloc'd */
+	}
+	b = strrchr(path, '/');
+	b = b ? b+1 : path;
+	for(i = 0; i < nlibs; i++) {
+		ob = strrchr(libs[i], '/');
+		ob = ob ? ob+1 : libs[i];
+		if(strcmp(ob, b) == 0) {
+			free(path);
+			return;
+		}
+	}
+	if(nlibs >= maxlibs) {
+		maxlibs *= 2;
+		libs = realloc(libs, maxlibs*sizeof(char*));
+		pragmalib = realloc(pragmalib, maxlibs);
+	}
+	pragmalib[nlibs] = 1;
+	libs[nlibs++] = path;
+}
+
+typedef struct Lib Lib;
+struct Lib
+{
+	Member*	ms;
+	int	nm;
+};
+
+/* the archive's members and what each defines */
+static void
+readlib(char *file, int quiet, Lib *lb)
+{
+	uchar *buf, *p, *ep;
+	long n, size;
+	int maxm;
+	char *s;
+
+	lb->ms = nil;
+	lb->nm = 0;
+	if(quiet && access(file, 0) < 0)
+		return;
+	buf = readall(file, &n);
+	if(buf == nil)
+		return;
+	if(n < strlen(ARMAG) || memcmp(buf, ARMAG, strlen(ARMAG)) != 0) {
+		diag("%s: not an archive", file);
+		return;
+	}
+	maxm = 64;
+	lb->ms = emalloc(maxm*sizeof(Member));
+	p = buf + strlen(ARMAG);
+	ep = buf + n;
+	while(p + SAR_HDR <= ep) {
+		size = strtol((char*)p+48, nil, 10);
+		if(lb->nm >= maxm) {
+			maxm *= 2;
+			lb->ms = realloc(lb->ms, maxm*sizeof(Member));
+		}
+		memset(&lb->ms[lb->nm], 0, sizeof(Member));
+		memmove(lb->ms[lb->nm].name, p, 16);
+		for(s = lb->ms[lb->nm].name+15; s >= lb->ms[lb->nm].name && (*s == ' ' || *s == '/' || *s == 0); s--)
+			*s = 0;
+		lb->ms[lb->nm].p = p + SAR_HDR;
+		lb->ms[lb->nm].n = size;
+		p += SAR_HDR + size + (size & 1);
+		if(lb->ms[lb->nm].n >= strlen(OBJMAGIC) && memcmp(lb->ms[lb->nm].p, OBJMAGIC, strlen(OBJMAGIC)) == 0) {
+			memberdefs(&lb->ms[lb->nm]);
+			lb->nm++;
+		}
+	}
+}
+
+/*
+ * the libraries, until none has a member that defines something wanted:
+ * all of them each time round, as a library may need one named before it
+ * (libthread, then libc again) - and #pragma lib may add libraries as
+ * members load
+ */
 void
 ldlibs(void)
 {
-	int l, i, nm, maxm, change;
-	uchar *buf, *p, *ep;
-	long n, size;
-	Member *ms;
+	Lib *lb;
+	int l, i, nread, maxl, change;
 	char *s;
 
-	for(l = 0; l < nlibs; l++) {
-		buf = readall(libs[l], &n);
-		if(buf == nil)
-			continue;
-		if(n < strlen(ARMAG) || memcmp(buf, ARMAG, strlen(ARMAG)) != 0) {
-			diag("%s: not an archive", libs[l]);
-			continue;
-		}
-		maxm = 64;
-		nm = 0;
-		ms = emalloc(maxm*sizeof(Member));
-		p = buf + strlen(ARMAG);
-		ep = buf + n;
-		while(p + SAR_HDR <= ep) {
-			size = strtol((char*)p+48, nil, 10);
-			if(nm >= maxm) {
-				maxm *= 2;
-				ms = realloc(ms, maxm*sizeof(Member));
+	maxl = nlibs + 16;
+	lb = emalloc(maxl*sizeof(Lib));
+	nread = 0;
+	do {
+		change = 0;
+		for(; nread < nlibs; nread++) {
+			if(nread >= maxl) {
+				maxl *= 2;
+				lb = realloc(lb, maxl*sizeof(Lib));
 			}
-			memset(&ms[nm], 0, sizeof(Member));
-			memmove(ms[nm].name, p, 16);
-			for(s = ms[nm].name+15; s >= ms[nm].name && (*s == ' ' || *s == '/' || *s == 0); s--)
-				*s = 0;
-			ms[nm].p = p + SAR_HDR;
-			ms[nm].n = size;
-			p += SAR_HDR + size + (size & 1);
-			if(ms[nm].n >= strlen(OBJMAGIC) && memcmp(ms[nm].p, OBJMAGIC, strlen(OBJMAGIC)) == 0) {
-				memberdefs(&ms[nm]);
-				nm++;
-			}
+			readlib(libs[nread], pragmalib[nread], &lb[nread]);
 		}
-		do {
-			change = 0;
-			for(i = 0; i < nm; i++) {
-				if(ms[i].loaded || !needed(&ms[i]))
+		for(l = 0; l < nread; l++)
+			for(i = 0; i < lb[l].nm; i++) {
+				if(lb[l].ms[i].loaded || !needed(&lb[l].ms[i]))
 					continue;
-				ms[i].loaded = 1;
-				s = smprint("%s(%s)", libs[l], ms[i].name);
-				loadobj(ms[i].p, ms[i].n, s);
+				lb[l].ms[i].loaded = 1;
+				s = smprint("%s(%s)", libs[l], lb[l].ms[i].name);
+				loadobj(lb[l].ms[i].p, lb[l].ms[i].n, s);
 				change = 1;
 			}
-		} while(change);
-	}
+	} while(change || nread < nlibs);
 }
 
 /*

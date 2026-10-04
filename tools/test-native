@@ -1,0 +1,39 @@
+#!/bin/bash
+# 9Front-2001's native build of the wasm32 machine (tools/native-wasm32)
+# tested in the browser: its kernel, and its 9front programs in place of
+# build-bin3's in build-bin3's root (the root's other programs - the
+# tests', Plan2001's aux/wsrcpu - stay build-bin3's), then
+# monolith/tools/test-9wasm32 with them.  build-bin3's root is put back
+# afterwards; build-9wasm32's kernel comes back with its next build (the
+# next test-9wasm32 or tools/pages).
+#   PLAN9=... tools/test-native [NAME...]    test-9wasm32's NAMEs (default all)
+set -e -o pipefail
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+m=$root/monolith; w=$m/build/wasm32
+nat=$root/build/9front-2001/wasm32
+"$here/native-wasm32" >"$root/build/native-wasm32.log" 2>&1 || { tail -20 "$root/build/native-wasm32.log"; echo "test-native: native-wasm32 failed (build/native-wasm32.log)"; exit 1; }
+[ -e "$w/root/bin/d2" ] || "$m/tools/build-bin3" >/dev/null
+save=$(mktemp -d)
+cp -a "$w/root" "$w/root.txt" "$w/root.fs" "$save/"
+restore() { rm -rf "$w/root"; cp -a "$save/root" "$save/root.txt" "$save/root.fs" "$w/"; rm -rf "$save"; }
+trap restore EXIT
+native=() others=()
+while read -r f; do
+	if [ -e "$nat/bin/$f" ]; then
+		cp "$nat/bin/$f" "$w/root/bin/$f"; native+=("$f")
+	else
+		others+=("$f")
+	fi
+done < <(cd "$w/root/bin" && find . -type f | sed 's|^\./||' | sort)
+cp "$w/root/bin/auth/factotum" "$w/root/boot/factotum"	# /boot's is the same (build-bin3)
+python3 - "$w/root" "$w/root.txt" "$w/root.fs" <<'PY'
+import sys, struct
+root, lst, out = sys.argv[1:]
+with open(out, 'wb') as o:
+	for n in open(lst).read().split():
+		b = b'' if n.endswith('/') else open(root + '/' + n, 'rb').read()
+		o.write(n.encode() + b'\0' + struct.pack('<I', len(b)) + b)
+PY
+echo "test-native: native: the kernel and ${#native[@]} programs (${native[*]})"
+echo "test-native: build-bin3's: ${others[*]}"
+KERNEL=$nat/9wasm32.wasm "$m/tools/test-9wasm32" "$@"

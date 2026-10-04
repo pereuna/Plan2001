@@ -1,0 +1,74 @@
+#!/bin/bash
+# The wasm32 parts built natively - with 9Front-2001's own mkfiles, as
+# objtype=wasm32 mk on a 9front machine builds them (docs/plan9-fork.md:
+# the native build) - here on Linux, for a test without a 9front machine:
+# tools/9front-2001's tree bound to /sys and /wasm32 in a mount namespace
+# of its own (unshare), plan9port's mk and rc ($PLAN9), the 3c and 3l
+# built by monolith/tools/build-cc, and an ar that takes Plan 9's "ar vu".
+# What it builds goes to the tree's /wasm32 (lib, bin) and /sys/src/9/wasm32.
+# The tree is made anew each time: DIRs that need others' libraries
+# need those DIRs before them.
+#   PLAN9=... tools/native-wasm32 [DIR[:TARGET,...]...]
+#        DIRs under /sys/src, in order, each mk install or mk TARGETs
+#        (default: the libraries, the kernel, the root's 9front programs)
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+[ -x "${PLAN9:-}/bin/mk" ] && [ -x "$PLAN9/bin/rc" ] || { echo "native-wasm32: PLAN9 must name a plan9port with mk and rc" >&2; exit 2; }
+tree=$root/build/9front-2001
+"$here/9front-2001" "$tree" >/dev/null
+"$root/monolith/tools/build-cc" native 3c >/dev/null
+"$root/monolith/tools/build-cc" native 3l >/dev/null
+bin=$root/build/native-bin
+mkdir -p "$bin" "$tree/wasm32/lib" "$tree/wasm32/bin"
+ln -sfn "$root/monolith/build/cc-native/3c" "$bin/3c"
+ln -sfn "$root/monolith/build/cc-native/3l" "$bin/3l"
+cat >"$bin/ar" <<'X'
+#!/bin/sh
+# Plan 9's ar: its key may be implied (mksyslib's "ar vu LIB FILES": r)
+k=$1; shift
+case $k in *[dmpqrtx]*) ;; *) k=r$k ;; esac
+exec /usr/bin/ar "$k" "$@"
+X
+chmod 775 "$bin/ar"
+rm -f "$bin/mk" "$bin/rc.mk"
+# what the kernel and the root's programs need, in order (build-libc3's)
+# and the root's programs that are 9front's (monolith/tools/build-bin3's)
+libs="libc libthread libmp libsec libbio libregexp libString libauth libauthsrv lib9p libip libndb libdraw libmemdraw libmemlayer libframe libcomplete libplumb libcontrol"
+one="basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns sed mount pwd ps read test chmod tlsclient mntgen ramfs stats"
+[ ! -e "$tree/sys/src/cmd/clock.c" ] || one="$one clock"	# the subset's once derive brings it (tools/subset/extra)
+cmds="cmd/rc cmd/hjfs cmd/rio cmd/aux/kbdfs cmd/auth/factotum cmd/exportfs cmd/plumb cmd/syscall cmd:$(echo $one | sed 's/\([^ ]*\)/\1.install/g; s/ /,/g')"
+dirs=${*:-$libs 9/wasm32 $cmds}
+unshare -m --propagation private bash -s "$tree" "$bin" "$PLAN9" $dirs <<'X'
+set -e
+tree=$1 bin=$2 P9=$3; shift 3
+/usr/bin/mount --bind "$tree/sys" /sys
+/usr/bin/mkdir -p /wasm32
+/usr/bin/mount --bind "$tree/wasm32" /wasm32
+# /lib/ucd: libc/ucd's tables are made from it, but they come made (its *data
+# files); the subset has no /lib/ucd, so stand-ins older than the tables
+ucd=$(mktemp -d)
+for f in CompositionExclusions DerivedNormalizationProps GraphemeBreakProperty UnicodeData WordBreakProperty emoji-data; do
+	touch -d 1980-01-01 "$ucd/$f.txt"	# not 0: mk takes that as no file
+done
+/usr/bin/mkdir -p /lib/ucd
+/usr/bin/mount --bind "$ucd" /lib/ucd
+# aux/kbdfs's latin1.h, made from /lib/keyboard by mklatin, a program for
+# the host ($cputype): it comes made too; a stand-in /lib/keyboard as old,
+# and a stand-in mklatin newer than its mkfile and older than latin1.h
+touch -d 1980-01-01 "$ucd/keyboard"
+[ -e /lib/keyboard ] || touch /lib/keyboard
+/usr/bin/mount --bind "$ucd/keyboard" /lib/keyboard
+k=/sys/src/cmd/aux/kbdfs
+if [ -e $k/latin1.h ]; then
+	: >$k/mklatin.amd64; touch -d '+1 min' $k/latin1.h
+fi
+export PATH=$bin:$P9/bin:$PATH PLAN9=$P9 objtype=wasm32 cputype=amd64 FORCERCFORMK=1	# FORCERCFORMK: plan9port's mk runs recipes in rc, as 9front's mkfiles are written
+for d in "$@"; do
+	t=install
+	case $d in *:*) t=${d#*:} t=${t//,/ } d=${d%%:*} ;; esac
+	echo "native-wasm32: /sys/src/$d: mk $t"
+	mkdir -p /wasm32/bin/aux /wasm32/bin/auth
+	cd "/sys/src/$d" && mk $t
+done
+X
+echo "native-wasm32: ok"

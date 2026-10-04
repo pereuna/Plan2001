@@ -245,6 +245,31 @@ symnum(Sym *s, int t)
 	return o->num;
 }
 
+/*
+ * #pragma lib "libc.a": the libraries a program needs, as Plan 9's
+ * compilers pass them to the loader (the front end keeps them as history
+ * lines with offset -1): a name record of type D_FILE and number 0, which
+ * 3l loads from /$objtype/lib - so 9front's mkone links a program with no
+ * libraries named
+ */
+static void
+outlibs(void)
+{
+	Hist *h;
+	char *n;
+
+	for(h = hist; h != H; h = h->link) {
+		if(h->offset != -1 || h->name == nil)
+			continue;
+		put2(ANAME);
+		put1(D_FILE);
+		put2(0);
+		for(n = h->name; *n; n++)
+			put1(*n);
+		put1(0);
+	}
+}
+
 static int
 symtype(Adr *a)
 {
@@ -285,6 +310,7 @@ outadr(Adr *a)
 	}
 }
 
+static void outlibs(void);
 void
 outcode(void)
 {
@@ -302,6 +328,7 @@ outcode(void)
 	Binit(&obuf, f, OWRITE);
 	Bseek(&obuf, 0L, 2);
 	Bwrite(&obuf, OBJMAGIC, strlen(OBJMAGIC));
+	outlibs();
 	for(p = firstp; p != P; p = p->link) {
 		/* the names first: a record refers only to names before it */
 		if(p->from.sym != S)

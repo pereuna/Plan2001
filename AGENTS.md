@@ -71,6 +71,17 @@ tools/build-bin3       # ohjelmat ja juuri: build/wasm32/root, root.fs
 poikkeava. Uusi ohjelma lisätään `build-bin3`:een (yhden tiedoston
 komennot listaan `for c in ...`), sen kirjastot `build-libc3`:een.
 
+Natiivi käännös (`docs/plan9-fork.md`): `tools/9front-2001` kokoaa
+9Front-2001:n `build/9front-2001`:een. `PLAN9=plan9port tools/native-wasm32`
+kääntää siinä 9frontin mkfileillä wasm32:n kirjastot, ytimen ja juuren
+9front-ohjelmat. `tools/test-native [NIMI...]` ajaa `test-9wasm32`:n
+natiivilla ytimellä ja ohjelmilla. Aja se, kun muutat mkfilejä,
+`plan9/patches/9front`ia tai 3c:n/3l:n objektimuotoa. Kun muutat
+9frontin tiedostoa, korjaa sekä diff että `plan9/`:n kopio: kokoaja
+hylkää puun, jos ne eroavat. Uusi juuren ohjelma lisätään myös
+`native-wasm32`:n listaan. `tools/rccheck` tarvitsee niin ikään
+`PLAN9`:n (plan9portin rc).
+
 ## Testit ennen pushia
 
 Aja aina, kun muutos koskee ydintä, platform.js:ää, kirjastoja tai

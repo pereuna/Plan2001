@@ -22,11 +22,21 @@
 # tools/test-authsrv, a wrong password, no auth server; /net/tcp's
 # conversations connected again and again (netre); and glenda to the
 # CPU VM's rcpu (dp9ikvm, skipped without it).
-#   tools/test-9wasm32 [NAME...]
+# KERNEL=FILE: that kernel instead of build-9wasm32's, e.g. the native
+# build's (../tools/native-wasm32: build/9front-2001/wasm32/9wasm32.wasm),
+# put where build-9wasm32 puts its own.
+#   [KERNEL=FILE] tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 t=$root/../plan9/sys/src/9/wasm32/test
-"$root/tools/build-9wasm32" >/dev/null
+if [ -n "${KERNEL:-}" ]; then
+	mkdir -p "$root/build/wasm32/kernel"
+	cp "$KERNEL" "$root/build/wasm32/kernel/9wasm32.wasm.new"
+	mv "$root/build/wasm32/kernel/9wasm32.wasm.new" "$root/build/wasm32/kernel/9wasm32.wasm"
+	echo "test-9wasm32: the kernel $KERNEL"
+else
+	"$root/tools/build-9wasm32" >/dev/null
+fi
 [ -e "$root/build/wasm32/root/bin/d2" ] || "$root/tools/build-bin3" >/dev/null
 run() {	# NAME ARGS [SEND [PAGEARGS]]
 	echo "test-9wasm32: $1"

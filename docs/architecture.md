@@ -621,9 +621,13 @@ klustereissa. Lähteet ja yksityiskohdat tarkistetaan suunnittelun alussa.
   -r`, `/app`, sovelluksen origin oikeaa webtermiä vasten,
   `tools/vm-cpu`/`deploy`, hiekkalaatikko ja `cloud-image`. Lisäksi
   osajoukon derive rc-httpd:lle (`tools/subset/derive`, `check`, `test`).
-- Natiivi käännös (`docs/plan9-fork.md`): 3a/3c/3l sekä wasm32-ydin ja
-  -kirjastot 9frontin mk:lla, ja CPUS-rekisteröinti
-  `plan9/patches/`issa.
+- Natiivi käännös (`docs/plan9-fork.md`): wasm32:n kirjastot, ydin ja
+  juuren 9front-ohjelmat kääntyvät 9frontin mkfileillä 9Front-2001:ssä
+  (`tools/9front-2001`, `tools/native-wasm32`, 4.10.). Kokeiltu
+  Linuxissa plan9portin mk:lla, ja `tools/test-native` ajaa sarjan
+  natiivilla ytimellä ja ohjelmilla. Tekemättä: sama oikeassa 9frontissa
+  (VM) ja juuren arkisto Plan 9 -työkalulla. wasm32 ei tule CPUS-listaan
+  (`installall`), vaan se käännetään `objtype=wasm32 mk install`.
 - Avoimet kohdat: factotumin avaimet OPFS:ään (D3) ja wss:n
   `/rcpu`-polku päätteelle (D4). Koko kotihakemisto levylle ja 2 s:n
   synkkaus tehtiin 4.10. (D6, yllä).
