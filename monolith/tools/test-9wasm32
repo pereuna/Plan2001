@@ -19,7 +19,8 @@
 # skipped), from the origin it takes (127.0.0.1:18080); D3's libraries
 # (crypto: libsec, libmp, libauthsrv against Python's values) and dp9ik
 # through factotum - glenda and bootes over a pipe with the tickets from
-# tools/test-authsrv, a wrong password, no auth server; and glenda to the
+# tools/test-authsrv, a wrong password, no auth server; /net/tcp's
+# conversations connected again and again (netre); and glenda to the
 # CPU VM's rcpu (dp9ikvm, skipped without it).
 #   tools/test-9wasm32 [NAME...]
 set -e -o pipefail
@@ -77,6 +78,8 @@ if want dp9ik $names; then
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
 	MONOLITH_WEBTERM=18099 HALTWAIT=120 run dp9ik '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo '"'"'delkey user=glenda'"'"' >/mnt/factotum/ctl; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=wrong'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
+	# /net/tcp reconnected: a gen each connect, a reader woken by a hangup (d3 -n)
+	MONOLITH_WEBTERM=18099 HALTWAIT=300 run netre '["/bin/rc", "-c", "d3 -n 20 4; echo done"]'
 	kill $aspid; trap - EXIT
 fi
 want dp9iknoas $names && MONOLITH_WEBTERM=18098 HALTWAIT=120 run dp9iknoas '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'

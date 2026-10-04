@@ -288,6 +288,24 @@ D3 toteutettu (4.10.), VM-testi ajamatta: tunnistus 9frontin koodilla.
   9frontin mpc-lähteistä, C:stä erillään. Molemmat saavat saman
   AuthInfon ja 256 tavun salaisuuden; väärällä salasanalla factotum
   vastaa `needkey`; ilman auth-palvelinta (`dp9iknoas`) lippuja ei tule.
+- Katselmus (4.10.): `/net/tcp`:n gen kasvoi vain keskustelua
+  tehtäessä, eikä connect, hangup tai kirjoitus käyttänyt Conv:n
+  QLockia. Hangup ja uusi connect samassa keskustelussa kantoivat siksi
+  saman (n, gen):n, ja sivu, joka saa Workerien viestit missä
+  järjestyksessä tahansa, saattoi sulkea uuden WebSocketin vanhalla
+  closella tai lähettää vanhan yhteyden tavut uuteen. Nyt gen kasvaa
+  joka connectissa, ja connect, hangup ja kirjoitus ovat QLockin alla
+  (kirjoitus kantaa sen yhteyden gen:n, joka oli auki). Data-lukija ei
+  herännyt hangupiin ollenkaan (se odotti vain renkaan `w`:tä), ja sivu
+  nollaa renkaan avatessaan: vanhan yhteyden lukija olisi voinut
+  kirjoittaa `r`:n uuteen renkaaseen. Nyt lukijat lasketaan, lukija
+  lähtee, kun gen vaihtuu tai yhteys menee (viimeistään sekunnissa), ja
+  connect pyytää avausta vasta, kun lukijoita ei ole. Testi `netre`
+  (`d3 -n 20 4`): neljä procia yhdistää oman keskustelunsa 20 kertaa
+  (connect, AuthPAK-pyyntö, vastaus, hangup samalla ctl:llä), jokainen
+  vastaus ehjä; odottava lukija herää toisen procin hangupiin, ja
+  keskustelu yhdistyy uudelleen. Vanhalla koodilla lukija jää odottamaan;
+  järjestyskilpaa testi ei saa varmasti esiin (ajoitus).
 - Testi `dp9ikvm` (`d3 -r cpu`: glenda VM:n rcpu:lle, VM:n factotum ja
   auth-palvelin, salasana `~/.cache/plan2001/cpu.pass`) on kirjoitettu,
   mutta ajamatta: kehitysympäristössä ei ollut CPU-VM:ää. Se on D3:n
