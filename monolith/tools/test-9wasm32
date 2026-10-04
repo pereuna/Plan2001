@@ -114,6 +114,45 @@ fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9
 # made and got - PRF the same for the same salt, another for another - the user handle without its id,
 # a request cancelled on the page, another domain's refused, a request that is neither
 want webauthn $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "cancel"]' run webauthn '["/bin/d5", "localhost"]'
+# the CPU server's signupd and passkeyd (docs/webauthn.md: aux/listen's service.auth, the line on fd 0),
+# the real programs here with their keyfs, secstore and webauthn directories in a ramfs: an account's
+# files as keyfs, secstored and passkeyd read them; a name taken, a reserved one,
+# a key that is not one; a failure part way undone (secstore's store not writable); invites, used up
+L="00112233445566778899aabbccddeeff SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
+sd="mntgen -s slashmnt /mnt; ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa; fn sd { aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa }
+echo signup alice $L credidAAAAAAAAAAAAAA pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+xd -1x \$r/keys/alice/aeskey | sed 1q; cat \$r/sec/who/alice; ls \$r/sec/store/alice; sed /^created/d \$r/wa/credidAAAAAAAAAAAAAA
+echo signup alice $L credidBBBBBBBBBBBBBB pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup glenda $L credidCCCCCCCCCCCCCC pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup bob 00112233 SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB credidDDDDDDDDDDDDDD pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+chmod 555 \$r/sec/store; echo signup bob $L credidDDDDDDDDDDDDDD pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd; ls \$r/keys \$r/sec/who \$r/wa; chmod 775 \$r/sec/store
+echo code1 >\$r/wa/invites; echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA code1 | sd
+echo signup dave $L credidFFFFFFFFFFFFFF pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA code1 | sd
+echo done"
+want signupd $names && run signupd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$sd")"	# init takes no newline
+# the CPU server's signupd and passkeyd themselves, with a passkey: auth/passkey talks to each over a
+# pipe (#|, a server name that is a path), each a process of its own as aux/listen makes them, their
+# keyfs, secstore and webauthn in a ramfs.  An account made; its passkey signs passkeyd's challenge,
+# twice (the counter grows); refused for another origin, another rp, a counter not above the last,
+# and another passkey's public key in its record (the signature checked)
+pc="ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa
+fn pkd { bind '#|' /mnt/\$1; aux/passkeyd -w \$r/wa \$*(2-) <>/mnt/\$1/data1 >[1=0] & }
+fn signin { auth/passkey -s /mnt/\$1/data login }
+bind '#|' /mnt/p0; aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa <>/mnt/p0/data1 >[1=0] &
+auth/passkey -s /mnt/p0/data signup erin
+pkd p1 -r localhost -o http://localhost:18092; signin p1
+pkd p2 -r localhost -o http://localhost:18092; signin p2
+pkd p3 -r localhost -o https://plan2001.com; signin p3
+pkd p4 -r plan2001.com -o http://localhost:18092; signin p4
+f=\`{ls \$r/wa}; sed 's/^count.*/count	99999999/' \$f >\$r/rec; cp \$r/rec \$f
+pkd p5 -r localhost -o http://localhost:18092; signin p5
+sed 's/^count.*/count 0/; s/^pubkey.*/pubkey MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhxwTFIkd-GFAq6p3Rb-DO0ImfQiSQt-F5KubHevM7eHHoxq16p8sETrW8JQF4iajAvNmnf70SyLb3QDnvSN2PA/' \$f >\$r/rec; cp \$r/rec \$f
+pkd p6 -r localhost -o http://localhost:18092; signin p6
+echo done"
+want passkeyc $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyc "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
+	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pc} </dev/cons >/dev/cons >[2=1]")" \
+	'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
 if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want passkeyoffline $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
@@ -211,6 +250,20 @@ if want secstorevm $names; then
 			"$(python3 -c 'import json,sys; print(json.dumps([["secstore password: ", sys.argv[1] + "\n"]]))' "$sp")"
 	else
 		echo "test-9wasm32: secstorevm: skipped (no CPU VM with secstore: tools/vm-cpu --update; tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
+# a Plan2001 account on the CPU VM (docs/webauthn.md; tools/vm-cpu: signupd, passkeyd, secstored, keyfs):
+# made from the browser's machine (auth/passkey signup, a virtual authenticator's passkey), signed in
+# with its passkey (the wrap from passkeyd, the key from secstored), then rcpu to the VM as the new user
+# with that key (the auth server: keyfs's aeskey from signupd).  The name has the time in it (accounts
+# stay on the VM), and goes as erin in what the test says
+if want signupvm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
+		MONOLITH_SECSTORE='tcp!cpu!5356' PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go"]' HTTPPORT=18080 HALTWAIT=240 run signupvm "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+			"aux/kbdfs -q -s cons /dev/eia0; {mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; n=erin^\`{date -n}; auth/passkey -s cpu signup \$n; auth/passkey -s cpu login | aux/seckeys -I; cat /mnt/factotum/ctl; rcpu -h cpu -u \$n -c 'echo remote: \$user; test -d /usr/\$user && echo home' >[2=1] | sed '/short write in reply/d'; echo rcpu status \$status; echo done} </dev/cons >[2=1] | sed 's/erin[0-9]+/erin/g' >/dev/cons")" \
+			'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
+	else
+		echo "test-9wasm32: signupvm: skipped (no CPU VM: tools/vm-cpu --update; tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
 	fi
 fi
 if want rcpuvm $names; then

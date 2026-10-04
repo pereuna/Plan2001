@@ -312,9 +312,37 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
        passkey-kirjautuminen (passkeyd ja secstored), ja rcpu VM:lle uutena
        käyttäjänä. Tämä on myös uuden tunnuksen dp9ik-avaimen testi oikeaa
        auth-palvelinta vastaan.
-4. **Tarkistus (passkeyd vaihe 2):** ES256, challenge ja signCount.
-   Testi: väärä origin, väärä allekirjoitus ja toistettu challenge
-   hylätään.
+4. **Tarkistus** (tehty 4.10.): passkeyd antaa kääreen vain passkeyn
+   allekirjoitusta vastaan.
+   - Yhdellä yhteydellä: `challenge` saa vastaukseksi `ok CHALLENGE`
+     (32 satunnaista tavua yhteyden prosessin muistissa), ja `wrap ID
+     AUTH CLIENT SIG` saa vastaukseksi `ok NIMI KÄÄRE`.
+   - `clientDataJSON`: type on `webauthn.get`, challenge on tämä,
+     origin on jokin `-o`:n originista, eikä se ole crossOrigin.
+   - `authenticatorData`: rpIdHash = sha256(`-r`), UP-lippu, ja laskuri
+     on edellistä suurempi (talletetaan tietueeseen).
+   - ES256-allekirjoitus authData | sha256(clientDataJSON):n yli
+     signupd:n tallettamalla avaimella (libsecin `ecdecodepub` ja
+     `X509ecdsaverifydigest`).
+   - `auth/passkey login` hakee challengen ensin. Ilman passkeyd:tä
+     kirjautuminen tapahtuu ilman challengea ja kääre tulee levyltä.
+   - Tietueen rivit voivat olla `AVAIN<sarkain>ARVO` tai välilyönnein. Testi
+     paljasti, että pelkkää sarkainta odottava jäsennin ohitti käsin
+     muokatun `count`-rivin hiljaa, jolloin laskuria ei tarkistettu.
+   - `tools/test-authsrv`in passkeyd tarkistaa samat asiat
+     Pythonilla (`cryptography`), erikseen C:stä kirjoitettuna. Testit
+     `signup` ja `passkeyoffline` kulkevat sen kautta.
+   - Testi `passkeyc`: oikeat C-daemonit putkia pitkin (`#|`,
+     auth/passkeyn palvelin polkuna) ja oikea passkey.
+     - Kirjautuminen onnistuu kahdesti, ja laskuri kasvaa.
+     - Väärä origin hylätään.
+     - Väärä rp hylätään.
+     - Laskuri, joka ei ole edellistä suurempi, hylätään (kopioitu
+       passkey).
+     - Toisen passkeyn julkinen avain tietueessa hylätään (bad
+       signature), mikä todistaa, että allekirjoitus tarkistetaan.
+   - `tools/vm-cpu`: `passkeyd -r ${PASSKEY_RP:-localhost}
+     -o PASSKEY_ORIGINS`.
 5. **plan2001.com:**
    - Sivu kirjautumisineen, kutsukoodit ja nimiavaruusrajat.
    - Sandbox jää kirjautumattomille.

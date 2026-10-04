@@ -51,6 +51,7 @@ static void
 fail(char *why)
 {
 	reply("error %s", why);
+	if(access("/sys/log/passkeyd", AEXIST) == 0)	/* its log, if the machine keeps one (not a test's) */
 	syslog(0, "passkeyd", "%s", why);
 	exits(why);
 }
@@ -154,7 +155,7 @@ static Rec*
 readrec(char *path)
 {
 	Biobuf *b;
-	char *l, *s;
+	char *l, *o, *s, *v;
 	Rec *r;
 
 	if((b = Bopen(path, OREAD)) == nil)
@@ -162,19 +163,26 @@ readrec(char *path)
 	r = mallocz(sizeof *r, 1);
 	r->rest = strdup("");
 	while((l = Brdstr(b, '\n', 1)) != nil){
-		if(strncmp(l, "name\t", 5) == 0)
-			r->name = strdup(l+5);
-		else if(strncmp(l, "pubkey\t", 7) == 0)
-			r->pubkey = strdup(l+7);
-		else if(strncmp(l, "wrap\t", 5) == 0)
-			r->wrap = strdup(l+5);
-		else if(strncmp(l, "count\t", 6) == 0)
-			r->count = strtoul(l+6, nil, 10);
+		/* KEY, a tab or blanks, VALUE (a hand-edited record has blanks) */
+		o = strdup(l);
+		v = l + strcspn(l, " \t");
+		if(*v != 0)
+			*v++ = 0;
+		v += strspn(v, " \t");
+		if(strcmp(l, "name") == 0)
+			r->name = strdup(v);
+		else if(strcmp(l, "pubkey") == 0)
+			r->pubkey = strdup(v);
+		else if(strcmp(l, "wrap") == 0)
+			r->wrap = strdup(v);
+		else if(strcmp(l, "count") == 0)
+			r->count = strtoul(v, nil, 10);
 		else{
-			s = smprint("%s%s\n", r->rest, l);
+			s = smprint("%s%s\n", r->rest, o);	/* kept as it was */
 			free(r->rest);
 			r->rest = s;
 		}
+		free(o);
 		free(l);
 	}
 	Bterm(b);

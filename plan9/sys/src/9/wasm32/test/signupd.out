@@ -1,0 +1,20 @@
+ticks in it: ok
+ok
+0000000  00 11 22 33 44 55 66 77 88 99 aa bb cc dd ee ff
+exp	0
+PAK-Hi	SGlISGlISGlISGlISGlI
+/mnt/ram/sec/store/alice/factotum
+name	alice
+pubkey	pubkeyAAAAAAAAAAAAAA
+wrap	wrapAAAAAAAAAAAAAAAA
+error name taken
+error bad name
+error bad key
+error secstore store
+/mnt/ram/keys/alice
+/mnt/ram/sec/who/alice
+/mnt/ram/wa/credidAAAAAAAAAAAAAA
+error invite needed
+ok
+error invite needed
+done

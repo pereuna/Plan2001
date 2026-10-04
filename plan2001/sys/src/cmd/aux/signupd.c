@@ -50,6 +50,7 @@ answer(char *fmt, ...)
 	vsnprint(buf, sizeof buf, fmt, arg);
 	va_end(arg);
 	fprint(1, "%s\n", buf);
+	if(access("/sys/log/signupd", AEXIST) == 0)	/* its log, if the machine keeps one (not a test's) */
 	syslog(0, "signupd", "%s", buf);
 	exits(buf[0] == 'o' ? nil : buf);
 }
