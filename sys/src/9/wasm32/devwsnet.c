@@ -93,7 +93,6 @@ static int
 wsgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 {
 	Qid q;
-	char buf[16];
 	int n, t;
 
 	t = QTYPE(c->qid);
@@ -109,8 +108,10 @@ wsgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 		devdir(c, q, "tcp", 0, eve, DMDIR|0555, dp);
 		return 1;
 	}
+	/* a file gives its directory's entries: devstat looks for it among them */
 	switch(t){
 	case Qtop:
+	case Qcs:
 		if(s == 0){
 			mkqid(&q, Qtcp, 0, QTDIR);
 			devdir(c, q, "tcp", 0, eve, DMDIR|0555, dp);
@@ -122,6 +123,7 @@ wsgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 		devdir(c, q, "cs", 0, eve, 0666, dp);
 		return 1;
 	case Qtcp:
+	case Qclone:
 		if(s == 0){
 			mkqid(&q, Qclone, 0, QTFILE);
 			devdir(c, q, "clone", 0, eve, 0666, dp);
@@ -132,9 +134,10 @@ wsgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 			return -1;
 		if(!convs[n].used)
 			return 0;
-		snprint(buf, sizeof buf, "%d", n);
+		/* devdir keeps the pointer: the name in up->genbuf, as 9front's */
+		snprint(up->genbuf, sizeof up->genbuf, "%d", n);
 		mkqid(&q, QID(n, Qconv), 0, QTDIR);
-		devdir(c, q, buf, 0, eve, DMDIR|0555, dp);
+		devdir(c, q, up->genbuf, 0, eve, DMDIR|0555, dp);
 		return 1;
 	default:
 		n = QCONV(c->qid);

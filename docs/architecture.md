@@ -153,7 +153,7 @@ kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 |---|---|---|
 | D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa (valmis 2.10.) |
 | D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat (valmis 2.10.) |
-| D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle |
+| D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (toteutettu 4.10.; testattu erillistä auth-palvelinta vastaan, VM-testi `dp9ikvm` ajamatta) |
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta |
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware |
 | D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli |
@@ -255,6 +255,43 @@ rcpu-yhteyden jälkeen: VM:n webterm sulkee osan nopeista yhteyksistä
 (mitattu myös suoraan Linuxista, 26/80).
 webfs ja webcookies (profiili) tarvitsevat yleisen verkon, jota webterm ei
 anna: ne odottavat selaimen fetchin päälle tehtävää palvelua (myöhemmin).
+
+D3 toteutettu (4.10.), VM-testi ajamatta: tunnistus 9frontin koodilla.
+- libmp, libsec, libauthsrv, libndb, libip ja libString 3c:llä
+  (`tools/build-libc3`: tiedostot mkfilen listasta, port/:n C), libc:hen
+  `ucd/` (Unicode-taulut: `toupperrune` ...). Testi `crypto` (`d3`):
+  md5, sha1, sha2, hmac, AES-CBC, ChaCha20, ccpoly, PBKDF2, HKDF,
+  curve25519 ja libmp:n mpexp/mpmul/mpdiv tavu tavulta samat kuin
+  Pythonin hashlib ja cryptography; `passtokey` (AES ja DES) samoin;
+  AuthPAK:n puolet sopivat, väärä salasana ei; form1-lippu kulkee ja
+  muutettu torjutaan.
+- `auth/factotum` (9frontin, mkfilen tiedostot) ja `mntgen`; `/boot/init`
+  käynnistää ne kuten 9frontin bootrc terminaalilla: `/n`, `/mnt`,
+  `/mnt/exportfs` ja `factotum -n -sfactotum` ilman avaimia. Avainta
+  factotum pyytää tarvitessaan (`needkey`; libauthin `auth_getkey` ajaa
+  `factotum -g`:n konsolille) - kysely tulee käyttöön D4:n rcpu:ssa, ja
+  OPFS (secstore) D6:ssa.
+- Ydin: `/proc/n/ctl` hyväksyy `private` ja `noswap` (factotum): ne
+  pätevät sellaisinaan, sillä procin muistia ei voi lukea eikä mitään
+  swapata. `/net/cs`:n ja `/net/tcp/clone`n stat ei löytänyt tiedostoa
+  (devstat haki sitä keskustelun tiedostoista), joten factotumin
+  `access("/net/cs")` epäonnistui; korjattu. `/proc`in ja `/net/tcp`:n
+  hakemistonimet tehtiin pinon puskuriin, jonka `devdir` vain osoittaa
+  (`ls /proc` antoi tyhjiä nimiä); nyt `up->genbuf` kuten 9frontissa.
+- Testi `dp9ik`: glenda (asiakas) ja bootes (palvelin) tunnistautuvat
+  putken yli p9any/dp9ik:lla (`auth_proxy` molemmin puolin, `d3 -p`).
+  Käyttäjät eroavat, joten asiakkaan factotumin on haettava liput
+  auth-palvelimelta (samalle käyttäjälle se tekee ne itse,
+  `mkservertickets`): `net!p9auth.plan2001!ticket` -> `/net/cs` ->
+  WebSocket `/567` -> `tools/test-authsrv`, joka on webtermin ja
+  9frontin authsrv:n (AuthPAK, AuthTreq, form1) Python-toteutus
+  9frontin mpc-lähteistä, C:stä erillään. Molemmat saavat saman
+  AuthInfon ja 256 tavun salaisuuden; väärällä salasanalla factotum
+  vastaa `needkey`; ilman auth-palvelinta (`dp9iknoas`) lippuja ei tule.
+- Testi `dp9ikvm` (`d3 -r cpu`: glenda VM:n rcpu:lle, VM:n factotum ja
+  auth-palvelin, salasana `~/.cache/plan2001/cpu.pass`) on kirjoitettu,
+  mutta ajamatta: kehitysympäristössä ei ollut CPU-VM:ää. Se on D3:n
+  "valmis kun" -ehto, joten D3 on valmis, kun `dp9ikvm` menee läpi.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 

@@ -7,8 +7,8 @@
 
 /*
  * #p: wasm32's procs, what it has of them - no segments, registers or
- * text to debug.  /proc/n/ctl (kill), note, notepg (kbdfs's interrupt),
- * status, args.  One user: no permissions to check yet.
+ * text to debug.  /proc/n/ctl (kill, private, noswap), note, notepg
+ * (kbdfs's interrupt), status, args.  One user: no permissions to check yet.
  */
 enum
 {
@@ -39,7 +39,6 @@ procgen(Chan *c, char *name, Dirtab*, int, int s, Dir *dp)
 {
 	Qid q;
 	Proc *p;
-	char buf[NUMSIZE];
 	ulong pid;
 	int slot;
 	Dirtab *t;
@@ -61,9 +60,10 @@ procgen(Chan *c, char *name, Dirtab*, int, int s, Dir *dp)
 			return -1;
 		if((pid = p->pid) == 0)
 			return 0;
-		snprint(buf, sizeof buf, "%lud", pid);
+		/* devdir keeps the pointer: the name in up->genbuf, as 9front's */
+		snprint(up->genbuf, sizeof up->genbuf, "%lud", pid);
 		mkqid(&q, (s+1)<<QSHIFT, pid, QTDIR);
-		devdir(c, q, buf, 0, p->user, DMDIR|0555, dp);
+		devdir(c, q, up->genbuf, 0, p->user, DMDIR|0555, dp);
 		return 1;
 	}
 	if(s >= nelem(procdir))
@@ -167,6 +167,12 @@ procwrite(Chan *c, void *a, long n, vlong)
 	p = cproc(c);
 	switch(QID(c->qid)){
 	case Qctl:
+		/*
+		 * private and noswap (factotum's) hold as they are: no
+		 * proc's memory can be read here and nothing is swapped
+		 */
+		if(strncmp(buf, "private", 7) == 0 || strncmp(buf, "noswap", 6) == 0)
+			break;
 		if(strncmp(buf, "kill", 4) != 0)
 			error(Ebadctl);
 		postnote(p, 1, "sys: killed", NExit);

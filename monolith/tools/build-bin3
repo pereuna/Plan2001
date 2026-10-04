@@ -15,6 +15,7 @@ l3=$root/build/cc-native/3l
 "$root/tools/build-3c3" >/dev/null	# libbio too
 INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
 libs="$out/lib/libbio.a $out/lib/libregexp.a $out/lib/libauth.a $out/lib/libc.a"
+seclibs="$out/lib/libauthsrv.a $out/lib/libsec.a $out/lib/libmp.a $out/lib/libndb.a $out/lib/libip.a"	# D3
 rm -rf "$out/root" "$out/o/cmd"
 mkdir -p "$out/root/bin" "$out/root/rc/lib" "$out/o/cmd/rc"
 fail=0
@@ -48,6 +49,19 @@ mkdir -p "$out/root/bin/aux"
 if ! (cd "$src/aux/kbdfs" && "$cc3" -FVw $INC -o "$out/o/cmd/kbdfs.3" kbdfs.c) >"$out/o/cmd/kbdfs.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/aux/kbdfs" "$out/o/cmd/kbdfs.3" "$out/lib/lib9p.a" "$out/lib/libauth.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/kbdfs.err" 2>&1; then
 	echo "build-bin3: kbdfs:"; head -5 "$out/o/cmd/kbdfs.err"; fail=1
+fi
+# auth/factotum: 9front's, the machine's authentication agent (D3); its files
+# as its mkfile lists them (FOFILES and PROTO)
+mkdir -p "$out/root/bin/auth" "$out/o/cmd/factotum"
+for f in $(awk '/^(PROTO|FOFILES)=/ { on=1; next } on && /^[ \t]/ { gsub(/[\\ \t]/, ""); sub(/\.\$O$/, ""); if($0 != "" && $0 != "$PROTO") print; next } { on=0 }' "$src/auth/factotum/mkfile"); do
+	(cd "$src/auth/factotum" && "$cc3" -FVw $INC -o "$out/o/cmd/factotum/$f.3" $f.c) >"$out/o/cmd/factotum/$f.err" 2>&1 || { echo "build-bin3: factotum/$f.c:"; head -5 "$out/o/cmd/factotum/$f.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/auth/factotum" "$out"/o/cmd/factotum/*.3 "$out/lib/lib9p.a" "$out/lib/libthread.a" "$out/lib/libString.a" \
+	$seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/factotum.err" 2>&1 || { echo "build-bin3: factotum:"; tail -5 "$out/o/cmd/factotum.err"; fail=1; }
+# mntgen: 9front's, /n and /mnt as its bootrc makes them (factotum's /mnt/factotum)
+if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/mntgen.3" mntgen.c) >"$out/o/cmd/mntgen.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/mntgen" "$out/o/cmd/mntgen.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/mntgen.err" 2>&1; then
+	echo "build-bin3: mntgen:"; head -5 "$out/o/cmd/mntgen.err"; fail=1
 fi
 # ramfs (glenda's profile: /tmp), syscall (the profile's test of /tmp): 9front's
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/ramfs.3" ramfs.c) >"$out/o/cmd/ramfs.err" 2>&1 ||
@@ -112,9 +126,9 @@ for t in libc/hello draw/dclock host3/rfmem libc/fork host3/threads host3/bytes 
 	fi
 done
 # the kernel's tests (tools/test-9wasm32)
-for t in forkloop c3a c3b c3d d2 fault; do
+for t in forkloop c3a c3b c3d d2 d3 fault; do
 	if ! (cd "$P/sys/src/9/wasm32/test" && "$cc3" -FVw $INC -o "$out/o/cmd/$t.3" "$t.c") >"$out/o/cmd/$t.err" 2>&1 ||
-	   ! "$l3" -o "$out/root/bin/$t" "$out/o/cmd/$t.3" $libs >>"$out/o/cmd/$t.err" 2>&1; then
+	   ! "$l3" -o "$out/root/bin/$t" "$out/o/cmd/$t.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$t.err" 2>&1; then
 		echo "build-bin3: $t:"; head -5 "$out/o/cmd/$t.err"; fail=1
 	fi
 done

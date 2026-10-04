@@ -2,8 +2,15 @@
 # the wasm32 machine's init (/boot/init), as 9front's: the time zone; the
 # console through kbdfs (the page's keyboard, #b/kbd, and #t/eia0); then
 # the user's login rc - glenda's profile starts ramfs for /tmp and, on a
-# terminal, rio -i riostart; rc goes on on the console when rio is done
+# terminal, rio -i riostart; rc goes on on the console when rio is done.
+# The mount points and factotum as 9front's bootrc makes them on a
+# terminal: no key yet - factotum asks for one when it needs it (needkey,
+# auth/factotum -g on the console)
 cat /adm/timezone/local >/env/timezone
+mntgen -s slashn /n
+mntgen -s slashmnt /mnt
+mntgen -s mntexport /mnt/exportfs
+auth/factotum -n -sfactotum
 aux/kbdfs -q -s cons /dev/eia0
 user=glenda
 home=/usr/glenda
