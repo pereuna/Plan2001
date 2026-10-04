@@ -11,6 +11,7 @@ int	platwake(long*, int);		/* Atomics.notify(addr, n) */
 vlong	platnsec(void);			/* nanoseconds since 1970 */
 void	platrandom(void*, ulong);	/* crypto.getRandomValues */
 void	platlog(char*);			/* early, before #t/eia0: on the page's console (KLOG) */
+uvlong	platmemsize(void);		/* the kernel's memory: its bytes now (WebAssembly.Memory's buffer) */
 void	plathalt(char*);			/* the machine stops: the page says so */
 
 /* the program on this proc's Worker: its own module and memory (trap.c, sysproc.c) */

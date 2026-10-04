@@ -45,8 +45,8 @@ confinit(void)
 		e = (bm->base + bm->len) & ~(uvlong)(BY2PG-1);
 		if(b < k)
 			b = k;
-		if(e > 0xFFFFF000ULL)
-			e = 0xFFFFF000ULL;
+		if(e > (platmemsize() & ~(uvlong)(BY2PG-1)))	/* a map that claims more than the memory has */
+			e = platmemsize() & ~(uvlong)(BY2PG-1);
 		if(e <= b)
 			continue;
 		conf.mem[n].base = b;

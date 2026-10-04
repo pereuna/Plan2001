@@ -142,7 +142,9 @@ rootfsreset(void)
 	/* the archive where the page loaded it (BootInfo's rdbase, rdlen), the kernel's for good: names and bytes stay there */
 	n = bootinfo->rdbase != 0 ? bootinfo->rdlen : 0;
 	if(n > 0){
-		a = (uchar*)(uintptr)bootinfo->rdbase;
+		/* bootinfoinit checked it against the map, this against the memory */
+		if((a = bootearlymap(bootinfo->rdbase, n)) == nil)
+			panic("rootfs: archive at %#llux, %ld bytes: not in the memory", bootinfo->rdbase, n);
 		for(p = a, e = a+n; p < e; p += len){
 			if((z = memchr(p, 0, e-p)) == nil)
 				panic("rootfs: archive: a name without its 0");

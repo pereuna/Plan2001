@@ -46,6 +46,7 @@ void	mouseinput(void);
 
 /* port/bootinfo.c and port/bootargs.c: what the page, the firmware, told us (sys/include/bootinfo.h, docs/boot-abi-wasm32.md) */
 extern BootInfo*	bootinfo;
+extern uchar*	bootblob;	/* the blob itself, its sections; bootinfo is the header's copy */
 extern uintptr	bootinfopa;
 void	bootinfoinit(void);
 void	bootinforandinit(void);

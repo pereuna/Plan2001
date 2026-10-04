@@ -41,7 +41,12 @@ want c2a $names && run c2a '[]' '[]' '&noinit=1'
 want bootinfo $names && run bootinfo "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 	"echo \$bitest; x=\`{cat '#ec/*bootscreen'}; echo \$x(1) \$x(2); t=\`{cat /dev/time}; test \$t(1) -gt 1759000000 && echo the clock is from BootInfo; echo done")" \
 	'[]' '&screen=640x480&conf=bitest%3Dhello%20world'
-want badblob $names && EXPECTJS="document.getElementById('eia0').textContent.includes('[halted: bootinfo: no blob')" run badblob '["/bin/echo", "never"]' '[]' '&badarch=2'
+# a blob for another ISA, the root's image or the framebuffer in memory the kernel hands out: refused, before anything;
+# an older v1 loader's shorter header (garbage past it, where rdbase would be): taken, the fields it lacks 0
+for bad in arch rd fb; do
+	want badblob $names && EXPECT=$t/badblob.out EXPECTJS="document.getElementById('eia0').textContent.includes('[halted: bootinfo: no blob')" run badblob '["/bin/echo", "never"]' '[]' "&bad=$bad"
+done
+want oldheader $names && EXPECT=$t/c2a.out run oldheader '[]' '[]' '&noinit=1&oldheader=1'
 want echo $names && run echo '["/bin/echo", "hello", "world"]'
 want long $names && run long "[\"/bin/echo\", \"$(printf '%06000d' 0 | tr 0 a)\"]"
 want fork $names && run fork '["/bin/fork"]'

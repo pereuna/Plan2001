@@ -67,9 +67,16 @@ käyttää ajon aikana kellona ja satunnaislukulähteenä.
   `bootinfoinit()`, sitten `bootargsinit()`. Molemmat ovat samat kuin
   pc64:llä ja arm64:llä (`plan9/sys/src/9/port/bootinfo.c`,
   `bootargs.c`).
-- Blob, jota kernel ei hyväksy (väärä magic, versio, `arch`, osio blobin
-  ulkopuolella, tyhjä muistikartta), pysäyttää koneen:
+- Blob, jota kernel ei hyväksy, pysäyttää koneen. Syitä ovat väärä
+  magic, versio tai `arch`, osio blobin ulkopuolella, tyhjä muistikartta,
+  arkisto muualla kuin LoaderData-alueella ja framebuffer jaettavassa
+  muistissa (`docs/boot-abi.md`, yhteensopivuus). Pysähdys on:
   `halt()` → `plathalt("bootinfo: no blob this kernel can take")`.
+- `bootearlymap(pa, size)` hyväksyy vain sen, mikä on muistissa
+  (`platmemsize()`, WebAssembly.Memoryn nykyinen koko), ei koko 4 GiB:n
+  osoiteavaruutta. `confinit` leikkaa kartan muistin kokoon, ja
+  `screen.c` sekä `devrootfs.c` tarkistavat alueensa sillä. Kartta, joka
+  lupaa enemmän kuin muistissa on, ei siis johda wasm:n OOB-trappiin.
 - `confinit` tekee `conf.mem[]`:n kartan Conventional-alueista
   (`[end, …)`), ja keon koko tulee niistä.
 - `timersinit`in jälkeen `bootinforandinit()` ja `bootinfoclock()`.

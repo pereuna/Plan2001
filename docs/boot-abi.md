@@ -96,9 +96,24 @@ config-tekstiin ja konsoli toistaa loaderin lokin. Blob on noin 72 KB.
 ## Yhteensopivuus
 
 Kernel hyväksyy blobin, jonka `magic` ja `version` ovat sen omat ja
-`headersize` on vähintään sen oma `sizeof(BootInfo)`. Tuntemattomat
-loppukentät ohitetaan, joten **uudet kentät lisätään headerin loppuun
-ilman versionnostoa** (näin lisättiin `arch`, `fdtoff`, `fdtlen`, `rdbase` ja `rdlen`).
+jonka `headersize` ulottuu vähintään `arch`iin asti. Jokainen v1-loader,
+jonka kernel ottaa, kirjoittaa ainakin sen verran. Jos header on lyhyempi
+kuin kernelin `sizeof(BootInfo)`, se on vanhemman v1-loaderin header.
+Kernel kopioi headerin itselleen, joten puuttuvat kentät ovat nollia
+(`port/bootinfo.c`). Siksi jokaisen loppuun lisätyn kentän arvon 0 on
+tarkoitettava "ei ole". Tuntemattomat loppukentät ohitetaan, joten **uudet
+kentät lisätään headerin loppuun ilman versionnostoa** (näin lisättiin
+`fdtoff`, `fdtlen`, `rdbase` ja `rdlen`). Uusi kernel käynnistyy siis
+vanhalla loaderilla ja vanha kernel uudella.
+
+Blobin ulkopuoliset alueet tarkistetaan muistikarttaa vasten ennen
+kuin kernel koskee niihin. Juuren imagen (`rdbase`/`rdlen`) on oltava
+kokonaan yhden LoaderData-alueen sisällä eikä blobin päällä.
+Framebuffer (`fbbase`, ja `fbsize` tai stride × korkeus × syvyys) ei
+saa osua muistiin, jonka kernel jakaa (`bootmemclass` = RAM). Muuten
+kernel pysähtyy kuten väärään magiciin. Se, ylettyykö ISA alueisiin,
+on ISA:n oma tarkistus (wasm32: `bootearlymap` muistin todellista kokoa
+vasten).
 Muutos, joka rikkoo tämän, vaatii uuden `BootInfoVersion`in. Tällainen olisi
 esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muutos.
 

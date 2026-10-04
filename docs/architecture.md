@@ -398,7 +398,16 @@ RNG-siemen, kehyspuskuri ja juuren arkisto. Kernel saa blobin osoitteen
   Ytimen 64 Mt on nyt kokonaan sen imagea ja kekoa: blob, arkisto ja
   kehyspuskuri ovat sen yläpuolella. Ennen arkisto kopioitiin kekoon.
 - Testit: `bootinfo` (configin rivi ympäristössä, `*bootscreen` 640x480,
-  kello) ja `badblob` (väärän ISA:n blob: kernel pysähtyy ennen mitään).
+  kello), `badblob` (kernel pysähtyy ennen mitään, kun blob on väärän
+  ISA:n tai kun arkisto tai framebuffer on jaettavassa muistissa) ja
+  `oldheader` (vanhemman v1-loaderin lyhyempi header, jonka perässä on
+  roskaa: se kelpaa, ja puuttuvat kentät ovat 0).
+- Katselmus (4.10.): kernel vaati, että `headersize` on vähintään sen oma
+  `sizeof(BootInfo)`. Silloin `rdbase`/`rdlen`in lisäys olisi pysäyttänyt
+  uuden kernelin vanhalla v1-loaderilla. Nyt kernel kopioi headerin
+  nollatäytettynä. Arkisto ja framebuffer tarkistetaan muistikarttaa
+  vasten, ja wasm32:n `bootearlymap` tarkistaa muistin todellisen koon
+  (`platmemsize`), ei 4 GiB:tä.
   Kaikki muut testit menevät läpi entisellään, koska initin argv kulkee
   nyt configin kautta.
 

@@ -27,9 +27,13 @@
  * map calls free, as the blob itself sits in EfiLoaderData.
  *
  * Compatibility: a kernel takes a blob with its magic and version and a
- * headersize at least its own sizeof(BootInfo); fields past what it knows
- * are ignored, so new fields are added at the end of the header without a
- * new version (arch, fdtoff and fdtlen were; rdbase and rdlen).  A change that breaks that
+ * headersize that reaches at least arch (every v1 loader it takes writes
+ * that much).  A shorter header than the kernel's own sizeof(BootInfo) is
+ * an older v1 loader's: the fields it lacks read as 0 (the kernel copies
+ * the header, port/bootinfo.c), and 0 must mean "none" for every field
+ * added at the end.  Fields past what the kernel knows are ignored.  So
+ * new fields are added at the end of the header without a new version
+ * (fdtoff and fdtlen were; rdbase and rdlen).  A change that breaks that
  * needs a new BootInfoVersion.
  */
 enum {

@@ -21,7 +21,19 @@
  * this early; halt with interrupts off.
  */
 
+/*
+ * bootinfo is the kernel's copy of the blob's header, as long as this
+ * kernel's sizeof(BootInfo): fields past the loader's headersize - added
+ * to v1 after that loader was made - read as 0, which is what each such
+ * field means when absent (bootinfo.h).  bootblob is the blob itself, where
+ * the sections are.
+ */
 BootInfo *bootinfo;
+uchar *bootblob;
+static BootInfo bootinfohdr;
+
+/* the header every v1 loader that this kernel takes writes: up to arch, which it must check */
+#define	BootInfoMinHeader	((uintptr)&((BootInfo*)0)->fdtoff)
 
 static void
 bootinfohalt(void)
@@ -62,6 +74,8 @@ bootinforand(void *p, ulong n)
 
 	memset(bootinfo->rngseed, 0, sizeof(bootinfo->rngseed));
 	bootinfo->rngseedlen = 0;
+	memset(((BootInfo*)bootblob)->rngseed, 0, sizeof(bootinfo->rngseed));	/* and the loader's */
+	((BootInfo*)bootblob)->rngseedlen = 0;
 	hwrandbuf = bootinforandnext;
 }
 
@@ -79,6 +93,45 @@ bootinfooverlap(uvlong a, uvlong al, uvlong b, uvlong bl)
 	return al != 0 && bl != 0 && a < b + bl && b < a + al;
 }
 
+/* the memory map's entries, before bootinfo is set */
+static BootMem*
+bootmemof(BootInfo *b, uchar *blob, int i)
+{
+	return (BootMem*)(blob + b->mmapoff + (uvlong)i*b->mmapentsize);
+}
+
+/* does [base, base+len) lie within one entry of the map of this type? */
+static int
+bootinmap(BootInfo *b, uchar *blob, uvlong base, uvlong len, u32int type)
+{
+	BootMem *m;
+	int i;
+
+	for(i = 0; i < b->mmapcount; i++){
+		m = bootmemof(b, blob, i);
+		if(m->type == type && base >= m->base && base - m->base <= m->len
+		&& len <= m->len - (base - m->base))
+			return 1;
+	}
+	return 0;
+}
+
+/* does [base, base+len) share a byte with memory the kernel may hand out (BootClassRAM)? */
+static int
+bootoverram(BootInfo *b, uchar *blob, uvlong base, uvlong len)
+{
+	BootMem *m;
+	int i;
+
+	for(i = 0; i < b->mmapcount; i++){
+		m = bootmemof(b, blob, i);
+		if(bootmemclass(m->type) == BootClassRAM && m->len != 0
+		&& base < m->base + m->len && m->base < base + len)
+			return 1;
+	}
+	return 0;
+}
+
 static ulong
 bootbe32(uchar *p)
 {
@@ -89,20 +142,31 @@ void
 bootinfoinit(void)
 {
 	BootInfo *b;
-	uvlong off[4], len[4];
+	uchar *blob;
+	uvlong off[4], len[4], need;
 	uchar *fdt;
 	int i, j;
 
 	if(bootinfopa == 0 || (bootinfopa & (BY2PG-1)) != 0)
 		bootinfohalt();
-	if((b = bootearlymap(bootinfopa, BY2PG)) == nil)
+	if((blob = bootearlymap(bootinfopa, BY2PG)) == nil)
 		bootinfohalt();
+	/*
+	 * v1's compatibility (bootinfo.h): the loader's header may be shorter
+	 * than this kernel's, down to what every v1 loader writes; what it
+	 * lacks is 0 in the copy.  Longer: fields this kernel does not know.
+	 */
+	b = &bootinfohdr;
+	memset(b, 0, sizeof *b);
+	memmove(b, blob, BootInfoMinHeader);
 	if(b->magic != BootInfoMagic || b->version != BootInfoVersion
-	|| b->headersize < sizeof(BootInfo) || b->headersize > BY2PG
-	|| b->totalsize < b->headersize
-	|| b->arch != BootInfoArch)		/* a blob made for another ISA */
+	|| b->headersize < BootInfoMinHeader || b->headersize > BY2PG
+	|| b->totalsize < b->headersize)
 		bootinfohalt();
-	if(bootearlymap(bootinfopa, b->totalsize) != b)
+	memmove(b, blob, b->headersize < sizeof *b ? b->headersize : sizeof *b);
+	if(b->arch != BootInfoArch)		/* a blob made for another ISA */
+		bootinfohalt();
+	if(bootearlymap(bootinfopa, b->totalsize) != blob)
 		bootinfohalt();
 
 	/* every section after the header, within the blob, none overlapping */
@@ -117,16 +181,38 @@ bootinfoinit(void)
 			if(bootinfooverlap(off[i], len[i], off[j], len[j]))
 				bootinfohalt();
 	}
-	if(b->configlen == 0 || ((char*)b)[b->configoff + b->configlen - 1] != '\0'
+	if(b->configlen == 0 || ((char*)blob)[b->configoff + b->configlen - 1] != '\0'
 	|| b->mmapcount == 0 || b->mmapentsize < sizeof(BootMem))
 		bootinfohalt();
 
 	/* a device tree, if there is one, is a whole one */
 	if(b->fdtlen != 0){
-		fdt = (uchar*)b + b->fdtoff;
+		fdt = blob + b->fdtoff;
 		if(b->fdtlen < 40 || bootbe32(fdt) != 0xd00dfeed || bootbe32(fdt+4) > b->fdtlen)
 			bootinfohalt();
 	}
+
+	/*
+	 * what lies outside the blob, by the map: the root's image is memory
+	 * the loader took for it (LoaderData), not the blob; the framebuffer
+	 * is nothing the kernel would hand out.  Whether the ISA can reach
+	 * them is its own check (wasm32: bootearlymap, screen.c, devrootfs.c).
+	 */
+	if(b->rdbase != 0){
+		if(b->rdlen == 0 || b->rdbase + b->rdlen < b->rdbase
+		|| !bootinmap(b, blob, b->rdbase, b->rdlen, BootMemLoaderData)
+		|| (b->rdbase < bootinfopa + b->totalsize && bootinfopa < b->rdbase + b->rdlen))
+			bootinfohalt();
+	}
+	if(b->fbbase != 0){
+		need = (uvlong)b->fbstride * b->fbheight * (b->fbdepth / 8);
+		if(b->fbstride < b->fbwidth || b->fbheight == 0 || b->fbdepth == 0
+		|| (b->fbsize != 0 && b->fbsize < need)
+		|| b->fbbase + (b->fbsize ? b->fbsize : need) < b->fbbase
+		|| bootoverram(b, blob, b->fbbase, b->fbsize ? b->fbsize : need))
+			bootinfohalt();
+	}
+	bootblob = blob;
 	bootinfo = b;
 }
 
@@ -134,7 +220,7 @@ bootinfoinit(void)
 BootMem*
 bootmem(int i)
 {
-	return (BootMem*)((uchar*)bootinfo + bootinfo->mmapoff + (uvlong)i*bootinfo->mmapentsize);
+	return bootmemof(bootinfo, bootblob, i);
 }
 
 /*
@@ -181,14 +267,14 @@ bootfdt(ulong *len)
 		return nil;
 	}
 	*len = bootinfo->fdtlen;
-	return (uchar*)bootinfo + bootinfo->fdtoff;
+	return bootblob + bootinfo->fdtoff;
 }
 
 /* the plan9.ini text, NUL-terminated (checked by bootinfoinit()) */
 char*
 bootconfig(void)
 {
-	return (char*)bootinfo + bootinfo->configoff;
+	return (char*)bootblob + bootinfo->configoff;
 }
 
 /*

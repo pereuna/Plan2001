@@ -10,14 +10,15 @@
  * it makes the BootInfo blob in the machine's memory and enters the
  * kernel at _start with the blob's address as main's argument.  The
  * kernel's addresses are the memory's own (no MMU), so the early map is
- * the address itself: one past the memory traps, and the page halts.
+ * the address itself, if the memory has it: what lies past its end
+ * would trap, so it is refused here instead.
  */
 uintptr bootinfopa;
 
 void*
 bootearlymap(uvlong pa, uvlong size)
 {
-	if(pa == 0 || pa + size < pa || pa + size > 0xFFFFFFFFULL)
+	if(pa == 0 || pa + size < pa || pa + size > platmemsize())
 		return nil;
 	return (void*)(uintptr)pa;
 }

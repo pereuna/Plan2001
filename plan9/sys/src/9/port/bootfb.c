@@ -157,5 +157,5 @@ bootlogtext(int *np)
 	if((b = bootinfo) == nil || b->loglen == 0)
 		return nil;
 	*np = b->loglen;
-	return (char*)b + b->logoff;
+	return (char*)bootblob + b->logoff;
 }

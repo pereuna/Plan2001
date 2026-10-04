@@ -66,6 +66,11 @@ screeninit(void)
 			bi->fbwidth, bi->fbheight, bi->fbdepth, bi->fbchan);
 		return;
 	}
+	/* bootinfoinit checked it against the map, this against the memory */
+	if(bootearlymap(bi->fbbase, (uvlong)Dx(r)*Dy(r)*4) == nil){
+		print("screen: framebuffer at %#llux: not in the memory, no screen\n", bi->fbbase);
+		return;
+	}
 	memimageinit();
 	md.base = nil;
 	md.bdata = (uchar*)(uintptr)bi->fbbase;

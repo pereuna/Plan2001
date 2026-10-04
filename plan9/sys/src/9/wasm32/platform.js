@@ -83,7 +83,7 @@ function firmware(front) {
 		w64(144, fbbase); w64(152, fbbytes); w32(160, fbw); w32(164, fbh); w32(168, fbw); w32(172, 32);
 		u8.set(new TextEncoder().encode('x8r8g8b8'), pa + 176);
 	}
-	w32(192, front.badarch || BI.arch);	/* a test's: a blob for another ISA */
+	w32(192, BI.arch);
 	w32(196, configoff + config.length); w32(200, 0);	/* fdtoff, fdtlen: no device tree */
 	w64(208, rdbase); w64(216, rdbase ? rd.length : 0);
 	u8.set(config, pa + configoff);
@@ -92,6 +92,16 @@ function firmware(front) {
 		w64(o, b); w64(o + 8, n); w32(o + 16, t); w32(o + 20, 0);
 	});
 	if (rdbase) u8.set(rd, rdbase);
+	/*
+	 * a test's (front.bad): a blob the kernel must refuse - for another
+	 * ISA, the root's image in memory it hands out, the framebuffer
+	 * there; front.oldheader: an older v1 loader's header, shorter than
+	 * this kernel's (what lies past it must not be read)
+	 */
+	if (front.bad === 'arch') w32(192, 2);
+	if (front.bad === 'rd') { w64(208, 0x100000); w64(216, 4096); }
+	if (front.bad === 'fb') w64(144, 0x200000);
+	if (front.oldheader) { w32(8, 208); w64(208, 0xdeadbeef); w64(216, 0x1000); }
 	return { mem, pa, fb: fbbase ? { addr: fbbase, stride: fbw * 4, w: fbw, h: fbh } : null };
 }
 
@@ -554,6 +564,7 @@ function imports(env) {
 			new Uint8Array(env.mem.buffer).set(b, arg(0));
 		},
 		platlog: () => env.post({ log: str(arg(0)) }),
+		platmemsize: () => { env.x.retv.value = BigInt(env.mem.buffer.byteLength); },
 		plathalt: () => env.post({ halt: arg(0) ? str(arg(0)) : '' }),
 		platexec: () => {
 			const k = new Uint8Array(env.mem.buffer);

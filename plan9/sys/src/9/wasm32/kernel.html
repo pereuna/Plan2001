@@ -114,7 +114,8 @@ boot('9wasm32.wasm', {
 	ringstart: Number(q.get('ringstart')) || 0,	/* a test's: the network rings' counters start there */
 	failhelper: Number(q.get('failhelper')) || 0,
 	failrfmem: Number(q.get('failrfmem')) || 0,
-	badarch: Number(q.get('badarch')) || 0,	/* a test's: BootInfo for another ISA - the kernel must stop */
+	bad: q.get('bad'),	/* a test's: a BootInfo the kernel must refuse (arch, rd, fb; platform.js) */
+	oldheader: q.has('oldheader'),	/* a test's: an older v1 loader's shorter header */
 });
 </script>
 </body>

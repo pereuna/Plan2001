@@ -169,6 +169,7 @@ void*	vmap(uvlong, vlong);
 
 /* port/bootinfo.c: what the loader told us, see sys/include/bootinfo.h */
 extern BootInfo*	bootinfo;
+extern uchar*	bootblob;	/* the blob itself, its sections; bootinfo is the header's copy */
 extern uintptr	bootinfopa;
 void	bootinfoinit(void);
 BootMem*	bootmem(int);
