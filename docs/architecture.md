@@ -159,7 +159,7 @@ sijoitussääntöjen mukaan.
 |---|---|---|
 | D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa (valmis 2.10.) |
 | D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat (valmis 2.10.) |
-| D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (valmis 4.10.; VM:ssä testattu) |
+| D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä; avainnippu secstoresta (päätös 4.10., alla) | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (valmis 4.10.; VM:ssä testattu) |
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta (toteutettu 4.10. `/17019`:n TLS-PSK-polulla; koneen sisäinen rcpu testattu, VM tarkistamatta; `/rcpu` tekemättä) |
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware (valmis 4.10.) |
 | D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli (valmis 4.10.) |
@@ -453,7 +453,8 @@ tiedostopalvelin.
   Väärennetty `*sdW0` ei vaikuta. Ilman korjausta luku jää odottamaan.
 - Rajat (alkuperäiset): liitos oli vain kotihakemiston yläpuolella
   (bind -bc), ja hjfs synkkasi 10 sekunnin välein. Factotumin avaimet
-  OPFS:ään (secstore) tulevat myöhemmin.
+  eivät tule levylle selväkielisinä: ne ovat secstoressa, ja levyllä on
+  korkeintaan salattu välimuisti (päätös 4.10., "Avainten paikka").
 - Viimeistely (4.10.): koko kotihakemisto on levyllä. `/boot/disk` bindaa
   levyn `/usr/glenda`n juuren kotihakemiston päälle, ja juuren
   `/usr/glenda` täydentää siitä puuttuvat tiedostot kuten newuser:
@@ -572,6 +573,59 @@ portissa ja että kaikki Monolithin JS poistetaan nyt.
   syntaksin osalta), sovellusten origin oikeaa webtermiä vasten,
   `tools/cloud-image` ja hiekkalaatikko.
 
+## Avainten paikka: secstore (päätös 4.10.2026)
+
+Seuraava tavoite on Plan2001:n amd64-versio pilvessä (9Front-2001 +
+`plan2001/`). Sen kautta jaetaan selaimiin kahdenlaisia wasm32-koneita:
+- **päätteitä**, joiden cpu ja levy ovat palvelimella,
+- **itsenäisiä koneita**, joilla on oma cpu ja OPFS-levy.
+
+Myöhemmin myös näiden yhdistelmiä, joissa fs, auth, secstore ja cpu ovat
+erillisiä koneita. Kaikissa malleissa avaimet ovat samoissa paikoissa.
+
+| Avain | Paikka |
+|---|---|
+| käyttäjän salasana / dp9ik-avain | pilven auth-palvelin (keyfs, `/adm/keys`): tätä vastaan kaikki koneet tunnistautuvat |
+| factotumin avainnippu (dp9ik muihin domaineihin, ssh, sovellusten salasanat) | **secstore**: käyttäjän tiedosto `factotum`, salattu secstore-salasanasta johdetulla avaimella; palvelin ei näe sitä auki |
+| palvelinkoneen oma avain (hostowner: cpu, fs, auth, secstore) | kunkin amd64-koneen nvram, kuten 9frontissa |
+
+Periaatteet:
+- **Factotum pitää avaimet vain muistissa.** Selaimen kone kysyy bootissa
+  secstore-salasanan ja hakee nipun (`auth/secstore -G factotum` →
+  `/mnt/factotum/ctl`) wss:n yli webtermin kautta. Uudet avaimet viedään
+  takaisin secstoreen (`secstore -p`), kuten 9frontissa.
+- **Pääte (cpu pilvessä):** käyttäjän avaimet eivät jää pilven
+  cpu-koneelle. rcpu-istunnossa cpu-puolen `/mnt/factotum` on päätteen
+  factotum (`/mnt/term/mnt/factotum`). 9frontin `rcpu` ja
+  `/lib/namespace` antavat istunnolle cpu-palvelimen oman factotumin, joten
+  bindaus on Plan2001:n profiilin `case cpu` -kohdassa (`plan2001/`).
+- **Itsenäinen kone:** sama haku secstoresta. Lisäksi OPFS-levylle voi
+  tulla välimuisti offline-käyttöä varten. Se on secstoren tiedostomuodossa
+  (salattu samalla salasanalla), joten levyn vienti ei paljasta avaimia.
+  Verkon kanssa secstore on lähde, ja välimuisti päivitetään siitä.
+- **Erilliset palvelimet:** auth ja secstore voivat aluksi olla samalla
+  amd64-koneella ja erota myöhemmin. Asiakkaan puolella muuttuu vain
+  osoite (`/net/cs`, `$auth`, `$secstore`). secstore saa webtermin
+  politiikkaan oman sanansa (portti 5356), kuten `cpu` sallii `/17019`:n.
+- **D8 / XCPU-pooli** (myöhemmin): auktoriteetti on auth-palvelin ja
+  päätteen factotum, ei kunkin selaimen levy. Solmut saavat lippunsa
+  sitä kautta.
+
+Hylätty: avaimet pelkästään OPFS:ään. Ne olisivat silloin yhdessä
+selaimessa: uusi laite tai tyhjennetty profiili kadottaisi ne, eivätkä
+pilven pääte ja itsenäinen kone jakaisi samaa avainnippua.
+
+Työjärjestys:
+1. Tämä päätös (4.10.).
+2. `auth/secstore` wasm32:n juureen. `secstored` pilven amd64-koneelle
+   (osajoukon derive VM:ssä).
+3. `/boot/init`: secstore-salasanan kysely ja nipun haku factotumiin.
+   Testi: `tools/test-authsrv`iin secstore-pää.
+4. Salattu OPFS-välimuisti itsenäiselle koneelle.
+5. Profiilin `case cpu`: päätteen factotum cpu-istuntoon.
+6. Pilven amd64: auth, secstore ja cpu yhdellä koneella, ja selaimet sitä
+   vastaan.
+
 ## D8 odottaa: laskentapooli suunnitellaan uudelleen (päätös 4.10.2026)
 
 Laskentapooli toimi (crsrv, rcc, selaimen CR:t, `docs/cpu-server-design.md`:
@@ -628,8 +682,8 @@ klustereissa. Lähteet ja yksityiskohdat tarkistetaan suunnittelun alussa.
   natiivilla ytimellä ja ohjelmilla. Tekemättä: sama oikeassa 9frontissa
   (VM) ja juuren arkisto Plan 9 -työkalulla. wasm32 ei tule CPUS-listaan
   (`installall`), vaan se käännetään `objtype=wasm32 mk install`.
-- Avoimet kohdat: factotumin avaimet OPFS:ään (D3) ja wss:n
-  `/rcpu`-polku päätteelle (D4). Koko kotihakemisto levylle ja 2 s:n
+- Avoimet kohdat: factotumin avainnippu secstoresta (päätös 4.10.,
+  "Avainten paikka" alla) ja wss:n `/rcpu`-polku päätteelle (D4). Koko kotihakemisto levylle ja 2 s:n
   synkkaus tehtiin 4.10. (D6, yllä).
 - rc-skriptien jäsennys ilman 9frontia: `tools/rccheck` (plan9portin rc,
   `PLAN9=...`) jäsentää koneen `/boot`-skriptit, rc-httpd:n sivuston,
