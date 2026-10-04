@@ -9,7 +9,9 @@
 #                       service.auth/tcp17040 and tcp17041 (host owner:
 #                       keyfs, /adm/secstore, /adm/webauthn), the site's
 #                       login file (GET /login); invites in
-#                       /adm/webauthn/invites (none: anyone may sign up)
+#                       /adm/webauthn/invites (none: anyone may sign up);
+#                       passkeyd checks the passkey's signature for
+#                       PASSKEY_RP (default localhost) from PASSKEY_ORIGINS
 #   auth/secuser        glenda's secstore account (docs/architecture.md,
 #                       "Avainten paikka"), her secstore password generated
 #                       into cpu.secpass in the cache; secstored on 5356
@@ -174,7 +176,11 @@ webterm() {
 	run9 -t 120 "@{cd /tmp && for(p in signupd passkeyd){ 6c -FTVw \$p.c && 6l -o /amd64/bin/aux/\$p \$p.6 || exit } }"
 	run9 -t 30 "mkdir -p /adm/webauthn && chmod 700 /adm/webauthn"
 	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/signupd -c /srv/cwfs.cmd' } >/rc/bin/service.auth/tcp17040; chmod 775 /rc/bin/service.auth/tcp17040"
-	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/passkeyd' } >/rc/bin/service.auth/tcp17041; chmod 775 /rc/bin/service.auth/tcp17041"
+	# passkeyd's rp and origins: the passkey's site (PASSKEY_RP, default localhost: the VM's test
+	# pages, test-wasmapp PAGEHOST=localhost) and the pages it signs for (PASSKEY_ORIGINS)
+	po=
+	for x in ${PASSKEY_ORIGINS:-http://localhost:18080 https://localhost:17443}; do po="$po -o $x"; done
+	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/passkeyd -r ${PASSKEY_RP:-localhost}$po' } >/rc/bin/service.auth/tcp17041; chmod 775 /rc/bin/service.auth/tcp17041"
 	run9 -t 30 "echo 1 >/sys/lib/plan2001/web/login && chmod 644 /sys/lib/plan2001/web/login"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"

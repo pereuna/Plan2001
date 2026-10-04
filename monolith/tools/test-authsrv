@@ -21,7 +21,10 @@ files in memory as the clients put them.  And /17040 and /17041, signupd
 and passkeyd (Plan2001's accounts and passkeys, docs/webauthn.md).
   tools/test-authsrv PORT USER=PASSWORD... [secstore:USER=PASSWORD...]
 """
-import asyncio, base64, hashlib, hmac, os, struct, sys
+import asyncio, base64, hashlib, hmac, json, os, struct, sys
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 # authsrv.h
@@ -417,11 +420,55 @@ def signupd(f):
 	print(f'test-authsrv: signup {name}', flush=True)
 	return 'ok'
 
-def passkeyd(f):
-	if len(f) != 2 or f[0] != 'wrap' or f[1] not in passkeys:
-		return 'error no such passkey'
-	name, _, wrap = passkeys[f[1]]
-	return f'ok {name} {wrap}'
+counts = {}		# credential id: the passkey's counter, as passkeyd keeps it
+RP, ORIGIN = 'localhost', 'http://localhost:'	# the test's page (test-wasmapp PAGEHOST=localhost)
+
+def b64ue(b):
+	return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+
+def b64ud(s):
+	return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
+
+def passkeyd():
+	"""a connection's: its challenge, then the passkey's assertion for it (the CPU server's
+	passkeyd, aux/passkeyd.c, written apart from it): the wrap only for the passkey's
+	signature (ES256 over authenticatorData and sha256(clientDataJSON)) on this challenge,
+	from this site's origin, its counter above the last"""
+	chal = None
+	def serve(f):
+		nonlocal chal
+		if f == ['challenge'] and chal is None:
+			chal = os.urandom(32)
+			return 'ok ' + b64ue(chal)
+		if chal is None or len(f) != 5 or f[0] != 'wrap':
+			return 'error bad request'
+		if f[1] not in passkeys:
+			return 'error no such passkey'
+		name, pk, wrap = passkeys[f[1]]
+		try:
+			auth, client, sig = b64ud(f[2]), b64ud(f[3]), b64ud(f[4])
+			c = json.loads(client)
+		except ValueError:
+			return 'error bad assertion'
+		if c.get('type') != 'webauthn.get' or c.get('challenge') != b64ue(chal):
+			return 'error not this challenge'
+		if c.get('crossOrigin') or not str(c.get('origin', '')).startswith(ORIGIN):
+			return 'error not this site\'s origin'
+		if len(auth) < 37 or auth[:32] != hashlib.sha256(RP.encode()).digest():
+			return 'error not this site\'s passkey'
+		if not auth[32] & 1:
+			return 'error no user present'
+		count, last = int.from_bytes(auth[33:37], 'big'), counts.get(f[1], 0)
+		if (count or last) and count <= last:
+			return 'error counter not above the last: a copied passkey?'
+		try:
+			serialization.load_der_public_key(b64ud(pk)).verify(sig, auth + hashlib.sha256(client).digest(), ec.ECDSA(hashes.SHA256()))
+		except (InvalidSignature, ValueError):
+			return 'error bad signature'
+		counts[f[1]] = count
+		chal = None
+		return f'ok {name} {wrap}'
+	return serve
 
 DROPAT = 256*1024		# bytes to the page, then its WebSocket dropped once (each session)
 ACKEVERY = 16*1024
@@ -650,7 +697,7 @@ async def ws(r, w, users):
 		elif path == '/17040':
 			await linesvc(read, write, signupd)
 		elif path == '/17041':
-			await linesvc(read, write, passkeyd)
+			await linesvc(read, write, passkeyd())
 		else:
 			await Authsrv(users).run(read, write)
 	except (EOFError, asyncio.IncompleteReadError, ConnectionError, ValueError) as e:

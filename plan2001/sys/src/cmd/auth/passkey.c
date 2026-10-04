@@ -12,14 +12,15 @@
  *		would - and the passkey's id, public key and wrap: the name
  *		and the password, AES-GCM with a key from the PRF output
  *	auth/passkey [-s server] [-c file] login
- *		the passkey asked for (any of this site's), its wrap from
- *		passkeyd, opened: the name and the password on standard output,
+ *		the passkey asked for (any of this site's) with passkeyd's
+ *		challenge, its signature to passkeyd for its wrap, opened: the name and the password on standard output,
  *		a line each, for aux/seckeys -I.  With -c the wrap is kept in
  *		file (the machine's disk) and taken from there when passkeyd
  *		can not be reached: the wrap is nothing without the passkey
  *
  * server: signupd's and passkeyd's host (tcp!HOST!signup, !passkey),
- * else $cpu.  The rp is the page's host's ($cpu) unless $passkeyrp.
+ * else $cpu; a path is a file to talk to instead (a test's pipe to the
+ * service).  The rp is the page's host's ($cpu) unless $passkeyrp.
  */
 #include <u.h>
 #include <libc.h>
@@ -310,34 +311,46 @@ secfile(char *file, char *pass, int *np)
 	return b;
 }
 
-/* a line to the service, its answer (alloc'd); nil and %r an error */
+/* the service's connection: dialled - or, server a path, that file (a test's pipe to the service) */
+static int
+connect(char *service)
+{
+	if(server[0] == '/')
+		return open(server, ORDWR);
+	return dial(netmkaddr(server, "tcp", service), nil, nil, nil);
+}
+
+/* a line to the connection, its answer's line (alloc'd); nil and %r an error */
 static char*
-call(char *service, char *line)
+talk(int fd, char *service, char *line)
 {
 	char *ans;
-	int fd, n, m;
+	int n;
 
-	if((fd = dial(netmkaddr(server, "tcp", service), nil, nil, nil)) < 0)
+	if(write(fd, line, strlen(line)) != strlen(line))
 		return nil;
-	if(write(fd, line, strlen(line)) != strlen(line)){
-		close(fd);
-		return nil;
-	}
 	ans = emalloc(Nline);
-	for(n = 0; n < Nline-1 && (m = read(fd, ans+n, Nline-1-n)) > 0; n += m)
-		if(memchr(ans+n, '\n', m) != nil){
-			n += m;
-			break;
-		}
-	close(fd);
+	for(n = 0; n < Nline-1 && read(fd, ans+n, 1) == 1 && ans[n] != '\n'; n++)
+		;
 	ans[n] = 0;
-	if((line = strchr(ans, '\n')) != nil)
-		*line = 0;
 	if(strncmp(ans, "ok", 2) != 0 || ans[2] != 0 && ans[2] != ' '){
 		werrstr("%s: %s", service, n > 0 ? ans : "no answer");
 		free(ans);
 		return nil;
 	}
+	return ans;
+}
+
+static char*
+call(char *service, char *line)
+{
+	char *ans;
+	int fd;
+
+	if((fd = connect(service)) < 0)
+		return nil;
+	ans = talk(fd, service, line);
+	close(fd);
 	return ans;
 }
 
@@ -409,12 +422,26 @@ signup(char *name, char *code)
 static void
 login(char *cache)
 {
-	char *ans, *id, *u, *salt, *name, *pass, *ws, *f[4];
+	char *ans, *id, *u, *salt, *name, *pass, *ws, *f[4], *chal, *line;
 	uchar prfout[32], w[Nwrap], uname[64];
-	int nw, fd, nu;
+	int nw, fd, nu, conn;
 
+	/* passkeyd's challenge, which the passkey signs (none without passkeyd: the disk's wrap) */
+	chal = nil;
+	if((conn = connect("passkey")) >= 0){
+		if((ans = talk(conn, "passkey", "challenge\n")) != nil && tokenize(ans, f, nelem(f)) == 2)
+			chal = estrdup(f[1]);
+		else{
+			close(conn);
+			conn = -1;
+		}
+	}
 	salt = b64u((uchar*)prfsalt, strlen(prfsalt));
-	if((ans = webauthn("get rp=%s salt=%s", rp, salt)) == nil)
+	if(chal != nil)
+		ans = webauthn("get rp=%s salt=%s challenge=%s", rp, salt, chal);
+	else
+		ans = webauthn("get rp=%s salt=%s", rp, salt);
+	if(ans == nil)
 		sysfatal("passkey: %r");
 	id = field(ans, "id");
 	u = field(ans, "user");
@@ -422,11 +449,16 @@ login(char *cache)
 		sysfatal("passkey: no PRF here: the password instead");
 	nu = u != nil ? unb64u(u, uname, sizeof uname - 1) : 0;
 	uname[nu > 0 ? nu : 0] = 0;
-	free(ans);
 
 	nw = -1;
 	ws = nil;
-	if((ans = call("passkey", smprint("wrap %s\n", id))) != nil){
+	if(conn >= 0){
+		/* the assertion for passkeyd: its wrap only for the passkey's signature on its challenge */
+		line = smprint("wrap %s %s %s %s\n", id, field(ans, "auth"), field(ans, "client"), field(ans, "sig"));
+		free(ans);
+		if((ans = talk(conn, "passkey", line)) == nil)
+			sysfatal("%r");
+		close(conn);
 		if(tokenize(ans, f, nelem(f)) == 3 && (nw = unb64u(f[2], w, sizeof w)) > 0)
 			ws = estrdup(f[2]);
 		free(ans);
