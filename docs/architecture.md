@@ -149,6 +149,12 @@ TCP-yhteyksiä, joten palvelimen puolella jokin ottaa WebSocketin vastaan,
 ja webterm tekee sen jo (`GET /17019`, `/567`, `/rcpu`). Siitä jää
 kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 
+Repon rakenne (päätös 4.10.2026): Plan 9 -fork (`plan9/`: boot ja
+arkkitehtuurit, 9front-yhteensopiva), 9Front-2001 (9front + fork,
+koottu) ja Plan2001 (`plan2001/`: legacyä rikkovat muutokset ja
+palvelut) - `docs/plan9-fork.md`. Vaiheiden D työ tehdään sen
+sijoitussääntöjen mukaan.
+
 | | Sisältö | Valmis kun |
 |---|---|---|
 | D1 | paikallinen terminal: rio (libframe, libplumb) 3c:llä ytimen päälle; exec RFMEM-procista (rion ikkunat); `/boot/init` voi käynnistää rion; ramfs `/tmp`:ksi | rio, ikkunat, rc ikkunassa ja clock ikkunassa selaimessa ilman verkkoa (valmis 2.10.) |

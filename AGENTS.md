@@ -5,6 +5,24 @@ ajaa 9frontin ohjelmia selaimessa (3c/3l-kääntäjä, `sys/src/9/wasm32`).
 Suunnitelma ja vaiheet: `docs/architecture.md` (vaihe D). Lue se ennen
 isoja muutoksia.
 
+## Repon kerrokset (päätös 4.10.2026, `docs/plan9-fork.md`)
+
+Plan2001 eriytetään yleisestä Plan 9 -forkista:
+- `plan9/`: puhdas, Plan 9 -yhteensopiva fork 9frontin juuren muodossa.
+  Siihen kuuluvat modernisoitu boot (UEFI, BootInfo) ja uudet
+  arkkitehtuurit (wasm32 selainalustoineen, pc64, myöhemmin arm64 ja
+  vrisc). Tavoite on, että sen voi tuoda 9frontiin ja kääntää natiivisti.
+- 9Front-2001: koottu puu, joka on 9frontin julkaisu, sen päällä `plan9/`
+  ja `plan9/patches` ajettuna.
+- `plan2001/`: legacyä rikkovat muutokset ja Plan2001:n palvelut,
+  overlayna 9Front-2001:n päälle.
+
+Siirto uusiin hakemistoihin on vielä tekemättä. Tee uudet tiedostot
+nykyisiin paikkoihin, mutta valitse ne `docs/plan9-fork.md`:n
+sijoitussääntöjen mukaan. Kerro commitissa, kumpaan kerrokseen muutos
+kuuluu. Älä tuo forkiin legacyä rikkovaa muutosta. Älä myöskään tee
+9frontin tiedostosta kokonaista kopiota, vaan diff `patches/`iin.
+
 ## Säännöt, joita ei rikota
 
 - **`subset/9front/` on 9frontin julkaisu sellaisenaan** (`tools/9front.release`),
