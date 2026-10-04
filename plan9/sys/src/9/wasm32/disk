@@ -1,0 +1,21 @@
+#!/bin/rc
+# the wasm32 machine's disk (/boot/disk, from /boot/init; D6): #S/sdW0,
+# a file in the origin's OPFS (devsdw.c, platform.js), with hjfs on it
+# (/srv/disk, its console /srv/disk.cmd).  glenda's files: its
+# /usr/glenda before the root's (bind -bc) - what she makes goes there
+# and is there after the page is loaded again.  A new disk is reamed and
+# given /usr/glenda through hjfs's console.  No disk (another tab has
+# it, or ?disk=0): the root's /usr/glenda only, as before
+if(test -e /dev/sdW0/data){
+	if(! hjfs -n disk -f /dev/sdW0/data >[2]/dev/null){
+		echo disk: a new disk, hjfs -r
+		hjfs -r -n disk -f /dev/sdW0/data
+		echo create /usr sys sys 775 d >>/srv/disk.cmd
+		echo create /usr/glenda glenda glenda 775 d >>/srv/disk.cmd
+	}
+	if(mount -c /srv/disk /n/disk){
+		for(i in 1 2 3 4 5 6 7 8 9 10)
+			test -d /n/disk/usr/glenda || sleep 1
+		bind -bc /n/disk/usr/glenda /usr/glenda
+	}
+}

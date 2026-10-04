@@ -33,7 +33,8 @@ Sivu tekee muistin ja kirjoittaa siihen ennen entryä:
 ```
 0          kernelin moduuli: data, bss, pino (stacktop), ...   Conventional
            [end, 64 MB) kernelin keko                          (sama alue)
-64 MB      BootInfo-blob (header, config, muistikartta)        LoaderData
+64 MB      levyn rekisterit (4 KiB), jos levy on                Reserved
+           BootInfo-blob (header, config, muistikartta)        LoaderData
            juuren arkisto (#R, devrootfs.c), rdbase/rdlen       LoaderData
            kehyspuskuri, XRGB32, fbstride = fbwidth             Reserved
 ```
@@ -53,6 +54,7 @@ varaavat oman imagensa.
 | `epoch` | `Date.now()` sekunteina |
 | `rngseed` | 64 tavua `crypto.getRandomValues`ista; kernel sekoittaa sen `hwrandbuf`in kautta (`bootinforandinit`) ja nollaa |
 | framebuffer | `fbbase`, `fbwidth` × `fbheight`, `fbstride` = `fbwidth`, 32 bittiä, `x8r8g8b8`. Kernel piirtää siihen (`screen.c`: `allocmemimaged` sen päälle) ja kertoo `platflush`illa, mikä muuttui; sivu piirtää sen canvasille. `fbbase` = 0: ei ruutua. |
+| config: `*sdW0=regs tavut` | koneen levy (D6, `devsdw.c`): levyn rekisterisivu ja koko. Sivu on kartassa Reserved, heti 64 Mt:n jälkeen ennen blobia. Ei levyä: ei riviä eikä sivua. |
 | `rdbase`, `rdlen` | juuren arkisto (`build-bin3`:n `root.fs`), jonka `devrootfs.c` lukee paikallaan. Lisätty headerin loppuun (v1). |
 
 `plat*`-kutsuista poistuivat `platbootfs`, `platbootargs`, `platscreen`

@@ -142,6 +142,7 @@ inituser(void)
 	kcall(sysbind, "#i", "/dev", MAFTER);
 	kcall(sysbind, "#m", "/dev", MAFTER);
 	kcall(sysbind, "#b", "/dev", MAFTER);
+	kcall(sysbind, "#S", "/dev", MAFTER);	/* the disk, sdW0 (devsdw.c), as 9front's bootrc */
 	kcall(sysbind, "/rc/bin", "/bin", MAFTER);	/* as /lib/namespace: rc's own commands after the machine's */
 	kcall(sysopen, "/dev/eia0", OREAD);
 	kcall(sysopen, "/dev/eia0", OWRITE);

@@ -21,6 +21,9 @@ the screen goes to build/wasmapp-NAME.png.
                                            output has settled, then F's bytes;
                                            what it said (bytes) in
                                            build/wasmapp-P.txt, the same as FILE
+  THEN='["arg", ...]'                      once it halts, the page again in the same
+                                           browser (its OPFS) with these args;
+                                           EXPECT is the second load's
 """
 import base64, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
@@ -140,13 +143,17 @@ def main():
 		url = f'http://127.0.0.1:{HTTP}/?wasm={name}' + (f'&prog={prog}' if prog else '')
 		if page:
 			url = f'http://127.0.0.1:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
-		for a in json.loads(os.environ.get('ARGS', '[]')):	# ARGS='["-c", "echo hi"]'
-			url += '&arg=' + urllib.parse.quote(a, safe='')
-		if os.environ.get('DEBUG'):
-			url += '&debug=' + os.environ['DEBUG']
+		def withargs(url, args):
+			for a in args:	# ARGS='["-c", "echo hi"]'
+				url += '&arg=' + urllib.parse.quote(a, safe='')
+			if os.environ.get('DEBUG'):
+				url += '&debug=' + os.environ['DEBUG']
+			if os.environ.get('SERIAL'):
+				url += '&console=eia0'
+			return url
+		base = url
+		url = withargs(base, json.loads(os.environ.get('ARGS', '[]')))
 		serial = bool(os.environ.get('SERIAL'))
-		if serial:
-			url += '&console=eia0'
 		t = json.loads(urllib.request.urlopen(urllib.request.Request(
 			f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT')).read())
 		cdp = Cdp(t['webSocketDebuggerUrl'])
@@ -257,6 +264,23 @@ def main():
 				except RuntimeError:
 					pass
 				time.sleep(0.2)
+			# THEN='[args]': once it has halted, the page loaded again in the same browser
+			# (its origin's storage, OPFS: the machine's disk) with these; EXPECT is the second's
+			if os.environ.get('THEN'):
+				halt = [l for l in cdp.log if l.startswith('KERNEL-HALT')]
+				open(os.path.join(root, f'build/wasmapp-{name}-first.log'), 'w').write('\n'.join(cdp.log) + '\n')
+				if not halt or 'platform:' in halt[0]:
+					raise SystemExit(f'FAIL: {name}: the first load: {halt or "did not halt"} (build/wasmapp-{name}-first.log)')
+				cdp.log.clear()
+				cdp.call('Page.navigate', url=withargs(base, json.loads(os.environ['THEN'])))
+				time.sleep(1)
+				end = time.time() + float(os.environ.get('HALTWAIT', '60'))
+				while time.time() < end and not any(l.startswith('KERNEL-HALT') for l in cdp.log):
+					try:
+						cdp.js('1')
+					except RuntimeError:
+						pass
+					time.sleep(0.2)
 			try:
 				got = base64.b64decode(cdp.js('window.monolith ? window.monolith.eia0b64() : ""') or '')
 			except RuntimeError:

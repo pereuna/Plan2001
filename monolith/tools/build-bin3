@@ -33,7 +33,7 @@ mkdir -p "$out/root/rc/bin"
 cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc/bin/"
 # the wasm32 kernel's init (plan9/sys/src/9/wasm32/init)
 mkdir -p "$out/root/boot"
-cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$out/root/boot/"
+cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
@@ -82,6 +82,15 @@ if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/ramfs.3" ramfs.c) >"$out/o/cm
    ! "$l3" -o "$out/root/bin/ramfs" "$out/o/cmd/ramfs.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/ramfs.err" 2>&1; then
 	echo "build-bin3: ramfs:"; head -5 "$out/o/cmd/ramfs.err"; fail=1
 fi
+# hjfs: 9front's file server, the machine's disk (#S/sdW0, D6: /boot/init); auth.c the fork's (plan9/patches/9front)
+mkdir -p "$out/o/cmd/hjfs"
+for f in "$src"/hjfs/*.c; do
+	b=$(basename "$f" .c)
+	[ -e "$P/plan9/sys/src/cmd/hjfs/$b.c" ] && f=$P/plan9/sys/src/cmd/hjfs/$b.c
+	(cd "$(dirname "$f")" && "$cc3" -FVw $INC -I"$src/hjfs" -o "$out/o/cmd/hjfs/$b.3" "$b.c") >"$out/o/cmd/hjfs/$b.err" 2>&1 || { echo "build-bin3: hjfs/$b.c:"; head -5 "$out/o/cmd/hjfs/$b.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/hjfs" "$out"/o/cmd/hjfs/*.3 "$out/lib/lib9p.a" "$out/lib/libthread.a" $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/hjfs.err" 2>&1 ||
+	{ echo "build-bin3: hjfs:"; tail -5 "$out/o/cmd/hjfs.err"; fail=1; }
 if ! (cd "$src/syscall" && "$cc3" -FVw $INC -o "$out/o/cmd/syscall.3" syscall.c) >"$out/o/cmd/syscall.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/syscall" "$out/o/cmd/syscall.3" $libs >>"$out/o/cmd/syscall.err" 2>&1; then
 	echo "build-bin3: syscall:"; head -5 "$out/o/cmd/syscall.err"; fail=1

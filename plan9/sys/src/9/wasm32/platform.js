@@ -39,22 +39,26 @@ function initconf(args) {
 
 /*
  * front: its config (plan9.ini lines), args (init=), fs (the root's
- * archive), screen ({ w, h }): the machine's memory, the blob in it -
- * { mem, pa (the blob's address), fb ({ addr, stride, w, h }, or null) }
+ * archive), screen ({ w, h }); disksize, the disk's bytes if there is one:
+ * the machine's memory, the blob in it - { mem, pa (the blob's address),
+ * fb ({ addr, stride, w, h }, or null), regs (the disk's registers, or 0) }
  */
-function firmware(front) {
-	const config = new TextEncoder().encode(initconf(front.args) + (front.config ?? '') + '\0');
+function firmware(front, disksize) {
 	const heap = PAGES * 65536;
+	/* the disk's registers (devsdw.c): a page above the heap, Reserved, as *sdW0= says */
+	const regs = disksize ? heap : 0;
+	const diskconf = regs ? '*sdW0=0x' + regs.toString(16) + ' ' + disksize + '\n' : '';
+	const config = new TextEncoder().encode(initconf(front.args) + diskconf + (front.config ?? '') + '\0');
 	const rd = front.fs ?? null;
 	const sc = front.screen ?? { w: 1024, h: 768 };
 	const fbw = sc.w | 0, fbh = sc.h | 0;
 	const fbbytes = fbw > 0 && fbh > 0 ? fbw * fbh * 4 : 0;
 
 	/* the blob: header, config, memory map (nmap entries at most) */
-	const nmap = 4;
+	const nmap = 5;
 	const configoff = 256, mmapoff = configoff + Math.ceil(config.length / 8) * 8;
 	const blobsize = pground(mmapoff + nmap * BI.memsize);
-	const pa = heap;
+	const pa = heap + (regs ? BI.pg : 0);
 	const rdbase = rd && rd.length ? pa + blobsize : 0;
 	const fbbase = fbbytes ? pground(pa + blobsize + (rd ? rd.length : 0)) : 0;
 	const top = fbbase ? fbbase + pground(fbbytes) : pground(pa + blobsize + (rd ? rd.length : 0));
@@ -62,7 +66,9 @@ function firmware(front) {
 	if (pages > MAXPAGES) throw new Error('platform: the machine wants ' + top + ' bytes, more than wasm32 has');
 	const mem = new WebAssembly.Memory({ initial: pages, maximum: MAXPAGES, shared: true });
 
-	const map = [[0, heap, BootMemConventional], [pa, blobsize, BootMemLoaderData]];
+	const map = [[0, heap, BootMemConventional]];
+	if (regs) map.push([regs, BI.pg, BootMemReserved]);
+	map.push([pa, blobsize, BootMemLoaderData]);
 	if (rdbase) map.push([rdbase, pground(rd.length), BootMemLoaderData]);
 	if (fbbase) map.push([fbbase, pground(fbbytes), BootMemReserved]);
 
@@ -102,7 +108,7 @@ function firmware(front) {
 	if (front.bad === 'rd') { w64(208, 0x100000); w64(216, 4096); }
 	if (front.bad === 'fb') w64(144, 0x200000);
 	if (front.oldheader) { w32(8, 208); w64(208, 0xdeadbeef); w64(216, 0x1000); }
-	return { mem, pa, fb: fbbase ? { addr: fbbase, stride: fbw * 4, w: fbw, h: fbh } : null };
+	return { mem, pa, regs, fb: fbbase ? { addr: fbbase, stride: fbw * 4, w: fbw, h: fbh } : null };
 }
 
 // exec's: the program's frames unwind to platuser's loop, which starts the next
@@ -672,17 +678,114 @@ function cpu({ module, mem, role, fn, arg, sp, user }) {
 }
 
 if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope)
-	self.onmessage = (e) => cpu(e.data);
+	self.onmessage = (e) => e.data.role === 'disk' ? disk(e.data) : cpu(e.data);
+
+/*
+ * The disk Worker (devsdw.c): the machine's disk is a file in the
+ * origin's private file system (OPFS), the same file each time the page
+ * is loaded - what the machine wrote is there after a reload.  Only a
+ * Worker can use it synchronously (a sync access handle), and only one
+ * at a time: another tab of the same origin gets no disk.  First the
+ * file, at least size bytes ({ diskready: its size } or { diskfail });
+ * then { mem, regs }: the kernel's requests, one at a time, in the
+ * registers, into and out of its memory.  Writes go to the file (flush)
+ * when the disk has been idle a moment, and on the kernel's flush.
+ */
+async function disk({ name, size }) {
+	let h;
+	try {
+		const dir = await navigator.storage.getDirectory();
+		h = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
+		if (h.getSize() < size)
+			h.truncate(size);
+	} catch (e) {
+		postMessage({ diskfail: String(e) });
+		close();
+		return;
+	}
+	self.onmessage = (e) => diskloop(h, e.data.mem, e.data.regs);
+	postMessage({ diskready: h.getSize() });
+}
+
+function diskloop(h, mem, regs) {
+	const i32 = new Int32Array(mem.buffer), R = regs >> 2;
+	/* a view of the shared memory, or - if the handle takes none - a copy */
+	const io = (op, addr, len, at) => {
+		const v = new Uint8Array(mem.buffer, addr, len);
+		try {
+			return op === 1 ? h.read(v, { at }) : h.write(v, { at });
+		} catch (e) {
+			if (!(e instanceof TypeError)) throw e;
+			const b = new Uint8Array(len);
+			if (op === 1) {
+				const n = h.read(b, { at });
+				v.set(b.subarray(0, n));
+				return n;
+			}
+			b.set(v);
+			return h.write(b, { at });
+		}
+	};
+	/* from the last request done: one the kernel made before the memory came here is still to do */
+	let seen = Atomics.load(i32, R + 1), dirty = false;
+	for (;;) {
+		if (Atomics.load(i32, R) === seen && Atomics.wait(i32, R, seen, dirty ? 250 : Infinity) === 'timed-out') {
+			h.flush();
+			dirty = false;
+			continue;
+		}
+		const seq = Atomics.load(i32, R);
+		if (seq === seen)
+			continue;
+		seen = seq;
+		const op = i32[R + 2], len = i32[R + 3], addr = i32[R + 4] >>> 0, at = (i32[R + 5] >>> 0) + (i32[R + 6] >>> 0) * 2 ** 32;
+		let res = -1;
+		try {
+			if (op === 1 || op === 2) {
+				res = io(op, addr, len, at);
+				if (op === 2) dirty = true;
+			} else if (op === 3) {
+				h.flush();
+				dirty = false;
+				res = 0;
+			}
+		} catch (e) {
+			console.log('KLOG platform: disk: ' + e);
+		}
+		i32[R + 7] = res;
+		Atomics.store(i32, R + 1, seq);
+		Atomics.notify(i32, R + 1);
+	}
+}
 
 // on the page: the machine
 // front: { eia(bytes), halt(why), fs (the root's archive, devrootfs.c), args (init's argv: plan9.ini's init=),
+//	disk ({ name, size }: the OPFS file that is the machine's disk, #S/sdW0, at least size bytes),
 //	config (more plan9.ini lines), canvas, screen ({ w, h }, 1024x768 without: the framebuffer, shown on
 //	the canvas; its pointer the mouse) - what the firmware puts in BootInfo (firmware()),
 //	ws (the machine's webterm: ws://host:port, the network's WebSockets),
 //	failfork, failhelper, failrfmem (a test's: the nth fork's child, helper, rfork(RFMEM) child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
-	const { mem, pa, fb } = firmware(front);
+	/* the disk first, as firmware finds its devices before it boots: the OPFS file's size */
+	let dw = null, disksize = 0;
+	if (front.disk) {
+		dw = new Worker(import.meta.url, { type: 'module' });
+		const r = await new Promise((done) => {
+			dw.onmessage = (e) => done(e.data);
+			dw.onerror = (e) => done({ diskfail: e.message });
+			dw.postMessage({ role: 'disk', name: front.disk.name ?? 'sdW0', size: front.disk.size });
+		});
+		if (r.diskready) {
+			disksize = r.diskready;
+			dw.onmessage = (e) => { if (e.data.log !== undefined) console.log('KLOG ' + e.data.log); };
+		} else {
+			console.log('KLOG platform: no disk: ' + r.diskfail);
+			dw = null;
+		}
+	}
+	const { mem, pa, fb, regs } = firmware(front, disksize);
+	if (dw) dw.postMessage({ mem, regs });
 	const eia = [];
 	let ring = 0;		/* #t/eia0's input: the kernel's ring */
 	let kring = 0;		/* #b/kbd's (devkbd.c) */

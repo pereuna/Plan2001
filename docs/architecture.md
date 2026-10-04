@@ -162,7 +162,7 @@ sijoitussääntöjen mukaan.
 | D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (valmis 4.10.; VM:ssä testattu) |
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta (toteutettu 4.10. `/17019`:n TLS-PSK-polulla; koneen sisäinen rcpu testattu, VM tarkistamatta; `/rcpu` tekemättä) |
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware (valmis 4.10.) |
-| D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli |
+| D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli (valmis 4.10.) |
 | D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia |
 | D8 | cpu-rooli: selain compute poolissa (crsrv, `/17030`) wasm32-koneena | compute pool -työ ajetaan wasm32-ytimen prosessina |
 
@@ -410,6 +410,38 @@ RNG-siemen, kehyspuskuri ja juuren arkisto. Kernel saa blobin osoitteen
   (`platmemsize`), ei 4 GiB:tä.
   Kaikki muut testit menevät läpi entisellään, koska initin argv kulkee
   nyt configin kautta.
+
+D6 valmis (4.10.): koneella on levy, ja Plan 9:n tapaan sen päällä on
+tiedostopalvelin.
+- Levy on `#S/sdW0/{ctl,data}` (`devsdw.c`), nimetty kuten 9frontin sd.
+  Se on tiedosto originin OPFS:ssä (`sdW0`, oletuksena 256 Mt,
+  `?disk=MB`, `?disk=0` = ei levyä). OPFS:ää voi käyttää synkronisesti
+  vain Workerista ja vain yksi kerrallaan, joten sivun levy-Worker
+  (`platform.js`: `disk()`) omistaa sen. Toinen saman originin
+  välilehti jää ilman levyä.
+- Firmware kuvaa levyn BootInfossa kuten laitteen: configin rivi
+  `*sdW0=regs tavut`, ja rekisterisivu on muistikartassa Reserved.
+  Ydin kirjoittaa pyynnön rekistereihin (op, pituus, osoite, offset),
+  ja levy-Worker odottaa niitä `Atomics.wait`illa. Kutakin pyyntöä
+  kohti ei siis tarvita postMessagea. Worker lukee ytimen muistiin tai
+  kirjoittaa sieltä tiedostoon. Kirjoitukset viedään tiedostoon
+  (`flush`), kun levy on ollut hetken joutilaana, ja ctl:n `flush`illa.
+- Tiedostojärjestelmä on 9frontin hjfs, käännetty 3c:llä (`auth.c`
+  forkin oma). `/boot/disk`, jota `/boot/init` kutsuu, käynnistää
+  hjfs:n (`/srv/disk`). Uusi levy reamataan, ja hjfs:n konsolilla
+  luodaan `/usr/glenda`. Sitten `bind -bc /n/disk/usr/glenda
+  /usr/glenda`: juuren arkiston tiedostot näkyvät edelleen, ja
+  glendan uudet tiedostot menevät levylle.
+- `test-wasmapp`: `THEN='[argv]'` lataa sivun uudelleen samassa
+  selaimessa (sama OPFS), ja EXPECT on toisen latauksen tuloste.
+  Testi `disk`: tiedosto kirjoitetaan, hjfs synkataan ja levy
+  flushataan, sitten uudelleenlataus. Tiedosto on tallessa, eikä levyä
+  reamata toista kertaa.
+- Rajat: liitos on vain kotihakemiston yläpuolella (bind -bc), joten
+  uusi tiedosto juuren arkiston alihakemistoon (esim. `lib/`) ei mene
+  levylle. hjfs synkkaa 10 sekunnin välein, joten sivun sulkeminen
+  heti kirjoituksen jälkeen voi hukata viimeisimmät muutokset. Factotumin
+  avaimet OPFS:ään (secstore) tulevat myöhemmin.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 
