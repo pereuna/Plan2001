@@ -10,6 +10,12 @@ Se on ratkaistava ennen Monolithin vaihetta 3b (`monolith/docs/architecture.md`)
 Selainsovellusten turvamalli (origin = sovellus, nimiavaruuspohjat,
 `/global/compute` ja `/compute`): `docs/app-origins.md`.
 
+> **Tila 4.10.2026:** selaimen CR (`cr.js`) poistettiin D7:ssä, ja D8
+> (selain CR:nä wasm32-koneena) odottaa. Pooli suunnitellaan uudelleen
+> XCPU:n ja sen jatkajien kokemukset huomioiden, kun 9front + wasm32 on
+> viimeistelty (`docs/architecture.md`, "D8 odottaa"). Tämä dokumentti
+> kuvaa toimineen ensimmäisen version.
+
 ## Käänne Plan 9:stä
 
 ```

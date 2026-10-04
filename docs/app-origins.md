@@ -138,7 +138,7 @@ käynnistää wasm32-koneen (`plan9/sys/src/9/wasm32`):
   WebSocket katkeaa. Ydin näkee yhden yhteyden. Testi on
   `tools/test-9wasm32 app`.
 - `compute.kone` (CR selaimessa, `cr.html`) poistui Monolithin JS:n mukana.
-  D8 tuo sen takaisin wasm32-koneena.
+  D8 odottaa uutta suunnitelmaa (`docs/architecture.md`, "D8 odottaa").
 
 ## Eteneminen
 

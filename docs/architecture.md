@@ -164,7 +164,7 @@ sijoitussääntöjen mukaan.
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware (valmis 4.10.) |
 | D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli (valmis 4.10.) |
 | D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia (toteutettu 4.10.; koneen sisäinen sovellusistunto testattu, VM ja pilvi tarkistamatta) |
-| D8 | cpu-rooli: selain compute poolissa (crsrv, `/17030`) wasm32-koneena | compute pool -työ ajetaan wasm32-ytimen prosessina |
+| D8 | cpu-rooli: selain compute poolissa wasm32-koneena | **odottaa (päätös 4.10.)**: suunnitellaan uudelleen XCPU-arkkitehtuuri huomioiden, kun 9front + wasm32 on viimeistelty ja testattu (alla) |
 
 Järjestys (päätös 2.10.): rio paikallisesti ensin, sillä se on ytimen ja
 ruudun luonteva koe ja terminal tarvitsee sen joka tapauksessa. host3
@@ -501,6 +501,64 @@ portissa ja että kaikki Monolithin JS poistetaan nyt.
   oikeassa 9frontissa (webterm käännetty natiivilla 6c:llä vain
   syntaksin osalta), sovellusten origin oikeaa webtermiä vasten,
   `tools/cloud-image` ja hiekkalaatikko.
+
+## D8 odottaa: laskentapooli suunnitellaan uudelleen (päätös 4.10.2026)
+
+Laskentapooli toimi (crsrv, rcc, selaimen CR:t, `docs/cpu-server-design.md`:
+21 käännöstyötä kolmelle CR:lle, `-v duplicate` ja `2of3`). Se on
+Plan2001:n ydinarvo. D8 ei kuitenkaan jatka suoraan crsrv:n
+protokollasta, vaan se suunnitellaan uudelleen, ja olemassa oleva
+työ otetaan huomioon. Ennen D8:aa 9front + wasm32 -osaprojekti
+viimeistellään ja testataan (alla). D8 on siihen asti odottamassa.
+
+**Lähtökohta, mitä on nyt.** crsrv (`plan2001/sys/src/cmd/crsrv.c`) jakaa
+töitä CR:ille creditien mukaan. Viestit ovat pituus, otsakerivi ja
+tiedostot (`hello`, `include`, `job`, `result`). Käyttäjän näkymä on
+tiedostojärjestelmä (`/global/compute`, `/compute/cc`, rcc). Selaimen CR
+oli `cr.js` ja `6c.wasm` web workereissa, ja se poistettiin D7:ssä. Ajoitus
+on kaksitasoinen: crsrv valitsee CR:n, ja CR valitsee workerin. Tulokset
+voi varmentaa. Kadonneen CR:n työt palaavat jonoon.
+
+**Huomioitava: XCPU ja sen jatkajat.** 9P:llä tehty prosessinhallinta
+klustereissa. Lähteet ja yksityiskohdat tarkistetaan suunnittelun alussa.
+- XCPU (Los Alamos, Latchesar Ionkov, Ron Minnich ym.). Jokainen solmu
+  tarjoaa 9P-tiedostojärjestelmän (xcpufs). Istunto avataan `clone`lla,
+  ja istunnon hakemistossa ovat `ctl`, `exec`, `argv`, `env`, `stdin`,
+  `stdout`, `stderr` ja `wait` sekä `fs/`, johon ohjelma ja sen tiedostot
+  kopioidaan. Solmuja hallitaan tiedostoilla, ja ohjelma ja sen
+  ympäristö viedään solmulle eikä oleteta sieltä. XCPU2 toi
+  nimiavaruudet: istunto näkee asiakkaan tiedostot.
+- IBM Research ja Plan 9 / Inferno -klusterit (Eric Van Hensbergen ym.):
+  Plan 9 Blue Genellä (HARE), PUSH (datavirtojen komentotulkki) ja XCPU3
+  (Brasil-pohjainen töiden jakaminen ja tulosten kokoaminen
+  hierarkkisesti).
+- Kysymykset uudelle suunnitelmalle:
+  - Onko CR:n rajapinta XCPU:n kaltainen tiedostopuu (session, exec, io,
+    wait), jolloin wasm32-kone, natiivi solmu ja selain toteuttavat
+    saman puun? Vai crsrv:n viestiprotokolla?
+  - Ajetaanko selaimen wasm32-koneella työ sen omana prosessina (3c:llä
+    käännetty 6c ja muut), ja tuoko työ nimiavaruutensa mukanaan kuten
+    XCPU2?
+  - Ajoitus ja aggregointi: crsrv:n kaksi tasoa, vai XCPU3:n tapaan
+    hierarkkisesti?
+  - Kuinka luottamus, varmennus ja suostumus säilyvät: epäluotettava CR,
+    `duplicate`/`2of3`, "share spare compute" ja Web Lock?
+  - Kyvyt originilla (`cr`, `compute`, `docs/app-origins.md`).
+
+**Ennen D8:aa: 9front + wasm32 kuntoon ja testattuna.**
+- VM-kierros: `rcpuvm` (D4: VM:n rio selaimen ruudulla) ja `dp9ikvm`.
+  D7:n palvelinpää oikeassa 9frontissa: rc-httpd, select-handler, `webterm
+  -r`, `/app`, sovelluksen origin oikeaa webtermiä vasten,
+  `tools/vm-cpu`/`deploy`, hiekkalaatikko ja `cloud-image`. Lisäksi
+  osajoukon derive rc-httpd:lle (`tools/subset/derive`, `check`, `test`).
+- Natiivi käännös (`docs/plan9-fork.md`): 3a/3c/3l sekä wasm32-ydin ja
+  -kirjastot 9frontin mk:lla, ja CPUS-rekisteröinti
+  `plan9/patches/`issa.
+- Avoimet kohdat: factotumin avaimet OPFS:ään (D3), koko kotihakemisto
+  levylle (D6:n bind -bc kattaa vain ylimmän tason) ja synkkaus ennen kuin
+  sivu suljetaan (hjfs 10 s), sekä wss:n `/rcpu`-polku päätteelle (D4).
+- Testisarja pysyy vihreänä (`tools/test-9wasm32`), ja jokainen korjaus
+  saa testin, joka kaatuu ilman korjausta.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 
