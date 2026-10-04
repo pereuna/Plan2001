@@ -8,3 +8,12 @@ hjfs-auth.diff	hjfs/auth.c: validuser measured a name as n - p, which is
 		lookupuid and ingroup could read one past the end of their
 		arrays when the uid was above every one (the binary search ends
 		with i == n).  2026-10-02.
+
+How a patch reaches a build: the patched file goes into the repo's sys/
+(this repo's changed 9front files, laid over the VM's /sys/src by
+tools/build.rc), made from subset/9front's copy with the diff -
+  cp subset/9front/sys/src/cmd/hjfs/auth.c sys/src/cmd/hjfs/auth.c
+  patch -p1 <patches/9front/hjfs-auth.diff
+hjfs-auth.diff: sys/src/cmd/hjfs/auth.c; tools/build.rc builds hjfs with
+it and tools/subset/mkusb puts that hjfs on the medium in place of the
+VM's.  2026-10-04.

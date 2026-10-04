@@ -50,6 +50,27 @@ fn buildkernel {
 	cp $d/kbdfs.log $hostbuild/kbdfs.log
 	cp $o $d/auxbin/kbdfs || exit kbdfs-copy-failed
 	bind -b $d/auxbin /$objtype/bin/aux
+
+	echo '### hjfs: 9front''s with this repo''s fixes (sys/src/cmd/hjfs, patches/9front) - the medium''s'
+	mkdir -p $d/hjfs
+	dircp /sys/src/cmd/hjfs $d/hjfs
+	dircp $hostsrc/sys/src/cmd/hjfs $d/hjfs
+	@{
+		cd $d/hjfs
+		mk >$d/hjfs.log >[2=1]
+	}
+	st=$status
+	cp $d/hjfs.log $hostbuild/hjfs.log
+	# the one mk just made (auth.c is newer than the VM's objects): the newest;
+	# a failed mk must not leave the VM's unpatched ?.out to take
+	o=`{ls -t $d/hjfs/?.out >[2]/dev/null}
+	if(! ~ $st '' || ~ $#o 0){
+		tail -20 $d/hjfs.log
+		echo HJFS BUILD FAILED
+		exit hjfs-build-failed
+	}
+	cp $o(1) $hostbuild/hjfs || exit hjfs-copy-failed
+	md5sum $hostbuild/hjfs
 	kbdsum=`{md5sum <$d/auxbin/kbdfs}
 	echo kbdfs for bootfs.paq: $kbdsum
 	bind -c $d/9 /sys/src/9

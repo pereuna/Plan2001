@@ -17,7 +17,7 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 out=$tbuild; b=$root/build
-mkdir -p "$out"; rm -f "$out/$kernel" "$out/$loader" "$out"/*.log "$b"/in.img "$b"/out.img
+mkdir -p "$out"; rm -f "$out/$kernel" "$out/$loader" "$out/hjfs" "$out"/*.log "$b"/in.img "$b"/out.img
 
 cp "$here/targets/$TARGET" "$b/target"; echo "what=${WHAT:-all}" >> "$b/target"
 tar cf "$b/in.img" --format=ustar -C "$root" sys -C "$here" build.rc -C "$b" target
@@ -33,7 +33,7 @@ set -e
 "$here/vm" stop; trap - EXIT
 
 tar xmf "$b/out.img" -C "$out"
-[ "${WHAT:-all}" = loader ] || results="$kernel"
+[ "${WHAT:-all}" = loader ] || results="$kernel hjfs"
 results="$results $loader"
 [ "$st" = 0 ] && grep -q BUILD-DONE "$out/session.log" || { echo "build failed"; exit 1; }
 for f in $results; do [ -s "$out/$f" ] || { echo "build failed: no $f"; exit 1; }; done

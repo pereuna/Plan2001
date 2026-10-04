@@ -48,7 +48,9 @@ Tikku rakennetaan VM:ssä 9frontin `%.disk`-säännön mallin mukaan
   `plan9.ini` (`bootfile=9pc64`, ei `nobootprompt`ia).
 - `fs`: hjfs, käyttäjät kuten `%.disk`issä, ja
   `disk/mkfs -U -s / subset/amd64/proto`. Plan2001:n kernel ja loader on sidottu
-  polkuihin `/amd64/9pc64` ja `/386/bootx64.efi`.
+  polkuihin `/amd64/9pc64` ja `/386/bootx64.efi`, ja `tools/build.sh`:n
+  hjfs (9frontin, `patches/9front/hjfs-auth.diff` ajettuna:
+  `sys/src/cmd/hjfs/auth.c`) polkuun `/amd64/bin/hjfs` (4.10.2026).
 
 Juurilevy valitaan `bootargs`-kehotteessa kuten 9frontin alkuperäisessä
 asennustavassa. bootrc tarjoaa oletukseksi tikun `fs`-osion (QEMUssa
