@@ -117,6 +117,11 @@ Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),
 
 ## Sudenkuopat
 
+- `tools/test-9wasm32` ajaa `build-bin3`:n vain, jos juurta ei ole
+  (`build/wasm32/root/bin/d2`). Kun poistat tai siirrät lähteitä, rakenna
+  juuri puhtaalta ennen pushia: `rm -rf build/wasm32/root build/wasm32/o/cmd
+  && tools/build-bin3`, ja sitten `tools/pages`. D7:n poisto jäi kerran
+  kiinni vasta toisen buildissa (clock.c).
 - **Älä muokkaa `tools/test-9wasm32`:ää sen ajon aikana** (bash lukee
   skriptiä ajon aikana: syntaksivirhe keskellä).
 - Katkennut ajo voi jättää `tools/serve`n (portit 18092/18093) tai

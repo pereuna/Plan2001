@@ -143,7 +143,9 @@ done
 	"$out/lib/libdraw.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/rio.err" 2>&1 || { echo "build-bin3: rio:"; tail -5 "$out/o/cmd/rio.err"; fail=1; }
 # graphical programs: 9front's, unchanged
 mkdir -p "$out/o/cmd/clock"
-if ! (cd "$root/third_party/9apps" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" clock.c) >"$out/o/cmd/clock.err" 2>&1 ||
+# 9front's clock.c: the subset's once derive brings it (tools/subset/extra), else the copy in third_party/9apps
+clockdir=$src; [ -e "$clockdir/clock.c" ] || clockdir=$root/third_party/9apps
+if ! (cd "$clockdir" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" clock.c) >"$out/o/cmd/clock.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/clock" "$out/o/cmd/clock.3" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/clock.err" 2>&1; then
 	echo "build-bin3: clock:"; head -5 "$out/o/cmd/clock.err"; fail=1
 fi

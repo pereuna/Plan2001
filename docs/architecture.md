@@ -488,7 +488,7 @@ portissa ja että kaikki Monolithin JS poistetaan nyt.
   Ilman sivun istuntokerrosta auth epäonnistuu.
 - Poistettu: `monolith/web` (index.html, monolith.js, cr.*),
   drawtermin `gui-web` ja `Make.emscripten`, `wasm32host` (host3),
-  `wasmapp`, `third_party/9apps`, `plan2001/lib/app/compute` sekä
+  `wasmapp`, `third_party/9apps`:n wasmapp-osa (sen `clock.c` jää build-bin3:lle, kunnes osajoukko tuo sen), `plan2001/lib/app/compute` sekä
   testit ja työkalut `test-host3`, `test-headless`, `test-stress`,
   `test-apps`, `test-compute`, `test-wasmclang` ja `tools/term`.
   `third_party/drawterm` jää 9ptermiä varten: pilven hallinta (`cpu-live`,
