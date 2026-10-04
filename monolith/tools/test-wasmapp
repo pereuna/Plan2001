@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
-"""A Plan 9 program in the browser on drawterm's kernel (wasmapp/, tools/build
-wasm-NAME): tools/serve's page with ?wasm=NAME in headless Chromium, real
-time; PASS when the canvas is not one colour and is not drawterm's own
-console window (its grey title bar, which the program draws over);
-the screen goes to build/wasmapp-NAME.png.
-  tools/test-wasmapp [NAME [SECONDS]]     (default clock, 8)
-  PROG=P [ARGS='["a", ...]'] tools/test-wasmapp host3
-                                           a wasm32 program (3c, 3l) on drawterm's
-                                           kernel: ?wasm=host3&prog=P, PASS when
-                                           it exits ok (HOST3-EXIT) and drew;
-                                           RUNS=1: it goes on (clock), PASS
-                                           if it is still running and drew
+"""Plan2001's wasm32 kernel (plan9/sys/src/9/wasm32) in headless Chromium, real
+time: tools/serve's page (kernel.html: the machine's firmware) with init's
+arguments, until the machine halts (KERNEL-HALT); tools/test-9wasm32 runs it
+for each test.  (Until D7 it also ran programs on drawterm's kernel; drawterm
+is no longer in the browser.)
   PAGE=kernel.html SERIAL=1 EXPECT=FILE tools/test-wasmapp kernel
-                                           Plan2001's wasm32 kernel (plan9/sys/src/9/wasm32):
-                                           until it halts (KERNEL-HALT), its eia0
+                                           its eia0 against FILE
   SERIAL=1 [SEND='["line\n", ["prompt", "line\n"], ...]'] [SENDFILE=F] [EXPECT=FILE]
                                            its console #t/eia0, the platform's
                                            serial port: text, not pixels; SEND
@@ -134,15 +126,12 @@ def main():
 		for _ in range(50):
 			try:
 				urllib.request.urlopen(f'http://127.0.0.1:{DEVTOOLS}/json')
-				urllib.request.urlopen(f'http://127.0.0.1:{HTTP}/{name}.js')
+				urllib.request.urlopen(f'http://127.0.0.1:{HTTP}/{os.environ.get("PAGE") or "kernel.html"}')
 				break
 			except Exception:
 				time.sleep(0.2)
-		prog = os.environ.get('PROG')
-		page = os.environ.get('PAGE')
-		url = f'http://127.0.0.1:{HTTP}/?wasm={name}' + (f'&prog={prog}' if prog else '')
-		if page:
-			url = f'http://127.0.0.1:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
+		page = os.environ.get('PAGE') or 'kernel.html'
+		url = f'http://127.0.0.1:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
 		def withargs(url, args):
 			for a in args:	# ARGS='["-c", "echo hi"]'
 				url += '&arg=' + urllib.parse.quote(a, safe='')
@@ -320,72 +309,6 @@ def main():
 					raise SystemExit(f'FAIL: {name}: the screen has {n} colours, {fl} flushes ({out})')
 			print(f'PASS: {name}, Plan2001\'s wasm32 kernel, in the browser')
 			return
-		wait(cdp, 'window.monolith && window.monolith.flushes > 0', 60, 'the first flush')
-		time.sleep(secs)
-		label = prog or name
-		if serial:
-			# eia0: what the program says; SEND typed when it has settled
-			def settled(quiet=0.6, limit=30):
-				last, since, end = None, time.time(), time.time() + limit
-				while time.time() < end:
-					try:
-						o = cdp.js('window.monolith.eia0b64()')
-					except RuntimeError:
-						o = None
-					if o != last:
-						last, since = o, time.time()
-					elif o is not None and time.time() - since > quiet:
-						return
-					if any(l.startswith('HOST3-EXIT ') for l in cdp.log):
-						return
-					time.sleep(0.1)
-			for line in json.loads(os.environ.get('SEND', '[]')):
-				settled()
-				cdp.js(f'window.monolith.eia0in({json.dumps(line)})')
-			if os.environ.get('SENDFILE'):	# bytes, as they are
-				settled()
-				b = base64.b64encode(open(os.environ['SENDFILE'], 'rb').read()).decode()
-				cdp.js(f'window.monolith.eia0inb64({json.dumps(b)})')
-		if prog:
-			end = time.time() + 60
-			if os.environ.get('RUNS'):	# a program that goes on: its time, then look
-				end = time.time() + secs
-			while time.time() < end and not any(l.startswith('HOST3-EXIT ') for l in cdp.log):
-				try:
-					cdp.js('1')
-				except RuntimeError:
-					pass
-				time.sleep(0.3)
-		png = base64.b64decode(cdp.call('Page.captureScreenshot', format='png')['data'])
-		out = os.path.join(root, f'build/wasmapp-{label}.png')
-		open(out, 'wb').write(png)
-		n, console = cdp.js(SIG)
-		fl = cdp.js('window.monolith.flushes')
-		open(os.path.join(root, f'build/wasmapp-{label}.log'), 'w').write('\n'.join(cdp.log) + '\n')
-		print(f'test-wasmapp: {label}: {fl} flushes, {n} colours, {out}')
-		if serial:
-			got = base64.b64decode(cdp.js('window.monolith.eia0b64()') or '')
-			open(os.path.join(root, f'build/wasmapp-{label}.txt'), 'wb').write(got)
-			if os.environ.get('EXPECT'):
-				want = open(os.environ['EXPECT'], 'rb').read()
-				if got != want:
-					import difflib
-					w, g = want.decode(errors='backslashreplace'), got.decode(errors='backslashreplace')
-					sys.stdout.writelines(difflib.unified_diff(w.splitlines(True), g.splitlines(True), 'want', 'got'))
-					raise SystemExit(f'FAIL: {prog}: its output on eia0 is not {os.environ["EXPECT"]} (build/wasmapp-{label}.txt)')
-		if prog:
-			ex = [l for l in cdp.log if l.startswith('HOST3-EXIT ')]
-			if os.environ.get('RUNS') and ex:
-				raise SystemExit(f'FAIL: {prog} ended: {ex} (build/wasmapp-{label}.log)')
-			if not os.environ.get('RUNS') and ex != [f'HOST3-EXIT {prog} ok']:
-				raise SystemExit(f'FAIL: {prog}: {ex or "did not exit"} (build/wasmapp-{label}.log)')
-			if os.environ.get('DRAWS') and (n < 2 or console):
-				raise SystemExit(f'FAIL: {prog} drew nothing (build/wasmapp-{label}.log)')
-			print(f'PASS: {prog}, a wasm32 program (3c, 3l), ran in the browser on drawterm\'s kernel')
-			return
-		if n < 2 or console:
-			raise SystemExit(f'FAIL: {name} drew nothing (build/wasmapp-{name}.log)')
-		print(f'PASS: {name} drew in the browser on drawterm\'s kernel, no server')
 	finally:
 		chrome.terminate()
 		srv.terminate()

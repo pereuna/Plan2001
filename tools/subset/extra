@@ -272,3 +272,5 @@
 /rc/bin/rcpu	the wasm32 terminal's rcpu to a cpu server (docs/architecture.md, D4): the user runs it
 /rc/bin/rconnect	rcpu's: it dials, authenticates (tlsclient -a) and sends the script
 /amd64/bin/exportfs	rcpu's client serves the terminal's namespace with it (exportfs -r /)
+/rc/bin/rc-httpd/rc-httpd	the https server of the pages (docs/architecture.md, D7): tlssrv runs it (/rc/bin/service/tcp17443), Plan2001's select-handler hands the WebSockets to webterm
+/rc/bin/rc-httpd/handlers/error	rc-httpd's answers for errors (error 403, 404, 405): rc-httpd and Plan2001's handlers run it by name

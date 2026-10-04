@@ -163,7 +163,7 @@ sijoitussääntöjen mukaan.
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta (toteutettu 4.10. `/17019`:n TLS-PSK-polulla; koneen sisäinen rcpu testattu, VM tarkistamatta; `/rcpu` tekemättä) |
 | D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware (valmis 4.10.) |
 | D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli (valmis 4.10.) |
-| D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia |
+| D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia (toteutettu 4.10.; koneen sisäinen sovellusistunto testattu, VM ja pilvi tarkistamatta) |
 | D8 | cpu-rooli: selain compute poolissa (crsrv, `/17030`) wasm32-koneena | compute pool -työ ajetaan wasm32-ytimen prosessina |
 
 Järjestys (päätös 2.10.): rio paikallisesti ensin, sillä se on ytimen ja
@@ -456,6 +456,51 @@ tiedostopalvelin.
   levylle. hjfs synkkaa 10 sekunnin välein, joten sivun sulkeminen
   heti kirjoituksen jälkeen voi hukata viimeisimmät muutokset. Factotumin
   avaimet OPFS:ään (secstore) tulevat myöhemmin.
+
+D7 toteutettu (4.10.), VM:ssä ja pilvessä tarkistamatta: selaimessa on
+vain wasm32-kone. Käyttäjä päätti, että rc-httpd tarjoaa sivut samassa
+portissa ja että kaikki Monolithin JS poistetaan nyt.
+- Palvelin: 9frontin rc-httpd tlssrv:n takana (17443) tarjoaa sivun
+  Plan2001:n select-handlerilla (`plan2001/rc/bin/rc-httpd`). Staattinen
+  käsittelijä lähettää COOP/COEP-otsakkeet, oikeat tyypit ja gzipin,
+  ETag/304. `/app` kertoo originin sovelluksen. WebSocketit menevät
+  `webterm -s -r`:lle, joka saa rc-httpd:n jo lukeman pyynnön
+  (`$request`, `$reqlines`). Webterm ei enää tarjoa sivuja (`-w` ja
+  `-n` poistettu, `POST /log` samoin). Policyn sana `cpu` sallii `/17019`:n
+  eli rcpu:n sellaisenaan (`term`). Julkinen hiekkalaatikko on rc-httpd
+  `$pagesonly`lla (`tools/cloud/sandbox.rc`). `monolith/tools/pages`
+  kokoaa sivun, ja `deploy`, `tools/vm-cpu`, `tools/cpu-live.rc pages` ja
+  `tools/cloud/sandbox` asentavat sen. rc-httpd on lisätty
+  `tools/subset/extra`an (derive VM:ssä tekemättä).
+- Pääte ja sovellukset: sama sivu joka originille
+  (`docs/app-origins.md`, D7). Sivu kysyy sovelluksensa (`GET /app`) ja
+  kirjoittaa BootInfoon `app=` ja `cpu=`. `term` ajaa rioa ja rcpu:ta
+  `$cpu`:hun. Sovelluksen kone ajaa `/boot/app`: rcpu `aux/wsrcpu`:lla
+  webtermin `/rcpu`-istuntoon. Sivun verkko hoitaa istunnon protokollan
+  (kuittaukset, lähetetty tallessa, jatko katkoksen jälkeen).
+  devwsnet:ssä `rcpuws` on polku `/rcpu`. Webtermin sovellusskriptin loppu
+  on nyt rcpu:n palvelimen kaltainen (cpunote, tila, `rfailed`), koska
+  asiakas on oikea rcpu.
+- Testi `app`: `tools/test-authsrv`in `/rcpu` tekee webtermin istunnon
+  koneen sisäisen palvelimen (`d4 -w`: p9any ja webtermin skripti)
+  ympärille ja katkaisee sivun WebSocketin kerran. Sivu jatkaa
+  istuntoa, ja 616512 tavun tiedosto kopioituu molempiin suuntiin.
+  Ilman sivun istuntokerrosta auth epäonnistuu.
+- Poistettu: `monolith/web` (index.html, monolith.js, cr.*),
+  drawtermin `gui-web` ja `Make.emscripten`, `wasm32host` (host3),
+  `wasmapp`, `third_party/9apps`, `plan2001/lib/app/compute` sekä
+  testit ja työkalut `test-host3`, `test-headless`, `test-stress`,
+  `test-apps`, `test-compute`, `test-wasmclang` ja `tools/term`.
+  `third_party/drawterm` jää 9ptermiä varten: pilven hallinta (`cpu-live`,
+  `cloud-image`, `kbuild9p`) käyttää sitä. `tools/build` rakentaa vain
+  9ptermin ja natiivin drawtermin. `test-wasmapp` ajaa vain koneen sivua,
+  ja sen käynnistysodotus ei enää odota olematonta tiedostoa, joten joka
+  testi on noin 10 s nopeampi.
+- Laskentapooli (crsrv, rcc) jää palvelimelle, mutta selaimen CR on poissa
+  D8:aan asti. Tarkistamatta: rc-httpd, select-handler ja webterm `-r`
+  oikeassa 9frontissa (webterm käännetty natiivilla 6c:llä vain
+  syntaksin osalta), sovellusten origin oikeaa webtermiä vasten,
+  `tools/cloud-image` ja hiekkalaatikko.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 

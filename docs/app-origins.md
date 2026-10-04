@@ -88,8 +88,8 @@ palvelin antaa CR:lle identiteetin; `crsrv -k` ei ole turvamekanismi.
 
 Nimiavaruus rajaa Plan2001:n resurssit, mutta originin JavaScript voisi
 silti kutsua esimerkiksi `navigator.gpu`:ta. Siksi sovellus ei ole
-mielivaltaista JavaScriptiä: luotettu Plan2001-host (nyt drawterm.wasm ja
-sivu, myöhemmin host.js) antaa wasm-sovellukselle vain sen policyn
+mielivaltaista JavaScriptiä: luotettu Plan2001-host (D7:stä lähtien
+wasm32-koneen firmware, `kernel.html` ja `platform.js`) antaa wasm-sovellukselle vain sen policyn
 sallimat importit (fs, ui, compute/webgpu, …). Permissions-Policy-otsake on
 toinen suojakerros, ei capability-malli.
 
@@ -114,6 +114,31 @@ avaa https-portin 17443 myös osoitteeseen IP ja nimeää sovellukset
 `https://compute.10.80.73.196.nip.io:17443/cr.html`. Muiden koneiden
 selaimet luottavat kehitys-CA:han (`https://…/plan2001-ca.crt`) tai
 hyväksyvät varoituksen kerran kutakin originia kohden.
+
+## D7: originin kone on wasm32-kone (4.10.2026)
+
+Drawterm on poissa selaimesta. Jokainen origin saa saman sivun, joka
+käynnistää wasm32-koneen (`plan9/sys/src/9/wasm32`):
+
+- Sivu kysyy palvelimelta sovelluksensa (`GET /app`, rc-httpd:n
+  `plan2001-app`). Päätös on sama kuin webtermin `hostapp`: `APP`, jos
+  host on `APP.KONE` ja `/lib/app/APP` on olemassa, muuten `term`. Sivu
+  kirjoittaa sen koneen BootInfoon (`app=`, `cpu=`).
+- `term`: kone ajaa omaa rioaan ja rcpu:ta (`rcpu` ilman `-h`:ta menee
+  `$cpu`:hun). rcpu kulkee `/17019`:n kautta TLS-PSK:lla. Sen sallii
+  policyn sana `cpu`, joka on vain `term`illä.
+- `APP`: `/boot/app` ajaa rcpu:n, jonka yhteys on `aux/wsrcpu`
+  (`/boot/rconnect.app`): webtermin `/rcpu`-istunto, p9any ilman
+  TLS:ää, koska yhteys on jo wss. Webterm ajaa sovelluksen namespace- ja
+  image-tiedostot, ei asiakkaan skriptiä. Sovellus piirtää koneen
+  ruudulle, ja näppäimistö kulkee koneen konsolin kautta. Istunnon loppu
+  on rcpu:n palvelimen kaltainen: cpunote, tila ja `rfailed`.
+- Sivu hoitaa istunnon protokollan (`s`, `r`, `a`, `e`, `x`): kuittaukset,
+  lähetetyn tallessa pitämisen ja jatkon (`/resume/TOKEN/N`), jos
+  WebSocket katkeaa. Ydin näkee yhden yhteyden. Testi on
+  `tools/test-9wasm32 app`.
+- `compute.kone` (CR selaimessa, `cr.html`) poistui Monolithin JS:n mukana.
+  D8 tuo sen takaisin wasm32-koneena.
 
 ## Eteneminen
 

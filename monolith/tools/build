@@ -1,17 +1,15 @@
 #!/bin/bash
-# Build drawterm from third_party/drawterm in a copy under build/.
-#   tools/build [wasm|native]   default wasm
-#     wasm:   build/wasm/drawterm.{js,wasm}  (Emscripten, gui-web)
-#     native: build/native/drawterm          (Linux, X11, the baseline)
-#     wasm-APP: build/wasm-APP/APP.{js,wasm} (9front's 9apps/APP.c on drawterm's
-#             kernel in the browser, wasmapp/)
-#     host3:  build/host3/host3.{js,wasm} (Plan2001 wasm32 processes, 3c and
-#             3l's, on drawterm's kernel: wasm32host/, ?wasm=host3&prog=NAME)
+# Build drawterm from third_party/drawterm in a copy under build/: the
+# Linux tools that reach a Plan2001 CPU server from here.  The browser has
+# none of it since D7 (docs/architecture.md): its terminal and the apps'
+# origins are wasm32 machines (plan9/sys/src/9/wasm32).
+#   tools/build [9pterm|native]   default 9pterm
 #     9pterm: build/9pterm/9pterm            (Linux, no graphics: drawterm as
-#             a text terminal, Make.9pterm, gui-none)
+#             a text terminal, Make.9pterm, gui-none; the cloud's admin tools)
+#     native: build/native/drawterm          (Linux, X11)
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
-what=${1:-wasm}
+what=${1:-9pterm}
 out=$root/build/$what
 mkdir -p "$out"
 # copy the sources over the old build; make rebuilds what changed (the
@@ -24,29 +22,12 @@ if [ -n "$(find "$root/third_party/drawterm" -name '*.h' -newer "$out/.built" 2>
 	find "$out" -name '*.o' -delete
 fi
 case $what in
-wasm)	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
-	ls -l drawterm.js drawterm.wasm ;;
 native)	make CONF=linux GUI=x11 AUDIO=none -j"$(nproc)" \
 		'CFLAGS=-Wall -Wno-missing-braces -Wno-parentheses -ggdb -I$(ROOT) -I$(ROOT)/include -I$(ROOT)/kern -c -D_THREAD_SAFE -DPTHREAD -pthread -D_REENTRANT -O2' \
 		'LDADD=-lX11 -ggdb -lm -lrt' >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l drawterm ;;
-wasm-*)	# a Plan 9 program on drawterm's kernel in the browser (wasmapp/):
-	# tools/build wasm-clock -> build/wasm-clock/clock.{js,wasm}
-	app=${what#wasm-}
-	rm -rf "$out/9libdraw" "$out/9apps" "$out/wasmapp"	# fresh: a file gone here goes there too
-	cp -rp "$root/third_party/9apps" "$root/wasmapp" "$out/"
-	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
-	make -f wasmapp/wasmapp.mk CONF=emscripten APP=$app -j"$(nproc)" $app.js >app.log 2>&1 || { grep -i -B2 -A3 "error" app.log | head -40; exit 1; }
-	ls -l $app.js $app.wasm ;;
-host3)	# Plan2001 wasm32 processes on drawterm's kernel (wasm32host/):
-	# ?wasm=host3&prog=NAME runs build/wasm32/bin/NAME.wasm
-	rm -rf "$out/wasm32host"
-	cp -rp "$root/wasm32host" "$out/"
-	make CONF=emscripten -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
-	make -f wasm32host/host3.mk CONF=emscripten host3.js >host3.log 2>&1 || { grep -i -B2 -A3 "error" host3.log | head -40; exit 1; }
-	ls -l host3.js host3.wasm ;;
 9pterm)	make CONF=9pterm -j"$(nproc)" >build.log 2>&1 || { tail -30 build.log; exit 1; }
 	ls -l 9pterm ;;
-*)	echo "usage: tools/build [wasm|native|9pterm|host3|wasm-APP]" >&2; exit 2 ;;
+*)	echo "usage: tools/build [9pterm|native]" >&2; exit 2 ;;
 esac
 touch "$out/.built"

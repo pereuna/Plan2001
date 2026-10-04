@@ -953,8 +953,21 @@ export async function boot(url, front = {}) {
 	 * (r, w, closed, b[64K]), the kernel woken; past a full ring the
 	 * connection fails rather than lose bytes, as drawterm's wsock.c
 	 */
-	const net = { ws: new Map() };	/* n -> { ws, gen }: the conversation's WebSocket, which gen of n it is */
+	const net = { ws: new Map() };	/* n -> its conversation: { gen, ws, opened, session } */
 	const NRING = 64*1024;		/* a power of 2: the counters run on modulo 2^32, the index masked */
+	/*
+	 * webterm's rcpu session (path /rcpu: an app's origin, docs/app-origins.md)
+	 * outlives its WebSocket - a phone's browser drops connections in the
+	 * background.  Text frames are its control: s TOKEN (first: the
+	 * session), r N (on each attach: it has N bytes from the page), a N
+	 * (both ways: N bytes received), e (it has ended), x (the page's: end
+	 * it).  The page acknowledges every ACKEVERY bytes, keeps what it sent
+	 * until the session acknowledges it, and when the WebSocket drops
+	 * without e it attaches again (/resume/TOKEN/RCVD) for up to KEEP, then
+	 * sends again what the session does not have.  The kernel sees one
+	 * connection.
+	 */
+	const ACKEVERY = 16*1024, KEEP = 10*60*1000;
 	net.open = ({ id, gen, path, ring, st }) => {
 		net.close({ id });	/* an older gen's, if its close has not come yet */
 		const i32 = new Int32Array(mem.buffer);
@@ -964,46 +977,101 @@ export async function boot(url, front = {}) {
 		Atomics.store(i32, ring >> 2, (front.ringstart ?? 0) | 0);
 		Atomics.store(i32, (ring + 4) >> 2, (front.ringstart ?? 0) | 0);
 		Atomics.store(i32, (ring + 8) >> 2, 0);
-		let ws, opened = false;
-		try {
-			ws = new WebSocket((front.ws ?? '') + path);
-		} catch (e) {
-			word(st, -1);
-			return;
-		}
-		ws.binaryType = 'arraybuffer';
-		net.ws.set(id, { ws, gen });
-		const mine = () => net.ws.get(id)?.ws === ws;
+		const s = path === '/rcpu' ? { token: null, rcvd: 0, acked: 0, sent: [], base: 0, ready: false, since: 0 } : null;
+		const c = { gen, ws: null, opened: false, session: s };
+		net.ws.set(id, c);
+		const mine = () => net.ws.get(id) === c;
 		const end = (why) => {
 			if (!mine()) return;
 			net.ws.delete(id);
-			if (!opened) word(st, -1);
+			if (!c.opened) word(st, -1);
 			else { Atomics.store(i32, (ring + 8) >> 2, why); Atomics.notify(i32, (ring + 4) >> 2); }
 		};
-		ws.onopen = () => { if (!mine()) return; opened = true; word(st, 1); };
-		ws.onclose = () => end(1);
-		ws.onerror = () => end(2);
-		ws.onmessage = (e) => {
-			if (!mine()) return;
-			const b = typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(e.data);
+		/* into the kernel's ring; past a full ring the connection fails rather than lose bytes */
+		const put = (b) => {
 			const u8 = new Uint8Array(mem.buffer);
 			let w = Atomics.load(i32, (ring + 4) >> 2) >>> 0;
 			if (((w - (Atomics.load(i32, ring >> 2) >>> 0)) >>> 0) + b.length > NRING) {
 				end(3);
-				ws.close();
-				return;
+				c.ws.close();
+				return false;
 			}
-			for (const c of b) u8[ring + 12 + (w++ & (NRING - 1))] = c;
+			for (const x of b) u8[ring + 12 + (w++ & (NRING - 1))] = x;
 			Atomics.store(i32, (ring + 4) >> 2, w | 0);
 			Atomics.notify(i32, (ring + 4) >> 2);
+			return true;
 		};
+		/* the session has the page's bytes up to n: what it sent before that is not kept */
+		const trim = (n) => {
+			while (s.sent.length && s.base + s.sent[0].length <= n) s.base += s.sent.shift().length;
+			if (s.sent.length && n > s.base) { s.sent[0] = s.sent[0].subarray(n - s.base); s.base = n; }
+		};
+		const control = (ws, t) => {
+			if (t.startsWith('s ')) s.token = t.slice(2);
+			else if (t.startsWith('a ')) trim(Number(t.slice(2)));
+			else if (t.startsWith('r ')) {
+				trim(Number(t.slice(2)));
+				for (const b of s.sent) ws.send(b);
+				s.ready = true;
+				s.since = 0;
+			} else if (t === 'e') {
+				s.ended = true;
+				end(1);
+				ws.close();
+			}
+		};
+		const connect = (p) => {
+			let ws;
+			try {
+				ws = new WebSocket((front.ws ?? '') + p);
+			} catch (e) {
+				end(2);
+				return;
+			}
+			ws.binaryType = 'arraybuffer';
+			c.ws = ws;
+			const live = () => mine() && c.ws === ws;
+			ws.onopen = () => {
+				if (!live()) return;
+				if (!c.opened) { c.opened = true; word(st, 1); }
+			};
+			ws.onclose = ws.onerror = () => {
+				if (!live()) return;
+				if (!s || s.ended || !s.token) { end(1); return; }
+				/* the session goes on: attach again, from what has come */
+				s.ready = false;
+				if (!s.since) s.since = Date.now();
+				if (Date.now() - s.since > KEEP) { end(1); return; }
+				c.ws = null;
+				setTimeout(() => { if (mine() && c.ws === null) connect('/resume/' + s.token + '/' + s.rcvd); }, 1000);
+			};
+			ws.onmessage = (e) => {
+				if (!live()) return;
+				if (s && typeof e.data === 'string') { control(ws, e.data); return; }
+				const b = typeof e.data === 'string' ? new TextEncoder().encode(e.data) : new Uint8Array(e.data);
+				if (!put(b) || !s) return;
+				s.rcvd += b.length;
+				if (s.rcvd - s.acked >= ACKEVERY) { s.acked = s.rcvd; ws.send('a ' + s.acked); }
+			};
+		};
+		connect(path);
 	};
-	net.send = ({ id, gen, b }) => { const c = net.ws.get(id); if (c && c.gen === gen && c.ws.readyState === 1) c.ws.send(b); };
+	net.send = ({ id, gen, b }) => {
+		const c = net.ws.get(id);
+		if (!c || c.gen !== gen) return;
+		if (c.session) {
+			c.session.sent.push(b);	/* until the session acknowledges it */
+			if (c.session.ready && c.ws?.readyState === 1) c.ws.send(b);
+		} else if (c.ws?.readyState === 1)
+			c.ws.send(b);
+	};
 	net.close = ({ id, gen }) => {	/* gen undefined: whichever */
 		const c = net.ws.get(id);
 		if (!c || gen !== undefined && c.gen !== gen) return;
 		net.ws.delete(id);
+		if (!c.ws) return;
 		c.ws.onopen = c.ws.onclose = c.ws.onerror = c.ws.onmessage = null;
+		if (c.session && c.ws.readyState === 1) c.ws.send('x');	/* the kernel hung up: the session ends */
 		c.ws.close();
 	};
 

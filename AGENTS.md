@@ -53,6 +53,12 @@ kokoaa molemmat kerrokset yhdeksi 9front-juureksi (`-f`: vain fork).
 
 ## Rakennus (monolith/)
 
+Selaimessa on vain wasm32-kone (D7): drawtermin selainosat, host3 ja
+Monolithin JS on poistettu. `monolith/tools/pages` kokoaa sivun, jonka
+CPU-palvelimen rc-httpd tarjoaa (`tools/vm-cpu --web`, `tools/cpu-live.rc
+pages`). `tools/build` rakentaa enää vain 9ptermin (pilven hallinta) ja
+natiivin drawtermin.
+
 ```
 cd monolith
 tools/build-libc3      # wasm32-kirjastot (libc, libthread, libsec, libauthsrv ...)
@@ -88,6 +94,7 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
 - D3 tunnistus: `crypto dp9ik dp9iknoas` (+ `dp9ikvm` VM:llä)
 - D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask` (+ `rcpuvm` VM:llä)
+- D7 sovelluksen origin: `app` (webterm:n `/rcpu`-istunto, katkos ja jatko)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)
 
 Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),

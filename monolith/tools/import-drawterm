@@ -2,8 +2,10 @@
 # Vendor 9front's drawterm into third_party/drawterm at a pinned commit.
 #   tools/import-drawterm [COMMIT]   default: the one in VERSION
 # Clones git://git.9front.org/plan9front/drawterm, exports the commit's tree
-# (no .git) over third_party/drawterm, keeping Monolith's own files there
-# (gui-web/, Make.emscripten), and records the commit in VERSION.
+# (no .git) over third_party/drawterm, keeping 9pterm's own files there
+# (gui-none/, Make.9pterm; docs/9pterm.md), and records the commit in
+# VERSION.  Plan2001's other changes to it (cpu.c's -G for 9pterm, the
+# libdraw) come back with git: check git diff after an import.
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd); dst=$root/third_party/drawterm
 commit=${1:-$(sed -n 's/^commit //p' "$dst/VERSION" 2>/dev/null)}
@@ -12,7 +14,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 git clone -q git://git.9front.org/plan9front/drawterm "$tmp/dt"
 git -C "$tmp/dt" archive --format=tar "$commit" > "$tmp/dt.tar"
 mkdir -p "$dst"
-find "$dst" -mindepth 1 -maxdepth 1 ! -name gui-web ! -name Make.emscripten ! -name VERSION -exec rm -rf {} +
+find "$dst" -mindepth 1 -maxdepth 1 ! -name gui-none ! -name Make.9pterm ! -name VERSION -exec rm -rf {} +
 tar xf "$tmp/dt.tar" -C "$dst"
 {
 	echo "# 9front drawterm, vendored by tools/import-drawterm"

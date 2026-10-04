@@ -1,0 +1,69 @@
+#!/bin/rc
+# A file of the page's directory $1 (rc-httpd's $location; / the page,
+# index.html), with what the wasm32 machine's page needs: its threads
+# share memory (COOP and COEP, else no SharedArrayBuffer), its scripts
+# are modules and its kernel is compiled as it comes (the types), and the
+# root's archive is large (FILE.gz when the browser takes gzip; ETag from
+# the file's qid, so an unchanged one is not sent again).
+dir=$1
+f=$location
+if(~ $f /)
+	f=/index.html
+if(! ~ $REQUEST_METHOD GET HEAD){
+	error 405
+	exit
+}
+if(~ $f */.* || ! test -f $dir$f){
+	error 404
+	exit
+}
+switch($f){
+case *.html
+	type='text/html; charset=utf-8'
+	cache=no-store
+case *.js
+	type=text/javascript
+	cache=no-cache
+case *.wasm
+	type=application/wasm
+	cache=no-cache
+case *.crt
+	type=application/x-x509-ca-cert
+	cache=no-cache
+case *
+	type=application/octet-stream
+	cache=no-cache
+}
+file=$dir$f
+enc=()
+if(test -f $file.gz && echo $reqlines | grep -si '^accept-encoding:.*gzip' >/dev/null){
+	file=$file.gz
+	enc=gzip
+}
+etag='"'^`{ls -q $file | awk '{print $1 "." $2}' | sed 's/[()]//g'}^'"'
+len=`{ls -l $file | awk '{print $6}'}
+if(echo $reqlines | grep -si '^if-none-match: *'^$etag >/dev/null && ~ $cache no-cache){
+	echo 'HTTP/1.1 304 Not Modified'$cr
+	emit_extra_headers
+	echo 'ETag: '$etag$cr
+	echo 'Cross-Origin-Opener-Policy: same-origin'$cr
+	echo 'Cross-Origin-Embedder-Policy: require-corp'$cr
+	echo 'Connection: close'$cr
+	echo $cr
+	exit
+}
+echo 'HTTP/1.1 200 OK'$cr
+emit_extra_headers
+echo 'Content-Type: '$type$cr
+if(~ $#enc 1)
+	echo 'Content-Encoding: '$enc$cr
+echo 'Content-Length: '$len$cr
+echo 'Cache-Control: '$cache$cr
+echo 'ETag: '$etag$cr
+echo 'Vary: Accept-Encoding'$cr
+echo 'Cross-Origin-Opener-Policy: same-origin'$cr
+echo 'Cross-Origin-Embedder-Policy: require-corp'$cr
+echo 'Connection: close'$cr
+echo $cr
+if(! ~ $REQUEST_METHOD HEAD)
+	exec cat $file

@@ -1,6 +1,6 @@
 #!/bin/bash
-# The Plan2001 CPU and auth server VM, for drawterm clients (Monolith, the
-# browser drawterm): cpu.qcow2 in the cache, a persistent overlay of
+# The Plan2001 CPU and auth server VM, for the browser's wasm32 machines
+# (the terminal and the apps' origins): cpu.qcow2 in the cache, a persistent overlay of
 # base.qcow2 (which stays the build VM), set up once through the serial
 # console the way 9front sets up a standalone cpu+auth server:
 #   auth/wrkey          host owner glenda, authdom plan2001, into nvram
@@ -9,7 +9,7 @@
 #                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
 #   plan9.ini           service=cpu
 #   webterm             plan2001/sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
-#                       for the browser drawterm, on port 17080 (aux/listen)
+#                       for the browser's machines, on port 17080 (aux/listen)
 #   crsrv, rcc          the compute pool (docs/cpu-server-design.md): crsrv
 #                       at boot (/srv/compute, CRs on tcp 17030, browsers
 #                       through webterm /17030), rcc (6c in the pool)
@@ -21,8 +21,11 @@
 #                       (build/amd64: tools/build.sh or tools/kbuild9p.rc),
 #                       glenda's profile from plan2001/usr/glenda/lib/profile
 #                       (a terminal starts rio, as 9front's)
-#   tlssrv + webterm    the same on port 17443 as https/wss, serving the
-#                       page too from /sys/lib/monolith (--web DIR), with a
+#   tlssrv + rc-httpd   the same on port 17443 as https/wss: 9front's rc-httpd
+#                       with Plan2001's select-handler (plan2001/rc/bin/rc-httpd)
+#                       serves the page from /sys/lib/plan2001/web (--web DIR;
+#                       monolith/tools/deploy) and hands the WebSockets to
+#                       webterm -s -r (docs/architecture.md, D7), with a
 #                       certificate from a development CA in the cache
 #                       (ca/ca.pem, to install in the browsers, also as
 #                       https://.../plan2001-ca.crt; openssl);
@@ -42,10 +45,10 @@
 #   tools/vm-cpu            create cpu.qcow2 (if missing)
 #   tools/vm-cpu --update [--web DIR]
 #                           reinstall webterm, the certificate and the page
-#                           files in DIR (drawterm.js ...); leaves it running
+#                           files in DIR (index.html, platform.js, 9wasm32.wasm,
+#                           w3root.fs); leaves it running
 # Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
-# and connect:  PASS=$(cat ~/.cache/plan2001/cpu.pass) drawterm \
-#                 -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda
+# and open https://127.0.0.1:17443/ (the wasm32 terminal: rcpu -h cirno)
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
@@ -117,17 +120,17 @@ webterm() {
 	for x in ${WEBTERM_ORIGINS:-http://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:18080}; do o="$o -o $x"; done
 	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm$o' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
 	echo "vm-cpu: https and wss on 17443"
-	run9 -t 60 "mkdir -p /sys/lib/tls /sys/lib/monolith /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
-	# the page's ?log=1 lines (webterm runs as none)
-	run9 -t 30 "test -e /sys/log/monolith || { touch /sys/log/monolith && chmod 666 /sys/log/monolith }"
+	run9 -t 60 "mkdir -p /sys/lib/tls /sys/lib/plan2001/web /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
 	# the CA, for browsers to install: https://.../plan2001-ca.crt
-	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/plan2001-ca.crt"
+	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/plan2001/web/ && chmod 644 /sys/lib/plan2001/web/plan2001-ca.crt"
+	# rc-httpd's site: Plan2001's select-handler and its page handler
+	run9 -t 30 "mkdir -p /rc/bin/rc-httpd/handlers && cp /tmp/select-handler /rc/bin/rc-httpd/select-handler && cp /tmp/plan2001-static /rc/bin/rc-httpd/handlers/plan2001-static && chmod 775 /rc/bin/rc-httpd/select-handler /rc/bin/rc-httpd/handlers/plan2001-static"
 	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s monolith.key /cfg/cirno/cpustart || echo 'cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl' >>/cfg/cirno/cpustart"
-	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /bin/webterm -s -w /sys/lib/monolith' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /rc/bin/rc-httpd/rc-httpd' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"
-		run9 -t 60 "cp /tmp/web/* /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/* && ls -l /sys/lib/monolith"
+		run9 -t 60 "cp /tmp/web/* /sys/lib/plan2001/web/ && chmod 644 /sys/lib/plan2001/web/* && ls -l /sys/lib/plan2001/web"
 	fi
 }
 mkdir -p "$root/build"
@@ -136,22 +139,20 @@ stage=$(mktemp -d)
 for f in "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi"; do
 	[ -s "$f" ] || { echo "vm-cpu: no $f (tools/build.sh)" >&2; exit 1; }
 done
+cp "$root/plan2001/rc/bin/rc-httpd/select-handler" "$root/plan2001/rc/bin/rc-httpd/handlers/plan2001-static" "$stage/"
 cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/usr/glenda/lib/profile" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
 cp -r "$root/plan2001/lib/app" "$stage/app"
 webfiles=
 if [ -n "$web" ]; then
 	mkdir "$stage/web"
-	cp -L "$web"/* "$stage/web/"
-	for f in "$stage"/web/*.html "$stage"/web/*.js "$stage"/web/*.wasm; do
-		[ -f "$f" ] && gzip -9kn "$f"
-	done
+	cp -L "$web"/* "$stage/web/"	# with their .gz (monolith/tools/pages)
 	webfiles=web
 fi
 # the key must not stay on the host's in.img, however this script ends
 scrub() { [ -f "$root/build/in.img" ] && dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none; true; }
 trap scrub EXIT
 rm -f "$root/build/in.img"
-(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c crsrv.c rcc.c chain.pem cpu.key plan2001-ca.crt apps app profile 9pc64 bootx64.efi $webfiles)
+(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" select-handler plan2001-static webterm.c crsrv.c rcc.c chain.pem cpu.key plan2001-ca.crt apps app profile 9pc64 bootx64.efi $webfiles)
 rm -rf "$stage"
 truncate -s '>64M' "$root/build/in.img"
 

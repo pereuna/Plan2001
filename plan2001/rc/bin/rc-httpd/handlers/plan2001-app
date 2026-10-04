@@ -1,0 +1,18 @@
+#!/bin/rc
+# The app of this origin (docs/app-origins.md, D7), as webterm's hostapp:
+# Host APP.MACHINE with /lib/app/APP, else term.  The page (GET /app) puts
+# it in its machine's BootInfo (app=, as plan9.ini); its WebSockets get
+# what the app's policy allows, whatever the page says.
+app=term
+a=`{echo $SERVER_NAME | sed 's/\..*//'}
+if(~ $SERVER_NAME *.* && echo $a | grep -s '^[a-z0-9-]+$' && test -d /lib/app/$a)
+	app=$a
+echo 'HTTP/1.1 200 OK'$cr
+emit_extra_headers
+echo 'Content-Type: text/plain; charset=utf-8'$cr
+echo 'Content-Length: '^`{echo $app | wc -c}^$cr
+echo 'Cache-Control: no-store'$cr
+echo 'Cross-Origin-Resource-Policy: same-origin'$cr
+echo 'Connection: close'$cr
+echo $cr
+echo $app

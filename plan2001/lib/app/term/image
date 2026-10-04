@@ -1,3 +1,4 @@
 #!/bin/rc
-# rc on the tab: drawterm's console
+# rc for the term origin's /rcpu session (the wasm32 terminal runs its own
+# rio and rcpu -c instead: policy cpu, docs/app-origins.md)
 exec rc -i

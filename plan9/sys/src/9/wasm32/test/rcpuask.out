@@ -6,10 +6,12 @@ password:
 !
 remote: service cpu
 wasm32
+/mnt/term/boot/app
 /mnt/term/boot/console
 /mnt/term/boot/disk
 /mnt/term/boot/factotum
 /mnt/term/boot/init
+/mnt/term/boot/rconnect.app
 the terminal draws
 remote done
 rcpu status 

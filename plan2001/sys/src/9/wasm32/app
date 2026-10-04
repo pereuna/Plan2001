@@ -1,0 +1,16 @@
+#!/bin/rc
+# An app's origin on the wasm32 machine (/boot/app, from /boot/init;
+# docs/app-origins.md, docs/architecture.md D7): APP.MACHINE's page boots
+# the machine with app=APP and cpu=MACHINE (BootInfo's config, as
+# plan9.ini).  The app runs on the CPU server in the session webterm makes
+# for the origin - the app's namespace file and image, not ours (/rcpu,
+# aux/wsrcpu through /boot/rconnect.app) - and this machine is its
+# terminal: its screen, mouse and keyboard, as drawterm was.  Its keyboard
+# is our console's (kbdfs, /boot/init): #b's raw kbd is not exported, as
+# kbdfs reads it here.  The key is asked on the console (factotum).
+rfork n
+bind /boot/rconnect.app /bin/rconnect
+unmount '#b' /dev >[2]/dev/null
+echo app $app on $cpu
+rcpu -h $cpu
+echo app $app: $status

@@ -16,4 +16,8 @@ aux/kbdfs -q -s cons /dev/eia0
 user=glenda
 home=/usr/glenda
 cd $home
+# an app's origin (app=, from the page: BootInfo's config): the app on the
+# CPU server, this machine its terminal (/boot/app, Plan2001's; D7)
+if(! ~ $#app 0 && ! ~ $app term && test -r /boot/app)
+	exec rc /boot/app </dev/cons >/dev/cons >[2]/dev/cons
 rc -l -i </dev/cons >/dev/cons >[2]/dev/cons

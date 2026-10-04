@@ -8,10 +8,11 @@
  * carries the service's bytes unchanged in binary frames, so drawterm's
  * own auth and TLS run inside it as over TCP.
  *
- * With -w DIR it also serves the page: GET / or /NAME for a file in DIR
- * (no subdirectories), NAME.gz instead when the browser takes gzip, with
- * the COOP/COEP headers the page's threads need; POST /log appends the
- * page's log line (its ?log=1) to /sys/log/monolith.  tlssrv in front of it
+ * It serves no pages (docs/architecture.md, D7): on https, port 17443,
+ * 9front's rc-httpd does - the wasm32 machine's page, its firmware and
+ * root - and hands it the WebSocket requests (Plan2001's select-handler,
+ * /rc/bin/rc-httpd/select-handler): with -r the request is rc-httpd's,
+ * already read, from its $request and $reqlines.  tlssrv in front
  * (/rc/bin/service/tcp17443) makes that https and wss on one origin.
  *
  * With -s (the connection is already TLS, as behind tlssrv) GET /rcpu is
@@ -32,14 +33,15 @@
  * attached|detached" (ps -a: webterm [APP STATE]; apps lists them):
  * webterm runs as none, whose processes the user cannot see.
  *
- * With -n it serves the pages only: no WebSocket, no log - the public
- * diskless sandbox (the wasm32 machine, monolith/web/kernel.html), which
- * reaches no service here.
+ * The policy word cpu is rcpu as rcpu itself: GET /17019, the client's
+ * own script inside its TLS - the wasm32 terminal's rcpu (term.MACHINE,
+ * whose user runs what she likes anyway); an app's origin has only its
+ * own session, /rcpu.
  *
  * A browser says where its page came from (Origin); only this server's
- * own https origin (with -w) and the -o origins may open WebSockets or
- * post the log, so no other site can use a visitor's browser to reach
- * rcpu.  A request without Origin is not from a browser page.
+ * own https origin (with -s) and the -o origins may open WebSockets, so
+ * no other site can use a visitor's browser to reach rcpu.  A request
+ * without Origin is not from a browser page.
  */
 #include <u.h>
 #include <libc.h>
@@ -54,17 +56,32 @@ enum {
 };
 
 static char *services[] = { "17019", "567", nil };	/* without -s: rcpu, auth */
-static char *webdir;
 static char *origins[16];	/* -o */
 static int norigins;
 static int secure;	/* -s: the connection is TLS already */
-static int pagesonly;	/* -n: the pages only, no WebSocket (the public sandbox) */
+static int fromhttpd;	/* -r: the request is rc-httpd's ($request, $reqlines) */
 
 /*
- * The rcpu session of an app: the client's script (as sent by drawterm) is
- * read and dropped; the terminal is mounted as drawterm's script would, and
- * the app's namespace file and image run, as the user (rc -l: the profile).
+ * The rcpu session of an app: the client's script (rcpu's, from the wasm32
+ * machine's /boot/app) is read and dropped; the terminal is mounted as
+ * rcpu's server script would, and the app's namespace file and image run,
+ * as the user (rc -l: the profile).  Its end is rcpu's server's
+ * (/rc/bin/rcpu: fn server): the client's interrupt and hangup through
+ * its cpunote, the app's status back, and its "lost connection" taken
+ * away.
  */
+#define RCPUEND \
+	"mainproc=$apid\n" \
+	"rm -f /mnt/term/env/rfailed\n" \
+	"noteproc=()\n" \
+	"if(test -d /mnt/term/mnt/cpunote){\n" \
+	"	{cat; echo -n hangup} </mnt/term/mnt/cpunote/data >/proc/$mainproc/notepg &\n" \
+	"	noteproc=$apid\n" \
+	"}\n" \
+	"wait $mainproc\n" \
+	"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n" \
+	"~ $#noteproc 0 || echo -n hangup >/proc/$noteproc/notepg\n" \
+	"echo -n hangup >/proc/$pid/notepg\n"
 static char appscript[] =
 	"n=`{read} && ! ~ $#n 0 && read -c $n >/dev/null || exit\n"
 	"mount -nc /fd/0 /mnt/term || exit\n"
@@ -73,9 +90,8 @@ static char appscript[] =
 	"	</dev/cons >/dev/cons >[2=1] aux/kbdfs -dq -m /mnt/term/dev\n"
 	"	bind -q /mnt/term/dev/cons /dev/cons\n"
 	"}\n"
-	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s computepool=%d rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image'\n"
-	"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
-	"echo -n hangup >/proc/$pid/notepg\n";
+	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s computepool=%d rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image' &\n"
+	RCPUEND;
 static char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 static void
@@ -103,6 +119,44 @@ readhdr(void)
 	return nil;
 }
 
+/*
+ * The request rc-httpd has read (-r): its request line and header lines,
+ * one to a line, back into a request as readhdr makes one
+ */
+static char*
+httpdhdr(void)
+{
+	char *req, *lines, *p, *e, *buf;
+	int n;
+
+	req = getenv("request");
+	lines = getenv("reqlines");
+	if(req == nil || lines == nil)
+		reply("400 Bad Request");
+	buf = malloc(strlen(req) + 2*strlen(lines) + 8);
+	if(buf == nil)
+		reply("500 Internal Server Error");
+	n = sprint(buf, "%s\r\n", req);
+	for(p = lines; *p != 0; p = e+1){
+		if((e = strchr(p, '\n')) == nil)
+			e = p + strlen(p);
+		if(e > p){
+			memmove(buf+n, p, e-p);
+			n += e-p;
+			strcpy(buf+n, "\r\n");
+			n += 2;
+		}
+		if(*e == 0)
+			break;
+	}
+	strcpy(buf+n, "\r\n");
+	if(n + 2 > Maxhdr)
+		reply("431 Request Header Fields Too Large");
+	free(req);
+	free(lines);
+	return buf;
+}
+
 /* the value of header name, or nil; the request is not changed */
 static char*
 header(char *hdr, char *name)
@@ -126,108 +180,6 @@ header(char *hdr, char *name)
 		}
 	}
 	return nil;
-}
-
-static char*
-httpdate(long t)
-{
-	static char *days[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-	static char *months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-	static char buf[64];
-	Tm *tm;
-
-	tm = gmtime(t);
-	snprint(buf, sizeof buf, "%s, %02d %s %d %02d:%02d:%02d GMT",
-		days[tm->wday], tm->mday, months[tm->mon], tm->year+1900,
-		tm->hour, tm->min, tm->sec);
-	return buf;
-}
-
-static char*
-mimetype(char *name)
-{
-	char *e;
-
-	e = strrchr(name, '.');
-	if(e == nil)
-		return "application/octet-stream";
-	if(strcmp(e, ".html") == 0)
-		return "text/html; charset=utf-8";
-	if(strcmp(e, ".js") == 0)
-		return "text/javascript";
-	if(strcmp(e, ".wasm") == 0)
-		return "application/wasm";
-	if(strcmp(e, ".png") == 0)
-		return "image/png";
-	if(strcmp(e, ".crt") == 0)
-		return "application/x-x509-ca-cert";
-	return "application/octet-stream";
-}
-
-/* an answer without a body, the connection kept */
-static void
-status(char *s)
-{
-	fprint(1, "HTTP/1.1 %s\r\nContent-Length: 0\r\n\r\n", s);
-}
-
-/* GET of path (the request line's, query cut off) from webdir */
-static void
-servefile(char *hdr, char *path)
-{
-	char name[256], file[512], *ae, *enc, *ims, *lm, *cc, buf[Iosize];
-	Dir *d;
-	int fd;
-	long n;
-
-	if(strcmp(path, "/") == 0)
-		path = "/index.html";
-	path++;
-	if(*path == 0 || *path == '.' || strchr(path, '/') != nil || strlen(path) >= sizeof name - 4){
-		status("404 Not Found");
-		return;
-	}
-	strcpy(name, path);
-	enc = nil;
-	fd = -1;
-	ae = header(hdr, "Accept-Encoding");
-	if(ae != nil && strstr(ae, "gzip") != nil){
-		snprint(file, sizeof file, "%s/%s.gz", webdir, name);
-		if((fd = open(file, OREAD)) >= 0)
-			enc = "gzip";
-	}
-	if(fd < 0){
-		snprint(file, sizeof file, "%s/%s", webdir, name);
-		fd = open(file, OREAD);
-	}
-	if(fd < 0 || (d = dirfstat(fd)) == nil || (d->mode & DMDIR) != 0){
-		if(fd >= 0)
-			close(fd);
-		status("404 Not Found");
-		return;
-	}
-	lm = strdup(httpdate(d->mtime));
-	ims = header(hdr, "If-Modified-Since");
-	/* the page itself is never kept: a new one must not wait for revalidation */
-	cc = strstr(name, ".html") != nil ? "no-store" : "no-cache";
-	if(ims != nil && strcmp(ims, lm) == 0 && strcmp(cc, "no-cache") == 0){
-		fprint(1, "HTTP/1.1 304 Not Modified\r\nLast-Modified: %s\r\n"
-			"Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n"
-			"Content-Length: 0\r\n\r\n", lm);
-	}else{
-		fprint(1, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n%s%s%s"
-			"Content-Length: %lld\r\nLast-Modified: %s\r\nCache-Control: %s\r\nVary: Accept-Encoding\r\n"
-			"Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n\r\n",
-			mimetype(name), enc ? "Content-Encoding: " : "", enc ? enc : "", enc ? "\r\n" : "",
-			d->length, lm, cc);
-		while((n = read(fd, buf, sizeof buf)) > 0)
-			if(write(1, buf, n) != n)
-				exits("write");
-	}
-	free(lm);
-	free(d);
-	close(fd);
 }
 
 /* one frame to the browser on fd: unmasked, binary (or op) */
@@ -370,7 +322,7 @@ originok(char *hdr)
 	for(i = 0; i < norigins; i++)
 		if(cistrcmp(o, origins[i]) == 0)
 			goto ok;
-	if(webdir != nil && (host = header(hdr, "Host")) != nil){
+	if(secure && (host = header(hdr, "Host")) != nil){
 		snprint(own, sizeof own, "https://%s", host);
 		if(cistrcmp(o, own) == 0)
 			goto ok;
@@ -382,36 +334,10 @@ ok:
 	return 1;
 }
 
-/* POST /log: one line of the page's log, to /sys/log/monolith */
-static void
-logline(char *hdr)
-{
-	char *cl, buf[4096+1];
-	long n;
-	int fd;
-
-	cl = header(hdr, "Content-Length");
-	n = cl != nil ? atol(cl) : 0;
-	if(n < 0 || n > 4096)
-		reply("413 Content Too Large");
-	if(readn(0, buf, n) != n)
-		exits("eof");
-	buf[n] = 0;
-	for(cl = buf; *cl; cl++)
-		if(*cl == '\n' || *cl == '\r')
-			*cl = ' ';
-	if((fd = open("/sys/log/monolith", OWRITE)) >= 0){
-		seek(fd, 0, 2);
-		fprint(fd, "%s\n", buf);
-		close(fd);
-	}
-	status("204 No Content");
-}
-
 static void
 usage(void)
 {
-	fprint(2, "usage: webterm [-s] [-n] [-w webdir] [-o origin]...\n");
+	fprint(2, "usage: webterm [-s] [-r] [-o origin]...\n");
 	exits("usage");
 }
 
@@ -1045,18 +971,15 @@ rcpu(char *hdr, char *app)
 void
 main(int argc, char **argv)
 {
-	char *hdr, *path, *e, *up, *conn, **s, *app;
+	char *hdr, *path, *e, *up, **s, *app;
 
 	quotefmtinstall();
 	ARGBEGIN{
-	case 'w':
-		webdir = EARGF(usage());
-		break;
 	case 's':
 		secure = 1;
 		break;
-	case 'n':
-		pagesonly = 1;
+	case 'r':
+		fromhttpd = 1;
 		break;
 	case 'o':
 		if(norigins == nelem(origins))
@@ -1069,15 +992,9 @@ main(int argc, char **argv)
 	if(argc != 0)
 		usage();
 
-	/* requests on one connection until it closes or becomes a WebSocket */
-	for(;;){
-		hdr = readhdr();
-		if(webdir != nil && !pagesonly && strncmp(hdr, "POST /log ", 10) == 0){
-			if(!originok(hdr))
-				reply("403 Forbidden");
-			logline(hdr);
-			continue;
-		}
+	/* one request: a WebSocket (rc-httpd serves everything else) */
+	{
+		hdr = fromhttpd ? httpdhdr() : readhdr();
 		if(strncmp(hdr, "GET /", 5) != 0)
 			reply("405 Method Not Allowed");
 		path = hdr+4;
@@ -1090,8 +1007,6 @@ main(int argc, char **argv)
 			*e = 0;
 		up = header(hdr, "Upgrade");
 		if(up != nil && cistrcmp(up, "websocket") == 0){
-			if(pagesonly)
-				reply("403 Forbidden");
 			if(!originok(hdr))
 				reply("403 Forbidden");
 			if(secure){
@@ -1101,6 +1016,8 @@ main(int argc, char **argv)
 					rcpu(hdr, app);
 				if(strncmp(path, "/resume/", 8) == 0 && allowed(app, "rcpu"))
 					resume(hdr, path+8);
+				if(strcmp(path, "/17019") == 0 && allowed(app, "cpu"))
+					websocket(hdr, path+1);
 				if(strcmp(path, "/567") == 0 && allowed(app, "rcpu")
 				|| strcmp(path, "/17030") == 0 && allowed(app, "cr"))
 					websocket(hdr, path+1);
@@ -1111,12 +1028,6 @@ main(int argc, char **argv)
 					websocket(hdr, *s);
 			reply("404 Not Found");
 		}
-		if(webdir == nil)
-			reply("404 Not Found");
-		servefile(hdr, path);
-		free(path);
-		conn = header(hdr, "Connection");
-		if(conn != nil && cistrcmp(conn, "close") == 0)
-			exits(nil);
+		reply("404 Not Found");
 	}
 }

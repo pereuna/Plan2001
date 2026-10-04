@@ -93,6 +93,7 @@ static struct {
 	"rcpu",		"17019",
 	"ticket",	"567",
 	"exportfs",	"17007",
+	"rcpuws",	"/rcpu",	/* webterm's rcpu session for an app's origin: GET /rcpu (aux/wsrcpu, D7) */
 };
 
 static int
@@ -317,11 +318,14 @@ netwait(long *w, long v, int secs)
 	return 0;
 }
 
-/* a service's port: a name /lib/ndb/common gives, or its number; nil if neither */
+/* a service's port: a name /lib/ndb/common gives, or its number, or a path (/rcpu: the name's); nil if none */
 static char*
 service(char *p)
 {
 	int i;
+
+	if(p[0] == '/' && strchr(p+1, '/') == nil && strchr(p, '!') == nil && strlen(p) < 24)
+		return p;
 
 	for(i = 0; i < nelem(services); i++)
 		if(strcmp(p, services[i].name) == 0)
@@ -364,7 +368,7 @@ connect(Conv *cv, char *addr)
 		error("bad address: host!port");
 	if((p = service(p+1)) == nil)
 		error("bad port");
-	snprint(path, sizeof path, "/%s", p);
+	snprint(path, sizeof path, "%s%s", p[0] == '/' ? "" : "/", p);
 	/* the page empties the ring when it opens: no reader of an older gen in it then */
 	for(;;){
 		lock(&convlock);

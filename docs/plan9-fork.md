@@ -22,8 +22,9 @@ Plan2001-järjestelmä on siis **9Front-2001 + `plan2001/`**.
 
 Repon muut osat eivät ole Plan 9 -puuta vaan rakennus- ja testityökaluja:
 `tools/` (VM, osajoukko, pilvi, Linux-ristikäännös), `monolith/`
-(selainkehitys; drawterm ja host3 poistuvat D7:ssä, ristikäännöksen
-skriptit siirtyvät `tools/`iin), `docs/`, `subset/` ja `build/`.
+(ristikäännöksen ja testien skriptit sekä 9pterm; drawtermin
+selainosat, host3 ja Monolithin JS poistettiin D7:ssä), `docs/`,
+`subset/` ja `build/`.
 
 ## Tavoite: `plan9/` 9frontiin
 
@@ -95,6 +96,8 @@ uudelleen (nyt taulukon mukaan).
 | `sys/src/9/boot/devsd.proto`, `reimage.rc`, `sys/src/cmd/aux/reimage.c` | `plan2001/sys/src/...` | ✓ pilven uudelleenkirjoitus |
 | `sys/src/cmd/webterm.c`, `crsrv.c`, `rcc.c` | `plan2001/sys/src/cmd/` | ✓ |
 | `rc/bin/inst/*` (UEFI-only USB-asennin), `rc/bin/apps`, `lib/app/` | `plan2001/rc/bin/...`, `plan2001/lib/app/` | ✓ |
+| (D7) rc-httpd:n sivusto: `select-handler`, `handlers/plan2001-static`, `handlers/plan2001-app` | `plan2001/rc/bin/rc-httpd/` | ✓ Plan2001:n palvelu |
+| (D7) sovelluksen origin wasm32-koneella: `/boot/app`, `/boot/rconnect.app`, `aux/wsrcpu` | `plan2001/sys/src/9/wasm32/`, `plan2001/sys/src/cmd/aux/wsrcpu.c` | ✓ Plan2001:n palvelu (devwsnet:n `rcpuws`-polku on forkin) |
 | `usr/glenda/` | `plan2001/usr/glenda/` | ✓ |
 
 ### Kernelin konfiguraatio

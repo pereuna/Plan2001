@@ -1,8 +1,8 @@
 #!/bin/bash
 # 9front's rc and commands for wasm32 (3c, 3l), from ../subset/9front, and
 # a root for them: build/wasm32/root (bin/NAME, rc/lib/rcmain) and its
-# list root.txt, which the page loads into drawterm's #U for host3
-# (wasm32host: ?wasm=host3&prog=rc).
+# list root.txt, and the archive root.fs that the wasm32 machine's page
+# puts in BootInfo (#R, devrootfs.c).
 #   tools/build-bin3
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -34,6 +34,8 @@ cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc
 # the wasm32 kernel's init (plan9/sys/src/9/wasm32/init)
 mkdir -p "$out/root/boot"
 cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$out/root/boot/"
+# an app's origin: its machine is the app's terminal (Plan2001's, D7: docs/app-origins.md)
+cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
@@ -81,6 +83,12 @@ fi
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/ramfs.3" ramfs.c) >"$out/o/cmd/ramfs.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/ramfs" "$out/o/cmd/ramfs.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/ramfs.err" 2>&1; then
 	echo "build-bin3: ramfs:"; head -5 "$out/o/cmd/ramfs.err"; fail=1
+fi
+# aux/wsrcpu: Plan2001's, rcpu's connection for an app's origin (webterm's /rcpu session, D7)
+mkdir -p "$out/root/bin/aux"
+if ! (cd "$P/plan2001/sys/src/cmd/aux" && "$cc3" -FVw $INC -o "$out/o/cmd/wsrcpu.3" wsrcpu.c) >"$out/o/cmd/wsrcpu.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/aux/wsrcpu" "$out/o/cmd/wsrcpu.3" $libs >>"$out/o/cmd/wsrcpu.err" 2>&1; then
+	echo "build-bin3: wsrcpu:"; head -5 "$out/o/cmd/wsrcpu.err"; fail=1
 fi
 # hjfs: 9front's file server, the machine's disk (#S/sdW0, D6: /boot/init); auth.c the fork's (plan9/patches/9front)
 mkdir -p "$out/o/cmd/hjfs"

@@ -154,6 +154,9 @@ ja 3c.wasm Nodessa 0,3 sekunnissa.
 
 ## Selaimessa drawtermin ytimen alla (vaihe A, 1.10.2026)
 
+Historiaa: host3 ja drawtermin selainosat poistettiin D7:ssä
+(`docs/architecture.md`). Nyt wasm32-ohjelmat ajetaan wasm32-ytimellä.
+
 `monolith/wasm32host`: wasm32-ohjelma on prosessi drawtermin ytimen alla.
 Prosessi on kproc eli Worker, joka ajaa ohjelman moduulia.
 `plan9.syscall` tulee host3.c:hen, joka kutsuu drawtermin sys*-funktioita.

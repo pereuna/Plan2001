@@ -21,7 +21,7 @@
 #   renewal, auth/rcpu/exportfs only from the local network and WireGuard,
 #   the administrators' WireGuard tunnel (tools/cloud/wg-admin).
 # Then it boots the result and checks it: logins, the tunnel, the port
-# guard, https, the browser apps (monolith/tools/test-apps).
+# guard, https: the wasm32 machine's page and the apps' origins (D7).
 #
 # The local CPU server VM (tools/vm) is stopped: one VM at a time.
 set -e
@@ -40,6 +40,8 @@ die() { echo "cloud-image: FAILED: $*" >&2; exit 1; }
 for f in "$base" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$T"; do
 	[ -s "$f" ] || die "no $f"
 done
+# the wasm32 machine's page, which setup.rc installs (tools/cpu-live.rc pages)
+"$root/monolith/tools/pages" >/dev/null || die "pages (monolith/tools/pages)"
 
 # secrets, here only
 mkdir -p "$sec"; chmod 700 "$sec"
@@ -111,8 +113,12 @@ trap '"$here/cloud/wg-admin" down >/dev/null 2>&1 || true' EXIT
 sleep 3
 "$T" -h 10.201.0.1 -a 'tcp!10.201.0.1!567' -u admin -P "$sec/admin.pass" -W 20 -T 60 \
 	-c "rc /mnt/term$here/cloud/check.rc" | tee "$root/build/oci/check.log" | grep -q CHECK-DONE || die "check (build/oci/check.log)"
-curl -sk https://127.0.0.1:17443/cr.html | grep -q 'CR off' || die https
-PASSFILE="$sec/glenda.pass" "$root/monolith/tools/test-apps" >"$root/build/oci/test-apps.log" 2>&1 || die "browser apps (build/oci/test-apps.log)"
+curl -sk https://127.0.0.1:17443/ | grep -q 'platform.js' || die https
+# the apps' origins: the server names each origin's app (rc-httpd's /app, as webterm decides it)
+for a in acme term; do
+	got=$(curl -sk --resolve "$a.localhost:17443:127.0.0.1" "https://$a.localhost:17443/app")
+	[ "$got" = "$a" ] || die "https: $a.localhost's app is '$got'"
+done
 "$here/cloud/wg-admin" down >/dev/null
 halt
 

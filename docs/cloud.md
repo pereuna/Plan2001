@@ -109,7 +109,8 @@ Harjoitus sillissä (`tools/vm start --disk build/oci/cpu-oci.qcow2 --net
 - `monolith/tools/test-apps` PASS tätä konetta vasten (term, clock,
   originit, policyt, jatko); laskentapooliin liittyi kolme CR:ää
   (`test-compute`in käännösosa siirtää skriptinsä `out.img`:llä, jota
-  OCI-tilassa ei ole: testin rajoitus).
+  OCI-tilassa ei ole: testin rajoitus). Nämä testit olivat drawtermin
+  sivun, ja ne poistettiin D7:ssä (`docs/architecture.md`).
 
 **Pilvessä (29.9.):** kuva kirjoitettiin Ubuntun päälle
 (`dd if=cpu-oci.raw | gzip -1 | ssh … 'gunzip | dd of=/dev/sda'`, noin
@@ -155,10 +156,13 @@ vastaa omasta vyöhykkeestään ja hakee varmenteensa itse:
 - **Portti 443:** `/rc/bin/service/tcp443`: `tlssrv -c
   /sys/lib/tls/acmed/cpu.plan2001.com.crt /bin/webterm -s -w
   /sys/lib/monolith`. Osoitteet: `https://term.cpu.plan2001.com/`,
-  `acme.`, `clock.`, `compute.` … ilman varmennevaroituksia.
-- **Hallinta:** pilvipalvelimeen ei ole ssh:ta; `monolith/tools/term HOST
-  'komento'` ajaa komennon term-sovelluksessa (headless Chromium) ja lukee
-  tulosteen https:llä.
+  `acme.`, `clock.`, `compute.` … ilman varmennevaroituksia. (D7:stä
+  lähtien sivut tarjoaa rc-httpd ja WebSocketit webterm `-s -r`,
+  `tools/cpu-live.rc pages`. Portti 443 on nyt julkinen hiekkalaatikko,
+  `tools/cloud/sandbox.rc`.)
+- **Hallinta:** pilvipalvelimeen ei ole ssh:ta. Hallinta kulkee 9ptermillä
+  WireGuard-tunnelin yli (`tools/cpu-live`, `tools/cloud/*`).
+  `monolith/tools/term` (drawterm-sivun kautta) poistettiin D7:ssä.
 
 Kesken: varmenteen uusiminen ennen 28.12.2026 (`acmed` ajastettuna,
 esim. `cron`), ja nämä asetukset osaksi asennusta (nyt tehty käsin
@@ -244,8 +248,9 @@ kirjoiteta käsin:
   - TLS ja sen uusinta;
   - porttien vartija;
   - WireGuard.
-- **Lopuksi** image käynnistetään ja tarkistetaan: `tools/cloud/check.rc`
-  ja `monolith/tools/test-apps`. Sen jälkeen syntyy pakattu qcow2.
+- **Lopuksi** image käynnistetään ja tarkistetaan: `tools/cloud/check.rc`,
+  https-sivu ja originien sovellukset (rc-httpd:n `/app`). Sen jälkeen
+  syntyy pakattu qcow2.
 
 **Mikä on julkista:**
 

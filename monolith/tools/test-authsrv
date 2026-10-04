@@ -9,6 +9,13 @@ both are right.  tools/serve's relay (MONOLITH_WEBTERM=PORT) reaches it.
 And a relay for rcpu inside one machine, which cannot listen: /17999
 waits, and the next /17019 (an rcpu client) is joined to it, bytes both
 ways (plan9/sys/src/9/wasm32/test/d4.c's server).  /17998 never answers.
+And webterm's rcpu session for an app's origin (D7, webterm.c): /17997
+waits (d4 -w: p9any as the server and webterm's script, in the machine),
+and the next /rcpu is joined to it inside webterm's session protocol -
+text frames s TOKEN, r N, a N, e from it, a N and x from the page; what
+the page has not acknowledged is kept, and the page's WebSocket is
+dropped once after DROPAT bytes to it, so the page attaches again
+(/resume/TOKEN/N) and the session goes on.
   tools/test-authsrv PORT USER=PASSWORD...
 """
 import asyncio, base64, hashlib, hmac, os, struct, sys
@@ -223,6 +230,87 @@ class Authsrv:
 			else:
 				return
 
+DROPAT = 48*1024		# bytes to the page, then its WebSocket dropped once (each session)
+ACKEVERY = 16*1024
+
+class Session:
+	"""webterm's (webterm.c: sessiondown, sessionup, sessionctl): rcpu's end, one attachment at a time"""
+	def __init__(self, sframe, swrite, sw, sdone):
+		self.token = os.urandom(16).hex()
+		self.sframe, self.swrite, self.sw, self.sdone = sframe, swrite, sw, sdone
+		self.buf, self.base = bytearray(), 0	# to the page, unacknowledged: [base, base+len)
+		self.rcvd = self.acked = 0		# from the page
+		self.sent = 0				# to the page, all of it
+		self.att = None				# (write, text, close) of the attachment
+		self.dropped = False
+		self.done = False
+		self.gen = 0
+
+	def trim(self, n):
+		if self.base < n <= self.base + len(self.buf):
+			del self.buf[:n - self.base]
+			self.base = n
+
+	async def down(self):
+		"""rcpu to the page, kept until acknowledged"""
+		try:
+			while True:
+				op, data = await self.sframe()
+				if op == 8:
+					break
+				if op in (0, 1, 2) and data:
+					self.buf.extend(data)
+					self.sent += len(data)
+					if self.att:
+						self.att[0](data)
+						if not self.dropped and self.sent >= DROPAT:
+							self.dropped = True
+							print(f'test-authsrv: session {self.token[:8]}: dropping the page at {self.sent}', flush=True)
+							self.att[2]()
+							self.att = None
+		except (asyncio.IncompleteReadError, ConnectionError, EOFError):
+			pass
+		self.done = True
+		if self.att:
+			self.att[1]('e')
+			self.att[2]()
+		self.sdone.set()
+
+	async def attach(self, frame, write, text, close, have):
+		self.trim(have)
+		self.att = (write, text, close)
+		me = self.att
+		self.gen += 1
+		if self.gen == 1:
+			text('s ' + self.token)
+		text(f'r {self.rcvd}')
+		if self.buf:
+			write(bytes(self.buf))
+		try:
+			while self.att is me:
+				op, data = await frame()
+				if op == 8:
+					break
+				if op in (0, 2):
+					self.swrite(data)
+					self.rcvd += len(data)
+					if self.rcvd - self.acked >= ACKEVERY:
+						self.acked = self.rcvd
+						text(f'a {self.acked}')
+				elif op == 1:
+					t = data.decode()
+					if t.startswith('a '):
+						self.trim(int(t[2:]))
+					elif t == 'x':
+						self.sw.write(b'\x88\x00')
+						break
+		except (asyncio.IncompleteReadError, ConnectionError, EOFError):
+			pass
+		if self.att is me:
+			self.att = None
+
+sessions = {}
+
 async def ws(r, w, users):
 	"""A WebSocket server (RFC 6455), binary frames, as webterm: /567 the auth server"""
 	try:
@@ -238,7 +326,7 @@ async def ws(r, w, users):
 		await asyncio.sleep(3600)
 		w.close()
 		return
-	if path not in ('/567', '/17019', '/17999'):
+	if path not in ('/567', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
 		w.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
 		w.close()
 		return
@@ -266,12 +354,47 @@ async def ws(r, w, users):
 		out = bytes(buf[:n])
 		del buf[:n]
 		return out
-	def write(data):
+	def write(data, op=0x82):
 		for i in range(0, len(data), 65535):
 			d = data[i:i+65535]
 			n = len(d)
-			h = bytes([0x82, n]) if n < 126 else bytes([0x82, 126]) + struct.pack('>H', n)
+			h = bytes([op, n]) if n < 126 else bytes([op, 126]) + struct.pack('>H', n)
 			w.write(h + d)
+	def text(t):
+		write(t.encode(), 0x81)
+	def close():
+		try:
+			w.write(b'\x88\x00')
+		except ConnectionError:
+			pass
+		w.close()
+	if path == '/17997':	# webterm's rcpu end for an app (d4 -w) waits for the page's session
+		done = asyncio.Event()
+		await appservers.put((frame, write, w, done))
+		await done.wait()
+		w.close()
+		return
+	if path == '/rcpu':	# a session, joined to the app's server waiting
+		try:
+			sf, sw_, sww, sdone = await asyncio.wait_for(appservers.get(), 30)
+		except asyncio.TimeoutError:
+			close()
+			return
+		ses = Session(sf, sw_, sww, sdone)
+		sessions[ses.token] = ses
+		asyncio.create_task(ses.down())
+		await ses.attach(frame, write, text, close, 0)
+		return
+	if path.startswith('/resume/'):	# the page again, from what it has
+		f = path.split('/')
+		ses = sessions.get(f[2]) if len(f) == 4 else None
+		if ses is None or ses.done:
+			text('e')
+			close()
+			return
+		print(f'test-authsrv: session {ses.token[:8]}: resumed at {f[3]}', flush=True)
+		await ses.attach(frame, write, text, close, int(f[3]))
+		return
 	if path == '/17999':	# an rcpu server waits for a client
 		done = asyncio.Event()
 		await listeners.put((frame, write, w, done))
@@ -320,8 +443,9 @@ async def ws(r, w, users):
 	w.close()
 
 async def main():
-	global listeners
+	global listeners, appservers
 	listeners = asyncio.Queue()
+	appservers = asyncio.Queue()
 	port = int(sys.argv[1])
 	users = dict(a.split('=', 1) for a in sys.argv[2:])
 	srv = await asyncio.start_server(lambda r, w: ws(r, w, users), '127.0.0.1', port)

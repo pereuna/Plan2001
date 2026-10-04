@@ -31,6 +31,16 @@ const pre = document.getElementById('eia0'), dec = new TextDecoder();
 const q = new URLSearchParams(location.search);
 if ((q.get('console') === '1')) document.body.classList.add('console');
 const args = q.has('noinit') ? [] : q.getAll('arg').length ? q.getAll('arg') : ['/bin/rc', '/boot/init'];
+/*
+ * the origin's app (docs/app-origins.md, D7): the server's answer (GET /app,
+ * rc-httpd's, as webterm decides it), term without one (a test's server, the
+ * sandbox).  An app's machine runs it on the CPU server (/boot/app); the
+ * terminal's has rio here and rcpu to $cpu, the page's host
+ */
+const app = await fetch('app', { cache: 'no-store' }).then((r) => r.ok ? r.text() : 'term').catch(() => 'term');
+const appname = /^[a-z0-9-]{1,32}$/.test(app.trim()) ? app.trim() : 'term';
+const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '');
+if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
 
 // the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c);
 // w3root.fs is all of it, one file (a server that has no directories: webterm), else each from w3root.txt
@@ -106,7 +116,7 @@ boot('9wasm32.wasm', {
 	args,
 	/* the machine's disk (#S/sdW0): OPFS, ?disk=MB (256), ?disk=0 none */
 	disk: (q.get('disk') ?? '256') !== '0' && navigator.storage?.getDirectory ? { name: 'sdW0', size: Number(q.get('disk') ?? 256) * 1048576, fail: q.get('diskfail') } : null,
-	config: q.getAll('conf').map((c) => c + '\n').join(''),
+	config: machine + q.getAll('conf').map((c) => c + '\n').join(''),
 	canvas: document.getElementById('screen'),
 	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight) }))((q.get('screen') ?? '').split('x')),
 	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */

@@ -19,6 +19,13 @@
  * the server (user bootes), TLS with the dp9ik secret, the script on 0
  * and 1.
  *
+ * d4 -w addr: webterm's rcpu session for an app's origin (D7), its server
+ * side: p9any as the server (user bootes), no TLS (the WebSocket is wss),
+ * then webterm's own script (appscript in plan2001/sys/src/cmd/webterm.c)
+ * with a test command for the app's image - tools/test-authsrv's /rcpu
+ * puts webterm's session around it, and joins it to the machine's
+ * /boot/app path (rcpu, /boot/rconnect.app, aux/wsrcpu).
+ *
  * d4 -a: /proc/n/args written and read at once, by procs that come and
  * go - devproc takes the proc's debug lock and looks at its pid under
  * it (the review's: a write could free args under a reader, or land in
@@ -182,6 +189,50 @@ rcpuserver(char *addr)
 	sysfatal("exec: %r");
 }
 
+/* webterm's appscript, the app's namespace file and image a test command */
+static char appscript[] =
+	"n=`{read} && ! ~ $#n 0 && read -c $n >/dev/null || exit\n"
+	"mount -nc /fd/0 /mnt/term || exit\n"
+	"bind -q /mnt/term/dev/cons /dev/cons\n"
+	"if(test -r /mnt/term/dev/kbd){\n"
+	"	</dev/cons >/dev/cons >[2=1] aux/kbdfs -dq -m /mnt/term/dev\n"
+	"	bind -q /mnt/term/dev/cons /dev/cons\n"
+	"}\n"
+	"</dev/cons >/dev/cons >[2=1] service=cpu app=test rc -c 'echo app $app: service $service; cat /mnt/term/env/sysname; echo; "
+		"test -e /mnt/term/dev/kbd || echo no kbd: the console is the keyboard; test -e /mnt/term/dev/draw/new && echo the terminal draws; "
+		"cp /mnt/term/bin/rc /mnt/term/mnt/ram/rc && wc -c </mnt/term/bin/rc && wc -c </mnt/term/mnt/ram/rc; echo app done' &\n"
+	"mainproc=$apid\n"
+	"rm -f /mnt/term/env/rfailed\n"
+	"noteproc=()\n"
+	"if(test -d /mnt/term/mnt/cpunote){\n"
+	"	{cat; echo -n hangup} </mnt/term/mnt/cpunote/data >/proc/$mainproc/notepg &\n"
+	"	noteproc=$apid\n"
+	"}\n"
+	"wait $mainproc\n"
+	"echo -n $status >/mnt/term/env/rstatus >[2]/dev/null\n"
+	"~ $#noteproc 0 || echo -n hangup >/proc/$noteproc/notepg\n"
+	"echo -n hangup >/proc/$pid/notepg\n";
+
+static void
+appserver(char *addr)
+{
+	int fd;
+	AuthInfo *ai;
+
+	rfork(RFNOTEG|RFNAMEG);	/* as rcpuserver */
+	if((fd = dial(addr, nil, nil, nil)) < 0)
+		sysfatal("dial %s: %r", addr);
+	/* webterm's rcpu(): p9any as the server, the bytes then straight through */
+	if((ai = auth_proxy(fd, nil, "proto=p9any role=server user=bootes")) == nil)
+		sysfatal("auth: %r");
+	auth_freeAI(ai);
+	dup(fd, 0);
+	dup(fd, 1);
+	close(fd);
+	execl("/bin/rc", "rc", "-c", appscript, nil);
+	sysfatal("exec: %r");
+}
+
 static void
 slavenote(void*, char *msg)
 {
@@ -325,6 +376,11 @@ main(int argc, char **argv)
 	}
 	if(argc == 3 && strcmp(argv[1], "-k") == 0){	/* the others: m(em) n(o handler) */
 		killgroup(RFPROC|RFNOWAIT|(strchr(argv[2], 'm') ? RFMEM : 0), strchr(argv[2], 'n') == nil);
+		exits(nil);
+	}
+
+	if(argc == 3 && strcmp(argv[1], "-w") == 0){
+		appserver(argv[2]);
 		exits(nil);
 	}
 

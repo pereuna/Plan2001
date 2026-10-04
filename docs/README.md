@@ -132,24 +132,24 @@ UEFI firmware
                       └─ exec("/boot/boot")
 ```
 
-## Monolith: selaimen drawterm
+## Selain: wasm32-kone (D7)
 
-Monolith (`monolith/`) on Plan2001:n drawterm selaimessa ja Plan2001:n
-käyttöliittymä: Plan2001:ssä ei ole rioa. Se oli erillinen repo
-(pereuna/monolith, nyt arkistoitu); `git subtree add` toi sen tänne
-historioineen. Jako:
+Selaimessa ajetaan Plan2001:n wasm32-ydintä (`plan9/sys/src/9/wasm32`),
+ei enää drawtermia. Sivu (`kernel.html` ja `platform.js`) on koneen
+firmware. Pääte (`term.KONE`) ja sovellusten originit (`APP.KONE`,
+`docs/app-origins.md`) ovat wasm32-koneita.
 
-- **Palvelinpää:** `plan2001/sys/src/cmd/webterm.c` (WebSocket rcpu:hun
-  ja authiin, `/rcpu` ilman sisempää TLS:ää, istuntojen jatko, sivun
-  tiedostot tlssrv:n takana) sekä CPU-VM:n työkalut `tools/vm --net` ja
-  `tools/vm-cpu`.
-- **Asiakas, `monolith/`:** `drawterm.wasm`, `gui-web` ja selaimen
-  käyttöliittymä, rakennetaan Linuxissa Emscriptenillä
-  (`monolith/tools/build`, `monolith/tools/deploy`). Plan2001:n oma build
-  ei riipu siitä; `tools/vm-cpu --update --web DIR` kopioi valmiit sivun
-  tiedostot VM:ään. Ohjeet: `monolith/README.md`, `monolith/docs/`.
-- Historia: moniarkkitehtuurityö (vaiheet 1–4) on `main`in perusta, ja
-  palvelinpää on rakennettu sen päälle omana kokonaisuutenaan.
+- **Palvelinpää:** 9frontin rc-httpd tlssrv:n takana portissa 17443
+  tarjoaa sivun Plan2001:n select-handlerilla (`plan2001/rc/bin/rc-httpd`)
+  ja antaa WebSocketit `plan2001/sys/src/cmd/webterm.c`:lle (`webterm -s
+  -r`). WebSocketit ovat rcpu, auth, sovelluksen `/rcpu`-istunto ja sen
+  jatko. Työkalut: `tools/vm --net`, `tools/vm-cpu`,
+  `monolith/tools/pages` ja `deploy`.
+- **`monolith/`** on Linux-puolen rakennus- ja testityökalut: 3c/3l,
+  `build-*`, `test-9wasm32` ja 9pterm (natiivi drawterm tekstipäätteenä
+  pilven hallintaan, `docs/9pterm.md`). Monolith oli ennen erillinen repo
+  (pereuna/monolith), joka toi drawtermin selaimeen. Sen historia on
+  `monolith/docs/`:ssa.
 
 ## AI/agentille
 

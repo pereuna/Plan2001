@@ -1,5 +1,12 @@
 # Arkkitehtuuri
 
+> **Historiaa (D7, 4.10.2026):** drawtermin selainosat (`gui-web`,
+> `drawterm.wasm`), host3, wasmapp ja Monolithin JS (`web/`) on poistettu.
+> Selaimessa ajetaan Plan2001:n wasm32-ydintä (`plan9/sys/src/9/wasm32`,
+> `docs/architecture.md`). Tämä dokumentti kuvaa Monolithin vaiheita
+> sellaisina kuin ne tehtiin.
+
+
 ## Mitä drawterm tekee
 
 ```

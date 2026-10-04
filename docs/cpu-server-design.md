@@ -242,6 +242,7 @@ selaimen kautta.
 
 - **CR selaimessa:** `https://compute.kone:17443/cr.html` (Monolith,
   `monolith/web/cr.*`; laskentapoolin origin, `docs/app-origins.md`).
+  Poistettiin D7:ssä (Monolithin JS). D8 tuo CR:n takaisin wasm32-koneena.
   Selain tarjoaa laitteensa kerran: saman selaimen compute-välilehdistä vain
   lukon (Web Locks) haltija on CR, muut odottavat. Workereita on oletuksena
   laitteen säikeet miinus yksi, joten yksi jää käyttäjälle (`?workers=N`).
