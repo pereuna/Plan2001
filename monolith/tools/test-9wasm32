@@ -181,6 +181,22 @@ if want dp9ikvm $names; then
 		echo "test-9wasm32: dp9ikvm: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
 	fi
 fi
+# factotum's keys from the CPU VM's secstore (tools/vm-cpu: secstored, glenda's account, her
+# secstore password in cpu.secpass) and a CPU session that uses them: the machine puts glenda's
+# dp9ik key into her secstore (secstore -p), /boot/secstore - the page gives it secstore=, as the
+# VM's site does - gets it back into a factotum that had none, rcpu to the VM authenticates with
+# it, and the session's factotum is the terminal's (the VM's profile, case cpu): glenda's key
+# only, none of the VM's own (its TLS key)
+if want secstorevm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null && [ -f ~/.cache/plan2001/cpu.pass ] && [ -f ~/.cache/plan2001/cpu.secpass ]; then
+		p=$(cat ~/.cache/plan2001/cpu.pass) sp=$(cat ~/.cache/plan2001/cpu.secpass)
+		MONOLITH_SECSTORE='tcp!cpu!5356' HTTPPORT=18080 HALTWAIT=200 run secstorevm "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+			"aux/kbdfs -q -s cons /dev/eia0; {mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; ramfs -m /mnt/ram; cd /mnt/ram; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=$p' >factotum; echo $sp | auth/secstore -i -s tcp!cpu!5356 -p factotum >[2]/dev/null; echo put \$status; rm factotum; rc /boot/secstore; rcpu -h cpu -c 'cat /mnt/factotum/ctl' >[2=1] | sed '/short write in reply/d'; echo done} </dev/cons >/dev/cons >[2=1]")" \
+			"$(python3 -c 'import json,sys; print(json.dumps([["secstore password: ", sys.argv[1] + "\n"]]))' "$sp")"
+	else
+		echo "test-9wasm32: secstorevm: skipped (no CPU VM with secstore: tools/vm-cpu --update; tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
 if want rcpuvm $names; then
 	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null && [ -f ~/.cache/plan2001/cpu.pass ]; then
 		HTTPPORT=18080 HALTWAIT=150 run rcpuvm '["/bin/rc", "-c", "mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password='"$(cat ~/.cache/plan2001/cpu.pass)"''"'"' >/mnt/factotum/ctl; rcpu -h cpu -c '"'"'echo remote: service $service; test -e /mnt/term/dev/draw/new && echo the terminal draws; cat /mnt/term/env/sysname; echo'"'"' >[2=1] | sed '"'"'/short write in reply/d'"'"'; echo rcpu status $status; echo done"]'

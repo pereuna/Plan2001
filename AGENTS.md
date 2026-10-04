@@ -103,8 +103,9 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
-- D3 tunnistus: `crypto dp9ik dp9iknoas secstore seckeys` (+ `dp9ikvm`
-  VM:llä; `secstore`: factotumin avaimet `test-authsrv`in secstoresta,
+- D3 tunnistus: `crypto dp9ik dp9iknoas secstore seckeys pagesecstore`
+  (+ `dp9ikvm` ja `secstorevm` VM:llä, `secstorevm` vaatii `tools/vm-cpu
+  --update`:n jälkeisen secstore-tilin; `secstore`: factotumin avaimet `test-authsrv`in secstoresta,
   `seckeys`: niiden salattu kopio levyllä ja haku siitä ilman verkkoa)
 - D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask rcpukeys` (+ `rcpuvm`
   VM:llä; `rcpukeys`: cpu-istunnon factotum on päätteen)
