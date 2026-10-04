@@ -109,7 +109,7 @@ want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status;
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
 # password gives needkey; with no auth server, no tickets
 fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -154,6 +154,12 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	want secstore $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run secstore "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$fkeys; ramfs -m /mnt/ram; cd /mnt/ram; {echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'; echo 'key proto=pass service=mail user=glenda !password=mpassword'} >factotum; echo spassword | auth/secstore -i -s tcp!relay!5356 -p factotum >[2=1]; rm factotum; echo before:; cat /mnt/factotum/ctl; secstore=tcp!relay!5356 rc /boot/secstore; echo after:; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["secstore password: ", "wrong\n"], ["secstore password: ", "spassword\n"]]'
+	# a CPU session's factotum is the terminal's (glenda's profile, case cpu: docs/architecture.md,
+	# "Avainten paikka"): the server's own (bootes's key) is not what the session sees.  The
+	# server's rc -l reads the profile from $home
+	rsrvh="${rsrv/@\{rfork n;/@\{rfork n; home=/usr/glenda;}"
+	want rcpukeys $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpukeys "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"$rsrvh; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; rcpu -h relay -c 'echo remote:; cat /mnt/factotum/ctl; echo remote done' >[2=1] | sed '/short write in reply/d'; echo done")"
 	# the keys' copy on the machine's disk (aux/seckeys, /boot/secstore): from secstore with the disk,
 	# the copy is in glenda's home - aescbc's, not the keys; then without secstore (test-authsrv
 	# refuses /5399: the dial fails) the keys from the copy, a wrong password first

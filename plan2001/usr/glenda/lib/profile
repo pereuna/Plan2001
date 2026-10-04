@@ -38,6 +38,11 @@ case terminal
 	if not
 		rio -i riostart
 case cpu
+	# factotum: the terminal's, where her keys are (docs/architecture.md,
+	# "Avainten paikka"): none of them stay on this machine, and what she
+	# does here authenticates as she does there
+	if(test -e /mnt/term/mnt/factotum/rpc)
+		bind /mnt/term/mnt/factotum /mnt/factotum
 	bind /mnt/term/dev/cons /dev/cons
 	bind -q /mnt/term/dev/consctl /dev/consctl
 	>[2] /dev/null {

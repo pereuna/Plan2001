@@ -106,7 +106,8 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
 - D3 tunnistus: `crypto dp9ik dp9iknoas secstore seckeys` (+ `dp9ikvm`
   VM:llä; `secstore`: factotumin avaimet `test-authsrv`in secstoresta,
   `seckeys`: niiden salattu kopio levyllä ja haku siitä ilman verkkoa)
-- D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask` (+ `rcpuvm` VM:llä)
+- D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask rcpukeys` (+ `rcpuvm`
+  VM:llä; `rcpukeys`: cpu-istunnon factotum on päätteen)
 - D7 sovelluksen origin: `app appresume sendq` (webterm:n `/rcpu`-istunto, katkos ja jatko, iso jatko-jono, sivun takaisinkytkentä)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)
 

@@ -38,7 +38,7 @@ if not sys.argv[1:]:
 	pats = ['plan9/sys/src/9/wasm32/init', 'plan9/sys/src/9/wasm32/disk', 'plan9/sys/src/9/wasm32/secstore', 'plan9/sys/src/9/wasm32/console',
 		'plan2001/sys/src/9/wasm32/app', 'plan2001/sys/src/9/wasm32/rconnect.app',
 		'plan2001/rc/bin/rc-httpd/select-handler', 'plan2001/rc/bin/rc-httpd/handlers/*',
-		'plan2001/rc/bin/apps', 'plan2001/rc/bin/inst/*', 'plan2001/lib/app/*/image', 'plan2001/lib/app/*/namespace',
+		'plan2001/rc/bin/apps', 'plan2001/usr/glenda/lib/profile', 'plan2001/rc/bin/inst/*', 'plan2001/lib/app/*/image', 'plan2001/lib/app/*/namespace',
 		'tools/*.rc', 'tools/cloud/*.rc']
 	files = sorted(f for p in pats for f in glob.glob(os.path.join(root, p)))
 bad = 0

@@ -656,7 +656,14 @@ Työjärjestys:
    Avoinna: kopio päivittyy vain bootissa, kun avaimet haetaan. Uuden
    avaimen vienti secstoreen (`secstore -p`) ja kopioon on käyttäjän
    tehtävä.
-5. Profiilin `case cpu`: päätteen factotum cpu-istuntoon.
+5. Profiilin `case cpu`: päätteen factotum cpu-istuntoon (tehty 4.10.).
+   Plan2001:n glendan profiili (`plan2001/usr/glenda/lib/profile`)
+   bindaa `/mnt/term/mnt/factotum`in `/mnt/factotum`iin, jos päätteellä on
+   factotum. Sama koskee sovelluksen originin istuntoa, koska webtermin
+   skripti ajaa `service=cpu rc -l`. Testi `rcpukeys`: koneen oma rcpu
+   palvelimelle, jonka nimiavaruuden factotumissa on bootesin avain, ja
+   istunnon `/mnt/factotum/ctl` näyttää päätteen avaimen (glendan).
+   Ilman bindausta näkyy bootesin avain (tarkistettu).
 6. Pilven amd64: auth, secstore ja cpu yhdellä koneella, ja selaimet sitä
    vastaan.
 
