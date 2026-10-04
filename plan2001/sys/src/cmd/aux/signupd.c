@@ -13,11 +13,12 @@
  * and WRAP the name and password encrypted with its PRF output (base64url).
  * The account: a user in keyfs (its aeskey), a secstore account (who/NAME,
  * store/NAME/factotum), the passkey (webauthn/CREDID: whose, its key and
- * wrap) and, with -c, a home on the file server (newuser on its console).
+ * wrap) and, with -c, a home on the file server (newuser on its console;
+ * ok once usr/NAME, which it makes, is there).
  * With an invites file one of its lines is needed, and used up.  What it
  * had made is undone if a later step fails.
  *
- *	aux/signupd [-k keys] [-s secstore] [-w webauthn] [-c fscons] [-i invites]
+ *	aux/signupd [-k keys] [-s secstore] [-w webauthn] [-c fscons [-u usr]] [-i invites]
  *
  * defaults /mnt/keys, /adm/secstore, /adm/webauthn, none, webauthn/invites
  */
@@ -34,6 +35,7 @@ static char *keys = "/mnt/keys";
 static char *secdir = "/adm/secstore";
 static char *wadir = "/adm/webauthn";
 static char *fscons;
+static char *usrdir = "/usr";
 static char *invites;
 static char *reserved[] = {
 	"glenda", "bootes", "adm", "sys", "none", "upas", "nobody", "root",
@@ -201,6 +203,9 @@ main(int argc, char **argv)
 	case 'i':
 		invites = EARGF(sysfatal("usage"));
 		break;
+	case 'u':
+		usrdir = EARGF(sysfatal("usage"));
+		break;
 	}ARGEND
 	if(invites == nil)
 		invites = smprint("%s/invites", wadir);
@@ -271,10 +276,16 @@ main(int argc, char **argv)
 
 	/* a home on the file server */
 	if(fscons != nil && *fscons){
-		q = smprint("newuser %s", name);
+		/* a line: the file server's console reads its commands a line at a time (cwfs's Brdline) */
+		q = smprint("newuser %s\n", name);
 		if((nf = open(fscons, OWRITE)) < 0 || write(nf, q, strlen(q)) != strlen(q))
 			fail("newuser");
 		close(nf);
+		/* the console says nothing back: done when its home is there (cwfs's newuser makes /usr/NAME) */
+		for(nf = 0; nf < 100 && !exists("%s/%s", usrdir, name); nf++)
+			sleep(200);
+		if(nf == 100)
+			fail("newuser: no home made");
 	}
 	answer("ok");
 }

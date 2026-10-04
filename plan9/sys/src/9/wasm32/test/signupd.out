@@ -17,4 +17,10 @@ error secstore store
 error invite needed
 ok
 error invite needed
+error newuser: no home made
+0000000   n  e  w  u  s  e  r     f  r  a  n  k \n
+000000e 
+/mnt/ram/keys/alice
+/mnt/ram/keys/carol
+ok
 done

@@ -152,6 +152,12 @@ def long(ser, cmd):
 			buf += ser.read()
 			if buf.endswith('\t'):
 				break
+	ser.send('echo >>' + f)	# its last line ended: rc wants a newline before EOF
+	buf, end = '', time.time() + 5
+	while time.time() < end:
+		buf += ser.read()
+		if buf.endswith('\t'):
+			break
 	return 'rc ' + f + '; s=$status; rm -f ' + f + '; status=$s'
 
 def run(ser, cmd, timeout):
