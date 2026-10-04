@@ -147,7 +147,9 @@ ja `/wasm32`:een omassa mount-nimiavaruudessa (`unshare`). Isännän työkaluja
 (`mpc`, `mklatin`) sillä ei ole, joten se käyttää julkaisun valmiiksi
 tekemiä tiedostoja. Kokoaja ajoittaa ne lähteitään uudemmiksi, kuten ne
 ovat 9front-koneella. `tools/test-native` panee natiivin ytimen ja
-ohjelmat `build-bin3`:n juureen ja ajaa `test-9wasm32`:n niillä.
+ohjelmat `build-bin3`:n juureen ja ajaa `test-9wasm32`:n niillä. 4.10.2026 koko
+sarja meni läpi (49 PASS) natiivilla ytimellä ja 38 natiivilla
+ohjelmalla. VM-testit (`dp9ikvm`, `rcpuvm`, `net`) ohitettiin.
 
 Vielä tekemättä:
 - **Ajo 9frontissa:** VM:ssä `objtype=wasm32 mk install` puussa, jossa
