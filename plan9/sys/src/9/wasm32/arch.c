@@ -167,13 +167,6 @@ userureg(Ureg*)
 	return 0;
 }
 
-/* plan9.ini's: none yet (Boot ABI: the platform's config) */
-char*
-getconf(char*)
-{
-	return nil;
-}
-
 /*
  * what port/ wants from parts wasm32 has not (segments, dtrace,
  * the debugger) or has in its own way
@@ -223,7 +216,19 @@ procfdprint(Chan *c, int fd, char *s, int ns)
 		c->iounit, c->offset, c->path->s);
 }
 
-/* random: the platform's (crypto.getRandomValues) */
+/*
+ * random: the platform's (crypto.getRandomValues), as the CPU's RDRAND
+ * on a PC - through hwrandbuf, so that port/bootinfo.c's
+ * bootinforandinit() mixes BootInfo's seed in, once, as it does there
+ */
+static void
+platrandbuf(void *p, ulong n)
+{
+	platrandom(p, n);
+}
+
+void (*hwrandbuf)(void*, ulong) = platrandbuf;
+
 void
 randominit(void)
 {
@@ -232,14 +237,14 @@ randominit(void)
 ulong
 randomread(void *p, ulong n)
 {
-	platrandom(p, n);
+	(*hwrandbuf)(p, n);
 	return n;
 }
 
 void
 genrandom(uchar *p, int n)
 {
-	platrandom(p, n);
+	(*hwrandbuf)(p, n);
 }
 
 /*

@@ -43,21 +43,38 @@ mouseproc(void*)
 	}
 }
 
-/* the page's size: the screen's */
+/*
+ * the page's framebuffer, from BootInfo: the page, as the firmware,
+ * put it in the kernel's memory (the memory map calls it Reserved) and
+ * draws it on its canvas; XRGB32, a line its width.  None: no screen.
+ */
 void
 screeninit(void)
 {
-	int w, h;
+	static Memdata md;
+	BootInfo *bi;
+	Rectangle r;
 
-	w = 1024;
-	h = 768;
-	platscreen(&w, &h);
+	bi = bootinfo;
+	if(bi->fbbase == 0)
+		return;
+	r = Rect(0, 0, bi->fbwidth, bi->fbheight);
+	if(bi->fbdepth != 32 || bi->fbstride != bi->fbwidth
+	|| strcmp(bi->fbchan, "x8r8g8b8") != 0
+	|| bi->fbsize < (uvlong)Dx(r)*Dy(r)*4){
+		print("screen: framebuffer %dx%d %d %s: not XRGB32, no screen\n",
+			bi->fbwidth, bi->fbheight, bi->fbdepth, bi->fbchan);
+		return;
+	}
 	memimageinit();
-	gscreen = allocmemimage(Rect(0, 0, w, h), XRGB32);
+	md.base = nil;
+	md.bdata = (uchar*)(uintptr)bi->fbbase;
+	md.ref = 1;
+	md.allocd = 0;
+	gscreen = allocmemimaged(r, XRGB32, &md);
 	if(gscreen == nil)
-		panic("screeninit: no %dx%d screen", w, h);
+		panic("screeninit: no %dx%d screen", Dx(r), Dy(r));
 	memfillcolor(gscreen, 0x777777FF);
-	platfb(byteaddr(gscreen, ZP), gscreen->width*sizeof(ulong), w, h);
 	flushmemscreen(gscreen->r);
 }
 

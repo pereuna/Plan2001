@@ -11,6 +11,7 @@ Sopimus siitä, miten loader luovuttaa koneen kernelille. Sopimus on kaksiosaine
 |---|---|---|---|
 | AMD64 | `RDI` = BootInfo PA | `docs/boot-abi-amd64.md` | käytössä |
 | ARM64 | `X0` = BootInfo PA | `docs/boot-abi-arm64.md` | QEMU virt: bootargs-kehotteeseen asti (vaihe 4) |
+| wasm32 | `_start`, BootInfon osoite C-argumenttina SP:ssä; sivu on firmware | `docs/boot-abi-wasm32.md` | käytössä (D5) |
 | RV64 | `a0` = BootInfo PA, `a1` = boot-hartin id | `docs/boot-abi-riscv64.md` | tulevaisuus |
 
 Periaate: **loader kertoo osoitteen, kernel ei arvaa.** Kummassakaan osassa
@@ -51,7 +52,8 @@ perusteella.
   `flags` sekä osioiden kuvaajat ja kiinteät kentät: ACPI RSDP,
   framebuffer (GOP), UTC-aika (`epoch`) ja RNG-siemen.
 - **`arch`** (lisätty loppuun): ISA, jolle loader teki blobin
-  (`BootArchAmd64` = 1, `BootArchArm64` = 2, `BootArchRiscv64` = 3). Kernel
+  (`BootArchAmd64` = 1, `BootArchArm64` = 2, `BootArchRiscv64` = 3,
+  `BootArchWasm32` = 4). Kernel
   pysähtyy, jos arvo ei ole sen oma. Väärä loader- ja kernel-pari on siis
   sama virhe kuin väärä magic.
 - **Laitteiston kuvaus: ACPI tai FDT.** UEFI on firmware-raja, mutta
@@ -76,6 +78,10 @@ perusteella.
   enintään 96 KiB raakaa UEFI-muistikarttaa (noin 2457 kuvaajaa).
   Suurempi kartta ei katkea hiljaa, vaan `GetMemoryMap` epäonnistuu ja
   boot pysähtyy virheeseen.
+- **`rdbase`/`rdlen`** (lisätty loppuun): loaderin blobin viereen lataama
+  juuren image, jonka muoto on kernelin (wasm32: `#R`:n arkisto). Se on
+  muistikartassa LoaderData-muistia, ja kernel pitää sen. 0, jos imagea
+  ei ole (UEFI-loader ei vielä lataa sellaista).
 - **Osiot** eivät saa mennä päällekkäin toistensa eivätkä headerin kanssa.
 
 ## Omistajuus
@@ -92,7 +98,7 @@ config-tekstiin ja konsoli toistaa loaderin lokin. Blob on noin 72 KB.
 Kernel hyväksyy blobin, jonka `magic` ja `version` ovat sen omat ja
 `headersize` on vähintään sen oma `sizeof(BootInfo)`. Tuntemattomat
 loppukentät ohitetaan, joten **uudet kentät lisätään headerin loppuun
-ilman versionnostoa** (näin lisättiin `arch`, `fdtoff` ja `fdtlen`).
+ilman versionnostoa** (näin lisättiin `arch`, `fdtoff`, `fdtlen`, `rdbase` ja `rdlen`).
 Muutos, joka rikkoo tämän, vaatii uuden `BootInfoVersion`in. Tällainen olisi
 esimerkiksi kentän poisto keskeltä tai `BootMem.type`-kentän merkityksen muutos.
 

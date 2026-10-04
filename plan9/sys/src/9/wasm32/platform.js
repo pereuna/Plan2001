@@ -5,11 +5,95 @@
 // go back in RET (wasm32's calling convention).  Each Worker is a CPU: the
 // first runs main, each platnewproc another (a kproc).  The page (kernel.html)
 // is the machine's front: it makes the Workers and is #t/eia0's other end.
+// As the machine's firmware, boot() hands the kernel what it is as any
+// loader does: a BootInfo blob (Plan2001 Boot ABI v1, plan9/sys/include/
+// bootinfo.h; docs/boot-abi-wasm32.md), its address _start's argument.
 //
 //   import { boot } from './platform.js'; boot('9wasm32.wasm', { eia(bytes), halt(why) })
 // For tests, window.monolith: eia0bytes, eia0out, eia0b64, eia0in.
 
-const PAGES = 1024, MAXPAGES = 16384;	// 64 MB to start; 3l -k's maximum
+const PAGES = 1024, MAXPAGES = 16384;	// 64 MB, the kernel's (its image, its heap); 3l -k's maximum
+
+/*
+ * The BootInfo blob (bootinfo.h; docs/boot-abi.md): the same data as the
+ * UEFI loader's for amd64 and arm64.  3c lays the structs out as 6c does
+ * (u64int 8-aligned, the size a multiple of 8): BootInfo 224 bytes,
+ * BootMem 24.  The page puts, above the kernel's 64 MB, the blob, the
+ * root's archive and the framebuffer, each page-aligned, and the memory
+ * map says so: Conventional [0, 64 MB) - the kernel's module, its data
+ * and stack at the bottom, the kernel keeps [0, end) - LoaderData the
+ * blob and the archive, Reserved the framebuffer.
+ */
+const BI = { magic: 0x49423250, version: 1, arch: 4, size: 224, memsize: 24, pg: 4096 };
+const BootMemLoaderData = 2, BootMemConventional = 7, BootMemReserved = 0;
+const pground = (n) => Math.ceil(n / BI.pg) * BI.pg;
+
+// init's argv as plan9.ini's init=: tokenize's quoting (rc's), a word with ' or blanks in quotes
+function initconf(args) {
+	if (!args || args.length === 0) return '';
+	for (const a of args)
+		if (/[\n\r\0]/.test(a)) throw new Error('platform: init\'s argument with a newline: ' + JSON.stringify(a));
+	const q = (a) => a !== '' && !/[\s']/.test(a) ? a : "'" + a.replace(/'/g, "''") + "'";
+	return 'init=' + args.map(q).join(' ') + '\n';
+}
+
+/*
+ * front: its config (plan9.ini lines), args (init=), fs (the root's
+ * archive), screen ({ w, h }): the machine's memory, the blob in it -
+ * { mem, pa (the blob's address), fb ({ addr, stride, w, h }, or null) }
+ */
+function firmware(front) {
+	const config = new TextEncoder().encode(initconf(front.args) + (front.config ?? '') + '\0');
+	const heap = PAGES * 65536;
+	const rd = front.fs ?? null;
+	const sc = front.screen ?? { w: 1024, h: 768 };
+	const fbw = sc.w | 0, fbh = sc.h | 0;
+	const fbbytes = fbw > 0 && fbh > 0 ? fbw * fbh * 4 : 0;
+
+	/* the blob: header, config, memory map (nmap entries at most) */
+	const nmap = 4;
+	const configoff = 256, mmapoff = configoff + Math.ceil(config.length / 8) * 8;
+	const blobsize = pground(mmapoff + nmap * BI.memsize);
+	const pa = heap;
+	const rdbase = rd && rd.length ? pa + blobsize : 0;
+	const fbbase = fbbytes ? pground(pa + blobsize + (rd ? rd.length : 0)) : 0;
+	const top = fbbase ? fbbase + pground(fbbytes) : pground(pa + blobsize + (rd ? rd.length : 0));
+	const pages = Math.ceil(top / 65536);
+	if (pages > MAXPAGES) throw new Error('platform: the machine wants ' + top + ' bytes, more than wasm32 has');
+	const mem = new WebAssembly.Memory({ initial: pages, maximum: MAXPAGES, shared: true });
+
+	const map = [[0, heap, BootMemConventional], [pa, blobsize, BootMemLoaderData]];
+	if (rdbase) map.push([rdbase, pground(rd.length), BootMemLoaderData]);
+	if (fbbase) map.push([fbbase, pground(fbbytes), BootMemReserved]);
+
+	const u8 = new Uint8Array(mem.buffer), d = new DataView(mem.buffer);
+	const w32 = (o, v) => d.setUint32(pa + o, v, true);
+	const w64 = (o, v) => d.setBigUint64(pa + o, BigInt(v), true);
+	w32(0, BI.magic); w32(4, BI.version); w32(8, BI.size); w32(12, blobsize); w32(16, 0);
+	w32(20, configoff); w32(24, config.length);
+	w32(28, configoff + config.length); w32(32, 0);		/* logoff, loglen: no loader log */
+	w32(36, mmapoff); w32(40, map.length); w32(44, BI.memsize);
+	w64(48, 0);						/* acpi: none */
+	w64(56, 0);						/* tscfreq: amd64's */
+	w64(64, Math.floor(Date.now() / 1000));		/* epoch */
+	const seed = new Uint8Array(64);			/* getRandomValues takes no shared memory */
+	crypto.getRandomValues(seed);
+	u8.set(seed, pa + 72); w32(136, seed.length);
+	if (fbbase) {
+		w64(144, fbbase); w64(152, fbbytes); w32(160, fbw); w32(164, fbh); w32(168, fbw); w32(172, 32);
+		u8.set(new TextEncoder().encode('x8r8g8b8'), pa + 176);
+	}
+	w32(192, front.badarch || BI.arch);	/* a test's: a blob for another ISA */
+	w32(196, configoff + config.length); w32(200, 0);	/* fdtoff, fdtlen: no device tree */
+	w64(208, rdbase); w64(216, rdbase ? rd.length : 0);
+	u8.set(config, pa + configoff);
+	map.forEach(([b, n, t], i) => {
+		const o = mmapoff + i * BI.memsize;
+		w64(o, b); w64(o + 8, n); w32(o + 16, t); w32(o + 20, 0);
+	});
+	if (rdbase) u8.set(rd, rdbase);
+	return { mem, pa, fb: fbbase ? { addr: fbbase, stride: fbw * 4, w: fbw, h: fbh } : null };
+}
 
 // exec's: the program's frames unwind to platuser's loop, which starts the next
 const EXEC = { exec: true };
@@ -436,7 +520,7 @@ function runprog(env, K, host, pid, job) {
 	}
 }
 
-// the kernel's imports on a Worker: env { mem, x (its exports, once there), post, user, exec, boot }
+// the kernel's imports on a Worker: env { mem, x (its exports, once there), post, user, exec }
 function imports(env) {
 	const dv = () => new DataView(env.mem.buffer);
 	const i32 = () => new Int32Array(env.mem.buffer);
@@ -519,19 +603,6 @@ function imports(env) {
 				env.x.retw.value = -1;
 			}
 		},
-		platbootfs: () => {
-			const a = env.boot?.fs ?? new Uint8Array(0);
-			if (arg(0)) new Uint8Array(env.mem.buffer).set(a.subarray(0, iarg(1)), arg(0));
-			env.x.retw.value = a.length;
-		},
-		platscreen: () => {
-			const sc = env.boot?.screen;
-			if (!sc) return;
-			const d = dv();
-			d.setInt32(arg(0), sc.w, true);
-			d.setInt32(arg(1), sc.h, true);
-		},
-		platfb: () => env.post({ fb: { addr: arg(0), stride: iarg(1), w: iarg(2), h: iarg(3) } }),
 		platflush: () => env.post({ flush: [iarg(0), iarg(1), iarg(2), iarg(3)] }),
 		platcursor: () => {
 			const k = new Uint8Array(env.mem.buffer);
@@ -545,11 +616,6 @@ function imports(env) {
 		},
 		platnetclose: () => env.post({ netclose: { id: iarg(0), gen: arg(1) } }),
 		platkbdring: () => env.post({ kring: arg(0) }),
-		platbootargs: () => {	/* as platbootfs: its size, then into the buffer */
-			const a = new TextEncoder().encode((env.boot?.args ?? []).map((s) => s + '\0').join(''));
-			if (arg(0)) new Uint8Array(env.mem.buffer).set(a.subarray(0, iarg(1)), arg(0));
-			env.x.retw.value = a.length;
-		},
 	};
 	// a function the kernel wants and the platform has not: say which
 	const platform = new Proxy(fns, { get: (o, k) => k === 'memory' ? env.mem : o[k] ?? (() => { throw new Error('platform: ' + String(k) + ' not here'); }) });
@@ -557,16 +623,20 @@ function imports(env) {
 }
 
 // on a Worker: the kernel, and what this CPU runs
-function cpu({ module, mem, role, fn, arg, sp, boot, user }) {
+function cpu({ module, mem, role, fn, arg, sp, user }) {
 	const env = { mem, x: null, post: (m, t) => postMessage(m, t ?? []), user: null, exec: null, fork: null, forkimage: null,
-		rfmem: null, note: null, noted: false, boot };
+		rfmem: null, note: null, noted: false };
 	if (user) env.exec = user;	/* a fork's child */
 	try {
 		const inst = new WebAssembly.Instance(module, imports(env));
 		env.x = inst.exports;
 		if (role === 'boot') {
 			env.x._init();		// the kernel's data, once
-			env.x._start();		// main
+			/* the entry ABI (docs/boot-abi-wasm32.md): _start(BootInfo's address), as a C call - at SP */
+			const top = (env.x.stacktop.value - 16) & ~7;
+			new DataView(mem.buffer).setUint32(top, arg, true);
+			env.x.sp.value = top;
+			env.x._start();		// main(pa)
 		} else {
 			const top = (sp - 16) & ~7;
 			new DataView(mem.buffer).setUint32(top, arg, true);
@@ -594,13 +664,14 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 	self.onmessage = (e) => cpu(e.data);
 
 // on the page: the machine
-// front: { eia(bytes), halt(why), fs (the root's archive, rootfs.c: the boot Worker's), args (init's argv: every Worker's),
-//	canvas, screen ({ w, h }: the kernel's screen, shown on the canvas; its pointer the mouse),
+// front: { eia(bytes), halt(why), fs (the root's archive, devrootfs.c), args (init's argv: plan9.ini's init=),
+//	config (more plan9.ini lines), canvas, screen ({ w, h }, 1024x768 without: the framebuffer, shown on
+//	the canvas; its pointer the mouse) - what the firmware puts in BootInfo (firmware()),
 //	ws (the machine's webterm: ws://host:port, the network's WebSockets),
 //	failfork, failhelper, failrfmem (a test's: the nth fork's child, helper, rfork(RFMEM) child gets no Worker) }
 export async function boot(url, front = {}) {
 	const module = await WebAssembly.compileStreaming(fetch(url));
-	const mem = new WebAssembly.Memory({ initial: PAGES, maximum: MAXPAGES, shared: true });
+	const { mem, pa, fb } = firmware(front);
 	const eia = [];
 	let ring = 0;		/* #t/eia0's input: the kernel's ring */
 	let kring = 0;		/* #b/kbd's (devkbd.c) */
@@ -819,10 +890,9 @@ export async function boot(url, front = {}) {
 		w.onmessage = (e) => {
 			const m = e.data;
 			if (m.eia) { eia.push(m.eia); front.eia?.(m.eia); }
-			if (m.spawn) spawn({ module, mem, role: 'proc', boot: { args: front.args }, ...m.spawn });
+			if (m.spawn) spawn({ module, mem, role: 'proc', ...m.spawn });
 			if (m.log !== undefined) console.log('KLOG ' + m.log);
 			if (m.ring !== undefined) ring = m.ring;
-			if (m.fb) screen.fb(m.fb);
 			if (m.flush) screen.flush(m.flush);
 			if (m.cursor) screen.cursor(m.cursor);
 			if (m.mring !== undefined) screen.mring = m.mring;
@@ -868,5 +938,6 @@ export async function boot(url, front = {}) {
 		},
 		eia0inb64: (b) => window.monolith.eia0in(Uint8Array.from(atob(b), (c) => c.charCodeAt(0))),
 	};
-	spawn({ module, mem, role: 'boot', boot: { fs: front.fs, args: front.args, screen: front.screen } });
+	if (fb) screen.fb(fb);
+	spawn({ module, mem, role: 'boot', arg: pa });
 }

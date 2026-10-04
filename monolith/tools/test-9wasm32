@@ -1,7 +1,7 @@
 #!/bin/bash
 # Plan2001's wasm32 kernel (sys/src/9/wasm32) in headless Chromium: its
 # serial port, #t/eia0, against sys/src/9/wasm32/test/*.out - C2a's test
-# of port/, then init as a program from the root (tools/build-bin3): echo,
+# of port/, D5's BootInfo (the page the firmware), then init as a program from the root (tools/build-bin3): echo,
 # init's arguments longer than 4096 bytes, fork, 2000 forks with exit,
 # chdir, exec and wait, rc -c, an interactive rc; C3a's notes and
 # rendezvous, and a fork whose child gets no Worker (the page's failfork);
@@ -36,6 +36,12 @@ run() {	# NAME ARGS [SEND [PAGEARGS]]
 want() { local n=$1; shift; [ $# = 0 ] || [[ " $* " == *" $n "* ]]; }
 names="$*"
 want c2a $names && run c2a '[]' '[]' '&noinit=1'
+# D5's BootInfo (docs/boot-abi-wasm32.md): plan9.ini's lines in the environment, the framebuffer
+# as *bootscreen, the clock from its epoch; a blob for another ISA stops the kernel before anything
+want bootinfo $names && run bootinfo "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+	"echo \$bitest; x=\`{cat '#ec/*bootscreen'}; echo \$x(1) \$x(2); t=\`{cat /dev/time}; test \$t(1) -gt 1759000000 && echo the clock is from BootInfo; echo done")" \
+	'[]' '&screen=640x480&conf=bitest%3Dhello%20world'
+want badblob $names && EXPECTJS="document.getElementById('eia0').textContent.includes('[halted: bootinfo: no blob')" run badblob '["/bin/echo", "never"]' '[]' '&badarch=2'
 want echo $names && run echo '["/bin/echo", "hello", "world"]'
 want long $names && run long "[\"/bin/echo\", \"$(printf '%06000d' 0 | tr 0 a)\"]"
 want fork $names && run fork '["/bin/fork"]'

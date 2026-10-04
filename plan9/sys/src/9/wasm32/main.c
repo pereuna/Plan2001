@@ -10,35 +10,65 @@
  * Plan2001's wasm32 kernel (docs/architecture.md, phase C): 9front's
  * port/ on the platform's Workers.  main runs on the first: memory,
  * allocation, procs, devices, the clock, then init - a kproc for now
- * (C2a); user processes come with sysproc (C2b).
+ * (C2a); user processes come with sysproc (C2b).  What the machine is
+ * comes from the page as from any firmware: a BootInfo blob (Plan2001
+ * Boot ABI v1, docs/boot-abi-wasm32.md), its address main's argument -
+ * the memory map, plan9.ini's text (init=, getconf), the clock, entropy,
+ * the framebuffer and the root's archive.
  */
 Conf	conf;
 Mach	mach0;
 char	*eve = "glenda";
 uchar	*sp;	/* user stack of init proc, unused */
 
+/*
+ * the memory: BootInfo's map, its conventional ranges above the kernel's
+ * own image [0, end) - the blob, the root's archive (LoaderData) and the
+ * framebuffer (reserved) are the page's, kept apart in the map
+ */
 void
 confinit(void)
 {
-	uintptr base, top;
+	uvlong b, e, k;
+	ulong total;
+	BootMem *bm;
+	int i, n;
 
-	base = PGROUND((uintptr)end);
-	top = 64*MiB;			/* platform.js: the memory's first size */
+	k = PGROUND((uintptr)end);
+	n = 0;
+	total = 0;
+	for(i = 0; i < bootinfo->mmapcount && n < nelem(conf.mem); i++){
+		bm = bootmem(i);
+		if(bm->type != BootMemConventional)
+			continue;
+		b = PGROUND(bm->base);
+		e = (bm->base + bm->len) & ~(uvlong)(BY2PG-1);
+		if(b < k)
+			b = k;
+		if(e > 0xFFFFF000ULL)
+			e = 0xFFFFF000ULL;
+		if(e <= b)
+			continue;
+		conf.mem[n].base = b;
+		conf.mem[n].npage = (e - b) / BY2PG;
+		total += conf.mem[n].npage;
+		n++;
+	}
+	if(n == 0)
+		plathalt("bootinfo: no memory for the kernel in the map");
 	conf.nmach = 1;
 	conf.nproc = 512;
-	conf.mem[0].base = base;
-	conf.mem[0].npage = (top - base) / BY2PG;
-	conf.npage = conf.mem[0].npage;
+	conf.npage = total;
 	conf.upages = 0;
 	/*
 	 * the kernel's heap is all of it: programs' memories are their own,
-	 * and what passes through the kernel (an exec's module, the screen)
-	 * is here.  9front's pools start at 4 and 16 MB; pc64's confinit sets
-	 * them from the machine's memory too
+	 * and what passes through the kernel (an exec's module) is here.
+	 * 9front's pools start at 4 and 16 MB; pc64's confinit sets them
+	 * from the machine's memory too
 	 */
-	conf.ialloc = (top - base) / 2;
-	mainmem->maxsize = top - base;
-	imagmem->maxsize = top - base;
+	conf.ialloc = total*BY2PG / 2;
+	mainmem->maxsize = total*BY2PG;
+	imagmem->maxsize = total*BY2PG;
 	conf.pipeqsize = 32*1024;
 	conf.nuart = 1;
 	conf.monitor = 1;	/* the page's screen (screen.c) */
@@ -60,39 +90,33 @@ kcall(uintptr (*f)(va_list), ...)
 }
 
 /*
- * C2b: init becomes a program, what the page says (platbootargs): its
- * root #R, the page's files; #c, #t (eia0) in /dev, #e, #s; its files
- * 0, 1, 2 #t/eia0.  Without one: the end of C2a's test.
+ * C2b: init becomes a program, plan9.ini's init= (rc's words, quoted
+ * as tokenize takes them): its root #R, the page's files; #c, #t (eia0)
+ * in /dev, #e, #s; its files 0, 1, 2 #t/eia0.  Without one: the end of
+ * C2a's test.
  */
 static void
 inituser(void)
 {
-	char *args, *e, *z, **argv;
+	char *s, *args, **argv;
 	long n;
 	int argc;
 	Chan *c;
 
-	n = platbootargs(nil, 0);
-	if(n <= 0){
+	argc = 0;
+	if((s = getconf("init")) != nil){
+		n = strlen(s);
+		args = smalloc(n+1);
+		strcpy(args, s);
+		argv = smalloc((n/2+2)*sizeof(char*));
+		argc = tokenize(args, argv, n/2+1);
+		argv[argc] = nil;
+	}
+	if(argc == 0){
 		plathalt("C2a done");
 		for(;;)
 			tsleep(&up->sleep, return0, nil, 1000000);
 	}
-	/* the page's: each string must end in its 0 */
-	args = smalloc(n);
-	platbootargs(args, n);
-	argv = smalloc((n+1)*sizeof(char*));
-	argc = 0;
-	for(e = args+n; args < e; args = z+1){
-		if((z = memchr(args, 0, e-args)) == nil){
-			print("inituser: init's arguments: no 0 at the end\n");
-			plathalt("inituser error");
-			for(;;)
-				tsleep(&up->sleep, return0, nil, 1000000);
-		}
-		argv[argc++] = args;
-	}
-	argv[argc] = nil;
 
 	if(waserror()){
 		print("inituser: %s\n", up->errstr);
@@ -126,6 +150,7 @@ inituser(void)
 	ksetenv("objtype", "wasm32", 0);
 	ksetenv("terminal", "wasm32 browser", 0);
 	ksetenv("service", "terminal", 0);
+	setconfenv();	/* plan9.ini's, as 9front's init0 */
 	poperror();
 	kproc("alarm", alarmkproc, 0);
 	initp = up;
@@ -214,8 +239,11 @@ initproc(void*)
 }
 
 void
-main(void)
+main(uintptr pa)
 {
+	bootinfopa = pa;	/* the entry ABI: _start's argument (docs/boot-abi-wasm32.md) */
+	bootinfoinit();		/* a blob it can not take halts the machine */
+	bootargsinit();
 	m = &mach0;
 	machp[0] = m;
 	m->machno = 0;
@@ -226,7 +254,8 @@ main(void)
 	xinit();
 	printinit();
 	timersinit();
-	todset(platnsec(), 0, 0);	/* the time: the platform's */
+	bootinforandinit();	/* its entropy, mixed into the platform's (arch.c) */
+	bootinfoclock();	/* the time: BootInfo's epoch */
 	procinit0();
 	screeninit();
 	chandevreset();

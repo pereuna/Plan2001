@@ -26,7 +26,8 @@
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
-// init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test)
+// init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test);
+// ?conf=name=value plan9.ini's lines (BootInfo's config, as init's init=)
 const q = new URLSearchParams(location.search);
 if ((q.get('console') === '1')) document.body.classList.add('console');
 const args = q.has('noinit') ? [] : q.getAll('arg').length ? q.getAll('arg') : ['/bin/rc', '/boot/init'];
@@ -103,6 +104,7 @@ boot('9wasm32.wasm', {
 	},
 	fs: args.length ? await rootfs() : undefined,
 	args,
+	config: q.getAll('conf').map((c) => c + '\n').join(''),
 	canvas: document.getElementById('screen'),
 	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight) }))((q.get('screen') ?? '').split('x')),
 	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */
@@ -112,6 +114,7 @@ boot('9wasm32.wasm', {
 	ringstart: Number(q.get('ringstart')) || 0,	/* a test's: the network rings' counters start there */
 	failhelper: Number(q.get('failhelper')) || 0,
 	failrfmem: Number(q.get('failrfmem')) || 0,
+	badarch: Number(q.get('badarch')) || 0,	/* a test's: BootInfo for another ISA - the kernel must stop */
 });
 </script>
 </body>

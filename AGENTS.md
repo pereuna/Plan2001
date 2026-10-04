@@ -82,7 +82,7 @@ sivun loki `build/wasmapp-kernel.log` ja kuvakaappaus
 `build/wasmapp-kernel.png`.
 
 Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
-- ydin ja ohjelmat: `c2a echo long fork forkloop rc rci c3a failfork rfmem
+- ydin ja ohjelmat: `c2a bootinfo badblob echo long fork forkloop rc rci c3a failfork rfmem
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
@@ -123,9 +123,13 @@ Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),
 - Kaksi saman koneen prosessia, jotka matkivat asiakasta ja palvelinta,
   tarvitsevat erilliset noteryhmät ja nimiavaruudet (`rfork(RFNOTEG|RFNAMEG)`),
   kuten aux/listen antaa oikealle palvelulle.
-- Selaimen koneen ytimellä on 64 Mt muistia, josta juuren arkisto
-  (`root.fs`) vie osan; jos tulee `no memory for allocb`, etsi vuoto tai
-  silmukka ennen kuin kasvatat muistia.
+- Selaimen koneen ytimellä on 64 Mt muistia (image ja keko). Juuren
+  arkisto (`root.fs`), BootInfo ja kehyspuskuri ovat sen yläpuolella
+  (`docs/boot-abi-wasm32.md`). Jos tulee `no memory for allocb`, etsi
+  vuoto tai silmukka ennen kuin kasvatat muistia.
+- Initin argv on BootInfon configissa `init=`-rivinä (tokenizen
+  lainaus). Argumentissa ei siis voi olla rivinvaihtoa: platform.js
+  hylkää sellaisen.
 
 ## Commit
 

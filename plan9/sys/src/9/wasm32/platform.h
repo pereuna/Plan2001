@@ -35,12 +35,9 @@ void	platfork(Proc*, int (*)(Proc*), ulong);	/* it unwinds, its memory the child
 void	platrfmem(Proc*, int (*)(Proc*), ulong, Umem*, long*);	/* rfork(RFMEM): it unwinds; the function makes the child's helper and the forking proc's if it has none (-1: undone); both rewind; the memory's group and word */
 void	platnote(void*, char*, void (*)(Proc*), Proc*);	/* the proc's notify handler gets the note when the call returns; the function when it is done */
 void	platnoted(void);		/* noted(NCONT): back out of the handler */
-long	platbootfs(void*, long);	/* the files the page gave: its size, the archive into the buffer */
-long	platbootargs(void*, long);	/* what init runs, argv's strings each with its 0: its size, and into the buffer */
 
 /* the screen and the mouse (screen.c) */
-void	platscreen(int*, int*);		/* the page's size, if it has one */
-void	platfb(void*, long, int, int);	/* the framebuffer: XRGB32 at the address, bytes a line, width, height */
+/* the framebuffer is the page's, in BootInfo (fbbase ...): the kernel draws there and says what changed */
 void	platflush(int, int, int, int);	/* this rectangle of it changed */
 void	platcursor(int, int, uchar*, uchar*);	/* the cursor: its offset, clr and set (16x16, 2 bytes a line) */
 void	platkbdring(void*);			/* the page's keyboard messages into the ring: r, w, b[4096] (devkbd.c) */

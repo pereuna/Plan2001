@@ -161,7 +161,7 @@ sijoitussääntöjen mukaan.
 | D2 | verkko: wasm32:n oma `/net` (tcp: clone, ctl, data, local, remote, status); `dial tcp!kone!17019` avaa WebSocketin webtermin samaan polkuun kuin drawtermin wsock.c; pieni `/net/cs`; samat sallitut palvelut kuin webtermillä | `dial` webtermin kautta: auth (567) ja rcpu (17019) vastaavat (valmis 2.10.) |
 | D3 | tunnistus: libmp, libsec, libauthsrv 3c:llä; factotum selaimen koneeseen, salasana ensin kysymällä, myöhemmin OPFS:ään | factotum hoitaa dp9ik:n VM:n auth-palvelimelle (valmis 4.10.; VM:ssä testattu) |
 | D4 | rcpu: 9frontin `rcpu`, `tlsclient` ja `exportfs`; terminal vie ruutunsa, näppäimistönsä ja hiirensä cpu-palvelimelle kuten drawterm; wss-polulla `/rcpu` ilman TLS-PSK:ta kuten Monolithissa | VM:n rio näkyy selaimen wasm32-ytimen ruudulla rcpu:n kautta (toteutettu 4.10. `/17019`:n TLS-PSK-polulla; koneen sisäinen rcpu testattu, VM tarkistamatta; `/rcpu` tekemättä) |
-| D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware |
+| D5 | Boot ABI: `plat*`-käynnistyskutsujen tilalle BootInfo (config, kehyspuskuri, RNG, RTC, juuren arkisto) docs/boot-abi.md:n data-ABI:na; wasm32:n entry-ABI on `_start` ja BootInfon osoite; `getconf` configista | sama BootInfo-data kuin amd64:llä ja arm64:llä; sivu on firmware (valmis 4.10.) |
 | D6 | tallennus: OPFS koneen levynä, pysyvä ja kirjoitettava juuri tai `/usr/$user` | tiedosto säilyy sivun uudelleenlatauksen yli |
 | D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia |
 | D8 | cpu-rooli: selain compute poolissa (crsrv, `/17030`) wasm32-koneena | compute pool -työ ajetaan wasm32-ytimen prosessina |
@@ -378,6 +378,29 @@ ohjelmilla, `/17019`-polulla TLS-PSK:n kanssa kuten 9frontissa.
   ohjelmalle). Testi `procargs`. devwsnet:n `netwait`in 60 s:n raja ei
   lauennut koskaan (laskuri pysähtyi nollaan): nyt kellon takaraja;
   testi `nettimeout` (test-authsrv:n `/17998` ei vastaa koskaan).
+
+D5 valmis (4.10.): wasm32 käynnistyy Plan2001 Boot ABI v1:llä kuten pc64
+ja arm64 (`docs/boot-abi-wasm32.md`). Sivu (`platform.js`:n `firmware()`)
+tekee BootInfo-blobin koneen muistiin: config (plan9.ini: initin argv
+`init=`-rivinä ja sivun `?conf=`-rivit), muistikartta, epoch,
+RNG-siemen, kehyspuskuri ja juuren arkisto. Kernel saa blobin osoitteen
+`_start`in kautta `main`in argumenttina.
+- Kernel käyttää forkin yhteistä koodia, `port/bootinfo.c`:tä ja
+  `port/bootargs.c`:tä (`bootinfoinit`, `getconf`, `setconfenv`,
+  `*bootscreen`). Oma osuus on `wasm32/bootarch.c` (`bootearlymap`,
+  `halt`).
+- `confinit` lukee muistin kartan Conventional-alueista. `screen.c`
+  piirtää BootInfon kehyspuskuriin (`allocmemimaged`), ja `devrootfs.c`
+  lukee arkiston paikallaan (`rdbase`/`rdlen`, lisätty headerin loppuun
+  v1:ssä). RNG-siemen sekoitetaan `hwrandbuf`in kautta, ja kello
+  asetetaan epochista.
+- Poistuivat `platbootfs`, `platbootargs`, `platscreen` ja `platfb`.
+  Ytimen 64 Mt on nyt kokonaan sen imagea ja kekoa: blob, arkisto ja
+  kehyspuskuri ovat sen yläpuolella. Ennen arkisto kopioitiin kekoon.
+- Testit: `bootinfo` (configin rivi ympäristössä, `*bootscreen` 640x480,
+  kello) ja `badblob` (väärän ISA:n blob: kernel pysähtyy ennen mitään).
+  Kaikki muut testit menevät läpi entisellään, koska initin argv kulkee
+  nyt configin kautta.
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 

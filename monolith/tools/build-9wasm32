@@ -18,12 +18,14 @@ mkdir -p "$out/o"
 rm -f "$out"/o/*.3
 port=$P/subset/9front/sys/src/9/port
 # port/'s "../port/x.h": found through -I$port; wasm32's mem.h, dat.h, fns.h first
-INC="-I$P/plan9/wasm32/include -I$k -I$port -I$P/subset/9front/sys/include"
+INC="-I$P/plan9/wasm32/include -I$k -I$port -I$P/plan9/sys/include -I$P/subset/9front/sys/include"
+# the fork's port/: BootInfo (docs/boot-abi.md), the same as pc64's and arm64's
+fport=$P/plan9/sys/src/9/port
 # 9front's port/ that wasm32 uses (proc.c is wasm32's own)
 PORT="alloc xalloc allocb chan dev pgrp qio qlock taslock parse portclock tod print alarm auth mul64fract sysfile
 	devroot devcons devuart devpipe devenv devdup devsrv devmnt devdraw devmouse devtls"
 fail=0
-for s in "$k"/*.c $(for f in $PORT; do echo "$port/$f.c"; done); do
+for s in "$k"/*.c $(for f in $PORT; do echo "$port/$f.c"; done) "$fport/bootinfo.c" "$fport/bootargs.c"; do
 	o=$out/o/$(basename "$(dirname "$s")")-$(basename "${s%.c}").3
 	if ! (cd "$(dirname "$s")" && "$cc3" -FVw $INC -o "$o" "$(basename "$s")") >"$o.err" 2>&1; then
 		echo "build-9wasm32: $s:"; head -5 "$o.err"; fail=1

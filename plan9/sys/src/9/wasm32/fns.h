@@ -1,3 +1,4 @@
+#include <bootinfo.h>
 #include "../port/portfns.h"
 #include "platform.h"
 
@@ -42,3 +43,22 @@ void	umemrelease(Proc*);
 void	callabort(Proc*);
 void	screeninit(void);
 void	mouseinput(void);
+
+/* port/bootinfo.c and port/bootargs.c: what the page, the firmware, told us (sys/include/bootinfo.h, docs/boot-abi-wasm32.md) */
+extern BootInfo*	bootinfo;
+extern uintptr	bootinfopa;
+void	bootinfoinit(void);
+void	bootinforandinit(void);
+void	bootinfoclock(void);
+BootMem*	bootmem(int);
+char*	bootconfig(void);
+uchar*	bootfdt(ulong*);
+enum { BootInfoArch = BootArchWasm32 };	/* the blob must be made for this ISA */
+enum { BootClassRAM, BootClassACPI, BootClassReserved };
+int	bootmemclass(u32int);
+void	bootargsinit(void);
+char*	getconf(char*);
+void	setconfenv(void);
+/* bootarch.c: wasm32's side of port/bootinfo.c */
+void*	bootearlymap(uvlong, uvlong);
+void	halt(void);

@@ -7,7 +7,7 @@
 
 /*
  * #R: the machine's root files, read-only - what the page gave at boot
- * (platform.js, platbootfs: build/wasm32/root, tools/build-bin3).  The
+ * (BootInfo's rdbase and rdlen, docs/boot-abi-wasm32.md: build/wasm32/root.fs, tools/build-bin3).  The
  * archive is, for each file, its path (a/b/c: no leading /, no empty
  * element, no . or ..) and a 0, its length in four bytes, little-endian,
  * and its bytes (a name ending in / an empty directory, no bytes); its
@@ -139,12 +139,10 @@ rootfsreset(void)
 
 	newent("/", -1, 1);
 	ents[0].parent = 0;
-	n = platbootfs(nil, 0);
+	/* the archive where the page loaded it (BootInfo's rdbase, rdlen), the kernel's for good: names and bytes stay there */
+	n = bootinfo->rdbase != 0 ? bootinfo->rdlen : 0;
 	if(n > 0){
-		a = xalloc(n);
-		if(a == nil)
-			panic("rootfs: %ld bytes", n);
-		platbootfs(a, n);
+		a = (uchar*)(uintptr)bootinfo->rdbase;
 		for(p = a, e = a+n; p < e; p += len){
 			if((z = memchr(p, 0, e-p)) == nil)
 				panic("rootfs: archive: a name without its 0");

@@ -4,7 +4,8 @@
  * contract and the same on every ISA; docs/boot-abi.md is its prose.  How
  * the blob's address is passed and what the CPU looks like at the jump is
  * each ISA's entry ABI: docs/boot-abi-amd64.md (RDI = the blob's physical
- * address); ARM64 (X0) and RISC-V (a0) will follow.  Both sides include
+ * address); ARM64 (X0), wasm32 (_start's argument: docs/boot-abi-wasm32.md)
+ * and RISC-V (a0) will follow.  Both sides include
  * this file.  There is no fixed physical address anywhere in the contract:
  * the kernel reads its input where the loader says.
  *
@@ -28,7 +29,7 @@
  * Compatibility: a kernel takes a blob with its magic and version and a
  * headersize at least its own sizeof(BootInfo); fields past what it knows
  * are ignored, so new fields are added at the end of the header without a
- * new version (arch, fdtoff and fdtlen were).  A change that breaks that
+ * new version (arch, fdtoff and fdtlen were; rdbase and rdlen).  A change that breaks that
  * needs a new BootInfoVersion.
  */
 enum {
@@ -41,6 +42,7 @@ enum {
 	BootArchAmd64	= 1,
 	BootArchArm64	= 2,
 	BootArchRiscv64	= 3,
+	BootArchWasm32	= 4,	/* the browser: the page is the firmware (docs/boot-abi-wasm32.md) */
 };
 
 /* BootMem.type: UEFI EFI_MEMORY_TYPE */
@@ -116,4 +118,13 @@ struct BootInfo {
 	u32int	arch;		/* BootArch*: a kernel for another ISA must stop */
 	u32int	fdtoff;		/* the firmware's flattened device tree, copied whole */
 	u32int	fdtlen;		/* bytes, 0 if the firmware gave none (eg ACPI only) */
+
+	/*
+	 * added at the end, still v1: an image the loader loaded beside the
+	 * blob for the kernel's root, whose format is the kernel's (wasm32:
+	 * #R's archive, devrootfs.c); rdbase physical, 0 if none.  The memory
+	 * map keeps it (LoaderData) and the kernel keeps it for good.
+	 */
+	u64int	rdbase;
+	u64int	rdlen;		/* bytes */
 };
