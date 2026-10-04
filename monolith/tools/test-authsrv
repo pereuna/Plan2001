@@ -17,7 +17,8 @@ the page has not acknowledged is kept, and the page's WebSocket is
 dropped once after DROPAT bytes to it, so the page attaches again
 (/resume/TOKEN/N) and the session goes on.  And /5356, a secstore server
 (9front's secstored, written apart from it: pak.c, SConn.c), its users'
-files in memory as the clients put them.
+files in memory as the clients put them.  And /17040 and /17041, signupd
+and passkeyd (Plan2001's accounts and passkeys, docs/webauthn.md).
   tools/test-authsrv PORT USER=PASSWORD... [secstore:USER=PASSWORD...]
 """
 import asyncio, base64, hashlib, hmac, os, struct, sys
@@ -152,8 +153,8 @@ def be(b):
 
 class Key:
 	"""A user's key as authsrv's keyfs gives it: the AES key from the password, the PAK hash points."""
-	def __init__(self, user, password):
-		self.aes = hashlib.pbkdf2_hmac('sha1', password.encode(), b'Plan 9 key derivation', 9001, 16)
+	def __init__(self, user, password=None, aes=None):
+		self.aes = aes or hashlib.pbkdf2_hmac('sha1', password.encode(), b'Plan 9 key derivation', 9001, 16)
 		h = hkdf(hashlib.sha256(user.encode()).digest(), b'Plan 9 AuthPAK hash', self.aes, 2*PAKSLEN)
 		self.PM = h2P(be(h[:PAKSLEN]))
 		self.PN = h2P(be(h[PAKSLEN:]))
@@ -196,7 +197,9 @@ class Authsrv:
 		self.slots = {}
 
 	def key(self, u):
-		# a user it does not know gets a made-up key, as authsrv's mkkey
+		# a user it does not know gets a made-up key, as authsrv's mkkey; signupd's have AES keys
+		if u in aeskeys:
+			return Key(u, aes=aeskeys[u])
 		return Key(u, self.users[u] if u in self.users else os.urandom(16).hex())
 
 	async def run(self, read, write):
@@ -291,6 +294,7 @@ class RC4:
 class Secstore:
 	def __init__(self, users):
 		self.users = users	# user: secstore password
+		self.his = {}		# user: Hi, as signupd has it (no password)
 		self.files = {}		# (user, name): bytes as the client put them
 
 	async def run(self, read, write):
@@ -327,10 +331,10 @@ class Secstore:
 			return err('protocol should start with ver alg')
 		f = m1.split('\n')
 		C, hexm = f[1][2:], f[2][2:]
-		if C not in self.users:
+		if C not in self.users and C not in self.his:
 			return err('no account')
 		m = int.from_bytes(base64.b64decode(hexm), 'big') % SSP
-		Hi = ss_Hi(C, self.users[C])
+		Hi = self.his[C] if C in self.his else ss_Hi(C, self.users[C])
 		y = int.from_bytes(os.urandom(30), 'big') % SSQ or 1
 		mu = pow(SSG, y, SSP)
 		sigma = pow(m * Hi % SSP, y, SSP)
@@ -371,6 +375,53 @@ class Secstore:
 				return
 			else:
 				return err('unrecognized operation')
+
+# Plan2001's accounts (docs/webauthn.md), as the CPU server's signupd and
+# passkeyd: a line in, a line out.  signupd makes an account from what the
+# machine's auth/passkey sends - none of it the password: the auth
+# server's AES key, secstore's Hi and its factotum file (encrypted by the
+# client), the passkey's id, public key and wrap; passkeyd gives a
+# passkey's wrap and whose it is
+aeskeys = {}		# user: the auth server's AES key (signupd's)
+passkeys = {}		# credential id (b64url): (user, public key, wrap)
+RESERVED = {'glenda', 'bootes', 'adm', 'sys', 'none', 'upas', 'nobody', 'root', 'admin'}
+
+async def lines(read, write, serve):
+	buf = b''
+	while True:
+		while b'\n' not in buf:
+			buf += await read(1)
+		line, buf = buf.split(b'\n', 1)
+		write((serve(line.decode(errors='replace').split()) + '\n').encode())
+
+def signupd(f):
+	if len(f) != 8 or f[0] != 'signup':
+		return 'error bad request'
+	_, name, aes, hi, sfile, cid, pk, wrap = f
+	if not (2 <= len(name) <= 27 and name[0].isalpha() and name.isalnum() and name.islower()) or name in RESERVED:
+		return 'error bad name'
+	if name in aeskeys or name in secstore.users or name in secstore.his or name in authusers:
+		return 'error name taken'
+	try:
+		aesb = bytes.fromhex(aes)
+		hiv = int.from_bytes(base64.b64decode(hi), 'big')
+		sf = base64.b64decode(sfile)
+	except ValueError:
+		return 'error bad request'
+	if len(aesb) != 16 or not sf or cid in passkeys:
+		return 'error bad request'
+	aeskeys[name] = aesb
+	secstore.his[name] = hiv
+	secstore.files[(name, 'factotum')] = sf
+	passkeys[cid] = (name, pk, wrap)
+	print(f'test-authsrv: signup {name}', flush=True)
+	return 'ok'
+
+def passkeyd(f):
+	if len(f) != 2 or f[0] != 'wrap' or f[1] not in passkeys:
+		return 'error no such passkey'
+	name, _, wrap = passkeys[f[1]]
+	return f'ok {name} {wrap}'
 
 DROPAT = 256*1024		# bytes to the page, then its WebSocket dropped once (each session)
 ACKEVERY = 16*1024
@@ -479,7 +530,7 @@ async def ws(r, w, users):
 		await asyncio.sleep(3600)
 		w.close()
 		return
-	if path not in ('/567', '/5356', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
+	if path not in ('/567', '/5356', '/17040', '/17041', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
 		w.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
 		w.close()
 		return
@@ -596,6 +647,10 @@ async def ws(r, w, users):
 	try:
 		if path == '/5356':
 			await secstore.run(read, write)
+		elif path == '/17040':
+			await lines(read, write, signupd)
+		elif path == '/17041':
+			await lines(read, write, passkeyd)
 		else:
 			await Authsrv(users).run(read, write)
 	except (EOFError, asyncio.IncompleteReadError, ConnectionError, ValueError) as e:
@@ -613,8 +668,9 @@ async def main():
 	listeners = asyncio.Queue()
 	appservers = asyncio.Queue()
 	port = int(sys.argv[1])
-	global secstore
+	global secstore, authusers
 	users = dict(a.split('=', 1) for a in sys.argv[2:] if not a.startswith('secstore:'))
+	authusers = users
 	secstore = Secstore(dict(a[9:].split('=', 1) for a in sys.argv[2:] if a.startswith('secstore:')))
 	srv = await asyncio.start_server(lambda r, w: ws(r, w, users), '127.0.0.1', port)
 	async with srv:

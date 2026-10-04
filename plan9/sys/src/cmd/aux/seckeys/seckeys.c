@@ -13,10 +13,13 @@
  * times; an empty one goes on without keys.  Neither the password nor
  * the keys in the clear touch the disk or the environment.
  *
- *	aux/seckeys [-s server] [file]
+ *	aux/seckeys [-s server] [-u user | -I] [file]
  *
  * server: -s, else $secstore, else $auth; none: the copy only.  No
- * file: no copy (a machine without a disk).
+ * file: no copy (a machine without a disk).  -u: the user's secstore
+ * (secstore -u), else this machine's user's.  -I: the user and the
+ * password from standard input, a line each (auth/passkey login's), not
+ * asked; once.
  */
 #include <u.h>
 #include <libc.h>
@@ -30,7 +33,7 @@ enum {
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-s server] [file]\n", argv0);
+	fprint(2, "usage: %s [-s server] [-u user | -I] [file]\n", argv0);
 	exits("usage");
 }
 
@@ -200,21 +203,44 @@ void
 main(int argc, char **argv)
 {
 	char *server, *file, *pw, *st, *keys, *copy;
-	char *sargv[] = { "/bin/auth/secstore", "-i", "-G", "factotum", "-s", nil, nil };
+	char *sargv[] = { "/bin/auth/secstore", "-i", "-G", "factotum", "-s", nil, nil, nil, nil };
+	char *user, *in, *nl;
+	int fromstdin, ntries;
 	char *dargv[] = { "/bin/auth/aescbc", "-d", "-i", nil };
 	long nkeys, ncopy;
 	int fd, try, nk;
 
 	server = nil;
+	user = nil;
+	fromstdin = 0;
 	ARGBEGIN{
 	case 's':
 		server = EARGF(usage());
 		break;
+	case 'u':
+		user = EARGF(usage());
+		break;
+	case 'I':
+		fromstdin = 1;
+		break;
 	default:
 		usage();
 	}ARGEND
-	if(argc > 1)
+	if(argc > 1 || fromstdin && user != nil)
 		usage();
+	in = nil;
+	ntries = Ntries;
+	if(fromstdin){
+		/* user, then password: a line each */
+		if(readall(0, &in) <= 0 || (nl = strchr(in, '\n')) == nil)
+			sysfatal("no user and password on standard input");
+		*nl++ = 0;
+		user = in;
+		in = nl;
+		if((nl = strchr(in, '\n')) != nil)
+			*nl = 0;
+		ntries = 1;
+	}
 	file = argc == 1 ? argv[0] : nil;
 	if(server == nil && (server = getenv("secstore")) == nil)
 		server = getenv("auth");
@@ -231,9 +257,13 @@ main(int argc, char **argv)
 	if(server == nil && ncopy <= 0)
 		exits(nil);
 	sargv[5] = server;
+	if(user != nil){
+		sargv[6] = "-u";
+		sargv[7] = user;
+	}
 
-	for(try = 0; try < Ntries; try++){
-		pw = readcons("secstore password", nil, 1);
+	for(try = 0; try < ntries; try++){
+		pw = fromstdin ? strdup(in) : readcons("secstore password", nil, 1);
 		if(pw == nil || pw[0] == 0){
 			fprint(2, "%s: no password: no keys\n", argv0);
 			exits(nil);
@@ -260,11 +290,11 @@ main(int argc, char **argv)
 				print("%s: no secstore: %d keys from the copy\n", argv0, nk);
 			}else if(strstr(st, "authenticate") == nil){
 				fprint(2, "%s: the copy: %s\n", argv0, st);
-				try = Ntries;
+				try = ntries;
 			}
 		}else if(strstr(st, "invalid password") == nil){
 			fprint(2, "%s: secstore: %s\n", argv0, st);
-			try = Ntries;
+			try = ntries;
 		}
 		memset(pw, 0, strlen(pw));
 		free(pw);
@@ -275,7 +305,7 @@ main(int argc, char **argv)
 		if(st[0] == 0)
 			exits(nil);
 		free(st);
-		if(try < Ntries)
+		if(try < ntries)
 			fprint(2, "%s: wrong password\n", argv0);
 	}
 	exits("no keys");

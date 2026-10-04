@@ -46,8 +46,10 @@ const appname = /^[a-z0-9-]{1,32}$/.test(app.trim()) ? app.trim() : 'term';
  */
 const sec = appname === 'term' ? await fetch('secstore', { cache: 'no-store' }).then((r) => r.ok ? r.text() : '').catch(() => '') : '';
 const secstore = /^[a-z0-9.!-]{1,64}$/.test(sec.trim()) ? sec.trim() : '';
+/* and its login (GET /login: the site has accounts and passkeys, docs/webauthn.md): /boot/login's menu */
+const login = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok).catch(() => false) : false;
 const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
-	(secstore ? 'secstore=' + secstore + '\n' : '');
+	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
 
 // the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c);

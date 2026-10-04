@@ -1,0 +1,39 @@
+#!/bin/rc
+# Plan2001's login (/boot/login, from /boot/init when the site offers
+# accounts: $login, BootInfo's config; docs/webauthn.md): a passkey, a
+# password, a new account or none.  The passkey opens the account's
+# password (auth/passkey: its wrap from passkeyd), which gets factotum's
+# keys from secstore (aux/seckeys).  With the machine's disk the wrap
+# and the keys' encrypted copy are kept in glenda's home, so a passkey
+# opens the keys without the network too.
+copy=()
+wrap=()
+if(test -d /n/disk/usr/glenda/lib){
+	copy=/usr/glenda/lib/factotum.aes
+	wrap=(-c /usr/glenda/lib/passkey.wrap)
+}
+fn passkey {
+	auth/passkey $wrap login | aux/seckeys -I $copy
+}
+while(){
+	echo -n 'p) passkey  s) password  n) new account  g) guest: '
+	c=`{read}
+	switch($c){
+	case p
+		passkey && exit
+	case s
+		echo -n 'name: '
+		n=`{read}
+		if(! ~ $#n 0)
+			aux/seckeys -u $n $copy && exit
+	case n
+		echo -n 'name (a-z, then a-z and 0-9): '
+		n=`{read}
+		if(! ~ $#n 0 && auth/passkey signup $n){
+			echo 'sign in with the new passkey'
+			passkey && exit
+		}
+	case g
+		exit
+	}
+}

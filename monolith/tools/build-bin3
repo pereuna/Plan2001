@@ -35,7 +35,7 @@ cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc
 mkdir -p "$out/root/boot"
 cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$P/plan9/sys/src/9/wasm32/secstore" "$out/root/boot/"
 # an app's origin: its machine is the app's terminal (Plan2001's, D7: docs/app-origins.md)
-cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$out/root/boot/"
+cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$P/plan2001/sys/src/9/wasm32/login" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
@@ -79,6 +79,11 @@ fi
 if ! (cd "$P/plan9/sys/src/cmd/aux/seckeys" && "$cc3" -FTVw $INC -o "$out/o/cmd/seckeys.3" seckeys.c) >"$out/o/cmd/seckeys.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/aux/seckeys" "$out/o/cmd/seckeys.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/seckeys.err" 2>&1; then
 	echo "build-bin3: seckeys:"; head -5 "$out/o/cmd/seckeys.err"; fail=1
+fi
+# auth/passkey: Plan2001's accounts and passkeys (docs/webauthn.md: #W, signupd, passkeyd)
+if ! (cd "$P/plan2001/sys/src/cmd/auth" && "$cc3" -FTVw $INC -o "$out/o/cmd/passkey.3" passkey.c) >"$out/o/cmd/passkey.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/auth/passkey" "$out/o/cmd/passkey.3" $seclibs $libs "$out/lib/libsec.a" "$out/lib/libmp.a" >>"$out/o/cmd/passkey.err" 2>&1; then
+	echo "build-bin3: passkey:"; head -5 "$out/o/cmd/passkey.err"; fail=1
 fi
 # tlsclient, exportfs: 9front's, rcpu's (D4: rconnect's tlsclient -a, the client's exportfs -r /)
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/tlsclient.3" tlsclient.c) >"$out/o/cmd/tlsclient.err" 2>&1 ||

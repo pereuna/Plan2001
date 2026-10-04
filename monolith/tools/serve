@@ -37,6 +37,8 @@ ln -sfn "$root/../plan9/sys/src/9/wasm32/kernel.html" "$site/index.html"
 # the site's secstore (kernel.html: GET /secstore), as the CPU server's
 # (tools/vm-cpu) names its own: MONOLITH_SECSTORE=dialstring, else none
 [ -z "${MONOLITH_SECSTORE:-}" ] || echo "$MONOLITH_SECSTORE" >"$site/secstore"
+# and its login (kernel.html: GET /login; docs/webauthn.md): MONOLITH_LOGIN=1
+[ -z "${MONOLITH_LOGIN:-}" ] || echo 1 >"$site/login"
 
 cd "$site"
 pids=
