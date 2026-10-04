@@ -297,13 +297,20 @@ netnote(void)
 	}
 }
 
-/* wait for the word to be other than v, a second at a time: a note interrupts; secs > 0 a limit */
+/*
+ * wait for the word to be other than v, a second at a time: a note
+ * interrupts; secs > 0 a limit, a deadline by the clock (a count that
+ * stopped at 0 waited for ever: the review's)
+ */
 static int
 netwait(long *w, long v, int secs)
 {
+	ulong end;
+
+	end = seconds() + secs;
 	while(*w == v){
 		netnote();
-		if(secs > 0 && secs-- == 0)
+		if(secs > 0 && seconds() >= end)
 			return -1;
 		platwait(w, v, 1000);
 	}

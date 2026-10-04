@@ -311,7 +311,9 @@ procunmake(Proc *p)
 		p->dot = nil;
 	}
 	umemrelease(p);
+	qlock(&p->debug);	/* as pexit: devproc looks at the pid under it */
 	pidfree(p);
+	qunlock(&p->debug);
 	lock(&procalloc);
 	p->state = Dead;
 	p->qnext = procalloc.free;

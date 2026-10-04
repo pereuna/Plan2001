@@ -70,18 +70,22 @@ want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("
 want crypto $names && run crypto '["/bin/d3"]'
 want tls $names && run tls '["/bin/d4"]'
 # rfork(RFMEM) procs in rendezvous ended by their group's kill, with and without a handler (exportfs's ending)
+# /proc/n/args written and read by procs that come and go (devproc's debug lock), and exec's own args again
+want procargs $names && run procargs "[\"/bin/rc\", \"-c\", \"d4 -a; rc -c 'echo -n somehost >/proc/\$pid/args; cat /proc/\$pid/args; echo; exec cat /proc/\$pid/args'; echo; echo done\"]"
 want notekill $names && run notekill '["/bin/rc", "-c", "echo mem nohandler; d4 -k mn; echo fork handler; d4 -k h; echo mem handler; d4 -k; echo done"]'
 want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status; fault; echo the machine goes on"]'
 # D3's dp9ik through factotum: glenda and bootes over a pipe, the tickets from
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
 # password gives needkey; with no auth server, no tickets
 fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
 	want dp9ik $names && MONOLITH_WEBTERM=18099 HALTWAIT=120 run dp9ik '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo '"'"'delkey user=glenda'"'"' >/mnt/factotum/ctl; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=wrong'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
 	# /net/tcp reconnected: a gen each connect, a reader woken by a hangup (d3 -n)
+	# a connect whose WebSocket never opens (test-authsrv's /17998) gives up after 60 s
+	want nettimeout $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run nettimeout '["/bin/rc", "-c", "{echo connect relay!17998 >[1=0]} <>/net/tcp/clone; echo status $status; echo done"]'
 	want netre $names && MONOLITH_WEBTERM=18099 HALTWAIT=300 run netre '["/bin/rc", "-c", "d3 -n 20 4; echo done"]'
 	# D4's rcpu, the machine's own (rcpu, rconnect, tlsclient -a, exportfs) to an rcpu server in the
 	# same machine (d4 -s: tlssrv -a and tcp17019's script) through test-authsrv's relay: bootes's

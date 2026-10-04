@@ -369,6 +369,15 @@ ohjelmilla, `/17019`-polulla TLS-PSK:n kanssa kuten 9frontissa.
   kysyttäessä, ja VM:ssä `rio` (tai `clock`) piirtää ikkunaan.
 - Vielä tekemättä: wss-polku `/rcpu` ilman TLS-PSK:ta (webterm `-s`)
   https-sivulle, jossa yhteys on jo salattu.
+- Katselmus (4.10.): wasm32:n devproc käytti procia tarkistamatta sitä
+  lukon alla - kirjoitettava `/proc/n/args` olisi voinut vapauttaa
+  argsin lukijan alta tai kirjoittaa uuden procin rakenteeseen samassa
+  paikassa. Nyt kuten 9frontissa: `proctab`, `p->debug` (eqlock), pid
+  lukon alla, ja luku kopioidaan lukon alla; exec vaihtaa nimen ja
+  nollaa argsin saman lukon alla (rconnectin isäntä ei jää seuraavalle
+  ohjelmalle). Testi `procargs`. devwsnet:n `netwait`in 60 s:n raja ei
+  lauennut koskaan (laskuri pysähtyi nollaan): nyt kellon takaraja;
+  testi `nettimeout` (test-authsrv:n `/17998` ei vastaa koskaan).
 
 ## Kone, ikkuna ja nimiavaruus selaimessa (1.10.2026)
 

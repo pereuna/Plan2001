@@ -135,8 +135,14 @@ exec1(char *file, char **argv, int argc)
 	for(i = 0; i <= up->fgrp->maxfd; i++)
 		fdclose(i, CCEXEC);
 	up->notify = nil;
+	/* its name, and no args written for the program before: under debug, as 9front's sysexec (devproc reads them) */
 	p = strrchr(file, '/');
+	qlock(&up->debug);
 	kstrdup(&up->text, p != nil ? p+1 : file);
+	kstrdup(&up->args, "");
+	up->nargs = 0;
+	up->setargs = 0;
+	qunlock(&up->debug);
 }
 
 /* the proc becomes its program (init's: main.c) */

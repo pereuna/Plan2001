@@ -19,6 +19,11 @@
  * the server (user bootes), TLS with the dp9ik secret, the script on 0
  * and 1.
  *
+ * d4 -a: /proc/n/args written and read at once, by procs that come and
+ * go - devproc takes the proc's debug lock and looks at its pid under
+ * it (the review's: a write could free args under a reader, or land in
+ * a slot made again for another proc).
+ *
  * d4 -k: exportfs's ending - rfork(RFMEM) procs waiting in rendezvous,
  * their note handler noted(NDFLT) on kill, end when their group gets
  * kill (exportfs's fatal: postnote(PNGROUP, ...)); none left after.
@@ -258,10 +263,56 @@ notestorm(int n)
 	print("%d notes posted\n", n);
 }
 
+static void
+argsrace(void)
+{
+	int i, j, k, fd, pids[4], n;
+	char path[32], buf[ERRMAX];
+
+	for(k = 0; k < 20; k++){
+		for(j = 0; j < nelem(pids); j++){
+			switch(pids[j] = fork()){
+			case -1:
+				sysfatal("fork: %r");
+			case 0:
+				snprint(path, sizeof path, "/proc/%d/args", getpid());
+				for(i = 0; i < 50; i++){
+					if((fd = open(path, OWRITE)) >= 0){
+						fprint(fd, "writer %d round %d %.*s", j, i, i, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+						close(fd);
+					}
+				}
+				exits(nil);
+			}
+		}
+		/* read theirs while they write and go */
+		for(i = 0; i < 100; i++){
+			snprint(path, sizeof path, "/proc/%d/args", pids[i%nelem(pids)]);
+			if((fd = open(path, OREAD)) >= 0){
+				n = read(fd, buf, sizeof buf-1);
+				if(n > 0){
+					buf[n] = 0;
+					if(strncmp(buf, "writer ", 7) != 0 && strcmp(buf, "d4") != 0)
+						print("args: read %q\n", buf);
+				}
+				close(fd);
+			}
+		}
+		for(j = 0; j < nelem(pids); j++)
+			waitpid();
+	}
+	print("args: ok\n");
+}
+
 void
 main(int argc, char **argv)
 {
 	int i;
+
+	if(argc == 2 && strcmp(argv[1], "-a") == 0){
+		argsrace();
+		exits(nil);
+	}
 
 	if(argc == 3 && strcmp(argv[1], "-N") == 0){
 		notestorm(atoi(argv[2]));

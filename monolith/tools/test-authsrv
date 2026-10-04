@@ -8,7 +8,7 @@ and authsrv.c: the wasm32 machine's factotum and this agree only if
 both are right.  tools/serve's relay (MONOLITH_WEBTERM=PORT) reaches it.
 And a relay for rcpu inside one machine, which cannot listen: /17999
 waits, and the next /17019 (an rcpu client) is joined to it, bytes both
-ways (sys/src/9/wasm32/test/d4.c's server).
+ways (sys/src/9/wasm32/test/d4.c's server).  /17998 never answers.
   tools/test-authsrv PORT USER=PASSWORD...
 """
 import asyncio, base64, hashlib, hmac, os, struct, sys
@@ -234,6 +234,10 @@ async def ws(r, w, users):
 	path = lines[0].split()[1]
 	hdr = {l.split(':', 1)[0].strip().lower(): l.split(':', 1)[1].strip() for l in lines[1:] if ':' in l}
 	print(f'test-authsrv: {path}', flush=True)
+	if path == '/17998':	# never answers: a connect that must give up (devwsnet's 60 s)
+		await asyncio.sleep(3600)
+		w.close()
+		return
 	if path not in ('/567', '/17019', '/17999'):
 		w.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
 		w.close()

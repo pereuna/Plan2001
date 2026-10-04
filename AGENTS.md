@@ -82,11 +82,11 @@ sivun loki `build/wasmapp-kernel.log` ja kuvakaappaus
 
 Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
 - ydin ja ohjelmat: `c2a echo long fork forkloop rc rci c3a failfork rfmem
-  threads preempt rfmemloop failhelper failrfmem init fault`
+  threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
 - D3 tunnistus: `crypto dp9ik dp9iknoas` (+ `dp9ikvm` VM:llä)
-- D4 rcpu: `tls notekill netre rcpu rcpuask` (+ `rcpuvm` VM:llä)
+- D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask` (+ `rcpuvm` VM:llä)
 - verkko VM:ää vastaan: `net netloop` (VM:llä)
 
 Muut: `tools/test-3c` (kääntäjä, nopea, aja kun 3c/3l muuttuu),

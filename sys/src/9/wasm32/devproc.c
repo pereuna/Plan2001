@@ -95,15 +95,25 @@ procstat(Chan *c, uchar *db, int n)
 	return devstat(c, db, n, nil, 0, procgen);
 }
 
-/* c's proc, if it is still the one c was opened for */
+/*
+ * c's proc, its debug lock held, if it is still the one c was opened
+ * for - as 9front's: the pid looked at under the lock, which pexit and
+ * exec take too, so the proc can neither go nor be made again in its
+ * slot while c's call uses it
+ */
 static Proc*
-cproc(Chan *c)
+lockproc(Chan *c)
 {
 	Proc *p;
 
 	p = proctab(SLOT(c->qid));
-	if(p == nil || p->pid != PID(c->qid))
+	if(p == nil)
 		error(Eprocdied);
+	eqlock(&p->debug);
+	if(p->pid != PID(c->qid)){
+		qunlock(&p->debug);
+		error(Eprocdied);
+	}
 	return p;
 }
 
@@ -113,9 +123,10 @@ procopen(Chan *c, int omode)
 	Proc *p;
 
 	if(QID(c->qid) != Qdir){
-		p = cproc(c);
+		p = lockproc(c);
 		if(QID(c->qid) == Qnotepg)
 			c->aux = (void*)(uintptr)p->noteid;	/* the group, as it is now: the proc may go */
+		qunlock(&p->debug);
 	}
 	return devopen(c, omode, nil, 0, procgen);
 }
@@ -133,22 +144,32 @@ procread(Chan *c, void *a, long n, vlong off)
 
 	if(c->qid.type & QTDIR)
 		return devdirread(c, a, n, nil, 0, procgen);
-	p = cproc(c);
+	/* what is read is copied under the lock: text and args change on exec and a write */
+	p = lockproc(c);
+	if(waserror()){
+		qunlock(&p->debug);
+		nexterror();
+	}
 	switch(QID(c->qid)){
 	case Qstatus:
 		snprint(buf, sizeof buf, "%-27s %-27s %-11s %11d %11d %11d %11d %11d %11d %11d %11d %11d %11d\n",
 			p->text != nil ? p->text : "", p->user != nil ? p->user : "",
 			p->psstate != nil ? p->psstate : statename[p->state],
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-		return readstr(off, a, n, buf);
+		break;
 	case Qargs:
 		/* what the proc wrote there (9front's: rconnect writes the host), else its name */
 		if(p->setargs && p->args != nil)
-			return readstr(off, a, n, p->args);
-		return readstr(off, a, n, p->text != nil ? p->text : "");
+			strecpy(buf, buf+sizeof buf, p->args);
+		else
+			strecpy(buf, buf+sizeof buf, p->text != nil ? p->text : "");
+		break;
+	default:
+		error(Egreg);
 	}
-	error(Egreg);
-	return 0;
+	poperror();
+	qunlock(&p->debug);
+	return readstr(off, a, n, buf);
 }
 
 static long
@@ -167,7 +188,11 @@ procwrite(Chan *c, void *a, long n, vlong)
 		postnotepg((uintptr)c->aux, buf, NUser);
 		return n;
 	}
-	p = cproc(c);
+	p = lockproc(c);
+	if(waserror()){
+		qunlock(&p->debug);
+		nexterror();
+	}
 	switch(QID(c->qid)){
 	case Qctl:
 		/*
@@ -178,10 +203,10 @@ procwrite(Chan *c, void *a, long n, vlong)
 			break;
 		if(strncmp(buf, "kill", 4) != 0)
 			error(Ebadctl);
-		postnote(p, 1, "sys: killed", NExit);
+		postnote(p, 0, "sys: killed", NExit);	/* p->debug held */
 		break;
 	case Qnote:
-		if(!postnote(p, 1, buf, NUser))
+		if(!postnote(p, 0, buf, NUser))
 			error("note not posted");
 		break;
 	case Qargs:
@@ -192,6 +217,8 @@ procwrite(Chan *c, void *a, long n, vlong)
 	default:
 		error(Egreg);
 	}
+	poperror();
+	qunlock(&p->debug);
 	return n;
 }
 
