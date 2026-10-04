@@ -691,6 +691,24 @@ Työjärjestys:
      3. rcpu VM:lle tunnistautuu sillä.
      4. Istunnon factotum on päätteen: siinä on vain glendan avain, ei
         VM:n omia avaimia, kuten TLS:n RSA-avainta.
+   - Codexin VM-ajo (4.10., commit 058bfa1; QEMU TCG, 9front-11952):
+     - Buildit menivät läpi.
+     - VM-ketjussa oli kolme virhettä, jotka on nyt korjattu:
+       1. `vm-cpu` kirjoitti `cpustart`iin ennen kuin `/cfg/cirno` oli
+          olemassa.
+       2. Yli 255 merkin komentorivit katkesivat Plan2001:n kbdfs:n
+          rivirajaan, ja 9run jäi odottamaan aikarajaa. Nyt 9run vie
+          pitkän komennon tiedostoon paloina ja ajaa sen.
+       3. `secstored` varaa portin 5356 itse, joten aux/listenin
+          `tcp5356` vei portin siltä. Nyt secstored käynnistyy
+          `cpustart`ista.
+     - Kiertoteiden jälkeen `secstorevm`, `rcpuvm`, `dp9ikvm`, `net`
+       (kolme renkaan aloitusarvoa) ja `netloop` menivät läpi, eli 7/7,
+       oikeaa 9frontin secstoredia ja auth-palvelinta vastaan.
+     - `secstorevm`: avain tallentui VM:n secstoreen, latautui tyhjään
+       factotumiin ja tunnisti rcpu-istunnon, ja istunnossa näkyi vain
+       päätteen avain.
+     - Korjauksia ei ole vielä ajettu VM:llä.
    - Ajo, jossa on KVM (Codex):
      ```
      tools/vm-setup                  # jos base.qcow2 puuttuu

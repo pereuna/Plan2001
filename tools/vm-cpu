@@ -8,7 +8,7 @@
 #   auth/secuser        glenda's secstore account (docs/architecture.md,
 #                       "Avainten paikka"), her secstore password generated
 #                       into cpu.secpass in the cache; secstored on 5356
-#                       (/rc/bin/service.auth/tcp5356) and the site's
+#                       (from cpustart: it announces the port itself) and the site's
 #                       secstore file (GET /secstore, kernel.html)
 #   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
 #                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
@@ -130,6 +130,7 @@ webterm() {
 	# / is a union of the disk's root, mounted without create: the
 	# directories are made through a mount that allows it
 	run9 -t 30 "test -d /global/compute || { mount -c /srv/boot /n/croot && mkdir -p /n/croot/global/compute /n/croot/compute; unmount /n/croot }"
+	run9 -t 30 "mkdir -p /cfg/cirno"	# cpustart's directory, before anything is written into it
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s crsrv /cfg/cirno/cpustart || echo crsrv >>/cfg/cirno/cpustart"
 	run9 -t 30 "grep -s /global/compute /cfg/cirno/cpustart || echo 'mount -c /srv/compute /global/compute' >>/cfg/cirno/cpustart"
 	# on another machine or network (the cloud, docs/cloud.md) /lib/ndb has
@@ -152,11 +153,14 @@ webterm() {
 	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s monolith.key /cfg/cirno/cpustart || echo 'cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl' >>/cfg/cirno/cpustart"
 	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /rc/bin/rc-httpd/rc-httpd' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
-	# secstore (docs/architecture.md, "Avainten paikka"): secstored on 5356, as 9front's
-	# auth server runs it, and the site says so (GET /secstore: kernel.html gives the
-	# terminal's machine its dial string; webterm's /5356 is this machine's)
+	# secstore (docs/architecture.md, "Avainten paikka"): secstored on 5356, and the
+	# site says so (GET /secstore: kernel.html gives the terminal's machine its dial
+	# string; webterm's /5356 is this machine's)
 	echo "vm-cpu: secstored, the site's secstore"
-	run9 -t 30 "test -e /rc/bin/service.auth/tcp5356 || { echo '#!/bin/rc'; echo 'exec /bin/auth/secstored' } >/rc/bin/service.auth/tcp5356; chmod 775 /rc/bin/service.auth/tcp5356"
+	# secstored announces tcp!*!5356 itself (a server of its own, not aux/listen's): from cpustart,
+	# and none in service.auth, where listen would take the port first
+	run9 -t 30 "rm -f /rc/bin/service.auth/tcp5356"
+	run9 -t 30 "grep -s auth/secstored /cfg/cirno/cpustart || echo 'auth/secstored' >>/cfg/cirno/cpustart"
 	run9 -t 30 "echo 'tcp!secstore!5356' >/sys/lib/plan2001/web/secstore && chmod 644 /sys/lib/plan2001/web/secstore"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"

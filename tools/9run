@@ -129,7 +129,34 @@ class Serial:
 		return ANSI.sub('', x.decode('latin1').replace('\r', ''))
 
 
+LINEMAX = 200	# the console's line (Plan2001's kbdfs: 255 runes) less the status line's
+
+def long(ser, cmd):
+	"""a command longer than the console's line: into a file a piece at a
+	time, each typed after rc's prompt (each an rc string, ' doubled), the
+	file run (rc) - the same command"""
+	f = '/tmp/9run.' + uuid.uuid4().hex[:8]
+	pieces, p = [], ''
+	for c in cmd:	# each piece quoted at most 150 characters, whatever its quotes
+		if len(p.replace("'", "''")) + (2 if c == "'" else 1) > 150:
+			pieces.append(p)
+			p = ''
+		p += c
+	pieces.append(p)
+	first = True
+	for p in pieces:
+		ser.send("echo -n '" + p.replace("'", "''") + "' " + ('>' if first else '>>') + f)
+		first = False
+		buf, end = '', time.time() + 5
+		while time.time() < end:
+			buf += ser.read()
+			if buf.endswith('\t'):
+				break
+	return 'rc ' + f + '; s=$status; rm -f ' + f + '; status=$s'
+
 def run(ser, cmd, timeout):
+	if len(cmd) > LINEMAX:
+		cmd = long(ser, cmd)
 	tag = uuid.uuid4().hex[:12]
 	# rc joins __END_^tag^__ into __END_tag__; the echoed input line keeps the
 	# carets, so only the real output matches
