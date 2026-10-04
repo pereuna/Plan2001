@@ -54,7 +54,7 @@ varaavat oman imagensa.
 | `epoch` | `Date.now()` sekunteina |
 | `rngseed` | 64 tavua `crypto.getRandomValues`ista; kernel sekoittaa sen `hwrandbuf`in kautta (`bootinforandinit`) ja nollaa |
 | framebuffer | `fbbase`, `fbwidth` × `fbheight`, `fbstride` = `fbwidth`, 32 bittiä, `x8r8g8b8`. Kernel piirtää siihen (`screen.c`: `allocmemimaged` sen päälle) ja kertoo `platflush`illa, mikä muuttui; sivu piirtää sen canvasille. `fbbase` = 0: ei ruutua. |
-| config: `*sdW0=regs tavut` | koneen levy (D6, `devsdw.c`): levyn rekisterisivu ja koko. Sivu on kartassa Reserved, heti 64 Mt:n jälkeen ennen blobia. Ei levyä: ei riviä eikä sivua. |
+| config: `*sdW0=regs tavut` | koneen levy (D6, `devsdw.c`): levyn rekisterisivu ja koko. Sivu on kartassa Reserved, heti 64 Mt:n jälkeen ennen blobia. Firmware kirjoittaa rivin configin viimeiseksi, joten sivun omat rivit eivät korvaa sitä. Ei levyä: ei riviä eikä sivua. |
 | `rdbase`, `rdlen` | juuren arkisto (`build-bin3`:n `root.fs`), jonka `devrootfs.c` lukee paikallaan. Lisätty headerin loppuun (v1). |
 
 `plat*`-kutsuista poistuivat `platbootfs`, `platbootargs`, `platscreen`

@@ -88,6 +88,10 @@ want notekill $names && run notekill '["/bin/rc", "-c", "echo mem nohandler; d4 
 # the disk flushed; the page loaded again in the same browser (THEN) - the file is there
 want disk $names && HALTWAIT=120 THEN='["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; cat /usr/glenda/persist; ls /n/disk/usr/glenda; sed -n 1p /dev/sdW0/ctl; echo done"]' \
 	run disk '["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; echo kept over a reload >/usr/glenda/persist; echo sync >>/srv/disk.cmd; sleep 2; echo flush >/dev/sdW0/ctl; echo written"]'
+# the disk Worker fails (its flush throws, when the disk is idle after a write): the disk is dead, I/O gives an
+# error and the machine goes on - not a kernel waiting for ever; a page's *sdW0= does not replace the firmware's
+want diskdead $names && run diskdead '["/bin/rc", "-c", "sed -n 2p /dev/sdW0/ctl; echo x >/dev/sdW0/data; echo written; sleep 2; read -c 1 </dev/sdW0/data; echo status $status; sed -n 4p /dev/sdW0/ctl; echo the machine goes on"]' \
+	'[]' '&diskfail=flush&conf=*sdW0%3D0x5000000%20999'
 want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status; fault; echo the machine goes on"]'
 # D3's dp9ik through factotum: glenda and bootes over a pipe, the tickets from
 # tools/test-authsrv (on the port the page's webterm relay goes to); a wrong

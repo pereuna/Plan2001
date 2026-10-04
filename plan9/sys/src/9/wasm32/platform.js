@@ -48,7 +48,8 @@ function firmware(front, disksize) {
 	/* the disk's registers (devsdw.c): a page above the heap, Reserved, as *sdW0= says */
 	const regs = disksize ? heap : 0;
 	const diskconf = regs ? '*sdW0=0x' + regs.toString(16) + ' ' + disksize + '\n' : '';
-	const config = new TextEncoder().encode(initconf(front.args) + diskconf + (front.config ?? '') + '\0');
+	/* the firmware's own device lines last: plan9.ini's later line wins (bootargs.c), and these are not the page's to change */
+	const config = new TextEncoder().encode(initconf(front.args) + (front.config ?? '') + diskconf + '\0');
 	const rd = front.fs ?? null;
 	const sc = front.screen ?? { w: 1024, h: 768 };
 	const fbw = sc.w | 0, fbh = sc.h | 0;
@@ -691,13 +692,15 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
  * registers, into and out of its memory.  Writes go to the file (flush)
  * when the disk has been idle a moment, and on the kernel's flush.
  */
-async function disk({ name, size }) {
+async function disk({ name, size, fail }) {
 	let h;
 	try {
 		const dir = await navigator.storage.getDirectory();
 		h = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
 		if (h.getSize() < size)
 			h.truncate(size);
+		if (fail === 'flush')	/* a test's: the file fails when it is flushed */
+			h.flush = () => { throw new Error('the test fails the flush'); };
 	} catch (e) {
 		postMessage({ diskfail: String(e) });
 		close();
@@ -705,6 +708,15 @@ async function disk({ name, size }) {
 	}
 	self.onmessage = (e) => diskloop(h, e.data.mem, e.data.regs);
 	postMessage({ diskready: h.getSize() });
+}
+
+/* the disk's state Dead, and the request the kernel waits for ended with -1 (devsdw.c: Rstate, Rresult, Rdone) */
+function diskdead(mem, regs) {
+	const i32 = new Int32Array(mem.buffer), R = regs >> 2;
+	Atomics.store(i32, R + 8, -1);
+	i32[R + 7] = -1;
+	Atomics.store(i32, R + 1, Atomics.load(i32, R));
+	Atomics.notify(i32, R + 1);
 }
 
 function diskloop(h, mem, regs) {
@@ -728,19 +740,19 @@ function diskloop(h, mem, regs) {
 	};
 	/* from the last request done: one the kernel made before the memory came here is still to do */
 	let seen = Atomics.load(i32, R + 1), dirty = false;
-	for (;;) {
-		if (Atomics.load(i32, R) === seen && Atomics.wait(i32, R, seen, dirty ? 250 : Infinity) === 'timed-out') {
-			h.flush();
-			dirty = false;
-			continue;
-		}
-		const seq = Atomics.load(i32, R);
-		if (seq === seen)
-			continue;
-		seen = seq;
-		const op = i32[R + 2], len = i32[R + 3], addr = i32[R + 4] >>> 0, at = (i32[R + 5] >>> 0) + (i32[R + 6] >>> 0) * 2 ** 32;
-		let res = -1;
-		try {
+	try {
+		for (;;) {
+			if (Atomics.load(i32, R) === seen && Atomics.wait(i32, R, seen, dirty ? 250 : Infinity) === 'timed-out') {
+				h.flush();
+				dirty = false;
+				continue;
+			}
+			const seq = Atomics.load(i32, R);
+			if (seq === seen)
+				continue;
+			seen = seq;
+			const op = i32[R + 2], len = i32[R + 3], addr = i32[R + 4] >>> 0, at = (i32[R + 5] >>> 0) + (i32[R + 6] >>> 0) * 2 ** 32;
+			let res = -1;
 			if (op === 1 || op === 2) {
 				res = io(op, addr, len, at);
 				if (op === 2) dirty = true;
@@ -749,12 +761,16 @@ function diskloop(h, mem, regs) {
 				dirty = false;
 				res = 0;
 			}
-		} catch (e) {
-			console.log('KLOG platform: disk: ' + e);
+			i32[R + 7] = res;
+			Atomics.store(i32, R + 1, seq);
+			Atomics.notify(i32, R + 1);
 		}
-		i32[R + 7] = res;
-		Atomics.store(i32, R + 1, seq);
-		Atomics.notify(i32, R + 1);
+	} catch (e) {
+		/* the file failed (quota, I/O, the browser): the disk is dead, the kernel's request ends with -1 (devsdw.c) */
+		console.log('KLOG platform: disk: ' + e + ': the disk is dead');
+		diskdead(mem, regs);
+		try { h.close(); } catch (e) {}
+		close();
 	}
 }
 
@@ -774,7 +790,7 @@ export async function boot(url, front = {}) {
 		const r = await new Promise((done) => {
 			dw.onmessage = (e) => done(e.data);
 			dw.onerror = (e) => done({ diskfail: e.message });
-			dw.postMessage({ role: 'disk', name: front.disk.name ?? 'sdW0', size: front.disk.size });
+			dw.postMessage({ role: 'disk', name: front.disk.name ?? 'sdW0', size: front.disk.size, fail: front.disk.fail });
 		});
 		if (r.diskready) {
 			disksize = r.diskready;
@@ -785,7 +801,11 @@ export async function boot(url, front = {}) {
 		}
 	}
 	const { mem, pa, fb, regs } = firmware(front, disksize);
-	if (dw) dw.postMessage({ mem, regs });
+	if (dw) {
+		Atomics.store(new Int32Array(mem.buffer), (regs >> 2) + 8, 1);	/* Online (devsdw.c's Rstate) */
+		dw.onerror = (e) => { console.log('KLOG platform: disk Worker: ' + e.message + ': the disk is dead'); diskdead(mem, regs); };
+		dw.postMessage({ mem, regs });
+	}
 	const eia = [];
 	let ring = 0;		/* #t/eia0's input: the kernel's ring */
 	let kring = 0;		/* #b/kbd's (devkbd.c) */

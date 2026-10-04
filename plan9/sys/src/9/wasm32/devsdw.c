@@ -19,8 +19,10 @@
  * disk's registers, words the disk Worker waits on (Atomics.wait) - and
  * bytes the disk's size.  One request at a time (the QLock): the kernel
  * fills in op, len, addr and off, adds one to seq and wakes the Worker;
- * the Worker does it into or out of the kernel's memory at addr, sets
- * result and done = seq and wakes the kernel.  What it wrote goes to the
+ * the Worker does it into or out of the disk's buffer in the kernel's
+ * memory (addr), sets result and done = seq and wakes the kernel.  A
+ * Worker that fails says so (state) and the disk is dead: Eio, not a
+ * kernel waiting for ever.  What it wrote goes to the
  * file (flush) once the disk has been idle for a moment, and on a ctl
  * "flush".  A file system on it is a program's: hjfs (/boot/init).
  */
@@ -34,7 +36,14 @@ enum
 	Rofflo,
 	Roffhi,
 	Rresult,	/* bytes, or -1 */
+	Rstate,		/* the page's: Diskonline; Diskdead once the Worker has failed (it ends the request with -1) */
 	Nreg,
+
+	Diskonline	= 1,
+	Diskdead	= -1,
+
+	Ndma	= 64*1024,	/* the bounce buffer: what the Worker reads into and writes from */
+	Diskwait	= 30,	/* seconds for one request, then the disk is dead */
 
 	Opread	= 1,
 	Opwrite,
@@ -50,9 +59,11 @@ static struct
 {
 	QLock;
 	long	*reg;
+	uchar	*dma;
 	uvlong	size;
 	ulong	reqs;
 	ulong	errs;
+	int	dead;	/* ours: a request took too long */
 } disk;
 
 static Dirtab unitdir[] = {
@@ -95,6 +106,10 @@ sdwreset(void)
 	if(regs == 0 || (regs & (BY2PG-1)) != 0 || size == 0
 	|| !sdwreserved(regs, BY2PG) || bootearlymap(regs, BY2PG) == nil){
 		print("sdW0: *sdW0=%s: no such registers\n", s);
+		return;
+	}
+	if((disk.dma = xalloc(Ndma)) == nil){
+		print("sdW0: no memory for its buffer\n");
 		return;
 	}
 	disk.reg = (long*)(uintptr)regs;
@@ -162,16 +177,26 @@ sdwclose(Chan*)
 {
 }
 
-/* one request to the disk Worker: what it did, -1 an error */
+/*
+ * One request to the disk Worker, in and out of disk.dma: what it did, -1
+ * an error.  The Worker ends a request even when it fails (Rstate Diskdead, the
+ * page's too if the Worker itself is gone), so the wait ends; one that
+ * takes longer than Diskwait makes the disk dead here.  The Worker only
+ * touches disk.dma, which is never freed: if it does come back late, it
+ * writes nothing the kernel uses for anything else.
+ */
 static long
-sdwio(int op, void *a, long n, uvlong off)
+sdwio(int op, long n, uvlong off)
 {
 	long *r, seq;
+	ulong deadline;
 
 	r = disk.reg;
+	if(disk.dead || r[Rstate] != Diskonline)
+		return -1;
 	r[Rop] = op;
 	r[Rlen] = n;
-	r[Raddr] = (ulong)(uintptr)a;
+	r[Raddr] = (ulong)(uintptr)disk.dma;
 	r[Rofflo] = (ulong)off;
 	r[Roffhi] = (ulong)(off>>32);
 	r[Rresult] = -1;
@@ -179,8 +204,16 @@ sdwio(int op, void *a, long n, uvlong off)
 	coherence();
 	r[Rseq] = seq;
 	platwake(&r[Rseq], 1);
-	while(r[Rdone] != seq)
+	deadline = seconds() + Diskwait;
+	while(r[Rdone] != seq){
+		if(seconds() >= deadline){
+			disk.dead = 1;
+			print("sdW0: no answer in %d s: the disk is dead\n", Diskwait);
+			disk.errs++;
+			return -1;
+		}
 		platwait(&r[Rdone], r[Rdone], 1000);
+	}
 	disk.reqs++;
 	if(r[Rresult] < 0)
 		disk.errs++;
@@ -188,9 +221,9 @@ sdwio(int op, void *a, long n, uvlong off)
 }
 
 static long
-sdwrw(int op, void *a, long n, vlong off)
+sdwrw(int op, uchar *a, long n, vlong off)
 {
-	long m;
+	long m, k, done;
 
 	if(off < 0)
 		error(Ebadarg);
@@ -203,12 +236,27 @@ sdwrw(int op, void *a, long n, vlong off)
 		qunlock(&disk);
 		nexterror();
 	}
-	m = sdwio(op, a, n, off);
+	for(done = 0; done < n; done += m){
+		k = n - done;
+		if(k > Ndma)
+			k = Ndma;
+		if(op == Opwrite)
+			memmove(disk.dma, a+done, k);
+		m = sdwio(op, k, off+done);
+		if(m < 0)
+			error(Eio);
+		if(m > k)
+			m = k;
+		if(op == Opread)
+			memmove(a+done, disk.dma, m);
+		if(m < k){
+			done += m;
+			break;
+		}
+	}
 	poperror();
 	qunlock(&disk);
-	if(m < 0)
-		error(Eio);
-	return m;
+	return done;
 }
 
 static long
@@ -221,8 +269,8 @@ sdwread(Chan *c, void *a, long n, vlong off)
 	case Qunit:
 		return devdirread(c, a, n, nil, 0, sdwgen);
 	case Qctl:
-		snprint(buf, sizeof buf, "inquiry Plan2001 OPFS disk\ngeometry %llud 512\nrequests %lud errors %lud\n",
-			disk.size/512, disk.reqs, disk.errs);
+		snprint(buf, sizeof buf, "inquiry Plan2001 OPFS disk\ngeometry %llud 512\nrequests %lud errors %lud\nstate %s\n",
+			disk.size/512, disk.reqs, disk.errs, disk.dead || disk.reg[Rstate] != Diskonline ? "dead" : "online");
 		return readstr(off, a, n, buf);
 	case Qdata:
 		return sdwrw(Opread, a, n, off);
@@ -249,7 +297,7 @@ sdwwrite(Chan *c, void *a, long n, vlong off)
 				qunlock(&disk);
 				nexterror();
 			}
-			if(sdwio(Opflush, nil, 0, 0) < 0)
+			if(sdwio(Opflush, 0, 0) < 0)
 				error(Eio);
 			poperror();
 			qunlock(&disk);

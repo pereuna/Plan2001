@@ -82,7 +82,7 @@ sivun loki `build/wasmapp-kernel.log` ja kuvakaappaus
 `build/wasmapp-kernel.png`.
 
 Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
-- ydin ja ohjelmat: `c2a bootinfo badblob oldheader disk echo long fork forkloop rc rci c3a failfork rfmem
+- ydin ja ohjelmat: `c2a bootinfo badblob oldheader disk diskdead echo long fork forkloop rc rci c3a failfork rfmem
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
   rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)

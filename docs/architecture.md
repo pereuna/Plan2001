@@ -437,6 +437,20 @@ tiedostopalvelin.
   Testi `disk`: tiedosto kirjoitetaan, hjfs synkataan ja levy
   flushataan, sitten uudelleenlataus. Tiedosto on tallessa, eikä levyä
   reamata toista kertaa.
+- Katselmus (4.10.): levy-Workerin joutilas-flush oli virheenkäsittelyn
+  ulkopuolella. Jos OPFS heitti virheen, Worker kuoli, ja ydin odotti
+  pyyntöään ikuisesti QLock hallussaan, jolloin myös hjfs ja
+  `/usr/glenda` jumittuivat. Nyt Worker ottaa kaikki virheet kiinni ja
+  merkitsee levyn kuolleeksi (rekisteri `Rstate`). Se päättää odotetun
+  pyynnön tulokseen -1. Sivu tekee saman, jos Worker kuolee muuten
+  (`onerror`). Ydin palauttaa `Eio`n, ja pyynnöllä on 30 sekunnin
+  takaraja. Takaraja on turvallinen, koska Worker koskee vain levyn
+  omaan bounce-puskuriin (64 KiB, ei koskaan vapautettu): myöhässä tuleva
+  vastaus ei kirjoita muistiin, jota ydin käyttää muuhun. Lisäksi
+  firmwaren `*sdW0=`-rivi on nyt configin viimeisenä, joten sivun
+  `?conf=` ei voi korvata laitekuvausta. Testi `diskdead`: flush
+  epäonnistuu, luku antaa i/o-virheen, levy on `dead` ja kone jatkaa.
+  Väärennetty `*sdW0` ei vaikuta. Ilman korjausta luku jää odottamaan.
 - Rajat: liitos on vain kotihakemiston yläpuolella (bind -bc), joten
   uusi tiedosto juuren arkiston alihakemistoon (esim. `lib/`) ei mene
   levylle. hjfs synkkaa 10 sekunnin välein, joten sivun sulkeminen
