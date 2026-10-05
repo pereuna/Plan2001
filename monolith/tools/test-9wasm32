@@ -153,6 +153,23 @@ test -e /net/tcp && test -e /srv/slashmnt && echo before: net and srv
 test -e /net/tcp && test -e /srv/slashmnt && echo after: net and srv
 echo done"
 want weblimit $names && run weblimit "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$wl")"	# init takes no newline
+# the web accounts' processes and memory on the CPU server (docs/webauthn.md, aux/weblimitd as
+# cpustart runs it), on a made-up /proc (-P: here every proc is the host owner's, whom it never
+# touches, and the kernel keeps no memory count): a user over its processes loses all of them, a user
+# over its memory its biggest process (procs sharing memory - acme's, the same program and size -
+# counted once), all of them over theirs the biggest of all; the others are
+# lowered in priority, the host owner and users not in the group are not touched
+st() {	# PID USER MEM: a made-up /proc/PID as weblimitd reads it
+	printf "mkdir \$r/%s; touch \$r/%s/ctl; echo '%-27s %-27s %-11s %11d %11d %11d %11d %11d %11d %11d %11d %11d' >\$r/%s/status; " \
+		"$1" "$1" rc "$2" Pread 0 0 0 0 0 0 "$3" 10 10 "$1"
+}
+wd="mntgen -s slashmnt /mnt; ramfs -m /mnt/ram; r=/mnt/ram/proc; mkdir \$r; echo 9:web::alice,bob,carol,dave >/mnt/ram/users
+$(st 101 alice 2000)$(st 102 alice 9000)$(st 103 alice 1000)$(st 201 bob 100)$(st 202 bob 100)$(st 203 bob 100)$(st 204 bob 500)$(st 301 carol 8000)$(st 302 carol 7000)$(st 351 dave 9000 acme)$(st 352 dave 9000 acme)$(st 353 dave 9000 acme)$(st 401 glenda 500000)$(st 501 none 90000)
+aux/weblimitd -1 -a /mnt/ram/users -P \$r -p 3 -m 10000 -t 10000 -r 7
+for(f in \$r/*/ctl) echo \$f \`{cat \$f}
+aux/weblimitd -1 -a /mnt/ram/nousers -P \$r
+echo done"
+want weblimitd $names && HALTWAIT=120 run weblimitd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$wd")"	# init takes no newline
 # the CPU server's signupd and passkeyd themselves, with a passkey: auth/passkey talks to each over a
 # pipe (#|, a server name that is a path), each a process of its own as aux/listen makes them, their
 # keyfs, secstore and webauthn in a ramfs.  An account made; its passkey signs passkeyd's challenge,

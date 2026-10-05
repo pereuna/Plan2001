@@ -202,8 +202,8 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
   avautuvaa `/net`iä (kirjautuminen, ei postia tai skannausta) ja ilman
   laskentapoolia, ellei käyttäjällä ole siihen oikeutta (`websession`,
   vaihe 6).
-- Resurssit: Plan 9:ssä ei ole kiintiöitä. Siksi käyttäjäkohtaiset rajat
-  (procit, muisti) ovat oma työnsä, ja levylle tarvitaan cwfs:n
+- Resurssit: Plan 9:ssä ei ole kiintiöitä. Procit ja muisti valvoo
+  `aux/weblimitd` (vaihe 7); levylle tarvitaan vielä cwfs:n
   käyttöseuranta.
 - Lopetus: tunnuksen poisto poistaa keyfs:n, secstoren, kääreet ja
   kotihakemiston.
@@ -407,9 +407,41 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
      `signupd`-testi näyttää konsolin rivit ja `-a`-tiedoston
      odottamisen. `signupvm` (VM, 5.10.): uusi tunnus kirjautuu
      rcpu:lla, sillä on koti, eikä sillä ole verkkoa eikä `/srv`:iä.
-   - **Tekemättä:** prosessi- ja muistirajat sekä levyn käytön
-     seuranta (9frontissa ei ole kiintiöitä). Siihen asti tunnukset
-     tehdään vain kutsukoodilla.
+7. **Prosessit ja muisti** (tehty 5.10.): `aux/weblimitd` (plan2001/)
+   ajaa palvelimella isäntänä `cpustart`ista, koska 9frontissa ei ole
+   kiintiöitä. Se lukee `/proc`:n kerran sekunnissa ja valvoo
+   `web`-ryhmän jäseniä. Arvot on mitoitettu PoC:lle, jossa on enintään
+   10 käyttäjää palvelimella, jossa on 2 vCPU:ta ja 952 Mt muistia:
+
+   | Raja | Arvo | Ylitys |
+   |---|---|---|
+   | prosessit / käyttäjä (`-p`) | 32 | kaikki käyttäjän prosessit tapetaan |
+   | muisti / käyttäjä (`-m`) | 48 Mt | käyttäjän suurin prosessi tapetaan |
+   | kaikki web-käyttäjät (`-t`) | 256 Mt | suurin web-prosessi tapetaan |
+   | prioriteetti (`-r`) | 7 (normaali 10) | web-prosessit lasketaan |
+
+   - **Tappo:** se kirjoittaa prosessin ctl:iin `kill`, eikä sitä voi
+     napata kiinni. Jos prosessiraja ylittyy, kaikki käyttäjän prosessit
+     tapetaan, koska rc vie jokaisen `&`:n omaan noteryhmäänsä eikä mikään
+     yksittäinen ryhmä kata fork-pommia. Tapot kirjataan
+     `/sys/log/weblimit`:iin.
+   - **Muisti:** se on `/proc/N/status`:n kenttä. Samaa muistia jakavat
+     procit (libthread, esim. acme) näyttävät kukin koko muistin, joten
+     saman käyttäjän prosessit, joilla on sama ohjelma ja sama koko,
+     lasketaan kerran. Erilliset, täsmälleen samankokoiset prosessit
+     menevät silloin yhteen, mutta ne ovat pieniä (rc).
+   - **Ulkopuolelle jäävät:** isännän prosesseihin ei kosketa. Pelkkä
+     wasm32-kone (sivu ja levy selaimessa) ei kuluta palvelimen
+     prosesseja eikä muistia; sitä rajaa webtermin yhteyspaikkojen määrä.
+   - **Rajoitus:** valvonta ei ole ytimessä. Nopea fork-pommi ehtii
+     täyttää prosessitaulun (`conf.nproc`) alle sekunnissa, ennen kuin
+     kaikki käyttäjän prosessit tapetaan. Levyn käyttöä ei vielä seurata.
+   - **`-n`** kertoo, mitä se tekisi, eikä tee mitään (ei lokiin).
+     VM:ssä ajettiin `-1 -n -u glenda` oikeaa 9frontin `/proc`:ia vastaan:
+     prosessit, muisti ja jaetun muistin yhdistäminen täsmäsivät `ps`:ään.
+   - **Testit:** `weblimitd` (wasm32, valmistettu `/proc` `-P`:llä, koska
+     siellä kaikki on isännän ja ydin ei laske muistia) ja `signupvm`
+     weblimitdin pyöriessä VM:ssä.
 
 ## Avoimet kysymykset
 
@@ -421,5 +453,6 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 - Kirjautumisvalikko konsolilla, riossa vai sivulla HTML:nä? Suunnitelma
   pitää sen koneessa (Plan 9 -ohjelmana), ja sivulla on vain
   WebAuthn-painike.
-- Käyttäjäkohtaiset resurssirajat CPU-palvelimella: miten ne tehdään
-  9frontissa ilman kiintiöitä?
+- Käyttäjäkohtaiset resurssirajat ytimessä (prosessien määrä tai muisti
+  noteryhmää tai käyttäjää kohden): tarvitaanko ennen avointa
+  rekisteröintiä? `weblimitd` riittää kutsutuille käyttäjille.

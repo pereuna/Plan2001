@@ -14,6 +14,8 @@
 #                   (plan2001.com) from https://RP
 #   invites         INVITES' codes added to /adm/webauthn/invites: no
 #                   account without one
+#   weblimitd       a web account's processes (32) and memory (48 MB; all of
+#                   them 256 MB), from cpustart: 9front has no quotas
 #   websession      a web account's sessions (signupd's group web) limited:
 #                   no network, /srv or compute pool (docs/webauthn.md);
 #                   tcp17019's fn server and webterm source it
@@ -36,7 +38,7 @@ rc $repo/tools/cpu-live.rc $repo pages apps webterm || fail cpu-live
 step signupd and passkeyd
 @{
 	cd /tmp
-	for(p in signupd passkeyd){
+	for(p in signupd passkeyd weblimitd){
 		6c -FTVw $repo/plan2001/sys/src/cmd/aux/$p.c && 6l -o /amd64/bin/aux/$p $p.6 || exit $p
 	}
 } || fail compile
@@ -66,6 +68,12 @@ fscons=`{ls /srv/cwfs*.cmd /srv/hjfs.cmd >[2]/dev/null | sed 1q}
 } >/rc/bin/service.auth/tcp17041
 chmod 775 /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
 cat /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
+
+step 'weblimitd: the web accounts'' processes and memory'
+test -e /sys/log/weblimit || { touch /sys/log/weblimit && chmod 664 /sys/log/weblimit }
+grep -s aux/weblimitd $cfg/cpustart || echo 'aux/weblimitd >/dev/null >[2=1] &' >>$cfg/cpustart
+if(! ps | grep -s ' weblimitd$')
+	aux/weblimitd >/dev/null >[2=1] &
 
 step 'websession: the web accounts'' limits'
 cp $repo/plan2001/rc/bin/websession /rc/bin/websession || fail websession

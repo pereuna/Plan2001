@@ -12,6 +12,8 @@
 #                       /adm/webauthn/invites (none: anyone may sign up);
 #                       passkeyd checks the passkey's signature for
 #                       PASSKEY_RP (default localhost) from PASSKEY_ORIGINS
+#   weblimitd           a web account's processes (32) and memory (48 MB, all
+#                       of them 256 MB) on the server, from cpustart
 #   websession          plan2001/rc/bin/websession: a web account's (signupd's
 #                       group web) rcpu and app sessions limited, sourced by
 #                       tcp17019's fn server and webterm (docs/webauthn.md)
@@ -215,7 +217,7 @@ webterm() {
 	# owner (service.auth: keyfs, /adm), webterm's /17040 and /17041; the site says so
 	# (GET /login: the terminal's /boot/login).  Invites: /adm/webauthn/invites, a code a line
 	echo "vm-cpu: signupd, passkeyd, the site's login"
-	run9 -t 120 "@{cd /tmp && for(p in signupd passkeyd){ 6c -FTVw \$p.c && 6l -o /amd64/bin/aux/\$p \$p.6 || exit } }"
+	run9 -t 120 "@{cd /tmp && for(p in signupd passkeyd weblimitd){ 6c -FTVw \$p.c && 6l -o /amd64/bin/aux/\$p \$p.6 || exit } }"
 	run9 -t 30 "mkdir -p /adm/webauthn && chmod 700 /adm/webauthn"
 	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/signupd -c /srv/cwfs.cmd' } >/rc/bin/service.auth/tcp17040; chmod 775 /rc/bin/service.auth/tcp17040"
 	# passkeyd's rp and origins: the passkey's site (PASSKEY_RP, default localhost: the VM's test
@@ -226,6 +228,11 @@ webterm() {
 	run9 -t 30 "echo 1 >/sys/lib/plan2001/web/login && chmod 644 /sys/lib/plan2001/web/login"
 	# a web account's session limited (/rc/bin/websession: signupd's group web): rcpu's
 	# (tcp17019's fn server, as the user, before the client's script) and webterm's apps'
+	# their processes and memory (aux/weblimitd, as the host owner from cpustart: 9front has no quotas)
+	echo "vm-cpu: weblimitd"
+	run9 -t 30 "test -e /sys/log/weblimit || { touch /sys/log/weblimit && chmod 664 /sys/log/weblimit }"
+	run9 -t 30 "grep -s aux/weblimitd /cfg/cirno/cpustart || echo 'aux/weblimitd >/dev/null >[2=1] &' >>/cfg/cirno/cpustart"
+	run9 -t 30 "ps | grep -s ' weblimitd\$' || aux/weblimitd >/dev/null >[2=1] &"
 	echo "vm-cpu: websession"
 	run9 -t 30 "cp /tmp/websession /rc/bin/websession && chmod 775 /rc/bin/websession"
 	run9 -t 30 "grep -s websession /rc/bin/service/tcp17019 || { awk '{print} /rm -f .*fn#server/ {print \"\t. /rc/bin/websession\"}' /rc/bin/service/tcp17019 >/tmp/t17019 && cp /tmp/t17019 /rc/bin/service/tcp17019 }; grep websession /rc/bin/service/tcp17019"
@@ -241,7 +248,7 @@ for f in "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi"; do
 	[ -s "$f" ] || { echo "vm-cpu: no $f (tools/build.sh)" >&2; exit 1; }
 done
 cp "$root/plan2001/rc/bin/rc-httpd/select-handler" "$root/plan2001/rc/bin/rc-httpd/handlers/plan2001-static" "$stage/"
-cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/sys/src/cmd/aux/signupd.c" "$root/plan2001/sys/src/cmd/aux/passkeyd.c" "$root/plan2001/usr/glenda/lib/profile" "$root/plan2001/rc/bin/websession" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
+cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/sys/src/cmd/aux/signupd.c" "$root/plan2001/sys/src/cmd/aux/passkeyd.c" "$root/plan2001/sys/src/cmd/aux/weblimitd.c" "$root/plan2001/usr/glenda/lib/profile" "$root/plan2001/rc/bin/websession" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
 cp -r "$root/plan2001/lib/app" "$stage/app"
 webfiles=
 if [ -n "$web" ]; then
@@ -253,7 +260,7 @@ fi
 scrub() { [ -f "$root/build/in.img" ] && dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none; true; }
 trap scrub EXIT
 rm -f "$root/build/in.img"
-(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" select-handler plan2001-static webterm.c crsrv.c rcc.c signupd.c passkeyd.c chain.pem cpu.key plan2001-ca.crt apps app profile websession 9pc64 bootx64.efi $webfiles)
+(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" select-handler plan2001-static webterm.c crsrv.c rcc.c signupd.c passkeyd.c weblimitd.c chain.pem cpu.key plan2001-ca.crt apps app profile websession 9pc64 bootx64.efi $webfiles)
 rm -rf "$stage"
 truncate -s '>64M' "$root/build/in.img"
 

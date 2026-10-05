@@ -364,7 +364,9 @@ alas. Ylläpito jatkuu WireGuard-tunnelin kautta.
 ja sivuston kirjautumisen. Lisäksi `tcp443` vaihtuu pelkistä sivuista
 koko sivustoksi, ja `/rc/bin/websession` rajaa `web`-tunnusten istunnot
 (vaihe 6: ei verkkoa, `/srv`:iä tai laskentapoolia; rivi lisätään
-`tcp17019`:n `fn server`iin). Kirjautumaton käyttäjä (`/boot/login`in `g`) saa
+`tcp17019`:n `fn server`iin). `aux/weblimitd` valvoo niiden prosesseja
+ja muistia (vaihe 7: 32 prosessia ja 48 Mt käyttäjää kohden, yhteensä
+256 Mt). Kirjautumaton käyttäjä (`/boot/login`in `g`) saa
 saman paikallisen koneen kuin sandbox.
 
 ```
