@@ -20,7 +20,8 @@ is no longer in the browser.)
                                            protocol's, with PRF) for the page's
                                            passkeys (devwebauthn.c), and its
                                            buttons clicked in this order: go
-                                           (the request's) or cancel
+                                           (the request's), phone (with a
+                                           cross-platform one) or cancel
   PAGEURL=https://plan2001.com/           a site's page instead of tools/serve's
   TOUCH=1                                  a phone: a touch screen 400x700
   PAGEHOST=localhost                       the page from this host (WebAuthn
@@ -172,11 +173,15 @@ def main():
 			cdp.call('WebAuthn.addVirtualAuthenticator', options={'protocol': 'ctap2', 'ctap2Version': 'ctap2_1',
 				'transport': 'internal', 'hasResidentKey': True, 'hasUserVerification': True,
 				'isUserVerified': True, 'hasPrf': True, 'automaticPresenceSimulation': True})
+			if 'phone' in webauthn:	# the page's phone button: a cross-platform authenticator (a phone's, as hybrid would be)
+				cdp.call('WebAuthn.addVirtualAuthenticator', options={'protocol': 'ctap2', 'ctap2Version': 'ctap2_1',
+					'transport': 'usb', 'hasResidentKey': True, 'hasUserVerification': True,
+					'isUserVerified': True, 'hasPrf': True, 'automaticPresenceSimulation': True})
 		def passkeys():
 			"""the next button the page shows, clicked"""
 			if not webauthn:
 				return
-			bid = 'webauthn-go' if webauthn[0] == 'go' else 'webauthn-cancel'
+			bid = {'go': 'webauthn-go', 'phone': 'webauthn-phone'}.get(webauthn[0], 'webauthn-cancel')
 			try:
 				r = cdp.js(f"(() => {{ const b = document.getElementById('{bid}'); if (!b || b.disabled) return null; const r = b.getBoundingClientRect(); return [r.left + r.width/2, r.top + r.height/2]; }})()")
 			except RuntimeError:

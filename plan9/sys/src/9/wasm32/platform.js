@@ -981,7 +981,12 @@ export async function boot(url, front = {}) {
 			Atomics.store(i32, r.word >> 2, b.length);
 			Atomics.notify(i32, r.word >> 2);
 		};
-		const ask = async (r, q) => {
+		/*
+		 * phone: the passkey on a phone (hybrid: the browser's QR code), when this device
+		 * has none that can (Windows 10's Hello has no PRF; the browser's password manager
+		 * may be locked) - hints and, to make one, a cross-platform authenticator
+		 */
+		const ask = async (r, q, phone) => {
 			const salt = q.salt ? dec(q.salt) : null, ext = salt ? { prf: { eval: { first: salt } } } : {};
 			const challenge = q.challenge ? dec(q.challenge) : crypto.getRandomValues(new Uint8Array(32));
 			if (r.kind === 'create') {
@@ -989,8 +994,8 @@ export async function boot(url, front = {}) {
 					rp: { id: q.rp, name: 'Plan2001' },
 					user: { id: dec(q.user), name: q.name, displayName: q.name },
 					challenge, pubKeyCredParams: [{ type: 'public-key', alg: -7 }],	/* ES256: libsec's P-256 */
-					authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
-					attestation: 'none', extensions: ext } });
+					authenticatorSelection: { residentKey: 'required', userVerification: 'preferred', ...(phone ? { authenticatorAttachment: 'cross-platform' } : {}) },
+					...(phone ? { hints: ['hybrid'] } : {}), attestation: 'none', extensions: ext } });
 				const x = c.getClientExtensionResults().prf, pk = c.response.getPublicKey?.();
 				return 'ok id=' + enc(c.rawId) + ' prf=' + (x?.results?.first ? enc(x.results.first) : 'none') +
 					' prfok=' + (x?.enabled ? 1 : 0) + (pk ? ' pubkey=' + enc(pk) : '') +
@@ -998,7 +1003,7 @@ export async function boot(url, front = {}) {
 			}
 			const allow = q.allow ? q.allow.split(',').map((id) => ({ type: 'public-key', id: dec(id) })) : [];
 			const c = await navigator.credentials.get({ publicKey: { rpId: q.rp, challenge, allowCredentials: allow,
-				userVerification: 'preferred', extensions: ext } });
+				userVerification: 'preferred', ...(phone ? { hints: ['hybrid'] } : {}), extensions: ext } });
 			const x = c.getClientExtensionResults().prf, u = c.response.userHandle;
 			return 'ok id=' + enc(c.rawId) + ' prf=' + (x?.results?.first ? enc(x.results.first) : 'none') +
 				(u ? ' user=' + enc(u) : '') + ' auth=' + enc(c.response.authenticatorData) +
@@ -1019,14 +1024,18 @@ export async function boot(url, front = {}) {
 				ui = document.createElement('div');
 				ui.id = 'webauthn';
 				ui.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);z-index:10;display:flex;gap:12px;padding:16px;background:#ffffea;border:2px solid #000;font:16px sans-serif';
-				const go = document.createElement('button'), no = document.createElement('button');
+				const go = document.createElement('button'), ph = document.createElement('button'), no = document.createElement('button');
 				go.id = 'webauthn-go';
 				go.textContent = r.kind === 'create' ? 'Create a passkey for ' + q.name : 'Sign in with a passkey';
+				ph.id = 'webauthn-phone';
+				ph.textContent = 'With a phone (QR code)';
 				no.id = 'webauthn-cancel';
 				no.textContent = 'Cancel';
-				go.onclick = () => { go.disabled = true; ask(r, q).then((t) => answer(r, t), (e) => answer(r, 'error ' + (e?.name || e))); };
+				const run = (phone) => { go.disabled = ph.disabled = true; ask(r, q, phone).then((t) => answer(r, t), (e) => answer(r, 'error ' + (e?.name || e))); };
+				go.onclick = () => run(false);
+				ph.onclick = () => run(true);
 				no.onclick = () => answer(r, 'error cancelled');
-				ui.append(go, no);
+				ui.append(go, ph, no);
 				document.body.append(ui);
 			},
 		};

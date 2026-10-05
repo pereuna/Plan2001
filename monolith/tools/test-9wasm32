@@ -218,7 +218,7 @@ echo done"
 want passkeyadd $names && PAGEHOST=localhost WEBAUTHN='["cancel", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyadd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
 	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pa} </dev/cons >/dev/cons >[2=1]")" \
 	'[["account password: ", "fred-password-1\n"], ["again: ", "fred-password-1\n"], ["account password: ", "wrong-password-1\n"], ["account password: ", "fred-password-1\n"], ["account password: ", "any-password-1\n"]]'
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want signupnopk $names || want passkeyoffline $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want signupnopk $names || want passkeyphone $names || want passkeyoffline $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -294,6 +294,11 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	want signupnopk $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["cancel"]' HALTWAIT=200 run signupnopk "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$pk; auth/passkey -s relay signup carol; echo status \$status; aux/seckeys -u carol; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["account password: ", "carol-password-1\n"], ["again: ", "carol-password-1\n"], ["secstore password: ", "carol-password-1\n"]]'
+	# the page's phone button (a passkey on a phone: the browser's QR code, hints hybrid and a
+	# cross-platform authenticator - here a virtual one on usb): an account made with it, signed in with it
+	want passkeyphone $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["phone", "phone", "phone"]' HALTWAIT=200 run passkeyphone "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$pk; auth/passkey -s relay signup dora; auth/passkey -s relay login | aux/seckeys -I; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["account password: ", "dora-password-1\n"], ["again: ", "dora-password-1\n"]]'
 	want passkeyoffline $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyoffline "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$pk; rc /boot/disk; ramfs -m /mnt/ram; mkdir /mnt/ram/nonet; c=/usr/glenda/lib/factotum.aes; w=/usr/glenda/lib/passkey.wrap; auth/passkey -s relay signup bob; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c; echo 'delkey user=bob' >/mnt/factotum/ctl; @{rfork n; bind /mnt/ram/nonet /net; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c}; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["account password: ", "bob-password-12\n"], ["again: ", "bob-password-12\n"]]'
