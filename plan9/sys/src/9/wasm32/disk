@@ -48,7 +48,10 @@ if(test -e /dev/sdW0/data){
 		if(test -d /n/disk/usr/glenda){
 			skel /usr/glenda /n/disk/usr/glenda
 			bind -c /n/disk/usr/glenda /usr/glenda
+			echo 'disk: glenda''s home is kept on this browser''s disk'
 			@{ rfork n; while(sleep 2) echo sync >>/srv/disk.cmd } >[2]/dev/null &
 		}
 	}
 }
+if not
+	echo 'disk: none (another tab of this site has it?): nothing is kept'
