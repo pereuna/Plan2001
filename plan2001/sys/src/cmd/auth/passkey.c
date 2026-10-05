@@ -12,6 +12,11 @@
  *		the dp9ik key - encrypted with the password as secstore -p
  *		would - and the passkey's id, public key and wrap: the name
  *		and the password, AES-GCM with a key from the PRF output
+ *	auth/passkey [-s server] add NAME
+ *		a passkey for an account that has none, or another one: the
+ *		password asked; to signupd the passkey's id, public key and
+ *		wrap, with an HMAC by the auth server's key (passtokey's: the
+ *		password not sent)
  *	auth/passkey [-s server] [-c file] login
  *		the passkey asked for (any of this site's) with passkeyd's
  *		challenge, its signature to passkeyd for its wrap, opened: the name and the password on standard output,
@@ -62,7 +67,7 @@ estrdup(char *s)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-s server] signup name [invite]\n       %s [-s server] [-c file] login\n", argv0, argv0);
+	fprint(2, "usage: %s [-s server] signup name [invite]\n       %s [-s server] add name\n       %s [-s server] [-c file] login\n", argv0, argv0, argv0);
 	exits("usage");
 }
 
@@ -366,13 +371,54 @@ validname(char *s)
 	return 1;
 }
 
+/*
+ * a passkey for name, if this device makes one with PRF: its id, public
+ * key and the wrap (name and pass, AES-GCM with its PRF output's key);
+ * nil, else why not (a passkey can not be had everywhere: Windows 10's
+ * Hello has no PRF, a browser's password manager may be locked)
+ */
+static char*
+makepasskey(char *name, char *pass, char **id, char **pk, char **ws)
+{
+	char *ans, *user, *salt, *why;
+	uchar prfout[32], w[Nwrap];
+	int nw;
+
+	user = b64u((uchar*)name, strlen(name));
+	salt = b64u((uchar*)prfsalt, strlen(prfsalt));
+	why = nil;
+	if((ans = webauthn("create rp=%s user=%s name=%s salt=%s", rp, user, name, salt)) == nil)
+		return smprint("%r");
+	if(field(ans, "id") == nil || field(ans, "pubkey") == nil){
+		free(ans);
+		return "no id or public key";
+	}
+	*id = estrdup(field(ans, "id"));
+	*pk = estrdup(field(ans, "pubkey"));
+	if(prf(ans, prfout) < 0){
+		/* PRF at creation not given (the authenticator's or browser's): get it once */
+		free(ans);
+		if((ans = webauthn("get rp=%s salt=%s allow=%s", rp, salt, *id)) == nil || prf(ans, prfout) < 0)
+			why = "no PRF here";
+	}
+	free(ans);
+	if(why == nil){
+		if((nw = wrap(prfout, name, pass, w, sizeof w)) < 0)
+			why = "password too long";
+		else
+			*ws = b64u(w, nw);
+	}
+	memset(prfout, 0, sizeof prfout);
+	return why;
+}
+
 static void
 signup(char *name, char *code)
 {
-	char *pass, *again, *ans, *id, *pk, *ws, *hi, *file, *line, *user, *salt, *why;
-	uchar prfout[32], w[Nwrap], *sf;
+	char *pass, *again, *ans, *id, *pk, *ws, *hi, *file, *line, *why;
+	uchar *sf;
 	Authkey ak;
-	int nw, nsf;
+	int nsf;
 
 	if(!validname(name))
 		sysfatal("a name is a-z, then a-z and 0-9, 2 to 27 of them");
@@ -384,40 +430,11 @@ signup(char *name, char *code)
 		sysfatal("the passwords differ");
 	memset(again, 0, strlen(again));
 
-	/*
-	 * the passkey, if this device makes one with PRF; else the account
-	 * is the password's alone (exits "no passkey"): a passkey can not
-	 * be had everywhere (Windows 10's Hello has no PRF, a browser's
-	 * password manager may be locked), an account should
-	 */
-	id = pk = ws = "-";
-	user = b64u((uchar*)name, strlen(name));
-	salt = b64u((uchar*)prfsalt, strlen(prfsalt));
-	why = nil;
-	if((ans = webauthn("create rp=%s user=%s name=%s salt=%s", rp, user, name, salt)) == nil)
-		why = smprint("%r");
-	else if(field(ans, "id") == nil || field(ans, "pubkey") == nil)
-		why = "no id or public key";
-	else{
-		id = strdup(field(ans, "id"));
-		pk = strdup(field(ans, "pubkey"));
-		if(prf(ans, prfout) < 0){
-			/* PRF at creation not given (the authenticator's or browser's): get it once */
-			free(ans);
-			if((ans = webauthn("get rp=%s salt=%s allow=%s", rp, salt, id)) == nil || prf(ans, prfout) < 0)
-				why = "no PRF here";
-		}
-	}
-	free(ans);
-	if(why == nil){
-		if((nw = wrap(prfout, name, pass, w, sizeof w)) < 0)
-			sysfatal("password too long");
-		ws = b64u(w, nw);
-	}else{
+	why = makepasskey(name, pass, &id, &pk, &ws);
+	if(why != nil){
 		fprint(2, "%s: passkey: %s: the account without one, its password signs in\n", argv0, why);
 		id = pk = ws = "-";
 	}
-	memset(prfout, 0, sizeof prfout);
 
 	passtokey(&ak, pass);
 	hi = pakhi(name, pass);
@@ -435,6 +452,39 @@ signup(char *name, char *code)
 		exits("no passkey");
 	}
 	print("%s: account %s made, its passkey and password\n", argv0, name);
+	exits(nil);
+}
+
+/*
+ * a passkey for an account that has its password: the password asked,
+ * the passkey made, and to signupd its id, public key and wrap with an
+ * HMAC (SHA-256) of the line by the auth server's key (passtokey's AES
+ * key, keyfs's): the password itself is not sent
+ */
+static void
+add(char *name)
+{
+	char *pass, *id, *pk, *ws, *why, *msg, *line, *ans;
+	uchar mac[SHA2_256dlen];
+	Authkey ak;
+
+	if(!validname(name))
+		sysfatal("a name is a-z, then a-z and 0-9, 2 to 27 of them");
+	pass = readcons("account password", nil, 1);
+	if(pass == nil || *pass == 0)
+		sysfatal("no password");
+	if((why = makepasskey(name, pass, &id, &pk, &ws)) != nil)
+		sysfatal("passkey: %s", why);
+	passtokey(&ak, pass);
+	memset(pass, 0, strlen(pass));
+	msg = smprint("add %s %s %s %s", name, id, pk, ws);
+	hmac_sha2_256((uchar*)msg, strlen(msg), ak.aes, AESKEYLEN, mac, nil);
+	memset(&ak, 0, sizeof ak);
+	line = smprint("%s %.*H\n", msg, SHA2_256dlen, mac);
+	if((ans = call("signup", line)) == nil)
+		sysfatal("%r");
+	free(ans);
+	print("%s: a passkey for %s\n", argv0, name);
 	exits(nil);
 }
 
@@ -534,5 +584,7 @@ main(int argc, char **argv)
 		signup(argv[1], argc == 3 ? argv[2] : nil);
 	if(argc == 1 && strcmp(argv[0], "login") == 0)
 		login(cache);
+	if(argc == 2 && strcmp(argv[0], "add") == 0)
+		add(argv[1]);
 	usage();
 }

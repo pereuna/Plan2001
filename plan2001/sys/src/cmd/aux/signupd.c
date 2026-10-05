@@ -5,6 +5,7 @@
  * service.auth/tcp17040, as the host owner (keyfs, /adm).
  *
  *	signup NAME AESKEY SECHI SECFILE CREDID PUBKEY WRAP [INVITE]
+ *	add NAME CREDID PUBKEY WRAP MAC
  *
  * None of it is the password: AESKEY the auth server's key (hex, the
  * password's passtokey), SECHI secstore's verifier (PAK's Hi, base64),
@@ -19,6 +20,10 @@
  * server's group web (made if it is not there): /rc/bin/websession limits
  * its sessions.  Ok only once users (-a) has it there: a web account is
  * never unlimited.
+ * add is another passkey for an account (or its first, if it was made
+ * without one): MAC is the HMAC (SHA-256, hex) of the line before it by the
+ * account's AES key in keyfs, so only who knows the password adds one;
+ * no invite.
  * With an invites file one of its lines is needed, and used up.  What it
  * had made is undone if a later step fails.
  *
@@ -30,6 +35,8 @@
 #include <u.h>
 #include <libc.h>
 #include <bio.h>
+#include <mp.h>
+#include <libsec.h>
 #include <authsrv.h>
 
 enum {
@@ -229,6 +236,45 @@ fail(char *why)
 	answer("error %s", why);
 }
 
+/*
+ * add NAME CREDID PUBKEY WRAP MAC: another passkey for an account, MAC
+ * the HMAC (SHA-256, hex) of the line before it by the account's key in
+ * keyfs (passtokey's AES key: who knows the password)
+ */
+static void
+addpasskey(char **f)
+{
+	uchar aes[AESKEYLEN], mac[SHA2_256dlen], want[SHA2_256dlen];
+	char *p, *q, *msg;
+	int fd, n;
+
+	if(!validname(f[1]))
+		answer("error bad name");
+	if(!charset(f[2], B64U, 16, 1024) || !charset(f[3], B64U, 16, 1024) || !charset(f[4], B64U, 16, 2048)
+	|| !charset(f[5], "0123456789abcdefABCDEF", 2*SHA2_256dlen, 2*SHA2_256dlen)
+	|| dec16(mac, sizeof mac, f[5], 2*SHA2_256dlen) != SHA2_256dlen)
+		answer("error bad request");
+	p = smprint("%s/%s/aeskey", keys, f[1]);
+	fd = open(p, OREAD);
+	n = fd < 0 ? -1 : read(fd, aes, sizeof aes);
+	if(fd >= 0)
+		close(fd);
+	if(n != AESKEYLEN)
+		answer("error no such account");
+	msg = smprint("add %s %s %s %s", f[1], f[2], f[3], f[4]);
+	hmac_sha2_256((uchar*)msg, strlen(msg), aes, AESKEYLEN, want, nil);
+	memset(aes, 0, sizeof aes);
+	if(tsmemcmp(mac, want, sizeof mac) != 0)
+		answer("error wrong password");
+	if(exists("%s/%s", wadir, f[2]))
+		answer("error passkey taken");
+	p = smprint("%s/%s", wadir, f[2]);
+	q = smprint("name\t%s\npubkey\t%s\nwrap\t%s\ncreated\t%ld\n", f[1], f[3], f[4], time(0));
+	if(put(p, q, strlen(q), 0600) < 0)
+		answer("error passkey");
+	answer("ok");
+}
+
 void
 main(int argc, char **argv)
 {
@@ -275,6 +321,8 @@ main(int argc, char **argv)
 		answer("error no line");
 	*p = 0;
 	nf = tokenize(line, f, nelem(f));
+	if(nf == 6 && strcmp(f[0], "add") == 0)
+		addpasskey(f);
 	if((nf != 8 && nf != 9) || strcmp(f[0], "signup") != 0)
 		answer("error bad request");
 	name = f[1];

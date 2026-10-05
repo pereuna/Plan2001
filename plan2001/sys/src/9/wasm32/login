@@ -1,7 +1,7 @@
 #!/bin/rc
 # Plan2001's login (/boot/login, from /boot/init when the site offers
 # accounts: $login, BootInfo's config; docs/webauthn.md): a passkey, a
-# password, a new account or none.  The passkey opens the account's
+# password, a new account, a passkey added to one, or none.  The passkey opens the account's
 # password (auth/passkey: its wrap from passkeyd), which gets factotum's
 # keys from secstore (aux/seckeys).  A new account whose device makes no
 # passkey is its password's alone.  With the machine's disk the wrap
@@ -17,7 +17,7 @@ fn passkey {
 	auth/passkey $wrap login | aux/seckeys -I $copy
 }
 while(){
-	echo -n 'p) passkey  s) password  n) new account  g) guest: '
+	echo -n 'p) passkey  s) password  n) new account  a) add passkey  g) guest: '
 	c=`{read}
 	switch($c){
 	case p
@@ -42,6 +42,14 @@ while(){
 				# the device made none: the password signs in
 				aux/seckeys -u $n $copy && exit
 			}
+		}
+	case a
+		# a passkey for an account that has its password (one made without, or another device)
+		echo -n 'name: '
+		n=`{read}
+		if(! ~ $#n 0 && auth/passkey add $n){
+			echo 'sign in with the new passkey'
+			passkey && exit
 		}
 	case g
 		exit

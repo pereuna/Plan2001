@@ -398,6 +398,17 @@ async def linesvc(read, write, serve):
 		write((serve(line.decode(errors='replace').split()) + '\n').encode())
 
 def signupd(f):
+	if len(f) == 6 and f[0] == 'add':	# add NAME CREDID PUBKEY WRAP MAC: the HMAC by the account's AES key
+		_, name, cid, pk, wrap, mac = f
+		if name not in aeskeys:
+			return 'error no such account'
+		want = hmac.new(aeskeys[name], ' '.join(f[:5]).encode(), hashlib.sha256).hexdigest()
+		if not hmac.compare_digest(want, mac.lower()):
+			return 'error wrong password'
+		if cid in passkeys:
+			return 'error passkey taken'
+		passkeys[cid] = (name, pk, wrap)
+		return 'ok'
 	if len(f) not in (8, 9) or f[0] != 'signup':
 		return 'error bad request'
 	_, name, aes, hi, sfile, cid, pk, wrap = f[:8]	# an invite (f[8]): the CPU server's signupd's

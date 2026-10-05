@@ -189,6 +189,14 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 - **Selaimen kone:** P ja avaimet ovat koneen muistissa (factotum) kuten
   nyt. Sivun JavaScript näkee PRF-salaisuuden, joten sivun eheys
   (CSP, SRI ja oma origin) on tärkeä.
+- **Passkeyn lisäys** (5.10.): valikon `a) add passkey` eli
+  `auth/passkey add NIMI` kysyy tunnuksen salasanan, tekee passkeyn
+  (PRF) ja kääreen ja lähettää signupd:lle rivin `add NIMI CREDID PUBKEY
+  WRAP MAC`. MAC on HMAC-SHA256 rivistä salasanasta johdetulla
+  AES-avaimella, jonka keyfs tuntee, joten salasanaa ei lähetetä ja vain
+  sen tietävä voi lisätä passkeyn. Kutsukoodia ei tarvita. Näin
+  ilman passkeyta tehty tunnus saa sen myöhemmin (esim. puhelimella), ja
+  tunnuksella voi olla useita. Testi `passkeyadd` (oikeat daemonit).
 - **PRF puuttuu tai passkeyta ei synny:** tunnus syntyy silti
   pelkällä salasanalla (5.10.). `auth/passkey signup` kertoo syyn ja
   päättyy tilaan `no passkey`, signupd saa passkeyn kentiksi `- - -`

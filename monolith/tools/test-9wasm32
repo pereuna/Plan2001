@@ -201,6 +201,23 @@ echo done"
 want passkeyc $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyc "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
 	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pc} </dev/cons >/dev/cons >[2=1]")" \
 	'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
+# a passkey added to an account (auth/passkey add, signupd's add: an HMAC by the account's key in
+# keyfs, the password not sent), the real signupd and passkeyd on pipes as above: an account made
+# without one (cancelled), an add with a wrong password refused, one with the right password kept,
+# that passkey opening the password through passkeyd, and an add for no account refused
+pa="ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa
+fn sud { bind '#|' /mnt/\$1; aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa <>/mnt/\$1/data1 >[1=0] & }
+sud p0; auth/passkey -s /mnt/p0/data signup fred
+sud p7; auth/passkey -s /mnt/p7/data add fred
+sud p8; auth/passkey -s /mnt/p8/data add fred
+ls \$r/wa | wc -l
+bind '#|' /mnt/p1; aux/passkeyd -w \$r/wa -r localhost -o http://localhost:18092 <>/mnt/p1/data1 >[1=0] &
+auth/passkey -s /mnt/p1/data login
+sud p9; auth/passkey -s /mnt/p9/data add zed
+echo done"
+want passkeyadd $names && PAGEHOST=localhost WEBAUTHN='["cancel", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyadd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
+	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pa} </dev/cons >/dev/cons >[2=1]")" \
+	'[["account password: ", "fred-password-1\n"], ["again: ", "fred-password-1\n"], ["account password: ", "wrong-password-1\n"], ["account password: ", "fred-password-1\n"], ["account password: ", "any-password-1\n"]]'
 if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want signupnopk $names || want passkeyoffline $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
