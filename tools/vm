@@ -20,7 +20,8 @@
 #                                   the disk on virtio-scsi, legacy
 #                                   virtio-net with its MAC and subnet,
 #                                   no in.img/out.img
-#   tools/vm stop                   quit QEMU; delete the overlay unless KEEP=1
+#   tools/vm stop                   fshalt (unless halted already or NOHALT=1),
+#                                   quit QEMU; delete the overlay unless KEEP=1
 #   tools/vm status
 #
 # Everything lives in build/vm/: serial.log (-> the log of the current run,
@@ -111,6 +112,14 @@ start)
 	echo $! > "$vm/relay.pid"
 	;;
 stop)
+	# the file server halted first (fshalt: its cache written), as a machine is turned
+	# off - QEMU's quit alone left a CPU disk whose cwfs did not mount again; not when
+	# the log says it is halted already (vm-install, vm-cpu), nor with NOHALT=1
+	if running && [ "${NOHALT:-}" != 1 ] && [ -p "$vm/serial.in" ] &&
+	   ! tail -c 400 "$vm/serial.log" 2>/dev/null | grep -q 'done halting'; then
+		printf '!now done halting\t!done\n' | "$here/9run" -d "$vm" -t 30 -s fshalt --dialog - >/dev/null 2>&1 ||
+			echo "vm: no fshalt answered: the file server may not have written its cache" >&2
+	fi
 	# QEMU may exit (and remove its pidfile) between the test and the read
 	if running && pid=$(cat "$vm/qemu.pid" 2>/dev/null); then
 		python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(b"quit\n"); s.recv(100)' "$vm/mon.sock" 2>/dev/null || true

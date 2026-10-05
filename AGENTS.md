@@ -169,6 +169,13 @@ viestissä, kuten `Plan2001's`, avaa lainauksen),
 - Initin argv on BootInfon configissa `init=`-rivinä (tokenizen
   lainaus). Argumentissa ei siis voi olla rivinvaihtoa: platform.js
   hylkää sellaisen.
+- Taustapalvelin (lib9p:n `postsrv`: mntgen, factotum, ramfs) pitää auki
+  ne fd:t, joilla se käynnistettiin. Jos se käynnistetään putken
+  kirjoittavan pään sisällä (`{... factotum ...} | sed`), sed ei saa
+  EOF:ia, eikä testi pääty. Käynnistä palvelimet ennen putkea.
+- Pysyvä VM-levy (`cpu.qcow2`) suljetaan `fshalt`illa. `tools/vm stop`
+  tekee sen itse (`NOHALT=1` ohittaa). Pelkkä QEMU:n quit jätti cwfs:n
+  kirjoittamatta, eikä levy enää mountannut.
 
 ## Commit
 
