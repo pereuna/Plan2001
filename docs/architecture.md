@@ -573,6 +573,42 @@ portissa ja että kaikki Monolithin JS poistetaan nyt.
   syntaksin osalta), sovellusten origin oikeaa webtermiä vasten,
   `tools/cloud-image` ja hiekkalaatikko.
 
+## Pelit ja ohjelmien kokeilu selaimessa (5.10.2026)
+
+Tavoite: plan2001.comin wasm32-koneessa voi kokeilla 9frontin ohjelmia.
+Ensimmäisenä tulevat pelit, sitten 3c ja lähteet. Päätös: pelit ja
+käännös ajetaan selaimen wasm32-koneessa, ja lähteet tulevat
+CPU-palvelimelta 9P:llä.
+
+Päätös (5.10.): koko 9Front-2001 asennetaan selaimen levylle (OPFS,
+originikohtainen ja pysyvä), kuten oikealle koneelle. `root.fs` jää
+boot-, kirjautumis- ja asennusympäristöksi, eikä pelejä lisätä sinne
+(se olisi kasvattanut ensilatauksen 3,5 Mt:sta 9,3 Mt:iin).
+
+1. **Pelit jakelun ensimmäisenä osana (tehty 5.10.):**
+   - Osajoukkoon tulivat `/sys/src/games`, `/sys/games/lib` ja
+     `/amd64/bin/games` (`tools/subset/extra`, derive, check).
+   - `monolith/tools/build-games` kääntää ne 9frontin omilla mkfileillä
+     (`tools/native-wasm32`, plan9portin mk ja rc). Mukana on 46 peliä,
+     myös doom ja emulaattorit. Puuttuu vain `aout2gba`, joka tarvitsee
+     libmachin ja kääntäjien lähteet.
+   - Käsin kokeiltu koneessa: miinaharava, sudoku, catclock ja doom
+     (shareware-wad, wadfs) toimivat.
+   - Natiivi käännös tavallisena käyttäjänä: `unshare -r`, ja
+     kiinnityspisteet `/wasm32`, `/lib/ucd` ja `/lib/keyboard` luodaan
+     kerran rootina.
+2. **wasm32-jakelu** (`tools/dist-wasm32`): natiivi käännös koko
+   osajoukon kirjastoille, `cmd`-puulle, peleille ja 3c:lle/3l:lle.
+   Tulos on jakelupuu: 9Front-2001 ilman muiden arkkitehtuurien
+   binäärejä, mukana `/wasm32/{bin,lib,include}`, ja proto.
+3. **Jakelu palvelimelta:** vain luettavana 9P:llä (webterm, policy-sana
+   `dist`, exportfs `none`-käyttäjänä); kone liittää sen `/n/dist`:iin.
+4. **Asennin koneessa (plan2001/):** kopioi jakelun protolla levylle
+   (hjfs), kuten `inst/copydist`. Sama asennin myös päivittää.
+5. **Boot levyltä:** asennettu järjestelmä sidotaan `/bin`:iin, `/rc`:hen,
+   `/lib`:iin ja `/sys`:iin `root.fs`:n edelle.
+6. **Lähteet:** jakelussa (`/sys/src`), ja 3c kääntää koneessa.
+
 ## Avainten paikka: secstore (päätös 4.10.2026)
 
 Seuraava tavoite on Plan2001:n amd64-versio pilvessä (9Front-2001 +

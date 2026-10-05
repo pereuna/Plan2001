@@ -1,0 +1,29 @@
+#!/bin/bash
+# 9front's games for the wasm32 machine (plan2001.com: to try programs in
+# the browser), built natively with 9Front-2001's own mkfiles
+# (tools/native-wasm32: plan9port's mk and rc, $PLAN9) into
+# build/wasm32/games: bin/games/* and the games' data (sys/games/lib:
+# derive's fetch, binary files and all, as build-bin3's vga fonts).  build-bin3 puts them in the root when they are there, so
+# build-bin3 and tools/pages need no plan9port.  aout2gba (a.out to a GBA
+# image, a tool) is left out: it needs libmach, which needs the compilers'
+# sources the subset does not have.
+#   PLAN9=... monolith/tools/build-games
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+P=$(dirname "$root")
+out=$root/build/wasm32/games
+libs="libc libthread libmp libsec libbio libregexp libString libauth libauthsrv lib9p libip libndb libdraw libmemdraw libmemlayer libframe libcomplete libplumb libcontrol libgeometry libpcm libavl libstdio"
+# the top mkfile's own games (mkmany: X.install each) and its DIRS (dirinstall)
+one=$(awk '/^TARG=/{f=1; sub(/^TARG=/, "")} f{more = /\\$/; gsub(/\\/, ""); for(i = 1; i <= NF; i++) print $i; f = more}' "$P/subset/9front/sys/src/games/mkfile" |
+	grep -vx aout2gba | sed 's/$/.install/' | tr '\n' ',')
+"$P/tools/native-wasm32" $libs "games:${one}dirinstall" >"$root/build/games.log" 2>&1 ||
+	{ tail -20 "$root/build/games.log"; echo "build-games: failed (build/games.log)" >&2; exit 1; }
+rm -rf "$out"
+mkdir -p "$out/bin" "$out/sys/games"
+cp -r "$P/build/9front-2001/wasm32/bin/games" "$out/bin/"
+# the data: derive's fetch has all of it (the images, doom's shareware wad: binary files the
+# repo's subset leaves out), else the subset's text files only
+d=$P/build/subset/amd64/src/sys/games/lib
+[ -d "$d" ] || { d=$P/subset/9front/sys/games/lib; echo "build-games: no $P/build/subset/amd64/src (tools/subset/derive): the data's text files only" >&2; }
+cp -r "$d" "$out/sys/games/"
+echo "build-games: $(ls "$out/bin/games" | wc -l) games, $(du -sh "$out" | cut -f1) in $out"

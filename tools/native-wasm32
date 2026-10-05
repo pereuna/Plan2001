@@ -3,7 +3,7 @@
 # objtype=wasm32 mk on a 9front machine builds them (docs/plan9-fork.md:
 # the native build) - here on Linux, for a test without a 9front machine:
 # tools/9front-2001's tree bound to /sys and /wasm32 in a mount namespace
-# of its own (unshare), plan9port's mk and rc ($PLAN9), the 3c and 3l
+# of its own (unshare; not as root, in a user namespace of its own too), plan9port's mk and rc ($PLAN9), the 3c and 3l
 # built by monolith/tools/build-cc, and an ar that takes Plan 9's "ar vu".
 # What it builds goes to the tree's /wasm32 (lib, bin) and /sys/src/9/wasm32.
 # The tree is made anew each time: DIRs that need others' libraries
@@ -38,7 +38,7 @@ one="basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd b
 [ ! -e "$tree/sys/src/cmd/clock.c" ] || one="$one clock"	# the subset's once derive brings it (tools/subset/extra)
 cmds="cmd/rc cmd/hjfs cmd/rio cmd/aux/kbdfs cmd/auth/factotum cmd/auth/secstore:secstore.install,aescbc.install cmd/aux/seckeys cmd/exportfs cmd/plumb cmd/syscall cmd:$(echo $one | sed 's/\([^ ]*\)/\1.install/g; s/ /,/g')"
 dirs=${*:-$libs 9/wasm32 $cmds}
-unshare -m --propagation private bash -s "$tree" "$bin" "$PLAN9" $dirs <<'X'
+unshare $( [ "$(id -u)" = 0 ] || echo -r ) -m --propagation private bash -s "$tree" "$bin" "$PLAN9" $dirs <<'X'
 set -e
 tree=$1 bin=$2 P9=$3; shift 3
 /usr/bin/mount --bind "$tree/sys" /sys
@@ -67,7 +67,7 @@ for d in "$@"; do
 	t=install
 	case $d in *:*) t=${d#*:} t=${t//,/ } d=${d%%:*} ;; esac
 	echo "native-wasm32: /sys/src/$d: mk $t"
-	mkdir -p /wasm32/bin/aux /wasm32/bin/auth
+	mkdir -p /wasm32/bin/aux /wasm32/bin/auth /wasm32/bin/games
 	cd "/sys/src/$d" || { echo "native-wasm32: no /sys/src/$d" >&2; exit 1; }
 	mk $t
 done
