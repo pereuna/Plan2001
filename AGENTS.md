@@ -173,6 +173,11 @@ viestissä, kuten `Plan2001's`, avaa lainauksen),
   ne fd:t, joilla se käynnistettiin. Jos se käynnistetään putken
   kirjoittavan pään sisällä (`{... factotum ...} | sed`), sed ei saa
   EOF:ia, eikä testi pääty. Käynnistä palvelimet ennen putkea.
+- Jos `~/.cache/plan2001/cpu.pass` (CPU-VM:n glendan salasana; ei
+  pilven, sen salasanat ovat `cloud/`issa) on kadonnut, `tools/vm-cpu
+  --repass` antaa uuden. Älä vaihda nvramin avainta (`auth/wrkey`)
+  ilman `auth/convkeys /adm/keys`:ia: keyfs ei silloin enää avaa
+  käyttäjiä.
 - Pysyvä VM-levy (`cpu.qcow2`) suljetaan `fshalt`illa. `tools/vm stop`
   tekee sen itse (`NOHALT=1` ohittaa). Pelkkä QEMU:n quit jätti cwfs:n
   kirjoittamatta, eikä levy enää mountannut.

@@ -63,6 +63,8 @@
 #                           files in DIR (index.html, platform.js, 9wasm32.wasm,
 #                           w3root.fs), secstored and glenda's secstore
 #                           account if she has none; leaves it running
+#   tools/vm-cpu --repass   a new password for glenda (nvram and keyfs) into
+#                           cpu.pass, e.g. when it was lost; leaves it running
 # Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
 # and open https://127.0.0.1:17443/ (the wasm32 terminal: rcpu -h cirno)
 set -e
@@ -91,6 +93,43 @@ require STA\\? .*: *	''
 comments .*: *	''
 $PROMPT9 	!done
 EOF
+}
+# a new password for glenda, the host owner (nvram: auth/wrkey) and the auth
+# server's user (keyfs: auth/changeuser), in tools/cloud-image's order: keyfs
+# keeps /adm/keys encrypted with the host owner's key, so the file is
+# re-encrypted with the new one (auth/convkeys) before nvram gets it; a copy
+# of the old file in /adm/keys.old.  Into cpu.pass only once all have it;
+# the machine restarted with it, and glenda's login checked
+repass() {
+	local new r
+	new=$passf.new
+	# all of head's bytes through tr (no pipe cut short: pipefail below)
+	r=$(head -c 1024 /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9')
+	(umask 077; printf '%s' "${r:0:12}" >"$new")
+	pass=$(cat "$new")
+	[ ${#pass} = 12 ] || { echo "vm-cpu: no password made" >&2; exit 1; }
+	set -o pipefail	# a dialog that fails is not hidden by redact
+	"$here/vm" stop 2>/dev/null || true
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	run9 -t 30 'cp /adm/keys /adm/keys.old && chmod 660 /adm/keys.old' >/dev/null
+	echo "vm-cpu: glenda's new key in the auth server (auth/changeuser)"
+	sed "s/PASS/$pass/" "$here/cloud/changeuser.dialog.in" | run9 -t 120 -s 'auth/changeuser glenda' --dialog - | redact
+	echo; echo "vm-cpu: /adm/keys with the new key (auth/convkeys)"
+	printf '%s\n' "[Pp]assword.*: *	$pass" "cirno# 	!done" | run9 -t 120 -s 'auth/convkeys /adm/keys' --dialog - | redact
+	echo; echo "vm-cpu: glenda's new key into nvram (auth/wrkey)"
+	printf '%s\n' "authid.*: *	glenda" "authdom.*: *	plan2001" "secstore key.*: *	''" "confirm password: *	$pass" \
+		"password: *	$pass" "enable legacy p9sk1.*: *	''" "cirno# 	!done" |
+		run9 -t 120 -s auth/wrkey --dialog - | redact
+	halt9
+	"$here/vm" stop
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	sleep 5
+	"$root/monolith/build/9pterm/9pterm" -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -P "$new" -W 20 -T 30 -c 'cat /dev/user' 2>&1 | grep -qx glenda ||
+		{ echo "vm-cpu: glenda can not log in with the new password (kept in $new)" >&2; exit 1; }
+	mv "$new" "$passf"
+	echo "vm-cpu: glenda's password changed (in $passf), running (tools/vm stop)"
 }
 web=
 [ "$1" = --update ] && [ "$2" = --web ] && { web=$3; [ -d "$web" ] || { echo "vm-cpu: no $web" >&2; exit 1; }; }
@@ -219,6 +258,11 @@ rm -rf "$stage"
 truncate -s '>64M' "$root/build/in.img"
 
 [ -f "$cache/base.qcow2" ] || { echo "vm-cpu: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+if [ "$1" = --repass ]; then
+	[ -f "$cpu" ] || { echo "vm-cpu: no $cpu" >&2; exit 1; }
+	repass
+	exit 0
+fi
 if [ "$1" = --update ]; then
 	[ -f "$cpu" ] || { echo "vm-cpu: no $cpu" >&2; exit 1; }
 	pass=
