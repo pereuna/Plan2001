@@ -100,6 +100,8 @@ document.addEventListener('keydown', (e) => {
 	if (!window.monolith || e.metaKey && e.key !== 'Meta') return;
 	/* Ctrl-C with text selected (the console's) is the browser's copy */
 	if (e.ctrlKey && (e.key === 'c' || e.key === 'C' || e.key === 'Insert') && String(getSelection()).length) return;
+	/* Ctrl-V and Shift-Insert are the browser's paste: its paste event types the text (kernelpaste) */
+	if (e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V') || e.shiftKey && e.key === 'Insert') return;
 	const r = K[e.key] ?? ([...e.key].length === 1 ? e.key : undefined);
 	if (r === undefined) return;
 	down.set(e.code, r);
