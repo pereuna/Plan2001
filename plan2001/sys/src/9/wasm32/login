@@ -3,7 +3,8 @@
 # accounts: $login, BootInfo's config; docs/webauthn.md): a passkey, a
 # password, a new account or none.  The passkey opens the account's
 # password (auth/passkey: its wrap from passkeyd), which gets factotum's
-# keys from secstore (aux/seckeys).  With the machine's disk the wrap
+# keys from secstore (aux/seckeys).  A new account whose device makes no
+# passkey is its password's alone.  With the machine's disk the wrap
 # and the keys' encrypted copy are kept in glenda's home, so a passkey
 # opens the keys without the network too.
 copy=()
@@ -31,9 +32,16 @@ while(){
 		n=`{read}
 		echo -n 'invite code (none: empty): '
 		i=`{read}
-		if(! ~ $#n 0 && auth/passkey signup $n $i){
-			echo 'sign in with the new passkey'
-			passkey && exit
+		if(! ~ $#n 0){
+			auth/passkey signup $n $i
+			switch($status){
+			case ''
+				echo 'sign in with the new passkey'
+				passkey && exit
+			case *'no passkey'
+				# the device made none: the password signs in
+				aux/seckeys -u $n $copy && exit
+			}
 		}
 	case g
 		exit

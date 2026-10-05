@@ -5,7 +5,8 @@
  *
  *	auth/passkey [-s server] signup NAME [INVITE]
  *		the password asked twice; a passkey made (#W, the page's
- *		WebAuthn: its PRF output); to signupd what the server keeps,
+ *		WebAuthn: its PRF output) if the device can, else none (exits
+ *		"no passkey": the password signs in); to signupd what the server keeps,
  *		none of it the password: the auth server's key (passtokey),
  *		secstore's verifier (PAK's Hi), secstore's factotum file with
  *		the dp9ik key - encrypted with the password as secstore -p
@@ -368,7 +369,7 @@ validname(char *s)
 static void
 signup(char *name, char *code)
 {
-	char *pass, *again, *ans, *id, *pk, *hi, *file, *line, *user, *salt;
+	char *pass, *again, *ans, *id, *pk, *ws, *hi, *file, *line, *user, *salt, *why;
 	uchar prfout[32], w[Nwrap], *sf;
 	Authkey ak;
 	int nw, nsf;
@@ -383,25 +384,39 @@ signup(char *name, char *code)
 		sysfatal("the passwords differ");
 	memset(again, 0, strlen(again));
 
+	/*
+	 * the passkey, if this device makes one with PRF; else the account
+	 * is the password's alone (exits "no passkey"): a passkey can not
+	 * be had everywhere (Windows 10's Hello has no PRF, a browser's
+	 * password manager may be locked), an account should
+	 */
+	id = pk = ws = "-";
 	user = b64u((uchar*)name, strlen(name));
 	salt = b64u((uchar*)prfsalt, strlen(prfsalt));
+	why = nil;
 	if((ans = webauthn("create rp=%s user=%s name=%s salt=%s", rp, user, name, salt)) == nil)
-		sysfatal("passkey: %r");
-	id = field(ans, "id");
-	pk = field(ans, "pubkey");
-	if(id == nil || pk == nil)
-		sysfatal("passkey: no id or public key");
-	if(prf(ans, prfout) < 0){
-		/* PRF at creation not given (the authenticator's or browser's): get it once */
-		free(ans);
-		if((ans = webauthn("get rp=%s salt=%s allow=%s", rp, salt, id)) == nil)
-			sysfatal("passkey: %r");
-		if(prf(ans, prfout) < 0)
-			sysfatal("passkey: no PRF here: the password only (aux/seckeys)");
+		why = smprint("%r");
+	else if(field(ans, "id") == nil || field(ans, "pubkey") == nil)
+		why = "no id or public key";
+	else{
+		id = strdup(field(ans, "id"));
+		pk = strdup(field(ans, "pubkey"));
+		if(prf(ans, prfout) < 0){
+			/* PRF at creation not given (the authenticator's or browser's): get it once */
+			free(ans);
+			if((ans = webauthn("get rp=%s salt=%s allow=%s", rp, salt, id)) == nil || prf(ans, prfout) < 0)
+				why = "no PRF here";
+		}
 	}
 	free(ans);
-	if((nw = wrap(prfout, name, pass, w, sizeof w)) < 0)
-		sysfatal("password too long");
+	if(why == nil){
+		if((nw = wrap(prfout, name, pass, w, sizeof w)) < 0)
+			sysfatal("password too long");
+		ws = b64u(w, nw);
+	}else{
+		fprint(2, "%s: passkey: %s: the account without one, its password signs in\n", argv0, why);
+		id = pk = ws = "-";
+	}
 	memset(prfout, 0, sizeof prfout);
 
 	passtokey(&ak, pass);
@@ -411,10 +426,14 @@ signup(char *name, char *code)
 	memset(file, 0, strlen(file));
 	memset(pass, 0, strlen(pass));
 	line = smprint("signup %s %.*H %s %s %s %s %s%s%s\n", name, AESKEYLEN, ak.aes, hi,
-		b64(sf, nsf), id, pk, b64u(w, nw), code ? " " : "", code ? code : "");
+		b64(sf, nsf), id, pk, ws, code ? " " : "", code ? code : "");
 	memset(&ak, 0, sizeof ak);
 	if((ans = call("signup", line)) == nil)
 		sysfatal("%r");
+	if(why != nil){
+		print("%s: account %s made, its password (no passkey)\n", argv0, name);
+		exits("no passkey");
+	}
 	print("%s: account %s made, its passkey and password\n", argv0, name);
 	exits(nil);
 }

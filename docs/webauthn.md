@@ -189,9 +189,13 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 - **Selaimen kone:** P ja avaimet ovat koneen muistissa (factotum) kuten
   nyt. Sivun JavaScript näkee PRF-salaisuuden, joten sivun eheys
   (CSP, SRI ja oma origin) on tärkeä.
-- **PRF puuttuu:** autentikaattori ilman PRF:ää käy vain vaiheen 2
-  tunnistukseen. P on silloin kirjoitettava. Sivu kertoo, kun
-  passkeylla ei voi avata avaimia.
+- **PRF puuttuu tai passkeyta ei synny:** tunnus syntyy silti
+  pelkällä salasanalla (5.10.). `auth/passkey signup` kertoo syyn ja
+  päättyy tilaan `no passkey`, signupd saa passkeyn kentiksi `- - -`
+  eikä tallenna passkeyta, ja `/boot/login` kirjautuu salasanalla.
+  Näin kävi plan2001.comissa: Windows 10:n Windows Hellossa ei ole
+  PRF:ää, ja Chromen salasanojen hallinta vaati Google-tilin
+  salauksen avaamista. Testi `signupnopk`.
 - **Palautus:** valinnainen palautuskoodi (satunnainen, tulostettava) on
   oma kääreensä. Palvelin ei voi palauttaa tunnusta.
 

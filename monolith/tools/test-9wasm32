@@ -122,7 +122,7 @@ want webauthn $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "g
 # the CPU server's signupd and passkeyd (docs/webauthn.md: aux/listen's service.auth, the line on fd 0),
 # the real programs here with their keyfs, secstore and webauthn directories in a ramfs: an account's
 # files as keyfs, secstored and passkeyd read them; a name taken, a reserved one,
-# a key that is not one; a failure part way undone (secstore's store not writable); invites, used up;
+# a key that is not one; an account without a passkey (all three -), not with one part -; a failure part way undone (secstore's store not writable); invites, used up;
 # the file server's newuser a line on its console, ok only once its home is there (none: undone), and the
 # user in its group web (made once), ok only once its users file has it there (never: undone)
 L="00112233445566778899aabbccddeeff SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
@@ -131,6 +131,7 @@ echo signup alice $L credidAAAAAAAAAAAAAA pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAA
 xd -1x \$r/keys/alice/aeskey | sed 1q; cat \$r/sec/who/alice; ls \$r/sec/store/alice; sed /^created/d \$r/wa/credidAAAAAAAAAAAAAA
 echo signup alice $L credidBBBBBBBBBBBBBB pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
 echo signup glenda $L credidCCCCCCCCCCCCCC pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup ivan $L - - - | sd; ls \$r/wa; echo signup jack $L - pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
 echo signup bob 00112233 SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB credidDDDDDDDDDDDDDD pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
 chmod 555 \$r/sec/store; echo signup bob $L credidDDDDDDDDDDDDDD pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd; ls \$r/keys \$r/sec/who \$r/wa; chmod 775 \$r/sec/store
 echo code1 >\$r/wa/invites; echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
@@ -192,7 +193,7 @@ echo done"
 want passkeyc $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyc "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
 	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pc} </dev/cons >/dev/cons >[2=1]")" \
 	'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want passkeyoffline $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want signupnopk $names || want passkeyoffline $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -262,6 +263,12 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	want signup $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go"]' HALTWAIT=200 run signup "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$pk; auth/passkey -s relay signup alice; auth/passkey -s relay login | aux/seckeys -I; cat /mnt/factotum/ctl; echo 'delkey user=alice' >/mnt/factotum/ctl; aux/seckeys -u alice; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["account password: ", "alice-password-1\n"], ["again: ", "alice-password-1\n"], ["secstore password: ", "alice-password-1\n"]]'
+	# an account when the device makes no passkey (cancelled here; Windows 10's Hello has no PRF, a
+	# browser's password manager may be locked): made with its password alone (exits "no passkey"),
+	# signupd keeps no passkey for it, and the password gets its key from secstore
+	want signupnopk $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["cancel"]' HALTWAIT=200 run signupnopk "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$pk; auth/passkey -s relay signup carol; echo status \$status; aux/seckeys -u carol; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["account password: ", "carol-password-1\n"], ["again: ", "carol-password-1\n"], ["secstore password: ", "carol-password-1\n"]]'
 	want passkeyoffline $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyoffline "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$pk; rc /boot/disk; ramfs -m /mnt/ram; mkdir /mnt/ram/nonet; c=/usr/glenda/lib/factotum.aes; w=/usr/glenda/lib/passkey.wrap; auth/passkey -s relay signup bob; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c; echo 'delkey user=bob' >/mnt/factotum/ctl; @{rfork n; bind /mnt/ram/nonet /net; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c}; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["account password: ", "bob-password-12\n"], ["again: ", "bob-password-12\n"]]'

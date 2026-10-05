@@ -411,12 +411,13 @@ def signupd(f):
 		sf = base64.b64decode(sfile)
 	except ValueError:
 		return 'error bad request'
-	if len(aesb) != 16 or not sf or cid in passkeys:
+	if len(aesb) != 16 or not sf or cid != '-' and cid in passkeys:
 		return 'error bad request'
 	aeskeys[name] = aesb
 	secstore.his[name] = hiv
 	secstore.files[(name, 'factotum')] = sf
-	passkeys[cid] = (name, pk, wrap)
+	if (cid, pk, wrap) != ('-', '-', '-'):	# all three -: no passkey (the password signs in)
+		passkeys[cid] = (name, pk, wrap)
 	print(f'test-authsrv: signup {name}', flush=True)
 	return 'ok'
 

@@ -10,7 +10,8 @@
  * password's passtokey), SECHI secstore's verifier (PAK's Hi, base64),
  * SECFILE secstore's factotum file (base64, encrypted with the password
  * by the client), CREDID the passkey's id, PUBKEY its public key (SPKI)
- * and WRAP the name and password encrypted with its PRF output (base64url).
+ * and WRAP the name and password encrypted with its PRF output (base64url);
+ * all three - when the device made no passkey (the password signs in).
  * The account: a user in keyfs (its aeskey), a secstore account (who/NAME,
  * store/NAME/factotum), the passkey (webauthn/CREDID: whose, its key and
  * wrap) and, with -c, a home on the file server (newuser on its console;
@@ -234,7 +235,7 @@ main(int argc, char **argv)
 	char line[Nline], *f[10], *name, *p, *q;
 	uchar aes[AESKEYLEN];
 	long n, m;
-	int nf, nsec, fd, i, there;
+	int nf, nsec, fd, i, there, nopk;
 	uchar *sec;
 
 	ARGBEGIN{
@@ -281,11 +282,14 @@ main(int argc, char **argv)
 		answer("error bad name");
 	if(!charset(f[2], "0123456789abcdefABCDEF", 2*AESKEYLEN, 2*AESKEYLEN) || dec16(aes, sizeof aes, f[2], 2*AESKEYLEN) != AESKEYLEN)
 		answer("error bad key");
+	/* no passkey: CREDID, PUBKEY and WRAP all - (the device made none: the password signs in) */
+	nopk = strcmp(f[5], "-") == 0 && strcmp(f[6], "-") == 0 && strcmp(f[7], "-") == 0;
 	if(!charset(f[3], B64, 16, 1024) || !charset(f[4], B64, 16, 8192)
-	|| !charset(f[5], B64U, 16, 1024) || !charset(f[6], B64U, 16, 1024) || !charset(f[7], B64U, 16, 2048))
+	|| !nopk && (!charset(f[5], B64U, 16, 1024) || !charset(f[6], B64U, 16, 1024) || !charset(f[7], B64U, 16, 2048)))
 		answer("error bad request");
-	if(exists("%s/%s", keys, name) || exists("%s/who/%s", secdir, name) || exists("%s/%s", wadir, f[5]))
+	if(exists("%s/%s", keys, name) || exists("%s/who/%s", secdir, name) || !nopk && exists("%s/%s", wadir, f[5]))
 		answer("error name taken");
+	nsec = 0;
 	sec = malloc(strlen(f[4]));
 	if(sec == nil || (nsec = dec64(sec, strlen(f[4]), f[4], strlen(f[4]))) < 32)
 		answer("error bad request");
@@ -320,12 +324,14 @@ main(int argc, char **argv)
 	made[nmade++] = p;
 	made[nmade++] = q;
 
-	/* the passkey */
-	p = smprint("%s/%s", wadir, f[5]);
-	q = smprint("name\t%s\npubkey\t%s\nwrap\t%s\ncreated\t%ld\n", name, f[6], f[7], time(0));
-	if(put(p, q, strlen(q), 0600) < 0)
-		fail("passkey");
-	made[nmade++] = p;
+	/* the passkey, if there is one */
+	if(!nopk){
+		p = smprint("%s/%s", wadir, f[5]);
+		q = smprint("name\t%s\npubkey\t%s\nwrap\t%s\ncreated\t%ld\n", name, f[6], f[7], time(0));
+		if(put(p, q, strlen(q), 0600) < 0)
+			fail("passkey");
+		made[nmade++] = p;
+	}
 
 	/* a home on the file server, and the user in its group web */
 	if(fscons != nil && *fscons){
