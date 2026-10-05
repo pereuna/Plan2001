@@ -212,6 +212,17 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
   eivät muutu. PRF:n kanssa salasana avautuu kääreestä kuten ennen. Testi
   `passkeynoprf` (virtuaalinen autentikaattori `hasPrf: False`, oikeat
   daemonit); aiemmat testit pakottivat PRF:n päälle ja peittivät tämän.
+- **Kokemus plan2001.comista (5.10.2026):** Windows 10:n Chromessa
+  passkey ohjautui Googlen salasanojen ylläpitoon, jonka salaus oli
+  lukossa (ainoa tarjottu vaihtoehto oli nollata kaikki passkeyt), ja
+  Windows Hello ilman PRF:ää tarjosi vain USB-avainta. Toimiva polku
+  ilman Googlea: läppärissä Bluetooth päälle (hybrid tarkistaa sillä,
+  että puhelin on lähellä; Dellissä BIOSista), puhelimeen erillinen
+  passkeypalvelu (Proton Pass; Bitwarden käy samoin) Androidin
+  ensisijaiseksi palveluksi, ja "With a phone (QR code)". Proton Pass
+  antaa PRF:n, joten kirjautuminen on QR-koodi ilman nimeä ja
+  salasanaa. Toinen Googlesta riippumaton tie on FIDO2-avain ("Security
+  key").
 - **Kolme valintaa:** sivun passkey-pyynnössä ovat "this device"
   (selain valitsee), "With a phone (QR code)" (`hints: ['hybrid']`) ja
   "Security key" (`hints: ['security-key']`); kaksi jälkimmäistä
