@@ -1,20 +1,13 @@
 #!/bin/bash
-# Build drawterm.wasm and install the page in the Plan2001 CPU VM, which
-# then serves it itself: https://127.0.0.1:17443/ (webterm behind tlssrv,
-# wss on the same origin).  Restarts the VM.
+# The wasm32 machine's page (tools/pages) installed in the Plan2001 CPU
+# VM, which then serves it itself: https://127.0.0.1:17443/ (rc-httpd
+# behind tlssrv, webterm's wss on the same origin; docs/architecture.md,
+# D7).  Restarts the VM.
 #   tools/deploy        PLAN2001 (default: the repo this monolith/ is in);
 #                       CPU_CERT_SANS as for its tools/vm-cpu
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 plan2001=${PLAN2001:-$(dirname "$root")}
-"$root/tools/build" wasm
-"$root/tools/build-cc" wasm	# 6c.wasm for the compute resource page (cr.html)
-site=$root/build/deploy
-rm -rf "$site"; mkdir -p "$site"
-cp "$root"/web/* "$root/build/wasm/drawterm.js" "$root/build/wasm/drawterm.wasm" \
-	"$root/build/cc-wasm/6c.js" "$root/build/cc-wasm/6c.wasm" "$site/"
-build=$(date -u +%Y%m%d-%H%M%S)-$(git -C "$root" rev-parse --short HEAD)
-sed -i "s/const BUILD = 'dev';/const BUILD = '$build';/" "$site/index.html"
-echo "deploy: build $build"
-"$plan2001/tools/vm-cpu" --update --web "$site"
+"$root/tools/pages" "$root/build/deploy"
+"$plan2001/tools/vm-cpu" --update --web "$root/build/deploy"
 echo "deploy: https://127.0.0.1:17443/"

@@ -1,34 +1,54 @@
 #!/bin/bash
-# The Plan2001 CPU and auth server VM, for drawterm clients (Monolith, the
-# browser drawterm): cpu.qcow2 in the cache, a persistent overlay of
+# The Plan2001 CPU and auth server VM, for the browser's wasm32 machines
+# (the terminal and the apps' origins): cpu.qcow2 in the cache, a persistent overlay of
 # base.qcow2 (which stays the build VM), set up once through the serial
 # console the way 9front sets up a standalone cpu+auth server:
 #   auth/wrkey          host owner glenda, authdom plan2001, into nvram
 #   auth/changeuser     glenda in keyfs, with the same password
+#   signupd, passkeyd   Plan2001's accounts and passkeys (docs/webauthn.md):
+#                       service.auth/tcp17040 and tcp17041 (host owner:
+#                       keyfs, /adm/secstore, /adm/webauthn), the site's
+#                       login file (GET /login); invites in
+#                       /adm/webauthn/invites (none: anyone may sign up);
+#                       passkeyd checks the passkey's signature for
+#                       PASSKEY_RP (default localhost) from PASSKEY_ORIGINS
+#   weblimitd           a web account's processes (32) and memory (48 MB, all
+#                       of them 256 MB) on the server, from cpustart
+#   websession          plan2001/rc/bin/websession: a web account's (signupd's
+#                       group web) rcpu and app sessions limited, sourced by
+#                       tcp17019's fn server and webterm (docs/webauthn.md)
+#   auth/secuser        glenda's secstore account (docs/architecture.md,
+#                       "Avainten paikka"), her secstore password generated
+#                       into cpu.secpass in the cache; secstored on 5356
+#                       (from cpustart: it announces the port itself) and the site's
+#                       secstore file (GET /secstore, kernel.html)
 #   /lib/ndb/local      ipnet with auth= and authdom=, the machine's ether
 #                       and IP (QEMU user net: 10.0.2.15, gateway 10.0.2.2)
 #   plan9.ini           service=cpu
-#   webterm             sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
-#                       for the browser drawterm, on port 17080 (aux/listen)
+#   webterm             plan2001/sys/src/cmd/webterm.c, a WebSocket to rcpu and auth
+#                       for the browser's machines, on port 17080 (aux/listen)
 #   crsrv, rcc          the compute pool (docs/cpu-server-design.md): crsrv
 #                       at boot (/srv/compute, CRs on tcp 17030, browsers
 #                       through webterm /17030), rcc (6c in the pool)
-#   apps                lib/app/APP/{image,namespace,policy}: an origin's app
+#   apps                plan2001/lib/app/APP/{image,namespace,policy}: an origin's app
 #                       (https://APP.MACHINE, docs/app-origins.md) and
-#                       rc/bin/apps
+#                       plan2001/rc/bin/apps
 #   Plan2001 system     as on the cloud server (docs/cloud.md): the
 #                       Plan2001 kernel and loader as a pair in 9fat
 #                       (build/amd64: tools/build.sh or tools/kbuild9p.rc),
-#                       glenda's profile from usr/glenda/lib/profile
+#                       glenda's profile from plan2001/usr/glenda/lib/profile
 #                       (a terminal starts rio, as 9front's)
-#   tlssrv + webterm    the same on port 17443 as https/wss, serving the
-#                       page too from /sys/lib/monolith (--web DIR), with a
+#   tlssrv + rc-httpd   the same on port 17443 as https/wss: 9front's rc-httpd
+#                       with Plan2001's select-handler (plan2001/rc/bin/rc-httpd)
+#                       serves the page from /sys/lib/plan2001/web (--web DIR;
+#                       monolith/tools/deploy) and hands the WebSockets to
+#                       webterm -s -r (docs/architecture.md, D7), with a
 #                       certificate from a development CA in the cache
 #                       (ca/ca.pem, to install in the browsers, also as
 #                       https://.../plan2001-ca.crt; openssl);
 #                       CPU_CERT_SANS names the machine, default
 #                       127.0.0.1, localhost and APP.localhost for the apps
-#                       in lib/app (Chrome sends *.localhost to loopback);
+#                       in plan2001/lib/app (Chrome sends *.localhost to loopback);
 #                       with PLAN2001_LAN=IP (tools/vm) also IP and
 #                       APP.IP.nip.io, for the local network (nip.io
 #                       resolves them to IP); PLAN2001_PUBLIC=IP the same
@@ -42,19 +62,77 @@
 #   tools/vm-cpu            create cpu.qcow2 (if missing)
 #   tools/vm-cpu --update [--web DIR]
 #                           reinstall webterm, the certificate and the page
-#                           files in DIR (drawterm.js ...); leaves it running
+#                           files in DIR (index.html, platform.js, 9wasm32.wasm,
+#                           w3root.fs), secstored and glenda's secstore
+#                           account if she has none; leaves it running
+#   tools/vm-cpu --repass   a new password for glenda (nvram and keyfs) into
+#                           cpu.pass, e.g. when it was lost; leaves it running
 # Run it with:  tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net
-# and connect:  PASS=$(cat ~/.cache/plan2001/cpu.pass) drawterm \
-#                 -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda
+# and open https://127.0.0.1:17443/ (the wasm32 terminal: rcpu -h cirno)
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
 vm=$root/build/vm
-cpu=$cache/cpu.qcow2 passf=$cache/cpu.pass
+cpu=$cache/cpu.qcow2 passf=$cache/cpu.pass secpassf=$cache/cpu.secpass
 run9() { "$here/9run" -d "$vm" "$@"; }
 redact() { sed "s/$pass/<password>/g"; }
 halt9() { printf '!now done halting\t!done\n' | run9 -t 60 -s fshalt --dialog - >/dev/null; }
 
+# glenda's secstore account (auth/secuser), if she has none; her secstore
+# password in cpu.secpass (secstore's own, not her login's)
+secaccount() {
+	local secpass prompt
+	[ -s "$secpassf" ] || { (umask 077; tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 12 > "$secpassf"); }
+	secpass=$(cat "$secpassf")
+	run9 -t 30 "test -e /adm/secstore/who/glenda" >/dev/null 2>&1 && { echo "vm-cpu: glenda's secstore account exists"; return; }
+	echo "vm-cpu: glenda's secstore account (auth/secuser)"
+	run9 -t 60 -s 'auth/secuser glenda' --dialog - <<EOF | sed "s/$secpass/<secstore password>/g"
+glenda password: *	$secpass
+retype password: *	$secpass
+expires .*: *	''
+Enabled or Disabled .*: *	''
+require STA\\? .*: *	''
+comments .*: *	''
+$PROMPT9 	!done
+EOF
+}
+# a new password for glenda, the host owner (nvram: auth/wrkey) and the auth
+# server's user (keyfs: auth/changeuser), in tools/cloud-image's order: keyfs
+# keeps /adm/keys encrypted with the host owner's key, so the file is
+# re-encrypted with the new one (auth/convkeys) before nvram gets it; a copy
+# of the old file in /adm/keys.old.  Into cpu.pass only once all have it;
+# the machine restarted with it, and glenda's login checked
+repass() {
+	local new r
+	new=$passf.new
+	# all of head's bytes through tr (no pipe cut short: pipefail below)
+	r=$(head -c 1024 /dev/urandom | LC_ALL=C tr -dc 'a-zA-Z0-9')
+	(umask 077; printf '%s' "${r:0:12}" >"$new")
+	pass=$(cat "$new")
+	[ ${#pass} = 12 ] || { echo "vm-cpu: no password made" >&2; exit 1; }
+	set -o pipefail	# a dialog that fails is not hidden by redact
+	"$here/vm" stop 2>/dev/null || true
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	run9 -t 30 'cp /adm/keys /adm/keys.old && chmod 660 /adm/keys.old' >/dev/null
+	echo "vm-cpu: glenda's new key in the auth server (auth/changeuser)"
+	sed "s/PASS/$pass/" "$here/cloud/changeuser.dialog.in" | run9 -t 120 -s 'auth/changeuser glenda' --dialog - | redact
+	echo; echo "vm-cpu: /adm/keys with the new key (auth/convkeys)"
+	printf '%s\n' "[Pp]assword.*: *	$pass" "cirno# 	!done" | run9 -t 120 -s 'auth/convkeys /adm/keys' --dialog - | redact
+	echo; echo "vm-cpu: glenda's new key into nvram (auth/wrkey)"
+	printf '%s\n' "authid.*: *	glenda" "authdom.*: *	plan2001" "secstore key.*: *	''" "confirm password: *	$pass" \
+		"password: *	$pass" "enable legacy p9sk1.*: *	''" "cirno# 	!done" |
+		run9 -t 120 -s auth/wrkey --dialog - | redact
+	halt9
+	"$here/vm" stop
+	"$here/vm" start --disk "$cpu" --net
+	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
+	sleep 5
+	"$root/monolith/build/9pterm/9pterm" -h 127.0.0.1 -a 'tcp!127.0.0.1!5670' -u glenda -P "$new" -W 20 -T 30 -c 'cat /dev/user' 2>&1 | grep -qx glenda ||
+		{ echo "vm-cpu: glenda can not log in with the new password (kept in $new)" >&2; exit 1; }
+	mv "$new" "$passf"
+	echo "vm-cpu: glenda's password changed (in $passf), running (tools/vm stop)"
+}
 web=
 [ "$1" = --update ] && [ "$2" = --web ] && { web=$3; [ -d "$web" ] || { echo "vm-cpu: no $web" >&2; exit 1; }; }
 
@@ -64,12 +142,12 @@ certs() {
 	local ca=$cache/ca sans=$CPU_CERT_SANS a
 	if [ -z "$sans" ]; then
 		sans=IP:127.0.0.1,DNS:localhost
-		for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").localhost; done
+		for a in "$root"/plan2001/lib/app/*/; do sans=$sans,DNS:$(basename "$a").localhost; done
 		# the local network's address (PLAN2001_LAN) and a public one
 		# (PLAN2001_PUBLIC: the cloud, docs/cloud.md)
 		for ip in $PLAN2001_LAN $PLAN2001_PUBLIC; do
 			sans=$sans,IP:$ip
-			for a in "$root"/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$ip.nip.io; done
+			for a in "$root"/plan2001/lib/app/*/; do sans=$sans,DNS:$(basename "$a").$ip.nip.io; done
 		done
 	fi
 	mkdir -p "$ca"; chmod 700 "$ca"
@@ -103,6 +181,7 @@ webterm() {
 	# / is a union of the disk's root, mounted without create: the
 	# directories are made through a mount that allows it
 	run9 -t 30 "test -d /global/compute || { mount -c /srv/boot /n/croot && mkdir -p /n/croot/global/compute /n/croot/compute; unmount /n/croot }"
+	run9 -t 30 "mkdir -p /cfg/cirno"	# cpustart's directory, before anything is written into it
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s crsrv /cfg/cirno/cpustart || echo crsrv >>/cfg/cirno/cpustart"
 	run9 -t 30 "grep -s /global/compute /cfg/cirno/cpustart || echo 'mount -c /srv/compute /global/compute' >>/cfg/cirno/cpustart"
 	# on another machine or network (the cloud, docs/cloud.md) /lib/ndb has
@@ -114,20 +193,52 @@ webterm() {
 	echo "vm-cpu: apps"
 	run9 -t 30 "rm -rf /rc/bin/app /lib/app && mkdir -p /lib/app && dircp /tmp/app /lib/app && chmod 775 /lib/app/* && chmod 664 /lib/app/*/* && chmod 775 /lib/app/*/image >[2]/dev/null; cp /tmp/apps /rc/bin/apps && chmod 775 /rc/bin/apps"
 	o=
-	for x in ${WEBTERM_ORIGINS:-http://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:18080}; do o="$o -o $x"; done
+	for x in ${WEBTERM_ORIGINS:-http://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:18080 http://localhost:18080}; do o="$o -o $x"; done
 	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17080; echo 'exec /bin/webterm$o' >>/rc/bin/service/tcp17080; chmod 775 /rc/bin/service/tcp17080"
 	echo "vm-cpu: https and wss on 17443"
-	run9 -t 60 "mkdir -p /sys/lib/tls /sys/lib/monolith /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
-	# the page's ?log=1 lines (webterm runs as none)
-	run9 -t 30 "test -e /sys/log/monolith || { touch /sys/log/monolith && chmod 666 /sys/log/monolith }"
+	run9 -t 60 "mkdir -p /sys/lib/tls /sys/lib/plan2001/web /cfg/cirno && cp /tmp/chain.pem /sys/lib/tls/monolith.pem && chmod 644 /sys/lib/tls/monolith.pem"
 	# the CA, for browsers to install: https://.../plan2001-ca.crt
-	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/plan2001-ca.crt"
+	run9 -t 30 "cp /tmp/plan2001-ca.crt /sys/lib/plan2001/web/ && chmod 644 /sys/lib/plan2001/web/plan2001-ca.crt"
+	# rc-httpd's site: Plan2001's select-handler and its page handler
+	run9 -t 30 "mkdir -p /rc/bin/rc-httpd/handlers && cp /tmp/select-handler /rc/bin/rc-httpd/select-handler && cp /tmp/plan2001-static /rc/bin/rc-httpd/handlers/plan2001-static && chmod 775 /rc/bin/rc-httpd/select-handler /rc/bin/rc-httpd/handlers/plan2001-static"
 	run9 -t 60 "auth/pemdecode 'RSA PRIVATE KEY' /tmp/cpu.key | auth/asn12rsa -t 'service=tls role=client owner=*' >/sys/lib/tls/monolith.key && chmod 600 /sys/lib/tls/monolith.key && rm /tmp/cpu.key"
 	run9 -t 30 "test -e /cfg/cirno/cpustart && grep -s monolith.key /cfg/cirno/cpustart || echo 'cat /sys/lib/tls/monolith.key >/mnt/factotum/ctl' >>/cfg/cirno/cpustart"
-	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /bin/webterm -s -w /sys/lib/monolith' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
+	run9 -t 30 "echo '#!/bin/rc' >/rc/bin/service/tcp17443; echo 'exec tlssrv -c /sys/lib/tls/monolith.pem /rc/bin/rc-httpd/rc-httpd' >>/rc/bin/service/tcp17443; chmod 775 /rc/bin/service/tcp17443"
+	# secstore (docs/architecture.md, "Avainten paikka"): secstored on 5356, and the
+	# site says so (GET /secstore: kernel.html gives the terminal's machine its dial
+	# string; webterm's /5356 is this machine's)
+	echo "vm-cpu: secstored, the site's secstore"
+	# secstored announces tcp!*!5356 itself (a server of its own, not aux/listen's): from cpustart,
+	# and none in service.auth, where listen would take the port first
+	run9 -t 30 "rm -f /rc/bin/service.auth/tcp5356"
+	run9 -t 30 "grep -s auth/secstored /cfg/cirno/cpustart || echo 'auth/secstored' >>/cfg/cirno/cpustart"
+	run9 -t 30 "echo 'tcp!secstore!5356' >/sys/lib/plan2001/web/secstore && chmod 644 /sys/lib/plan2001/web/secstore"
+	# Plan2001's accounts and passkeys (docs/webauthn.md): signupd and passkeyd as the host
+	# owner (service.auth: keyfs, /adm), webterm's /17040 and /17041; the site says so
+	# (GET /login: the terminal's /boot/login).  Invites: /adm/webauthn/invites, a code a line
+	echo "vm-cpu: signupd, passkeyd, the site's login"
+	run9 -t 120 "@{cd /tmp && for(p in signupd passkeyd weblimitd){ 6c -FTVw \$p.c && 6l -o /amd64/bin/aux/\$p \$p.6 || exit } }"
+	run9 -t 30 "mkdir -p /adm/webauthn && chmod 700 /adm/webauthn"
+	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/signupd -c /srv/cwfs.cmd' } >/rc/bin/service.auth/tcp17040; chmod 775 /rc/bin/service.auth/tcp17040"
+	# passkeyd's rp and origins: the passkey's site (PASSKEY_RP, default localhost: the VM's test
+	# pages, test-wasmapp PAGEHOST=localhost) and the pages it signs for (PASSKEY_ORIGINS)
+	po=
+	for x in ${PASSKEY_ORIGINS:-http://localhost:18080 https://localhost:17443}; do po="$po -o $x"; done
+	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/passkeyd -r ${PASSKEY_RP:-localhost}$po' } >/rc/bin/service.auth/tcp17041; chmod 775 /rc/bin/service.auth/tcp17041"
+	run9 -t 30 "echo 1 >/sys/lib/plan2001/web/login && chmod 644 /sys/lib/plan2001/web/login"
+	# a web account's session limited (/rc/bin/websession: signupd's group web): rcpu's
+	# (tcp17019's fn server, as the user, before the client's script) and webterm's apps'
+	# their processes and memory (aux/weblimitd, as the host owner from cpustart: 9front has no quotas)
+	echo "vm-cpu: weblimitd"
+	run9 -t 30 "test -e /sys/log/weblimit || { touch /sys/log/weblimit && chmod 664 /sys/log/weblimit }"
+	run9 -t 30 "grep -s aux/weblimitd /cfg/cirno/cpustart || echo 'aux/weblimitd >/dev/null >[2=1] &' >>/cfg/cirno/cpustart"
+	run9 -t 30 "ps | grep -s ' weblimitd\$' || aux/weblimitd >/dev/null >[2=1] &"
+	echo "vm-cpu: websession"
+	run9 -t 30 "cp /tmp/websession /rc/bin/websession && chmod 775 /rc/bin/websession"
+	run9 -t 30 "grep -s websession /rc/bin/service/tcp17019 || { awk '{print} /rm -f .*fn#server/ {print \"\t. /rc/bin/websession\"}' /rc/bin/service/tcp17019 >/tmp/t17019 && cp /tmp/t17019 /rc/bin/service/tcp17019 }; grep websession /rc/bin/service/tcp17019"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"
-		run9 -t 60 "cp /tmp/web/* /sys/lib/monolith/ && chmod 644 /sys/lib/monolith/* && ls -l /sys/lib/monolith"
+		run9 -t 60 "cp /tmp/web/* /sys/lib/plan2001/web/ && chmod 644 /sys/lib/plan2001/web/* && ls -l /sys/lib/plan2001/web"
 	fi
 }
 mkdir -p "$root/build"
@@ -136,26 +247,29 @@ stage=$(mktemp -d)
 for f in "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi"; do
 	[ -s "$f" ] || { echo "vm-cpu: no $f (tools/build.sh)" >&2; exit 1; }
 done
-cp "$root/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/rc/bin/apps" "$root/sys/src/cmd/crsrv.c" "$root/sys/src/cmd/rcc.c" "$root/usr/glenda/lib/profile" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
-cp -r "$root/lib/app" "$stage/app"
+cp "$root/plan2001/rc/bin/rc-httpd/select-handler" "$root/plan2001/rc/bin/rc-httpd/handlers/plan2001-static" "$stage/"
+cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/sys/src/cmd/aux/signupd.c" "$root/plan2001/sys/src/cmd/aux/passkeyd.c" "$root/plan2001/sys/src/cmd/aux/weblimitd.c" "$root/plan2001/usr/glenda/lib/profile" "$root/plan2001/rc/bin/websession" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
+cp -r "$root/plan2001/lib/app" "$stage/app"
 webfiles=
 if [ -n "$web" ]; then
 	mkdir "$stage/web"
-	cp -L "$web"/* "$stage/web/"
-	for f in "$stage"/web/*.html "$stage"/web/*.js "$stage"/web/*.wasm; do
-		[ -f "$f" ] && gzip -9kn "$f"
-	done
+	cp -L "$web"/* "$stage/web/"	# with their .gz (monolith/tools/pages)
 	webfiles=web
 fi
 # the key must not stay on the host's in.img, however this script ends
 scrub() { [ -f "$root/build/in.img" ] && dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none; true; }
 trap scrub EXIT
 rm -f "$root/build/in.img"
-(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" webterm.c crsrv.c rcc.c chain.pem cpu.key plan2001-ca.crt apps app profile 9pc64 bootx64.efi $webfiles)
+(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" select-handler plan2001-static webterm.c crsrv.c rcc.c signupd.c passkeyd.c weblimitd.c chain.pem cpu.key plan2001-ca.crt apps app profile websession 9pc64 bootx64.efi $webfiles)
 rm -rf "$stage"
 truncate -s '>64M' "$root/build/in.img"
 
 [ -f "$cache/base.qcow2" ] || { echo "vm-cpu: no $cache/base.qcow2 (run tools/vm-setup)" >&2; exit 1; }
+if [ "$1" = --repass ]; then
+	[ -f "$cpu" ] || { echo "vm-cpu: no $cpu" >&2; exit 1; }
+	repass
+	exit 0
+fi
 if [ "$1" = --update ]; then
 	[ -f "$cpu" ] || { echo "vm-cpu: no $cpu" >&2; exit 1; }
 	pass=
@@ -163,6 +277,7 @@ if [ "$1" = --update ]; then
 	"$here/vm" start --disk "$cpu" --net
 	printf 'cirno# \t!done\n' | run9 -t 180 --dialog - >/dev/null
 	webterm
+	PROMPT9='cirno#' secaccount
 	halt9
 	"$here/vm" stop
 	"$here/vm" start --disk "$cpu" --net
@@ -207,6 +322,7 @@ User's email address: *	''
 Sponsor's email address: *	''
 term% 	!done
 EOF
+PROMPT9='term%' secaccount
 echo; echo "vm-cpu: ndb and plan9.ini"
 run9 -t 60 "grep -v '^(ipnet=plan2001|sys=cirno )' /lib/ndb/local >/tmp/ndb"
 run9 -t 60 "echo 'ipnet=plan2001 ip=10.0.2.0 ipmask=255.255.255.0 ipgw=10.0.2.2 dns=10.0.2.3 auth=cirno authdom=plan2001 cpu=cirno' >>/tmp/ndb"

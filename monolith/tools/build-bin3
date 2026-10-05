@@ -1,8 +1,8 @@
 #!/bin/bash
 # 9front's rc and commands for wasm32 (3c, 3l), from ../subset/9front, and
 # a root for them: build/wasm32/root (bin/NAME, rc/lib/rcmain) and its
-# list root.txt, which the page loads into drawterm's #U for host3
-# (wasm32host: ?wasm=host3&prog=rc).
+# list root.txt, and the archive root.fs that the wasm32 machine's page
+# puts in BootInfo (#R, devrootfs.c).
 #   tools/build-bin3
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -13,8 +13,9 @@ cc3=$root/build/cc-native/3c
 l3=$root/build/cc-native/3l
 "$root/tools/build-libc3" >/dev/null
 "$root/tools/build-3c3" >/dev/null	# libbio too
-INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
+INC="-I$P/plan9/wasm32/include -I$P/subset/9front/sys/include"
 libs="$out/lib/libbio.a $out/lib/libregexp.a $out/lib/libauth.a $out/lib/libc.a"
+seclibs="$out/lib/libauthsrv.a $out/lib/libsec.a $out/lib/libmp.a $out/lib/libndb.a $out/lib/libip.a"	# D3
 rm -rf "$out/root" "$out/o/cmd"
 mkdir -p "$out/root/bin" "$out/root/rc/lib" "$out/o/cmd/rc"
 fail=0
@@ -30,14 +31,16 @@ cp "$src/rc/rcmain.plan9" "$out/root/rc/lib/rcmain"
 # rc's own commands (/rc/bin, after /bin): rio's window and wloc
 mkdir -p "$out/root/rc/bin"
 cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc/bin/"
-# the wasm32 kernel's init (sys/src/9/wasm32/init)
+# the wasm32 kernel's init (plan9/sys/src/9/wasm32/init)
 mkdir -p "$out/root/boot"
-cp "$P/sys/src/9/wasm32/init" "$P/sys/src/9/wasm32/console" "$out/root/boot/"
+cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$P/plan9/sys/src/9/wasm32/secstore" "$out/root/boot/"
+# an app's origin: its machine is the app's terminal (Plan2001's, D7: docs/app-origins.md)
+cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$P/plan2001/sys/src/9/wasm32/login" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
 # the one-file commands
-for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns sed mount pwd ps; do
+for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns sed mount pwd ps read test chmod; do
 	if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/$c.3" "$c.c") >"$out/o/cmd/$c.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/$c" "$out/o/cmd/$c.3" $libs >>"$out/o/cmd/$c.err" 2>&1; then
 		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1
@@ -49,11 +52,85 @@ if ! (cd "$src/aux/kbdfs" && "$cc3" -FVw $INC -o "$out/o/cmd/kbdfs.3" kbdfs.c) >
    ! "$l3" -o "$out/root/bin/aux/kbdfs" "$out/o/cmd/kbdfs.3" "$out/lib/lib9p.a" "$out/lib/libauth.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/kbdfs.err" 2>&1; then
 	echo "build-bin3: kbdfs:"; head -5 "$out/o/cmd/kbdfs.err"; fail=1
 fi
+# auth/factotum: 9front's, the machine's authentication agent (D3); its files
+# as its mkfile lists them (FOFILES and PROTO)
+mkdir -p "$out/root/bin/auth" "$out/o/cmd/factotum"
+for f in $(awk '/^(PROTO|FOFILES)=/ { on=1; next } on && /^[ \t]/ { gsub(/[\\ \t]/, ""); sub(/\.\$O$/, ""); if($0 != "" && $0 != "$PROTO") print; next } { on=0 }' "$src/auth/factotum/mkfile"); do
+	(cd "$src/auth/factotum" && "$cc3" -FVw $INC -o "$out/o/cmd/factotum/$f.3" $f.c) >"$out/o/cmd/factotum/$f.err" 2>&1 || { echo "build-bin3: factotum/$f.c:"; head -5 "$out/o/cmd/factotum/$f.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/auth/factotum" "$out"/o/cmd/factotum/*.3 "$out/lib/lib9p.a" "$out/lib/libthread.a" "$out/lib/libString.a" \
+	$seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/factotum.err" 2>&1 || { echo "build-bin3: factotum:"; tail -5 "$out/o/cmd/factotum.err"; fail=1; }
+# and as /boot/factotum, as 9front's bootfs has it: libauth's auth_getkey runs it (factotum -g) to ask for a key
+[ $fail = 0 ] && cp "$out/root/bin/auth/factotum" "$out/root/boot/factotum"
+# auth/secstore: 9front's client, factotum's keys from the secstore server
+# (docs/architecture.md, "Avainten paikka"); its files as its mkfile's
+# $O.secstore (secstored is the cloud's, amd64)
+mkdir -p "$out/o/cmd/secstore"
+for f in secstore pak password SConn util; do
+	(cd "$src/auth/secstore" && "$cc3" -FVw $INC -o "$out/o/cmd/secstore/$f.3" $f.c) >"$out/o/cmd/secstore/$f.err" 2>&1 || { echo "build-bin3: secstore/$f.c:"; head -5 "$out/o/cmd/secstore/$f.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/auth/secstore" "$out"/o/cmd/secstore/*.3 $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/secstore.err" 2>&1 ||
+	{ echo "build-bin3: secstore:"; tail -5 "$out/o/cmd/secstore.err"; fail=1; }
+# auth/aescbc (9front's) and aux/seckeys (the fork's: /boot/secstore): the keys' encrypted copy on the machine's disk
+if ! (cd "$src/auth/secstore" && "$cc3" -FVw $INC -o "$out/o/cmd/aescbc.3" aescbc.c) >"$out/o/cmd/aescbc.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/auth/aescbc" "$out/o/cmd/aescbc.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/aescbc.err" 2>&1; then
+	echo "build-bin3: aescbc:"; head -5 "$out/o/cmd/aescbc.err"; fail=1
+fi
+if ! (cd "$P/plan9/sys/src/cmd/aux/seckeys" && "$cc3" -FTVw $INC -o "$out/o/cmd/seckeys.3" seckeys.c) >"$out/o/cmd/seckeys.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/aux/seckeys" "$out/o/cmd/seckeys.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/seckeys.err" 2>&1; then
+	echo "build-bin3: seckeys:"; head -5 "$out/o/cmd/seckeys.err"; fail=1
+fi
+# auth/passkey: Plan2001's accounts and passkeys (docs/webauthn.md: #W, signupd, passkeyd)
+if ! (cd "$P/plan2001/sys/src/cmd/auth" && "$cc3" -FTVw $INC -o "$out/o/cmd/passkey.3" passkey.c) >"$out/o/cmd/passkey.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/auth/passkey" "$out/o/cmd/passkey.3" $seclibs $libs "$out/lib/libsec.a" "$out/lib/libmp.a" >>"$out/o/cmd/passkey.err" 2>&1; then
+	echo "build-bin3: passkey:"; head -5 "$out/o/cmd/passkey.err"; fail=1
+fi
+# aux/signupd, aux/passkeyd, aux/weblimitd: the CPU server's (docs/webauthn.md), here for their tests (signupd, weblimitd)
+for c in signupd passkeyd weblimitd; do
+	if ! (cd "$P/plan2001/sys/src/cmd/aux" && "$cc3" -FTVw $INC -o "$out/o/cmd/$c.3" $c.c) >"$out/o/cmd/$c.err" 2>&1 ||
+	   ! "$l3" -o "$out/root/bin/aux/$c" "$out/o/cmd/$c.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$c.err" 2>&1; then
+		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1
+	fi
+done
+# tlsclient, exportfs: 9front's, rcpu's (D4: rconnect's tlsclient -a, the client's exportfs -r /)
+if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/tlsclient.3" tlsclient.c) >"$out/o/cmd/tlsclient.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/tlsclient" "$out/o/cmd/tlsclient.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/tlsclient.err" 2>&1; then
+	echo "build-bin3: tlsclient:"; head -5 "$out/o/cmd/tlsclient.err"; fail=1
+fi
+mkdir -p "$out/o/cmd/exportfs"
+for f in exportfs exportsrv pattern io; do
+	(cd "$src/exportfs" && "$cc3" -FVw $INC -o "$out/o/cmd/exportfs/$f.3" $f.c) >"$out/o/cmd/exportfs/$f.err" 2>&1 || { echo "build-bin3: exportfs/$f.c:"; head -5 "$out/o/cmd/exportfs/$f.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/exportfs" "$out"/o/cmd/exportfs/*.3 $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/exportfs.err" 2>&1 ||
+	{ echo "build-bin3: exportfs:"; tail -5 "$out/o/cmd/exportfs.err"; fail=1; }
+cp "$P/subset/9front/rc/bin/rcpu" "$P/subset/9front/rc/bin/rconnect" "$out/root/rc/bin/"
+# Plan2001's CPU server's limits for a web account's session (docs/webauthn.md), tested here
+cp "$P/plan2001/rc/bin/websession" "$out/root/rc/bin/"
+# mntgen: 9front's, /n and /mnt as its bootrc makes them (factotum's /mnt/factotum)
+if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/mntgen.3" mntgen.c) >"$out/o/cmd/mntgen.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/mntgen" "$out/o/cmd/mntgen.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/mntgen.err" 2>&1; then
+	echo "build-bin3: mntgen:"; head -5 "$out/o/cmd/mntgen.err"; fail=1
+fi
 # ramfs (glenda's profile: /tmp), syscall (the profile's test of /tmp): 9front's
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/ramfs.3" ramfs.c) >"$out/o/cmd/ramfs.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/ramfs" "$out/o/cmd/ramfs.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/ramfs.err" 2>&1; then
 	echo "build-bin3: ramfs:"; head -5 "$out/o/cmd/ramfs.err"; fail=1
 fi
+# aux/wsrcpu: Plan2001's, rcpu's connection for an app's origin (webterm's /rcpu session, D7)
+mkdir -p "$out/root/bin/aux"
+if ! (cd "$P/plan2001/sys/src/cmd/aux" && "$cc3" -FVw $INC -o "$out/o/cmd/wsrcpu.3" wsrcpu.c) >"$out/o/cmd/wsrcpu.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/aux/wsrcpu" "$out/o/cmd/wsrcpu.3" $libs >>"$out/o/cmd/wsrcpu.err" 2>&1; then
+	echo "build-bin3: wsrcpu:"; head -5 "$out/o/cmd/wsrcpu.err"; fail=1
+fi
+# hjfs: 9front's file server, the machine's disk (#S/sdW0, D6: /boot/init); auth.c the fork's (plan9/patches/9front)
+mkdir -p "$out/o/cmd/hjfs"
+for f in "$src"/hjfs/*.c; do
+	b=$(basename "$f" .c)
+	[ -e "$P/plan9/sys/src/cmd/hjfs/$b.c" ] && f=$P/plan9/sys/src/cmd/hjfs/$b.c
+	(cd "$(dirname "$f")" && "$cc3" -FVw $INC -I"$src/hjfs" -o "$out/o/cmd/hjfs/$b.3" "$b.c") >"$out/o/cmd/hjfs/$b.err" 2>&1 || { echo "build-bin3: hjfs/$b.c:"; head -5 "$out/o/cmd/hjfs/$b.err"; fail=1; }
+done
+[ $fail = 0 ] && "$l3" -o "$out/root/bin/hjfs" "$out"/o/cmd/hjfs/*.3 "$out/lib/lib9p.a" "$out/lib/libthread.a" $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/hjfs.err" 2>&1 ||
+	{ echo "build-bin3: hjfs:"; tail -5 "$out/o/cmd/hjfs.err"; fail=1; }
 if ! (cd "$src/syscall" && "$cc3" -FVw $INC -o "$out/o/cmd/syscall.3" syscall.c) >"$out/o/cmd/syscall.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/syscall" "$out/o/cmd/syscall.3" $libs >>"$out/o/cmd/syscall.err" 2>&1; then
 	echo "build-bin3: syscall:"; head -5 "$out/o/cmd/syscall.err"; fail=1
@@ -78,7 +155,7 @@ cp "$P"/subset/9front/sys/lib/plumb/basic "$P"/subset/9front/sys/lib/plumb/filea
 # font it names, and its subfonts from the subset's tree (tools/subset/derive: binary,
 # not in the repo; without them rio has the default font)
 mkdir -p "$out/root/usr/glenda/lib" "$out/root/usr/glenda/bin/rc" "$out/root/usr/glenda/bin/wasm32" "$out/root/usr/glenda/tmp" "$out/root/lib/font/bit/vga"
-cp "$P/usr/glenda/lib/profile" "$out/root/usr/glenda/lib/profile"
+cp "$P/plan2001/usr/glenda/lib/profile" "$out/root/usr/glenda/lib/profile"
 cp "$P/subset/9front/usr/glenda/bin/rc/riostart" "$out/root/usr/glenda/bin/rc/riostart"
 cp "$P/subset/9front/usr/glenda/lib/plumbing" "$out/root/usr/glenda/lib/plumbing"
 cp "$P/subset/9front/lib/font/bit/vga/unicode.font" "$out/root/lib/font/bit/vga/"
@@ -98,7 +175,9 @@ done
 	"$out/lib/libdraw.a" "$out/lib/libthread.a" $libs >>"$out/o/cmd/rio.err" 2>&1 || { echo "build-bin3: rio:"; tail -5 "$out/o/cmd/rio.err"; fail=1; }
 # graphical programs: 9front's, unchanged
 mkdir -p "$out/o/cmd/clock"
-if ! (cd "$root/third_party/9apps" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" clock.c) >"$out/o/cmd/clock.err" 2>&1 ||
+# 9front's clock.c: the subset's once derive brings it (tools/subset/extra), else the copy in third_party/9apps
+clockdir=$src; [ -e "$clockdir/clock.c" ] || clockdir=$root/third_party/9apps
+if ! (cd "$clockdir" && "$cc3" -FVw $INC -o "$out/o/cmd/clock.3" clock.c) >"$out/o/cmd/clock.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/clock" "$out/o/cmd/clock.3" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/clock.err" 2>&1; then
 	echo "build-bin3: clock:"; head -5 "$out/o/cmd/clock.err"; fail=1
 fi
@@ -106,15 +185,15 @@ fi
 # 3c's tests that run in the browser (tools/test-wasmapp host3)
 for t in libc/hello draw/dclock host3/rfmem libc/fork host3/threads host3/bytes host3/preempt; do
 	n=$(basename $t)
-	if ! (cd "$P/sys/src/cmd/3c/test/$(dirname $t)" && "$cc3" -FVw $INC -o "$out/o/cmd/$n.3" "$n.c") >"$out/o/cmd/$n.err" 2>&1 ||
+	if ! (cd "$P/plan9/sys/src/cmd/3c/test/$(dirname $t)" && "$cc3" -FVw $INC -o "$out/o/cmd/$n.3" "$n.c") >"$out/o/cmd/$n.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/$n" "$out/o/cmd/$n.3" "$out/lib/libthread.a" "$out/lib/libdraw.a" $libs >>"$out/o/cmd/$n.err" 2>&1; then
 		echo "build-bin3: $n:"; head -5 "$out/o/cmd/$n.err"; fail=1
 	fi
 done
 # the kernel's tests (tools/test-9wasm32)
-for t in forkloop c3a c3b c3d d2 fault; do
-	if ! (cd "$P/sys/src/9/wasm32/test" && "$cc3" -FVw $INC -o "$out/o/cmd/$t.3" "$t.c") >"$out/o/cmd/$t.err" 2>&1 ||
-	   ! "$l3" -o "$out/root/bin/$t" "$out/o/cmd/$t.3" $libs >>"$out/o/cmd/$t.err" 2>&1; then
+for t in forkloop c3a c3b c3d d2 d3 d4 d5 fault; do
+	if ! (cd "$P/plan9/sys/src/9/wasm32/test" && "$cc3" -FVw $INC -o "$out/o/cmd/$t.3" "$t.c") >"$out/o/cmd/$t.err" 2>&1 ||
+	   ! "$l3" -o "$out/root/bin/$t" "$out/o/cmd/$t.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$t.err" 2>&1; then
 		echo "build-bin3: $t:"; head -5 "$out/o/cmd/$t.err"; fail=1
 	fi
 done

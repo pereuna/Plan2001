@@ -8,15 +8,15 @@ here=$(cd "$(dirname "$0")" && pwd); tools=$(dirname "$here"); root=$(dirname "$
 . "$tools/target.sh"
 b=$root/build; s=$b/subset/$TARGET
 run9() { "$tools/9run" -d "$b/vm" "$@"; }
-for f in "$kernel" "$loader"; do
+for f in "$kernel" "$loader" hjfs; do
 	[ -s "$tbuild/$f" ] || { echo "mkusb: no $tbuild/$f (run tools/build.sh)" >&2; exit 1; }
 done
 mkdir -p "$s"; rm -f "$b/in.img" "$b/out.img" "$s/plan2001-inst.img"
 cp "$tools/targets/$TARGET" "$s/target"
-tar cf "$b/in.img" --format=ustar -C "$here" mkusb.rc -C "$root/subset/$TARGET" proto -C "$tbuild" "$kernel" "$loader" -C "$s" target
-# Plan2001's own runtime files (the repo's usr/, rc/: same paths), bound
+tar cf "$b/in.img" --format=ustar -C "$here" mkusb.rc -C "$root/subset/$TARGET" proto -C "$tbuild" "$kernel" "$loader" hjfs -C "$s" target
+# Plan2001's own runtime files (the repo's plan2001/usr/ and plan2001/rc/: same paths), bound
 # over the VM's for mkfs: root/PATH in the tar
-tar rf "$b/in.img" --format=ustar --transform 's,^,root/,' -C "$root" usr rc
+tar rf "$b/in.img" --format=ustar --transform 's,^,root/,' -C "$root/plan2001" usr rc
 truncate -s 64M "$b/in.img"
 export OUT_MB=${USB_MB:-1024}
 trap '"$tools/vm" stop' EXIT

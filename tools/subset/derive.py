@@ -45,10 +45,10 @@ IGNORE = re.compile(r'^/usr/glenda/(trace/|tmp/|snap\.rc$|export\.rc$)'
 	r'|^/dist/')
 # rc words that are not commands
 RCWORDS = set('if not for in while switch case fn eval exec exit shift cd builtin . ~ ! @ wait whatis rfork flag status'.split())
-# rc functions of the installer (rc/bin/inst/defs) that run their arguments
+# rc functions of the installer (plan2001/rc/bin/inst/defs) that run their arguments
 # as a command, and exec: the command is the next word (logprog chgrp ...)
 WRAPPERS = {'logprog', 'busy', 'exec'}
-# Plan2001's own versions of 9front files (the repo's rc/ and usr/, bound
+# Plan2001's own versions of 9front files (the repo's plan2001/rc/ and plan2001/usr/, bound
 # over the VM's on the medium by tools/subset/mkusb): read those, not the VM's
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OVERLAYS = ('/rc/', '/usr/')
@@ -62,6 +62,17 @@ LEGACY = [
 	(r'^/%s/bin/(9660srv|disk/mk9660|disk/dump9660)$' % ARCH, 'ISO9660: the medium is a USB disk'),
 	(r'^/sys/src/boot/(pc|iso)(/|$)', 'BIOS loaders: Plan2001 boots by UEFI only'),
 ]
+# 9front's jokes and quotation collections, and the scripts that only print
+# them: Plan2001 keeps 9front's code and fixes but not these.  No program
+# needs them; the rule wins over tools/subset/extra too.  Games stay.
+DENY = [
+	(r'^/lib/(bullshit|theo|troll|rob|ken|rsc|uriel|dougfacts|glass|greg|roa'
+		r'|faust|strangelove|constitution|gettysburg|1oct1993|human'
+		r'|plentyofroom|mammals|volcanoes)$', "9front's jokes and quotations: not in Plan2001"),
+	(r'^/rc/bin/(bullshit|theo|troll|nietzsche)$', "prints 9front's jokes and quotations: not in Plan2001"),
+	(r'^/sys/games/lib/fortunes$', "9front's quotations: not in Plan2001"),
+]
+EXCLUDE = LEGACY + DENY
 SRCMAP = {	# binary -> source, where the name alone does not say it
 	'cwfs64x': '/sys/src/cmd/cwfs',
 	'9660srv': '/sys/src/cmd/9660srv',
@@ -70,6 +81,7 @@ SRCMAP = {	# binary -> source, where the name alone does not say it
 	'edisk': '/sys/src/cmd/disk/prep',
 	'fdisk': '/sys/src/cmd/disk/prep',
 	'plumber': '/sys/src/cmd/plumb',
+	'test': '/sys/src/cmd/test.c',	# /sys/src/cmd/test/ is 9front's test suite, not test(1)
 }
 
 
@@ -95,8 +107,8 @@ class Tree:
 	def script(self, path):
 		"""Text of an rc script, or None."""
 		p = self.text + path
-		if path.startswith(OVERLAYS) and os.path.isfile(REPO + path):
-			p = REPO + path
+		if path.startswith(OVERLAYS) and os.path.isfile(REPO + '/plan2001' + path):
+			p = REPO + '/plan2001' + path
 		if not os.path.isfile(p):
 			return None
 		t = open(p, 'rb').read()
@@ -147,7 +159,7 @@ def runtime(b):
 	def add(p, how, why):
 		if not p or p not in tree.files or IGNORE.match(p) or p in have:
 			return False
-		for rx, reason in LEGACY:
+		for rx, reason in EXCLUDE:
 			if re.search(rx, p):
 				tree.excluded.setdefault(p, '%s (%s: %s)' % (reason, how, why))
 				return False
@@ -252,7 +264,7 @@ def sources(b):
 	def add(p, how, why):
 		if p in need:
 			return
-		for rx, reason in LEGACY:
+		for rx, reason in EXCLUDE:
 			if re.search(rx, p):
 				tree.excluded.setdefault(p, '%s (%s: %s)' % (reason, how, why))
 				return

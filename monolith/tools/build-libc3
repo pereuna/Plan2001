@@ -1,12 +1,13 @@
 #!/bin/bash
 # 9front's libc for wasm32 (3c): port, 9sys and fmt from
-# ../subset/9front/sys/src/libc, Plan2001's ../sys/src/libc/wasm32 for
+# ../subset/9front/sys/src/libc, Plan2001's ../plan9/sys/src/libc/wasm32 for
 # what 386 has in assembler, compiled by 3c (tools/build-cc native 3c)
-# with ../wasm32/include and 9front's /sys/include.
+# with ../plan9/wasm32/include and 9front's /sys/include.
 #   tools/build-libc3     build/wasm32/lib/libc.a, libdraw.a (9front's
 #                         libdraw: the parts with libthread compile, for
 #                         later), libthread.a, libauth.a, lib9p.a, libmemdraw.a, libmemlayer.a,
-#                         libframe.a, libcomplete.a, libplumb.a, libregexp.a
+#                         libframe.a, libcomplete.a, libplumb.a, libregexp.a,
+#                         libip.a, libndb.a, libmp.a, libsec.a, libauthsrv.a
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 P=$(cd "$root/.." && pwd)
@@ -16,7 +17,7 @@ cc3=$root/build/cc-native/3c
 "$root/tools/build-cc" native 3c >/dev/null
 mkdir -p "$out/lib" "$out/o/libc"
 rm -f "$out/o/libc/"*.3
-INC="-I$P/wasm32/include -I$P/subset/9front/sys/include"
+INC="-I$P/plan9/wasm32/include -I$P/subset/9front/sys/include"
 srcs=()
 for d in port 9sys fmt; do
 	for f in "$lib/$d"/*.c; do
@@ -26,7 +27,9 @@ for d in port 9sys fmt; do
 		esac
 	done
 done
-srcs+=("$P"/sys/src/libc/wasm32/*.c)
+# ucd: the Unicode tables (toupperrune, isalpharune ...), as its mkfile lists them
+for f in runenorm runetotype runeistype runebreak; do srcs+=("$lib/ucd/$f.c"); done
+srcs+=("$P"/plan9/sys/src/libc/wasm32/*.c)
 # the system calls: one file each, as Plan 9's 9syscall makes them (a
 # program, or the kernel, gets only those it calls): _trap(n, &first)
 sc=$out/o/9syscall
@@ -65,7 +68,7 @@ done
 # libthread: 9front's, with wasm32's own scheduler and main (contexts, not longjmp)
 mkdir -p "$out/o/libthread"
 rm -f "$out/o/libthread/"*.3
-for s in "$P"/subset/9front/sys/src/libthread/*.c "$P"/sys/src/libthread/wasm32/*.c; do
+for s in "$P"/subset/9front/sys/src/libthread/*.c "$P"/plan9/sys/src/libthread/wasm32/*.c; do
 	case $s in
 	*/subset/*/386.c|*/subset/*/amd64.c|*/subset/*/arm64.c|*/subset/*/arm.c|*/subset/*/mips.c|*/subset/*/power.c|*/subset/*/power64.c|\
 	*/subset/*/example.c|*/subset/*/test.c|*/subset/*/tprimes.c|*/subset/*/sched.c|*/subset/*/main.c) continue ;;
@@ -142,6 +145,30 @@ done
 rm -f "$out/lib/lib9p.a"
 ar rcD "$out/lib/lib9p.a" "$out"/o/lib9p/*.3
 echo "build-libc3: $out/lib/lib9p.a ($(ls "$out"/o/lib9p/*.3 | wc -l) objects)"
+
+# libip, libndb, libmp, libsec, libauthsrv, libString: 9front's (factotum, authdial; D3),
+# their files as their mkfiles list them (OFILES or CFILES), the C of port/
+mkvar() {	# MKFILE VAR: the names in VAR=..., .$O and .c taken off
+	awk -v v="$2" '$0 ~ "^"v"[ \t]*=" { on=1; sub("^[^=]*=", "") } on { c = /\\$/; gsub(/\\/, ""); for(i=1;i<=NF;i++) print $i; if(!c) on=0 }' "$1" |
+		sed 's/\.\$O$//; s/\.c$//'
+}
+for l in libip libndb libmp/port libsec/port libauthsrv libString; do
+	d=$P/subset/9front/sys/src/$l
+	n=$(echo $l | sed 's|/port$||')
+	case $n in libsec) v=CFILES ;; libmp) v=FILES ;; *) v=OFILES ;; esac
+	mkdir -p "$out/o/$n"
+	rm -f "$out/o/$n/"*.3
+	for f in $(mkvar "$d/mkfile" $v); do
+		o=$out/o/$n/$f.3
+		if ! (cd "$d" && "$cc3" -FVw $INC -I"$P/subset/9front/sys/src/libmp/port" -o "$o" "$f.c") >"$o.err" 2>&1; then
+			echo "build-libc3: $d/$f.c:"; head -5 "$o.err"; fail=1
+		fi
+	done
+	[ $fail = 0 ] || exit 1
+	rm -f "$out/lib/$n.a"
+	ar rcD "$out/lib/$n.a" "$out"/o/$n/*.3
+	echo "build-libc3: $out/lib/$n.a ($(ls "$out"/o/$n/*.3 | wc -l) objects)"
+done
 
 rm -f "$out/lib/libdraw.a"
 ar rcD "$out/lib/libdraw.a" "$out"/o/libdraw/*.3

@@ -26,7 +26,7 @@ the log and writes the FIFO.  Found by trial (see docs/status.md):
     connecting, stall the guest's output while connected and not reading,
     and see characters doubled in QEMU's own logfile - hence one relay
 If DIR/target says 'tcp HOST PORT KEY', the relay talks to a real machine
-instead: the Plan2001 medium's remote (usr/glenda/lib/profile), a shell on
+instead: the Plan2001 medium's remote (plan2001/usr/glenda/lib/profile), a shell on
 a TCP connection that wants KEY first.  No line discipline there, so the
 relay turns typed returns into newlines, and no UART to pace for.
 
@@ -129,7 +129,40 @@ class Serial:
 		return ANSI.sub('', x.decode('latin1').replace('\r', ''))
 
 
+LINEMAX = 200	# the console's line (Plan2001's kbdfs: 255 runes) less the status line's
+
+def long(ser, cmd):
+	"""a command longer than the console's line: into a file a piece at a
+	time, each typed after rc's prompt (each an rc string, ' doubled), the
+	file run (rc) - the same command"""
+	f = '/tmp/9run.' + uuid.uuid4().hex[:8]
+	pieces, p = [], ''
+	for c in cmd:	# each piece quoted at most 150 characters, whatever its quotes
+		if len(p.replace("'", "''")) + (2 if c == "'" else 1) > 150:
+			pieces.append(p)
+			p = ''
+		p += c
+	pieces.append(p)
+	first = True
+	for p in pieces:
+		ser.send("echo -n '" + p.replace("'", "''") + "' " + ('>' if first else '>>') + f)
+		first = False
+		buf, end = '', time.time() + 5
+		while time.time() < end:
+			buf += ser.read()
+			if buf.endswith('\t'):
+				break
+	ser.send('echo >>' + f)	# its last line ended: rc wants a newline before EOF
+	buf, end = '', time.time() + 5
+	while time.time() < end:
+		buf += ser.read()
+		if buf.endswith('\t'):
+			break
+	return 'rc ' + f + '; s=$status; rm -f ' + f + '; status=$s'
+
 def run(ser, cmd, timeout):
+	if len(cmd) > LINEMAX:
+		cmd = long(ser, cmd)
 	tag = uuid.uuid4().hex[:12]
 	# rc joins __END_^tag^__ into __END_tag__; the echoed input line keeps the
 	# carets, so only the real output matches
@@ -246,11 +279,11 @@ def parse(text):
 def main(a):
 	if a[:1] == ['--relay'] and len(a) == 2:
 		return relay(a[1])
-	d, timeout, dlg, first, scr = 'build/vm', 300, None, None, None
+	d, timeout, dlg, first, scr = 'build/vm', 300 * float(os.environ.get('VM_TIMEOUT_SCALE', '1')), None, None, None
 	while a and a[0].startswith('-') and a[0] != '-':
 		o = a.pop(0)
 		if o == '-d': d = a.pop(0)
-		elif o == '-t': timeout = float(a.pop(0))
+		elif o == '-t': timeout = float(a.pop(0)) * float(os.environ.get('VM_TIMEOUT_SCALE', '1'))	# an emulated VM (tools/vm: VM_ACCEL=tcg)
 		elif o == '-s': first = a.pop(0)
 		elif o == '--dialog': dlg = a.pop(0)
 		elif o == '--script': scr = a.pop(0)

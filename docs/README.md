@@ -16,7 +16,7 @@ Codex CLI:n jatkomuistio: [docs/ai/2026-09-30](ai/2026-09-30/README.md).
 
 `sys/`-hakemistossa on **vain ne tiedostot, joita tämä projekti on oikeasti
 kirjoittanut tai muokannut**, samoissa suhteellisissa poluissa kuin 9frontin omassa
-lähdepuussa (`sys/src/9/pc64/l.s` vastaa upstreamin `/sys/src/9/pc64/l.s`:ää).
+lähdepuussa (`plan9/sys/src/9/pc64/l.s` vastaa upstreamin `/sys/src/9/pc64/l.s`:ää).
 Kaikki muu — kääntäjä, kirjastot, ja jokainen tiedosto, jota emme ole koskeneet —
 haetaan tuoreena käännöskoneen omasta `/sys/src`-puusta joka käännöksellä
 (`tools/build.rc`). Tämä on tarkoituksellinen valinta: aiempi versio piti kopiota
@@ -44,23 +44,23 @@ poistettu — ks. `docs/status.md`.
 
 | Tiedosto | Mikä |
 |---|---|
-| `sys/include/bootinfo.h` | **Plan2001 Boot ABI v1, data-osa**: BootInfo-blob, sama kaikille ISA:ille (uusi, ks. `docs/boot-abi.md`; AMD64-entry `docs/boot-abi-amd64.md`) |
-| `sys/src/9/port/bootinfo.c` | Kernel, ISA-riippumaton: blobin validointi, muistikartan luokat, RNG/kello-kytkennät (uusi) |
-| `sys/src/9/pc64/bootarch.c` | Kernel, AMD64:n hookit: `bootearlymap()` (blob `BOOTMAPVA`:han) ja `fbmap()` (PAT WC) (uusi) |
-| `sys/src/9/port/bootfb.c` | Kernel, ISA-riippumaton: boot-vaiheiden merkit UEFI-framebufferiin, lokin toisto (uusi) |
-| `sys/src/9/port/bootargs.c` | ISA-riippumaton plan9.ini-jäsennys blobin config-osiosta; `*acpi`/`*bootscreen` `BootInfo`sta (siirretty pc/:stä) |
-| `sys/src/9/pc/memory.c` | Muistikartta blobista, blobin varaus, BootServices-muisti vapaaksi |
-| `sys/src/9/pc/screen.c` | GOP-framebufferin tarkka osoite, näkyvä leveys ja stride erillään |
-| `sys/src/9/pc/vga.c` | Konsoli: ei splash-laatikkoa, kolme saraketta scrollauksen sijaan, toistaa loaderin tekstin; ESC[2J vaihtaa interaktiiviseen tilaan (yksi sarake, ohjepalkki), ESC[nC/nD/K kursorinsiirto |
-| `sys/src/cmd/aux/kbdfs/kbdfs.c` | Rivieditori `/dev/cons`iin: nuolet, Home/End, Del, Shift+Home/End/←/→ leikkaus, ^W, ^V liitä, historia |
-| `sys/src/9/port/devcons.c` | Ainoa muutos: ESC-sekvenssit eivät mene kmesgiin |
-| `sys/src/9/pc64/l.s` | `_efi64`-sisäänmeno (ent. `_protected`+Multiboot+32-bit) |
-| `sys/src/9/pc64/main.c` | `bootmark`/`bootinfo*`-kutsut boot-järjestyksessä |
-| `sys/src/9/pc64/trap.c` | boot-merkki paniikista ja ensimmäisestä `exec`istä |
-| `sys/src/9/pc64/mem.h` | kiinteät boot-osoitteet (`CONFADDR`, `BOOTINFO`) poistettu |
-| `sys/src/9/pc64/fns.h` | uusien funktioiden prototyypit |
-| `sys/src/9/pc64/pc64` | kernelin konfiguraatio (`bootinfo`, `bootfb` mukaan) |
-| `sys/src/boot/efi/*` | loader: yhteinen osa (`efi.c`, `sub.c`: BootInfo-blob, config, loki, muistikartta, RNG/RTC) ja AMD64-osa `archx64.c` (TSC, entry-tarkistukset, hyppy RDI = blob) |
+| `plan9/sys/include/bootinfo.h` | **Plan2001 Boot ABI v1, data-osa**: BootInfo-blob, sama kaikille ISA:ille (uusi, ks. `docs/boot-abi.md`; AMD64-entry `docs/boot-abi-amd64.md`) |
+| `plan9/sys/src/9/port/bootinfo.c` | Kernel, ISA-riippumaton: blobin validointi, muistikartan luokat, RNG/kello-kytkennät (uusi) |
+| `plan9/sys/src/9/pc64/bootarch.c` | Kernel, AMD64:n hookit: `bootearlymap()` (blob `BOOTMAPVA`:han) ja `fbmap()` (PAT WC) (uusi) |
+| `plan9/sys/src/9/port/bootfb.c` | Kernel, ISA-riippumaton: boot-vaiheiden merkit UEFI-framebufferiin, lokin toisto (uusi) |
+| `plan9/sys/src/9/port/bootargs.c` | ISA-riippumaton plan9.ini-jäsennys blobin config-osiosta; `*acpi`/`*bootscreen` `BootInfo`sta (siirretty pc/:stä) |
+| `plan9/sys/src/9/pc/memory.c` | Muistikartta blobista, blobin varaus, BootServices-muisti vapaaksi |
+| `plan9/sys/src/9/pc/screen.c` | GOP-framebufferin tarkka osoite, näkyvä leveys ja stride erillään |
+| `plan9/sys/src/9/pc/vga.c` | Konsoli: ei splash-laatikkoa, kolme saraketta scrollauksen sijaan, toistaa loaderin tekstin; ESC[2J vaihtaa interaktiiviseen tilaan (yksi sarake, ohjepalkki), ESC[nC/nD/K kursorinsiirto |
+| `plan2001/sys/src/cmd/aux/kbdfs/kbdfs.c` | Rivieditori `/dev/cons`iin: nuolet, Home/End, Del, Shift+Home/End/←/→ leikkaus, ^W, ^V liitä, historia |
+| `plan2001/sys/src/9/port/devcons.c` | Ainoa muutos: ESC-sekvenssit eivät mene kmesgiin |
+| `plan9/sys/src/9/pc64/l.s` | `_efi64`-sisäänmeno (ent. `_protected`+Multiboot+32-bit) |
+| `plan9/sys/src/9/pc64/main.c` | `bootmark`/`bootinfo*`-kutsut boot-järjestyksessä |
+| `plan9/sys/src/9/pc64/trap.c` | boot-merkki paniikista ja ensimmäisestä `exec`istä |
+| `plan9/sys/src/9/pc64/mem.h` | kiinteät boot-osoitteet (`CONFADDR`, `BOOTINFO`) poistettu |
+| `plan9/sys/src/9/pc64/fns.h` | uusien funktioiden prototyypit |
+| `plan9/sys/src/9/pc64/pc64` | kernelin konfiguraatio (`bootinfo`, `bootfb` mukaan) |
+| `plan9/sys/src/boot/efi/*` | loader: yhteinen osa (`efi.c`, `sub.c`: BootInfo-blob, config, loki, muistikartta, RNG/RTC) ja AMD64-osa `archx64.c` (TSC, entry-tarkistukset, hyppy RDI = blob) |
 
 ## Käännös ja testaus
 
@@ -123,33 +123,33 @@ USB-tikulle). `DISPLAY_QEMU=1` näyttää ruudun GTK-ikkunassa.
 
 ```
 UEFI firmware
-  └─ bootx64.efi (sys/src/boot/efi/)
+  └─ bootx64.efi (plan9/sys/src/boot/efi/)
        AllocateAnyPages → BootInfo-blob: header | plan9.ini | loki | muistikartta
        └─ ExitBootServices
-            └─ _efi64 (sys/src/9/pc64/l.s), RDI = blob   ← Plan2001 Boot ABI v1 (docs/boot-abi.md)
+            └─ _efi64 (plan9/sys/src/9/pc64/l.s), RDI = blob   ← Plan2001 Boot ABI v1 (docs/boot-abi.md)
                  └─ main() (pc64/main.c)                    ei kiinteitä boot-osoitteita
                       bootinfoinit (mappaa VMAP+pa) → ... → bootinforandinit → ... → bootinfoclock
                       └─ exec("/boot/boot")
 ```
 
-## Monolith: selaimen drawterm
+## Selain: wasm32-kone (D7)
 
-Monolith (`monolith/`) on Plan2001:n drawterm selaimessa ja Plan2001:n
-käyttöliittymä: Plan2001:ssä ei ole rioa. Se oli erillinen repo
-(pereuna/monolith, nyt arkistoitu); `git subtree add` toi sen tänne
-historioineen. Jako:
+Selaimessa ajetaan Plan2001:n wasm32-ydintä (`plan9/sys/src/9/wasm32`),
+ei enää drawtermia. Sivu (`kernel.html` ja `platform.js`) on koneen
+firmware. Pääte (`term.KONE`) ja sovellusten originit (`APP.KONE`,
+`docs/app-origins.md`) ovat wasm32-koneita.
 
-- **Palvelinpää:** `sys/src/cmd/webterm.c` (WebSocket rcpu:hun
-  ja authiin, `/rcpu` ilman sisempää TLS:ää, istuntojen jatko, sivun
-  tiedostot tlssrv:n takana) sekä CPU-VM:n työkalut `tools/vm --net` ja
-  `tools/vm-cpu`.
-- **Asiakas, `monolith/`:** `drawterm.wasm`, `gui-web` ja selaimen
-  käyttöliittymä, rakennetaan Linuxissa Emscriptenillä
-  (`monolith/tools/build`, `monolith/tools/deploy`). Plan2001:n oma build
-  ei riipu siitä; `tools/vm-cpu --update --web DIR` kopioi valmiit sivun
-  tiedostot VM:ään. Ohjeet: `monolith/README.md`, `monolith/docs/`.
-- Historia: moniarkkitehtuurityö (vaiheet 1–4) on `main`in perusta, ja
-  palvelinpää on rakennettu sen päälle omana kokonaisuutenaan.
+- **Palvelinpää:** 9frontin rc-httpd tlssrv:n takana portissa 17443
+  tarjoaa sivun Plan2001:n select-handlerilla (`plan2001/rc/bin/rc-httpd`)
+  ja antaa WebSocketit `plan2001/sys/src/cmd/webterm.c`:lle (`webterm -s
+  -r`). WebSocketit ovat rcpu, auth, sovelluksen `/rcpu`-istunto ja sen
+  jatko. Työkalut: `tools/vm --net`, `tools/vm-cpu`,
+  `monolith/tools/pages` ja `deploy`.
+- **`monolith/`** on Linux-puolen rakennus- ja testityökalut: 3c/3l,
+  `build-*`, `test-9wasm32` ja 9pterm (natiivi drawterm tekstipäätteenä
+  pilven hallintaan, `docs/9pterm.md`). Monolith oli ennen erillinen repo
+  (pereuna/monolith), joka toi drawtermin selaimeen. Sen historia on
+  `monolith/docs/`:ssa.
 
 ## AI/agentille
 

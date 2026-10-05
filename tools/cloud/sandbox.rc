@@ -2,7 +2,8 @@
 # The public diskless sandbox on the cloud server (docs/cloud.md): run as
 # admin by tools/cloud/sandbox (with the page) or setup.rc (without), the
 # repo and the page through /mnt/term:  rc sandbox.rc REPO [SITE]
-#   webterm -n        the pages only, no WebSocket
+#   rc-httpd          the pages only, no WebSocket (Plan2001's select-handler
+#                     with $pagesonly, its web /sys/lib/sandbox; D7)
 #   /sys/lib/sandbox  the wasm32 machine's page (SITE, tools/cloud/sandbox)
 #   acmechallenge     acmed -e: dns-01 in this machine's own zone; a name
 #                     outside it through its CNAME (Cloudflare):
@@ -18,8 +19,11 @@ tls=/sys/lib/tls
 fn fail { echo SANDBOX FAILED: $*; exit $1 }
 fn step { echo '###' $* }
 
-step webterm, with -n
-@{cd /tmp && cp $repo/sys/src/cmd/webterm.c . && 6c -FTVw webterm.c && 6l -o /amd64/bin/webterm webterm.6} || fail webterm
+step rc-httpd: the Plan2001 site
+mkdir -p /rc/bin/rc-httpd/handlers
+cp $repo/plan2001/rc/bin/rc-httpd/select-handler /rc/bin/rc-httpd/select-handler || fail select-handler
+cp $repo/plan2001/rc/bin/rc-httpd/handlers/plan2001-static /rc/bin/rc-httpd/handlers/plan2001-static || fail plan2001-static
+chmod 775 /rc/bin/rc-httpd/select-handler /rc/bin/rc-httpd/handlers/plan2001-static
 
 if(! ~ $#site 0){
 	step the page: /sys/lib/sandbox
@@ -87,15 +91,21 @@ certrenew
 tail -3 /sys/log/certrenew
 
 step https: the sandbox only (tcp443)
+# not over Plan2001's accounts (tools/cloud/accounts.rc): its tcp443 is the whole site
+if(test -e /rc/bin/service/tcp443 && grep -s plan2001/web /rc/bin/service/tcp443){
+	echo tcp443 is the accounts site: kept
+	echo SANDBOX-DONE
+	exit
+}
 cat >/rc/bin/service/tcp443 <<'X'
 #!/bin/rc
-# https: the public diskless sandbox only (webterm -n: no WebSocket), with
+# https: the public diskless sandbox only (rc-httpd, the pages only), with
 # the Let's Encrypt certificate for plan2001.com (certrenew), else
 # *.cpu.plan2001.com's, else the development one
 crt=/sys/lib/tls/acmed/plan2001.com.crt
 test -s $crt || crt=/sys/lib/tls/acmed/cpu.plan2001.com.crt
 test -s $crt || crt=/sys/lib/tls/monolith.pem
-exec tlssrv -c $crt /bin/webterm -s -n -w /sys/lib/sandbox
+pagesonly=1 web=/sys/lib/sandbox exec tlssrv -c $crt /rc/bin/rc-httpd/rc-httpd
 X
 chmod 775 /rc/bin/service/tcp443
 echo SANDBOX-DONE

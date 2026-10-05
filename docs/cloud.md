@@ -53,7 +53,7 @@ sellaisenaan, ja mitä Plan2001:n pitää siksi olla.
    paikkamerkillä "QEMU TARGET", ja 9frontin `sdvirtio` käytti aina LUN 0:aa
    (`scsiverify`: `r->lun = 0; /* ??? */`): UEFI löysi levyn ja latasi
    kernelin, mutta kernel ei nähnyt osioita (`/dev/sd00/fscache: file does
-   not exist`). Korjaus: `sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
+   not exist`). Korjaus: `plan9/sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
    ensimmäisen LUNin (0–7), jonka INQUIRY sanoo laitteen olevan kytketty.
    Harjoitus: `tools/vm … --oci` laittaa levyn LUN 1:een (`OCI_LUN`).
 9. **Loaderin ja kernelin on oltava pari.** CPU-palvelin oli 9frontin
@@ -109,7 +109,8 @@ Harjoitus sillissä (`tools/vm start --disk build/oci/cpu-oci.qcow2 --net
 - `monolith/tools/test-apps` PASS tätä konetta vasten (term, clock,
   originit, policyt, jatko); laskentapooliin liittyi kolme CR:ää
   (`test-compute`in käännösosa siirtää skriptinsä `out.img`:llä, jota
-  OCI-tilassa ei ole: testin rajoitus).
+  OCI-tilassa ei ole: testin rajoitus). Nämä testit olivat drawtermin
+  sivun, ja ne poistettiin D7:ssä (`docs/architecture.md`).
 
 **Pilvessä (29.9.):** kuva kirjoitettiin Ubuntun päälle
 (`dd if=cpu-oci.raw | gzip -1 | ssh … 'gunzip | dd of=/dev/sda'`, noin
@@ -155,10 +156,13 @@ vastaa omasta vyöhykkeestään ja hakee varmenteensa itse:
 - **Portti 443:** `/rc/bin/service/tcp443`: `tlssrv -c
   /sys/lib/tls/acmed/cpu.plan2001.com.crt /bin/webterm -s -w
   /sys/lib/monolith`. Osoitteet: `https://term.cpu.plan2001.com/`,
-  `acme.`, `clock.`, `compute.` … ilman varmennevaroituksia.
-- **Hallinta:** pilvipalvelimeen ei ole ssh:ta; `monolith/tools/term HOST
-  'komento'` ajaa komennon term-sovelluksessa (headless Chromium) ja lukee
-  tulosteen https:llä.
+  `acme.`, `clock.`, `compute.` … ilman varmennevaroituksia. (D7:stä
+  lähtien sivut tarjoaa rc-httpd ja WebSocketit webterm `-s -r`,
+  `tools/cpu-live.rc pages`. Portti 443 on nyt julkinen hiekkalaatikko,
+  `tools/cloud/sandbox.rc`.)
+- **Hallinta:** pilvipalvelimeen ei ole ssh:ta. Hallinta kulkee 9ptermillä
+  WireGuard-tunnelin yli (`tools/cpu-live`, `tools/cloud/*`).
+  `monolith/tools/term` (drawterm-sivun kautta) poistettiin D7:ssä.
 
 Kesken: varmenteen uusiminen ennen 28.12.2026 (`acmed` ajastettuna,
 esim. `cron`), ja nämä asetukset osaksi asennusta (nyt tehty käsin
@@ -175,7 +179,7 @@ joka käynnisti terminaalissa `rio -i riostart`:n (rio itse oli jo poistettu).
 - kopioi Plan2001:n ytimen ja loaderin parina 9fat:iin
   (`9pc64`, `efi/boot/bootx64.efi`); ne tulevat `build/amd64`:sta
   (`tools/build.sh` tai `tools/kbuild9p.rc`);
-- asentaa glenda-profiilin repon `usr/glenda/lib/profile`:sta, jossa ei
+- asentaa glenda-profiilin repon `plan2001/usr/glenda/lib/profile`:sta, jossa ei
   ole rio:ta: terminaalissa on rc-kehote, ja ikkunat tulevat
   Monolithin kautta;
 - poistaa `riostart`:in ja `rio`:n.
@@ -244,8 +248,9 @@ kirjoiteta käsin:
   - TLS ja sen uusinta;
   - porttien vartija;
   - WireGuard.
-- **Lopuksi** image käynnistetään ja tarkistetaan: `tools/cloud/check.rc`
-  ja `monolith/tools/test-apps`. Sen jälkeen syntyy pakattu qcow2.
+- **Lopuksi** image käynnistetään ja tarkistetaan: `tools/cloud/check.rc`,
+  https-sivu ja originien sovellukset (rc-httpd:n `/app`). Sen jälkeen
+  syntyy pakattu qcow2.
 
 **Mikä on julkista:**
 
@@ -331,7 +336,7 @@ uuden imagen esiin ehjänä. Kone haki heti oman Let's Encrypt
 ## Julkinen sandbox: https://plan2001.com (2.10.)
 
 Portti 443 tarjoilee vain diskless-sandboxin: wasm32-koneen sivun
-(`monolith/web/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
+(`plan9/sys/src/9/wasm32/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
 tiedostona, myös gzipattuina) hakemistosta `/sys/lib/sandbox`. Kone
 käynnistyy selaimessa rioon koko ikkunaan, eikä mitään tallenneta.
 `webterm -n` tarjoilee vain sivut: ei WebSocketteja eikä lokia, joten
@@ -351,3 +356,27 @@ alas. Ylläpito jatkuu WireGuard-tunnelin kautta.
   jo factotumissa). `certrenew` uusii molemmat.
 - **tcp443:** `tlssrv -c plan2001.com.crt /bin/webterm -s -n -w
   /sys/lib/sandbox` (ennen varmennetta `*.cpu`:n tai kehitys-CA:n).
+
+## Tunnukset ja passkeyt: https://plan2001.com (5.10.)
+
+`tools/cloud/accounts` asentaa Plan2001:n tunnukset pilveen
+(`docs/webauthn.md`, vaihe 5): secstored, signupd ja passkeyd, kutsukoodit
+ja sivuston kirjautumisen. Lisäksi `tcp443` vaihtuu pelkistä sivuista
+koko sivustoksi, ja `/rc/bin/websession` rajaa `web`-tunnusten istunnot
+(vaihe 6: ei verkkoa, `/srv`:iä tai laskentapoolia; rivi lisätään
+`tcp17019`:n `fn server`iin). `aux/weblimitd` valvoo niiden prosesseja
+ja muistia (vaihe 7: 32 prosessia ja 48 Mt käyttäjää kohden, yhteensä
+256 Mt). Kirjautumaton käyttäjä (`/boot/login`in `g`) saa
+saman paikallisen koneen kuin sandbox.
+
+```
+tools/build.sh                 # tarvittaessa ydin: tools/cloud/kernel
+tools/cloud/wg-admin up
+tools/cloud/accounts           # NINVITES=10, RP=plan2001.com
+```
+
+Kutsukoodit ovat tiedostossa `~/.cache/plan2001/cloud/invites`, yksi
+riviä kohden, ja jokainen kelpaa kerran. Ennen ajoa tarkista Oraclen
+ingress-säännöistä, että 5356 (secstored), 567, 17019, 17040 ja 17041
+eivät näy internetiin. `localonly` vartioi palvelut, jotka aux/listen
+käynnistää, mutta secstored kuuntelee itse.

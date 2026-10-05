@@ -10,6 +10,12 @@ Se on ratkaistava ennen Monolithin vaihetta 3b (`monolith/docs/architecture.md`)
 Selainsovellusten turvamalli (origin = sovellus, nimiavaruuspohjat,
 `/global/compute` ja `/compute`): `docs/app-origins.md`.
 
+> **Tila 4.10.2026:** selaimen CR (`cr.js`) poistettiin D7:ssä, ja D8
+> (selain CR:nä wasm32-koneena) odottaa. Pooli suunnitellaan uudelleen
+> XCPU:n ja sen jatkajien kokemukset huomioiden, kun 9front + wasm32 on
+> viimeistelty (`docs/architecture.md`, "D8 odottaa"). Tämä dokumentti
+> kuvaa toimineen ensimmäisen version.
+
 ## Käänne Plan 9:stä
 
 ```
@@ -220,7 +226,7 @@ Päätteeseen upotettu jako-painike (iframe tai host.js) on tekemättä.
 
 **Päivitys ilman uudelleenkäynnistystä:** `tools/cpu-live SOCK` päivittää
 käynnissä olevan CPU-palvelimen 9pterm-istunnon kautta: sivut (+ .gz),
-`lib/app`, webterm (aux/listen ajaa sen yhteyskohtaisesti), rcc ja crsrv,
+`plan2001/lib/app`, webterm (aux/listen ajaa sen yhteyskohtaisesti), rcc ja crsrv,
 joka käynnistetään uudelleen `cpustart`in argumenteilla. CR:t yhdistävät
 itse uudelleen, ja kesken olevat työt epäonnistuvat asiakkailleen.
 Pilvessä ydintä ei tarvitse vaihtaa.
@@ -242,6 +248,7 @@ selaimen kautta.
 
 - **CR selaimessa:** `https://compute.kone:17443/cr.html` (Monolith,
   `monolith/web/cr.*`; laskentapoolin origin, `docs/app-origins.md`).
+  Poistettiin D7:ssä (Monolithin JS). D8 tuo CR:n takaisin wasm32-koneena.
   Selain tarjoaa laitteensa kerran: saman selaimen compute-välilehdistä vain
   lukon (Web Locks) haltija on CR, muut odottavat. Workereita on oletuksena
   laitteen säikeet miinus yksi, joten yksi jää käyttäjälle (`?workers=N`).
@@ -249,13 +256,13 @@ selaimen kautta.
   `6c` WebAssemblyna (`monolith/tools/build-cc wasm`: 9frontin cc, 6c ja
   libbio, `monolith/third_party/9cc`, POSIX-liima `monolith/cc9`,
   `6c.wasm` 218 kt). Välilehti on ohimenevä: kun se sulkeutuu, CR katoaa.
-- **CPU-palvelin:** `crsrv` (`sys/src/cmd/crsrv.c`) kuuntelee CR:iä
+- **CPU-palvelin:** `crsrv` (`plan2001/sys/src/cmd/crsrv.c`) kuuntelee CR:iä
   (tcp 17030; selaimen yhteys tulee webtermin WebSocketin `/17030` kautta) ja
   tarjoaa poolin nimiavaruuteen: `/srv/compute` → palvelimen `/global/compute`
-  ja sovelluksen nimiavaruudessa `/compute` (`lib/app/term/namespace`):
+  ja sovelluksen nimiavaruudessa `/compute` (`plan2001/lib/app/term/namespace`):
   `status`, `cc` (työt) ja jokaiselle CR:lle `N/{type,api,workers,owner,state,jobs}`.
   CR saa liittyessään palvelimen otsikot (`/sys/include`, `/amd64/include`).
-- **Käyttäjä:** `rcc` (`sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk
+- **Käyttäjä:** `rcc` (`plan2001/sys/src/cmd/rcc.c`) on `6c`:n tilalla: `NPROC=12 mk
   'CC=rcc'`. Työ sisältää lähteen ja sen hakemistojen `.h`-tiedostot, eli
   data tulee käyttäjän nimiavaruudesta. CR kääntää samannimisessä
   hakemistossa kuin käyttäjä, joten objekti on sama kuin palvelimen `6c`:n.

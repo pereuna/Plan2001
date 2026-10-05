@@ -61,9 +61,12 @@ joten jokaisella on omat palvelunsa (`policy`):
 |---|---|---|
 | `rcpu` | terminal | WebSocketit `/rcpu`, `/resume/…`, `/567` (auth): graafinen istunto |
 | `cr` | compute-provider | WebSocket `/17030`: selain tarjoaa laskentaa pooliin (CR) |
+| `cpu` | wasm32-pääte | WebSocket `/17019`: päätteen oma rcpu omassa TLS:ssään |
+| `secstore` | avaimet | WebSocket `/5356`: secstore, josta koneen `/boot/init` hakee factotumin avaimet (`docs/architecture.md`, "Avainten paikka") |
+| `signup`, `login` | tunnukset | WebSocketit `/17040` (signupd) ja `/17041` (passkeyd): Plan2001:n tunnukset ja passkeyt (`docs/webauthn.md`) |
 | `compute` | compute-consumer | istunnon nimiavaruuteen `/compute` (webterm antaa `$computepool=1` sovelluksen namespace-tiedostolle) |
 
-Kyvyt ovat erillisiä: yksi ei anna toista. `term.kone` = `rcpu compute`,
+Kyvyt ovat erillisiä: yksi ei anna toista. `term.kone` = `rcpu cpu compute secstore signup login`,
 `compute.kone` = `cr`, editorit = `rcpu`.
 
 `cad.kone` ei saa avata `/17030`:aa, ellei sen policy salli sitä.
@@ -88,8 +91,8 @@ palvelin antaa CR:lle identiteetin; `crsrv -k` ei ole turvamekanismi.
 
 Nimiavaruus rajaa Plan2001:n resurssit, mutta originin JavaScript voisi
 silti kutsua esimerkiksi `navigator.gpu`:ta. Siksi sovellus ei ole
-mielivaltaista JavaScriptiä: luotettu Plan2001-host (nyt drawterm.wasm ja
-sivu, myöhemmin host.js) antaa wasm-sovellukselle vain sen policyn
+mielivaltaista JavaScriptiä: luotettu Plan2001-host (D7:stä lähtien
+wasm32-koneen firmware, `kernel.html` ja `platform.js`) antaa wasm-sovellukselle vain sen policyn
 sallimat importit (fs, ui, compute/webgpu, …). Permissions-Policy-otsake on
 toinen suojakerros, ei capability-malli.
 
@@ -115,12 +118,37 @@ avaa https-portin 17443 myös osoitteeseen IP ja nimeää sovellukset
 selaimet luottavat kehitys-CA:han (`https://…/plan2001-ca.crt`) tai
 hyväksyvät varoituksen kerran kutakin originia kohden.
 
+## D7: originin kone on wasm32-kone (4.10.2026)
+
+Drawterm on poissa selaimesta. Jokainen origin saa saman sivun, joka
+käynnistää wasm32-koneen (`plan9/sys/src/9/wasm32`):
+
+- Sivu kysyy palvelimelta sovelluksensa (`GET /app`, rc-httpd:n
+  `plan2001-app`). Päätös on sama kuin webtermin `hostapp`: `APP`, jos
+  host on `APP.KONE` ja `/lib/app/APP` on olemassa, muuten `term`. Sivu
+  kirjoittaa sen koneen BootInfoon (`app=`, `cpu=`).
+- `term`: kone ajaa omaa rioaan ja rcpu:ta (`rcpu` ilman `-h`:ta menee
+  `$cpu`:hun). rcpu kulkee `/17019`:n kautta TLS-PSK:lla. Sen sallii
+  policyn sana `cpu`, joka on vain `term`illä.
+- `APP`: `/boot/app` ajaa rcpu:n, jonka yhteys on `aux/wsrcpu`
+  (`/boot/rconnect.app`): webtermin `/rcpu`-istunto, p9any ilman
+  TLS:ää, koska yhteys on jo wss. Webterm ajaa sovelluksen namespace- ja
+  image-tiedostot, ei asiakkaan skriptiä. Sovellus piirtää koneen
+  ruudulle, ja näppäimistö kulkee koneen konsolin kautta. Istunnon loppu
+  on rcpu:n palvelimen kaltainen: cpunote, tila ja `rfailed`.
+- Sivu hoitaa istunnon protokollan (`s`, `r`, `a`, `e`, `x`): kuittaukset,
+  lähetetyn tallessa pitämisen ja jatkon (`/resume/TOKEN/N`), jos
+  WebSocket katkeaa. Ydin näkee yhden yhteyden. Testi on
+  `tools/test-9wasm32 app`.
+- `compute.kone` (CR selaimessa, `cr.html`) poistui Monolithin JS:n mukana.
+  D8 odottaa uutta suunnitelmaa (`docs/architecture.md`, "D8 odottaa").
+
 ## Eteneminen
 
 Haara `origin-apps` (29.9.): kohdat 1–10 tehty, `monolith/tools/test-apps`
 PASS (myös `--drop`) ja `monolith/tools/test-compute` PASS compute-originista.
 Toteutus: webterm (`hostapp`, `allowed`, oma rcpu-skripti `appscript`,
-istunnon `origin`), sovelluspohjat `lib/app/`, `tools/vm-cpu` (asennus,
+istunnon `origin`), sovelluspohjat `plan2001/lib/app/`, `tools/vm-cpu` (asennus,
 `*.localhost`-nimet varmenteeseen). Testi tarkistaa lisäksi, että sivu, joka
 pyytää drawtermilla `-c 'sleep 777'`, saa silti originin sovelluksen.
 Kohdat 9–10: `crsrv` on palvelimen nimiavaruudessa `/global/compute`

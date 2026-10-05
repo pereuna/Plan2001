@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Plan 9 rc scripts parsed, not run: each FILE inside a function
+definition (fn __p { FILE }), which rc parses whole and does not execute,
+with here-document bodies left out (rc reads them only after the whole
+command, the function).  The rc is plan9port's: $PLAN9/bin/rc, or rc on
+PATH.  Prints FAIL FILE: rc's error for each that does not parse; exit 1
+if any.
+  tools/rccheck FILE...
+  tools/rccheck            the repo's rc scripts (the machine's /boot, rc-httpd's site,
+                           the apps, tools/*.rc, tools/cloud/*.rc, the installer)
+"""
+import glob, os, re, shutil, subprocess, sys
+
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+rc = os.path.join(os.environ['PLAN9'], 'bin/rc') if os.environ.get('PLAN9') else shutil.which('rc')
+if not rc or not os.path.exists(rc):
+	sys.exit('rccheck: no rc (plan9port: PLAN9=... or rc on PATH)')
+
+def strip_heredocs(text):
+	out, end = [], None
+	for line in text.split('\n'):
+		if end is not None:
+			if line == end:
+				end = None
+				out.append('')	# the line numbers stay
+			else:
+				out.append('')
+			continue
+		m = re.search(r"<<\s*'?([A-Za-z0-9_]+)'?", line)
+		if m and not line.lstrip().startswith('#'):
+			end = m.group(1)
+			line = line[:m.start()] + '</dev/null' + line[m.end():]	# the redirection too: no body follows it now
+		out.append(line)
+	return '\n'.join(out)
+
+files = sys.argv[1:]
+if not sys.argv[1:]:
+	pats = ['plan9/sys/src/9/wasm32/init', 'plan9/sys/src/9/wasm32/disk', 'plan9/sys/src/9/wasm32/secstore', 'plan9/sys/src/9/wasm32/console',
+		'plan2001/sys/src/9/wasm32/app', 'plan2001/sys/src/9/wasm32/login', 'plan2001/sys/src/9/wasm32/rconnect.app',
+		'plan2001/rc/bin/rc-httpd/select-handler', 'plan2001/rc/bin/rc-httpd/handlers/*',
+		'plan2001/rc/bin/apps', 'plan2001/usr/glenda/lib/profile', 'plan2001/rc/bin/inst/*', 'plan2001/lib/app/*/image', 'plan2001/lib/app/*/namespace',
+		'tools/*.rc', 'tools/cloud/*.rc']
+	files = sorted(f for p in pats for f in glob.glob(os.path.join(root, p)))
+bad = 0
+for f in files:
+	body = strip_heredocs(open(f, encoding='utf-8', errors='replace').read())
+	p = subprocess.run([rc], input='fn __p {\n' + body + '\n}\n', capture_output=True, text=True,
+		env=dict(os.environ, PLAN9=os.environ.get('PLAN9', '')))
+	err = (p.stdout + p.stderr).strip()
+	if err:
+		# rc's line numbers count the fn line: one less in the file
+		err = re.sub(r'/dev/stdin:(\d+)', lambda m: f'line {int(m.group(1)) - 1}', err)
+		print(f'FAIL {os.path.relpath(f, root)}: {err}')
+		bad = 1
+print(f'rccheck: {len(files)} files, {"FAIL" if bad else "ok"}')
+sys.exit(bad)

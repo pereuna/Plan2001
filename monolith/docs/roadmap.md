@@ -1,5 +1,12 @@
 # Vaiheet
 
+> **Historiaa (D7, 4.10.2026):** drawtermin selainosat (`gui-web`,
+> `drawterm.wasm`), host3, wasmapp ja Monolithin JS (`web/`) on poistettu.
+> Selaimessa ajetaan Plan2001:n wasm32-ydintä (`plan9/sys/src/9/wasm32`,
+> `docs/architecture.md`). Tämä dokumentti kuvaa Monolithin vaiheita
+> sellaisina kuin ne tehtiin.
+
+
 | Vaihe | Tavoite | Hyväksyntä | Tila |
 |---|---|---|---|
 | 1a | Natiivi drawterm → Plan2001-VM cpu-palvelimena | `drawterm -G -c 'echo MONOLITH-OK'` tulostaa merkin | valmis 27.9. |
@@ -118,7 +125,7 @@ treated as secure* (esim. `http://10.77.0.5:8080`). SSH-tunnelin kautta
 
 ## Vaihe 2a: oma transportti (27.9.)
 
-- Plan2001: `sys/src/cmd/webterm.c`, aux/listenin palvelu portissa 17080
+- Plan2001: `plan2001/sys/src/cmd/webterm.c`, aux/listenin palvelu portissa 17080
   (`tools/vm-cpu` kääntää ja asentaa sen VM:ssä). `GET /17019` on rcpu ja
   `GET /567` auth, muita ei. Tavut kulkevat muuttumattomina binäärikehyksissä,
   joten drawtermin auth ja TLS toimivat sen sisällä kuten TCP:n yli.

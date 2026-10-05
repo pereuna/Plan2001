@@ -1,7 +1,7 @@
 #!/bin/bash
 # Bring a running Plan2001 CPU server's compute pool and browser side up to
 # date from this repo, through a 9pterm session, without a reboot: the
-# pages (cr.html ...), lib/app, webterm, rcc, and crsrv, restarted with its
+# pages (monolith/tools/pages first), plan2001/lib/app, webterm, rcc, and crsrv, restarted with its
 # own arguments (tools/cpu-live.rc says what each means).  The session's
 # 9pterm sees this repo at /mnt/term.
 #   tools/cpu-live SOCK [pages|apps|webterm|rcc|crsrv]...

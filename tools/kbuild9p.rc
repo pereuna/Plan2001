@@ -21,14 +21,17 @@ rm -rf $d
 mkdir -p $d/9 $d/inc $d/auxbin $d/kbdfs
 fn cleanup { rm -rf $d }
 
-cp $repo/sys/include/bootinfo.h $d/inc/bootinfo.h
+cp $repo/plan9/sys/include/bootinfo.h $d/inc/bootinfo.h
 bind -b $d/inc /sys/include
 
 echo '### overlay '^$"ksrc^' from '^$repo
 dircp /sys/src/9 $d/9
-for(x in $ksrc) if(test -d $repo/sys/src/9/$x) dircp $repo/sys/src/9/$x $d/9/$x
-for(f in `{ls $repo/sys/src/9/port})
-	for(x in $ksrc) if(! ~ $x port) rm -f $d/9/$x/`{basename $f}
+# the fork's (plan9/), then Plan2001's over it (plan2001/), as tools/overlay
+for(l in plan9 plan2001){
+	for(x in $ksrc) if(test -d $repo/$l/sys/src/9/$x) dircp $repo/$l/sys/src/9/$x $d/9/$x
+	if(test -d $repo/$l/sys/src/9/port) for(f in `{ls $repo/$l/sys/src/9/port})
+		for(x in $ksrc) if(! ~ $x port) rm -f $d/9/$x/`{basename $f}
+}
 
 echo '### kbdfs'
 dircp /sys/src/cmd/aux/kbdfs $d/kbdfs
@@ -37,7 +40,7 @@ dircp /sys/src/cmd/aux/kbdfs $d/kbdfs
 if(~ $3 stockkbd)
 	cp $repo/subset/9front/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
 if not
-	cp $repo/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
+	cp $repo/plan2001/sys/src/cmd/aux/kbdfs/kbdfs.c $d/kbdfs/kbdfs.c
 @{ cd $d/kbdfs && rm -f *.[0-9ko] ?.out && mk >[2=1] } >$d/kbdfs.log
 o=`{ls -t $d/kbdfs/?.out >[2]/dev/null}
 if(~ $#o 0){
@@ -50,9 +53,9 @@ cp $o(1) $d/auxbin/kbdfs
 if(~ $3 syskbd)
 	cp /$objtype/bin/aux/kbdfs $d/auxbin/kbdfs
 # aux/reimage: the boot environment rewrites the disk from the network
-# (sys/src/9/boot/reimage.rc, devsd.proto)
-if(test -e $repo/sys/src/cmd/aux/reimage.c){
-	@{ cd $d/auxbin && cp $repo/sys/src/cmd/aux/reimage.c . && 6c -FTVw reimage.c && 6l -o reimage reimage.6 && rm -f reimage.c reimage.6 } || {
+# (plan2001/sys/src/9/boot/reimage.rc, devsd.proto)
+if(test -e $repo/plan2001/sys/src/cmd/aux/reimage.c){
+	@{ cd $d/auxbin && cp $repo/plan2001/sys/src/cmd/aux/reimage.c . && 6c -FTVw reimage.c && 6l -o reimage reimage.6 && rm -f reimage.c reimage.6 } || {
 		echo REIMAGE BUILD FAILED
 		cleanup
 		exit reimage

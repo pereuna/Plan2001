@@ -1,0 +1,28 @@
+#!/bin/rc
+# . /rc/bin/websession - a session on Plan2001's CPU server, sourced as
+# its user just after authentication (tcp17019's fn server, webterm's app
+# script; docs/webauthn.md): a web account's (a member of the file
+# server's group web, as signupd makes them; with -f anyone's) is limited
+#	no network	/net unmounted, and #I, #l, #a, #D can not be attached
+#			again: no connection out of the server (mail, scans)
+#	no /srv		unmounted, #s can not be attached again: no compute
+#			pool (/srv/compute), dns, cs or other posted services
+#	no devices	#S, #f, #u, #P, #A, #σ (and /shr) not attached again
+#	computepool=0	for the app's namespace file
+# The masks are the namespace's (/dev/drivers' chdev, devmask): its
+# children's too, a new namespace's too (rfork n, c), and none can lift
+# them.  Mount stays: rcpu's server mounts the terminal on /mnt/term.
+# Users the file server's /adm/users can not tell (it can not be read)
+# are limited, but for the host owner.  A session it can not limit is
+# ended.  (Who: the kernel's /dev/user, not $user.)
+who=`{cat /dev/user}
+if(~ $1 -f || grep -s '^[^:]*:web:[^:]*:(.*,)?'^$who^'(,.*)?$' /adm/users || {! test -r /adm/users && ! ~ $who `{cat /dev/hostowner}}){
+	rfork n	# its own namespace: the mask never another's (newns made one, rc's @ does not)
+	computepool=0
+	for(m in /net /net.alt /srv /shr)
+		unmount $m >[2]/dev/null
+	echo chdev '&~' 'IlaDsSfuPAσ' >/dev/drivers || exit 'websession: chdev'
+	if(test -e /net/tcp || test -e /net/cs || test -e /srv/boot)
+		exit 'websession: not limited'
+}
+who=()

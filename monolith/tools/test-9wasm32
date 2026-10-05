@@ -1,7 +1,7 @@
 #!/bin/bash
 # Plan2001's wasm32 kernel (sys/src/9/wasm32) in headless Chromium: its
 # serial port, #t/eia0, against sys/src/9/wasm32/test/*.out - C2a's test
-# of port/, then init as a program from the root (tools/build-bin3): echo,
+# of port/, D5's BootInfo (the page the firmware), then init as a program from the root (tools/build-bin3): echo,
 # init's arguments longer than 4096 bytes, fork, 2000 forks with exit,
 # chdir, exec and wait, rc -c, an interactive rc; C3a's notes and
 # rendezvous, and a fork whose child gets no Worker (the page's failfork);
@@ -16,12 +16,27 @@
 # 9front's - glenda's profile, rio -i riostart, stats and term%;
 # D2's network: /net/tcp and /net/cs over WebSockets to the CPU VM's
 # webterm (tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net; else
-# skipped), from the origin it takes (127.0.0.1:18080).
-#   tools/test-9wasm32 [NAME...]
+# skipped), from the origin it takes (127.0.0.1:18080); D3's libraries
+# (crypto: libsec, libmp, libauthsrv against Python's values) and dp9ik
+# through factotum - glenda and bootes over a pipe with the tickets from
+# tools/test-authsrv, a wrong password, no auth server; /net/tcp's
+# conversations connected again and again (netre); and glenda to the
+# CPU VM's rcpu (dp9ikvm, skipped without it).
+# KERNEL=FILE: that kernel instead of build-9wasm32's, e.g. the native
+# build's (../tools/native-wasm32: build/9front-2001/wasm32/9wasm32.wasm),
+# put where build-9wasm32 puts its own.
+#   [KERNEL=FILE] tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-t=$root/../sys/src/9/wasm32/test
-"$root/tools/build-9wasm32" >/dev/null
+t=$root/../plan9/sys/src/9/wasm32/test
+if [ -n "${KERNEL:-}" ]; then
+	mkdir -p "$root/build/wasm32/kernel"
+	cp "$KERNEL" "$root/build/wasm32/kernel/9wasm32.wasm.new"
+	mv "$root/build/wasm32/kernel/9wasm32.wasm.new" "$root/build/wasm32/kernel/9wasm32.wasm"
+	echo "test-9wasm32: the kernel $KERNEL"
+else
+	"$root/tools/build-9wasm32" >/dev/null
+fi
 [ -e "$root/build/wasm32/root/bin/d2" ] || "$root/tools/build-bin3" >/dev/null
 run() {	# NAME ARGS [SEND [PAGEARGS]]
 	echo "test-9wasm32: $1"
@@ -31,6 +46,17 @@ run() {	# NAME ARGS [SEND [PAGEARGS]]
 want() { local n=$1; shift; [ $# = 0 ] || [[ " $* " == *" $n "* ]]; }
 names="$*"
 want c2a $names && run c2a '[]' '[]' '&noinit=1'
+# D5's BootInfo (docs/boot-abi-wasm32.md): plan9.ini's lines in the environment, the framebuffer
+# as *bootscreen, the clock from its epoch; a blob for another ISA stops the kernel before anything
+want bootinfo $names && run bootinfo "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+	"echo \$bitest; x=\`{cat '#ec/*bootscreen'}; echo \$x(1) \$x(2); t=\`{cat /dev/time}; test \$t(1) -gt 1759000000 && echo the clock is from BootInfo; echo done")" \
+	'[]' '&screen=640x480&conf=bitest%3Dhello%20world'
+# a blob for another ISA, the root's image or the framebuffer in memory the kernel hands out: refused, before anything;
+# an older v1 loader's shorter header (garbage past it, where rdbase would be): taken, the fields it lacks 0
+for bad in arch rd fb; do
+	want badblob $names && EXPECT=$t/badblob.out EXPECTJS="document.getElementById('eia0').textContent.includes('[halted: bootinfo: no blob')" run badblob '["/bin/echo", "never"]' '[]' "&bad=$bad"
+done
+want oldheader $names && EXPECT=$t/c2a.out run oldheader '[]' '[]' '&noinit=1&oldheader=1'
 want echo $names && run echo '["/bin/echo", "hello", "world"]'
 want long $names && run long "[\"/bin/echo\", \"$(printf '%06000d' 0 | tr 0 a)\"]"
 want fork $names && run fork '["/bin/fork"]'
@@ -49,7 +75,7 @@ want init $names && run init '["/bin/rc", "/boot/console"]' '["echo hi\n", "echo
 want clock $names && DRAWS=3 run clock '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; clock & sleep 4; echo drawn"]'
 want keys $names && KEYS='["e", "c", "h", "o", " ", "ä", "å", "ö", " ", "$", "s", "y", "s", "n", "a", "m", "e", "Enter", "e", "x", "i", "t", "Enter"]' run keys '["/bin/rc", "/boot/console"]'
 want mouse $names && WAITFOR=ready MOUSE='[[0.75, 0.5, 4]]' EXPECTJS="document.getElementById('screen').style.cursor.startsWith('url(')" run mouse '["/bin/c3d"]'
-h=$root/../sys/src/cmd/3c/test/host3
+h=$root/../plan9/sys/src/cmd/3c/test/host3
 want hello $names && EXPECT=$h/hello.out run hello '["/bin/rc", "-c", "hello"]'
 want dclock $names && DRAWS=3 run dclock '["/bin/rc", "-c", "dclock 15 & sleep 3; echo drawn"]'
 want bytes $names && EXPECT=$h/bytes.out SENDFILE=$h/bytes.in run bytes '["/bin/bytes"]'
@@ -60,9 +86,233 @@ want riorc $names && HALTWAIT=60 KEYS='["e", "c", "h", "o", " ", "ä", "å", "ö
 	run riorc '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; rio -i '"'"'window -r 20 20 580 400 rc'"'"' & sleep 25; echo done"]'
 want boot $names && RUNS=40 DRAWS=10 KEYDELAY=12 MOUSE='[[0.4, 0.4, 1]]' KEYS='["e", "c", "h", "o", " ", "b", "o", "o", "t", "e", "d", " ", ">", "/", "d", "e", "v", "/", "e", "i", "a", "0", "Enter"]' \
 	PAGEARGS='&x=boot' run boot '[]'
+# the site's login (GET /login, docs/webauthn.md): /boot/init's /boot/login on the console, which the page
+# shows; g (none) and init goes on to rio, whose drawing takes the console away again
+want pagelogin $names && MONOLITH_LOGIN=1 RUNS=40 DRAWS=3 \
+	EXPECTJS="!document.body.classList.contains('console') && document.getElementById('eia0').textContent.includes('g) guest: ')" \
+	run pagelogin '[]' '[["g) guest: ", "g\n"]]'
 want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
 	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
+want crypto $names && run crypto '["/bin/d3"]'
+want tls $names && run tls '["/bin/d4"]'
+# rfork(RFMEM) procs in rendezvous ended by their group's kill, with and without a handler (exportfs's ending)
+# /proc/n/args written and read by procs that come and go (devproc's debug lock), and exec's own args again
+want procargs $names && run procargs "[\"/bin/rc\", \"-c\", \"d4 -a; rc -c 'echo -n somehost >/proc/\$pid/args; cat /proc/\$pid/args; echo; exec cat /proc/\$pid/args'; echo; echo done\"]"
+want notekill $names && run notekill '["/bin/rc", "-c", "echo mem nohandler; d4 -k mn; echo fork handler; d4 -k h; echo mem handler; d4 -k; echo done"]'
+# D6's disk (#S/sdW0, OPFS; /boot/disk: hjfs on it, all of glenda's home): files written, one in a
+# directory the root has too (lib), her profile changed; hjfs synced and the disk flushed; the page
+# loaded again in the same browser (THEN) - the files are there, the root's skeleton too, and her
+# profile is hers (the skeleton fills in, never replaces)
+want disk $names && HALTWAIT=120 THEN='["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; cat /usr/glenda/persist /usr/glenda/lib/deep; ls /n/disk/usr/glenda/lib; sed -n \u0027$p\u0027 /usr/glenda/lib/profile; sed -n 1p /dev/sdW0/ctl; echo done"]' \
+	run disk '["/bin/rc", "-c", "mntgen -s slashn /n; rc /boot/disk; echo kept over a reload >/usr/glenda/persist; echo deeper >/usr/glenda/lib/deep; echo \u0027# mine\u0027 >>/usr/glenda/lib/profile; echo sync >>/srv/disk.cmd; sleep 2; echo flush >/dev/sdW0/ctl; echo written"]'
+# the disk Worker fails (its flush throws, when the disk is idle after a write): the disk is dead, I/O gives an
+# error and the machine goes on - not a kernel waiting for ever; a page's *sdW0= does not replace the firmware's
+want diskdead $names && run diskdead '["/bin/rc", "-c", "sed -n 2p /dev/sdW0/ctl; echo x >/dev/sdW0/data; echo written; sleep 2; read -c 1 </dev/sdW0/data; echo status $status; sed -n 4p /dev/sdW0/ctl; echo the machine goes on"]' \
+	'[]' '&diskfail=flush&conf=*sdW0%3D0x5000000%20999'
 want fault $names && run fault '["/bin/rc", "-c", "fault x; echo status $status; fault; echo the machine goes on"]'
+# D3's dp9ik through factotum: glenda and bootes over a pipe, the tickets from
+# tools/test-authsrv (on the port the page's webterm relay goes to); a wrong
+# password gives needkey; with no auth server, no tickets
+fkeys="mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl"
+# WebAuthn (devwebauthn.c, docs/webauthn.md): the page's passkeys through #W, the browser's virtual
+# authenticator with PRF (test-wasmapp WEBAUTHN), the page at localhost (no IP address as rp): a passkey
+# made and got - PRF the same for the same salt, another for another - the user handle without its id,
+# a request cancelled on the page, another domain's refused, a request that is neither
+want webauthn $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "cancel"]' run webauthn '["/bin/d5", "localhost"]'
+# the CPU server's signupd and passkeyd (docs/webauthn.md: aux/listen's service.auth, the line on fd 0),
+# the real programs here with their keyfs, secstore and webauthn directories in a ramfs: an account's
+# files as keyfs, secstored and passkeyd read them; a name taken, a reserved one,
+# a key that is not one; a failure part way undone (secstore's store not writable); invites, used up;
+# the file server's newuser a line on its console, ok only once its home is there (none: undone), and the
+# user in its group web (made once), ok only once its users file has it there (never: undone)
+L="00112233445566778899aabbccddeeff SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
+sd="mntgen -s slashmnt /mnt; ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa; fn sd { aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa }
+echo signup alice $L credidAAAAAAAAAAAAAA pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+xd -1x \$r/keys/alice/aeskey | sed 1q; cat \$r/sec/who/alice; ls \$r/sec/store/alice; sed /^created/d \$r/wa/credidAAAAAAAAAAAAAA
+echo signup alice $L credidBBBBBBBBBBBBBB pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup glenda $L credidCCCCCCCCCCCCCC pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup bob 00112233 SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB credidDDDDDDDDDDDDDD pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+chmod 555 \$r/sec/store; echo signup bob $L credidDDDDDDDDDDDDDD pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd; ls \$r/keys \$r/sec/who \$r/wa; chmod 775 \$r/sec/store
+echo code1 >\$r/wa/invites; echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
+echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA code1 | sd
+echo signup dave $L credidFFFFFFFFFFFFFF pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA code1 | sd
+rm \$r/wa/invites; mkdir \$r/usr \$r/usr/gina \$r/usr/hank; touch \$r/cons \$r/users; fn sdc { aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa -c \$r/cons -u \$r/usr -a \$r/users }
+echo signup frank $L credidGGGGGGGGGGGGGG pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc; xd -c \$r/cons; ls \$r/keys
+>\$r/cons; {sleep 2; echo 9:web::gina >\$r/users} &
+echo signup gina $L credidHHHHHHHHHHHHHH pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc; cat \$r/cons
+>\$r/cons; echo signup hank $L credidIIIIIIIIIIIIII pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc; cat \$r/cons; ls \$r/keys
+echo done"
+want signupd $names && HALTWAIT=120 run signupd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$sd")"	# init takes no newline
+# a web account's session on the CPU server (docs/webauthn.md, /rc/bin/websession -f: what signupd's group
+# web gets): 9front's chdev (devmask) on the process group - /net and /srv gone, #I and #s not attached
+# again, not after rfork n either, and no chdev lifts it - while mount still works (rcpu's /mnt/term:
+# ramfs on a pipe); the namespace outside it as it was
+wl="mntgen -s slashmnt /mnt; bind '#|' /mnt/p; ramfs -i <>/mnt/p/data1 >[1=0] &
+test -e /net/tcp && test -e /srv/slashmnt && echo before: net and srv
+@{ . /rc/bin/websession -f; echo computepool \$computepool; ls /net /srv; bind '#I' /mnt/i >[2=1]; bind '#s' /mnt/s >[2=1]; @{rfork n; bind '#I' /mnt/i >[2=1]}; mount -c /mnt/p/data /mnt/r && touch /mnt/r/made && ls /mnt/r; echo chdev '&' I >/dev/drivers; bind '#I' /mnt/i >[2=1] }
+test -e /net/tcp && test -e /srv/slashmnt && echo after: net and srv
+echo done"
+want weblimit $names && run weblimit "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$wl")"	# init takes no newline
+# the web accounts' processes and memory on the CPU server (docs/webauthn.md, aux/weblimitd as
+# cpustart runs it), on a made-up /proc (-P: here every proc is the host owner's, whom it never
+# touches, and the kernel keeps no memory count): a user over its processes loses all of them, a user
+# over its memory its biggest process (procs sharing memory - acme's, the same program and size -
+# counted once), all of them over theirs the biggest of all; the others are
+# lowered in priority, the host owner and users not in the group are not touched
+st() {	# PID USER MEM: a made-up /proc/PID as weblimitd reads it
+	printf "mkdir \$r/%s; touch \$r/%s/ctl; echo '%-27s %-27s %-11s %11d %11d %11d %11d %11d %11d %11d %11d %11d' >\$r/%s/status; " \
+		"$1" "$1" rc "$2" Pread 0 0 0 0 0 0 "$3" 10 10 "$1"
+}
+wd="mntgen -s slashmnt /mnt; ramfs -m /mnt/ram; r=/mnt/ram/proc; mkdir \$r; echo 9:web::alice,bob,carol,dave >/mnt/ram/users
+$(st 101 alice 2000)$(st 102 alice 9000)$(st 103 alice 1000)$(st 201 bob 100)$(st 202 bob 100)$(st 203 bob 100)$(st 204 bob 500)$(st 301 carol 8000)$(st 302 carol 7000)$(st 351 dave 9000 acme)$(st 352 dave 9000 acme)$(st 353 dave 9000 acme)$(st 401 glenda 500000)$(st 501 none 90000)
+aux/weblimitd -1 -a /mnt/ram/users -P \$r -p 3 -m 10000 -t 10000 -r 7
+for(f in \$r/*/ctl) echo \$f \`{cat \$f}
+aux/weblimitd -1 -a /mnt/ram/nousers -P \$r
+echo done"
+want weblimitd $names && HALTWAIT=120 run weblimitd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$wd")"	# init takes no newline
+# the CPU server's signupd and passkeyd themselves, with a passkey: auth/passkey talks to each over a
+# pipe (#|, a server name that is a path), each a process of its own as aux/listen makes them, their
+# keyfs, secstore and webauthn in a ramfs.  An account made; its passkey signs passkeyd's challenge,
+# twice (the counter grows); refused for another origin, another rp, a counter not above the last,
+# and another passkey's public key in its record (the signature checked)
+pc="ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa
+fn pkd { bind '#|' /mnt/\$1; aux/passkeyd -w \$r/wa \$*(2-) <>/mnt/\$1/data1 >[1=0] & }
+fn signin { auth/passkey -s /mnt/\$1/data login }
+bind '#|' /mnt/p0; aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa <>/mnt/p0/data1 >[1=0] &
+auth/passkey -s /mnt/p0/data signup erin
+pkd p1 -r localhost -o http://localhost:18092; signin p1
+pkd p2 -r localhost -o http://localhost:18092; signin p2
+pkd p3 -r localhost -o https://plan2001.com; signin p3
+pkd p4 -r plan2001.com -o http://localhost:18092; signin p4
+f=\`{ls \$r/wa}; sed 's/^count.*/count	99999999/' \$f >\$r/rec; cp \$r/rec \$f
+pkd p5 -r localhost -o http://localhost:18092; signin p5
+sed 's/^count.*/count 0/; s/^pubkey.*/pubkey MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhxwTFIkd-GFAq6p3Rb-DO0ImfQiSQt-F5KubHevM7eHHoxq16p8sETrW8JQF4iajAvNmnf70SyLb3QDnvSN2PA/' \$f >\$r/rec; cp \$r/rec \$f
+pkd p6 -r localhost -o http://localhost:18092; signin p6
+echo done"
+want passkeyc $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyc "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
+	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pc} </dev/cons >/dev/cons >[2=1]")" \
+	'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want passkeyoffline $names; then
+	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
+	aspid=$!
+	trap 'kill $aspid 2>/dev/null' EXIT
+	want dp9ik $names && MONOLITH_WEBTERM=18099 HALTWAIT=120 run dp9ik '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo '"'"'delkey user=glenda'"'"' >/mnt/factotum/ctl; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=wrong'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
+	# /net/tcp reconnected: a gen each connect, a reader woken by a hangup (d3 -n)
+	# a connect whose WebSocket never opens (test-authsrv's /17998) gives up after 60 s
+	want nettimeout $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run nettimeout '["/bin/rc", "-c", "{echo connect relay!17998 >[1=0]} <>/net/tcp/clone; echo status $status; echo done"]'
+	want netre $names && MONOLITH_WEBTERM=18099 HALTWAIT=300 run netre '["/bin/rc", "-c", "d3 -n 20 4; echo done"]'
+	# D4's rcpu, the machine's own (rcpu, rconnect, tlsclient -a, exportfs) to an rcpu server in the
+	# same machine (d4 -s: tlssrv -a and tcp17019's script) through test-authsrv's relay: bootes's
+	# factotum in its own namespace, glenda's here - her key given, or asked for on the console
+	# (rcpuask: auth_getkey, /boot/factotum -g).  exportfs says "short write" when the server has
+	# gone at the end: left out
+	rsrv="mntgen -s slashmnt /mnt; @{rfork n; auth/factotum -n; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl; exec d4 -s tcp!relay!17999} & auth/factotum -n -sfactotum"
+	rcmd="rcpu -h relay -c 'echo remote: service \$service; cat /mnt/term/env/sysname; echo; ls /mnt/term/boot; test -e /mnt/term/dev/draw/new && echo the terminal draws; echo remote done'"
+	want rcpu $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpu "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"$rsrv; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; $rcmd >[2=1] | sed '/short write in reply/d'; echo rcpu status \$status; echo done")"
+	# D7's app origin: /boot/app (rcpu, /boot/rconnect.app, aux/wsrcpu) through webterm's rcpu session
+	# (test-authsrv's /rcpu: s, r, a, e; the page's WebSocket dropped once and resumed) to webterm's
+	# server side in the machine (d4 -w: p9any, webterm's script) - a file copied both ways
+	asrv="mntgen -s slashmnt /mnt; ramfs -m /mnt/ram; @{rfork n; auth/factotum -n; echo 'key proto=dp9ik dom=plan2001 user=bootes !password=bpassword' >/mnt/factotum/ctl; exec d4 -w tcp!relay!17997} & auth/factotum -n -sfactotum"
+	want app $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run app "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"$asrv; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; app=test cpu=relay rc /boot/app >[2=1]; echo done")"
+	# the same with sixteen copies at once (d4 -W): when the page is dropped the session holds more than
+	# the page's 64 KiB ring, and the resume's one frame waits in the page's queue (the review's)
+	asrvw="${asrv/d4 -w/d4 -W}"
+	want appresume $names && MONOLITH_WEBTERM=18099 HALTWAIT=200 run appresume "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"$asrvw; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; app=test cpu=relay rc /boot/app >[2=1]; echo done")"
+	# backpressure: a session that never acknowledges (test-authsrv's sink /rcpu), one write of 4 MB
+	# (d4 -B) - the kernel reserves each 64 KiB piece in the page before it sends it, so the page holds
+	# at most Sendhigh and a piece and the writer waits (the review's: before, 4 MB in one message)
+	want sendq $names && MONOLITH_WEBTERM=18099 HALTWAIT=60 EXPECTJS='window.monolith.sendqmax > 900000 && window.monolith.sendqmax <= 1114112' \
+		run sendq '["/bin/rc", "-c", "d4 -B tcp!relay!rcpuws 4000000 & sleep 8; echo the writer waits; echo done"]'
+	want rcpuask $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpuask "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; $rsrv; sleep 2; {$rcmd >[2=1] | sed '/short write in reply/d'} </dev/cons >/dev/cons >[2=1]; {echo rcpu status \$status; cat /mnt/factotum/ctl; echo done} >/dev/cons")" \
+		'[["user[glenda]: ", "\n"], ["password: ", "gpassword\n"]]'
+	# factotum's keys from secstore (docs/architecture.md, "Avainten paikka"): glenda's dp9ik key and
+	# a mail password put with secstore -p (encrypted with her secstore password; test-authsrv's
+	# /5356 keeps them as they came), then /boot/secstore (/boot/init's) gets them into factotum -
+	# a wrong password first, asked again; factotum's keys before and after (d3 -p would agree
+	# without glenda's key: its pipe test takes bootes's)
+	want secstore $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run secstore "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$fkeys; ramfs -m /mnt/ram; cd /mnt/ram; {echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'; echo 'key proto=pass service=mail user=glenda !password=mpassword'} >factotum; echo spassword | auth/secstore -i -s tcp!relay!5356 -p factotum >[2=1]; rm factotum; echo before:; cat /mnt/factotum/ctl; secstore=tcp!relay!5356 rc /boot/secstore; echo after:; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["secstore password: ", "wrong\n"], ["secstore password: ", "spassword\n"]]'
+	# a CPU session's factotum is the terminal's (glenda's profile, case cpu: docs/architecture.md,
+	# "Avainten paikka"): the server's own (bootes's key) is not what the session sees.  The
+	# server's rc -l reads the profile from $home
+	rsrvh="${rsrv/@\{rfork n;/@\{rfork n; home=/usr/glenda;}"
+	want rcpukeys $names && MONOLITH_WEBTERM=18099 HALTWAIT=150 run rcpukeys "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"$rsrvh; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword' >/mnt/factotum/ctl; sleep 2; rcpu -h relay -c 'echo remote:; cat /mnt/factotum/ctl; echo remote done' >[2=1] | sed '/short write in reply/d'; echo done")"
+	# the page gives the site's secstore (GET /secstore, tools/serve's MONOLITH_SECSTORE) to the
+	# machine in BootInfo's config, as /boot/secstore takes it; none without
+	want pagesecstore $names && MONOLITH_SECSTORE='tcp!relay!5356' run pagesecstore '["/bin/rc", "-c", "echo secstore $secstore; echo done"]'
+	want pagesecstore $names && run pagesecstore0 '["/bin/rc", "-c", "echo secstore $secstore; echo done"]'
+	# the keys' copy on the machine's disk (aux/seckeys, /boot/secstore): from secstore with the disk,
+	# the copy is in glenda's home - aescbc's, not the keys; then without secstore (test-authsrv
+	# refuses /5399: the dial fails) the keys from the copy, a wrong password first
+	sk="secstore=tcp!relay!5356 rc /boot/secstore; read -c 16 /usr/glenda/lib/factotum.aes; echo 'delkey user=glenda' >/mnt/factotum/ctl; secstore=tcp!relay!5399 rc /boot/secstore; cat /mnt/factotum/ctl"
+	want seckeys $names && MONOLITH_WEBTERM=18099 HALTWAIT=200 run seckeys "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$fkeys; mntgen -s slashn /n; rc /boot/disk; ramfs -m /mnt/ram; cd /mnt/ram; {echo 'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'; echo 'key proto=pass service=mail user=glenda !password=mpassword'} >factotum; echo spassword | auth/secstore -i -s tcp!relay!5356 -p factotum >[2=1]; rm factotum; $sk; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["secstore password: ", "spassword\n"], ["secstore password: ", "wrong\n"], ["secstore password: ", "spassword\n"]]'
+	# Plan2001's accounts (docs/webauthn.md, auth/passkey; test-authsrv's signupd and passkeyd, the
+	# browser's virtual authenticator): an account made - its password and passkey; the passkey opens
+	# its password, which gets its key from secstore; then the password alone.  And with the disk:
+	# the wrap and the keys' copy kept, so the passkey opens the keys with no network at all
+	pk="mntgen -s slashmnt /mnt; mntgen -s slashn /n; auth/factotum -n -sfactotum; secstore=tcp!relay!5356"
+	want signup $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go"]' HALTWAIT=200 run signup "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$pk; auth/passkey -s relay signup alice; auth/passkey -s relay login | aux/seckeys -I; cat /mnt/factotum/ctl; echo 'delkey user=alice' >/mnt/factotum/ctl; aux/seckeys -u alice; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["account password: ", "alice-password-1\n"], ["again: ", "alice-password-1\n"], ["secstore password: ", "alice-password-1\n"]]'
+	want passkeyoffline $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyoffline "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+		"aux/kbdfs -q -s cons /dev/eia0; {$pk; rc /boot/disk; ramfs -m /mnt/ram; mkdir /mnt/ram/nonet; c=/usr/glenda/lib/factotum.aes; w=/usr/glenda/lib/passkey.wrap; auth/passkey -s relay signup bob; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c; echo 'delkey user=bob' >/mnt/factotum/ctl; @{rfork n; bind /mnt/ram/nonet /net; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c}; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
+		'[["account password: ", "bob-password-12\n"], ["again: ", "bob-password-12\n"]]'
+	kill $aspid; trap - EXIT
+fi
+want dp9iknoas $names && MONOLITH_WEBTERM=18098 HALTWAIT=120 run dp9iknoas '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'
+if want dp9ikvm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null && [ -f ~/.cache/plan2001/cpu.pass ]; then
+		HTTPPORT=18080 HALTWAIT=120 run dp9ikvm '["/bin/rc", "-c", "mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password='"$(cat ~/.cache/plan2001/cpu.pass)"''"'"' >/mnt/factotum/ctl; d3 -r cpu; echo done"]'
+	else
+		echo "test-9wasm32: dp9ikvm: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
+# factotum's keys from the CPU VM's secstore (tools/vm-cpu: secstored, glenda's account, her
+# secstore password in cpu.secpass) and a CPU session that uses them: the machine puts glenda's
+# dp9ik key into her secstore (secstore -p), /boot/secstore - the page gives it secstore=, as the
+# VM's site does - gets it back into a factotum that had none, rcpu to the VM authenticates with
+# it, and the session's factotum is the terminal's (the VM's profile, case cpu): glenda's key
+# only, none of the VM's own (its TLS key)
+if want secstorevm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null && [ -f ~/.cache/plan2001/cpu.pass ] && [ -f ~/.cache/plan2001/cpu.secpass ]; then
+		p=$(cat ~/.cache/plan2001/cpu.pass) sp=$(cat ~/.cache/plan2001/cpu.secpass)
+		MONOLITH_SECSTORE='tcp!cpu!5356' HTTPPORT=18080 HALTWAIT=200 run secstorevm "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+			"aux/kbdfs -q -s cons /dev/eia0; {mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; ramfs -m /mnt/ram; cd /mnt/ram; echo 'key proto=dp9ik dom=plan2001 user=glenda !password=$p' >factotum; echo $sp | auth/secstore -i -s tcp!cpu!5356 -p factotum >[2]/dev/null; echo put \$status; rm factotum; rc /boot/secstore; rcpu -h cpu -c 'cat /mnt/factotum/ctl' >[2=1] | sed '/short write in reply/d'; echo done} </dev/cons >/dev/cons >[2=1]")" \
+			"$(python3 -c 'import json,sys; print(json.dumps([["secstore password: ", sys.argv[1] + "\n"]]))' "$sp")"
+	else
+		echo "test-9wasm32: secstorevm: skipped (no CPU VM with secstore: tools/vm-cpu --update; tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
+# a Plan2001 account on the CPU VM (docs/webauthn.md; tools/vm-cpu: signupd, passkeyd, secstored, keyfs):
+# made from the browser's machine (auth/passkey signup, a virtual authenticator's passkey), signed in
+# with its passkey (the wrap from passkeyd, the key from secstored), then rcpu to the VM as the new user
+# with that key (the auth server: keyfs's aeskey from signupd).  The name has the time in it (accounts
+# stay on the VM), and goes as erin in what the test says; its session limited (websession: group web).  mntgen and factotum before the pipe to sed:
+# servers (lib9p's postsrv) keep the fds they started with, and sed would wait for them
+if want signupvm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
+		MONOLITH_SECSTORE='tcp!cpu!5356' PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go"]' HTTPPORT=18080 HALTWAIT=240 run signupvm "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
+			"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; {n=erin^\`{date -un}; auth/passkey -s cpu signup \$n; auth/passkey -s cpu login | aux/seckeys -I; cat /mnt/factotum/ctl; rcpu -h cpu -u \$n -c 'echo remote: \$user; test -d /usr/\$user && echo home; test -e /net/tcp || echo no network; test -e /srv/boot || echo no srv' >[2=1] | sed '/short write in reply/d'; echo rcpu status \$status; echo done} </dev/cons >[2=1] | sed 's/erin[0-9]+/erin/g' >/dev/cons")" \
+			'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
+	else
+		echo "test-9wasm32: signupvm: skipped (no CPU VM: tools/vm-cpu --update; tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
+if want rcpuvm $names; then
+	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null && [ -f ~/.cache/plan2001/cpu.pass ]; then
+		HTTPPORT=18080 HALTWAIT=150 run rcpuvm '["/bin/rc", "-c", "mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password='"$(cat ~/.cache/plan2001/cpu.pass)"''"'"' >/mnt/factotum/ctl; rcpu -h cpu -c '"'"'echo remote: service $service; test -e /mnt/term/dev/draw/new && echo the terminal draws; cat /mnt/term/env/sysname; echo'"'"' >[2=1] | sed '"'"'/short write in reply/d'"'"'; echo rcpu status $status; echo done"]'
+	else
+		echo "test-9wasm32: rcpuvm: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
+	fi
+fi
 if want net $names; then
 	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
 		HTTPPORT=18080 run net '["/bin/d2"]'

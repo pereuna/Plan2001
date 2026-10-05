@@ -1,3 +1,5 @@
-9front programs built as WebAssembly on drawterm's kernel (../../wasmapp),
-unchanged: clock.c (sys/src/cmd/clock.c).  Their libdraw and headers are
-drawterm's, which are 9front's (../drawterm/libdraw/README.9front).
+9front's sys/src/cmd/clock.c, unchanged: the wasm32 machine's root builds
+it (monolith/tools/build-bin3; tests clock and rioclock).  It is here
+until the subset has it (tools/subset/extra: /sys/src/cmd/clock.c,
+derive in the VM); build-bin3 takes subset/9front's copy once it is
+there.  (Until D7 this directory also served drawterm's wasmapp.)

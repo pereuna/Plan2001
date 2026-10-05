@@ -1,0 +1,22 @@
+#!/bin/bash
+# The wasm32 machine's page into DIR (default build/pages): its firmware
+# (plan9/sys/src/9/wasm32/kernel.html as index.html, platform.js), its
+# kernel (9wasm32.wasm) and its root as one file (w3root.fs), each also
+# gzipped (rc-httpd's page handler sends FILE.gz to a browser that takes
+# it).  The same page for every origin: the terminal and the apps
+# (docs/architecture.md, D7).  tools/deploy, tools/cloud/sandbox and
+# tools/cpu-live install it.
+#   monolith/tools/pages [DIR]
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+P=$(dirname "$root")
+site=${1:-$root/build/pages}
+"$root/tools/build-9wasm32" >/dev/null
+"$root/tools/build-bin3" >/dev/null
+w=$P/plan9/sys/src/9/wasm32
+rm -rf "$site"; mkdir -p "$site"
+cp "$w/kernel.html" "$site/index.html"
+cp "$w/platform.js" "$root/build/wasm32/kernel/9wasm32.wasm" "$site/"
+cp "$root/build/wasm32/root.fs" "$site/w3root.fs"
+for f in "$site"/*; do gzip -9 -n -k "$f"; done
+ls -l "$site"

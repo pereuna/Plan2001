@@ -1,7 +1,6 @@
 #!/bin/bash
 # The public diskless sandbox, https://plan2001.com (docs/cloud.md): the
-# wasm32 machine's page (monolith/web/kernel.html as index.html, the
-# kernel, the root as one file, gzipped too) built here and installed on
+# wasm32 machine's page (monolith/tools/pages) built here and installed on
 # the cloud server over the administrators' WireGuard tunnel
 # (tools/cloud/wg-admin up) by sandbox.rc there.
 #   tools/cloud/sandbox [ADMIN-IP]
@@ -12,15 +11,8 @@ sec=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cloud
 m=$root/monolith
 T=$m/build/9pterm/9pterm
 p9() { "$T" -h "$admin" -a "tcp!$admin!567" -u admin -P "$sec/admin.pass" -W 20 -T "${TMO:-300}" -c "$1"; }
-"$m/tools/build-bin3" >/dev/null
-"$m/tools/build-9wasm32" >/dev/null
 site=$root/build/sandbox
-rm -rf "$site"; mkdir -p "$site"
-cp "$m/web/kernel.html" "$site/index.html"
-cp "$root/sys/src/9/wasm32/platform.js" "$m/build/wasm32/kernel/9wasm32.wasm" "$site/"
-cp "$m/build/wasm32/root.fs" "$site/w3root.fs"
-for f in "$site"/*; do gzip -9 -n -k "$f"; done
-ls -l "$site"
+"$m/tools/pages" "$site"
 out=$(p9 "rc /mnt/term$here/sandbox.rc /mnt/term$root /mnt/term$site" 2>&1 || true)
 echo "$out"
 echo "$out" | grep -q SANDBOX-DONE || { echo "sandbox: not installed" >&2; exit 1; }

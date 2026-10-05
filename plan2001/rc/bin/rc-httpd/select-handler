@@ -1,0 +1,24 @@
+#!/bin/rc
+# Plan2001's site for 9front's rc-httpd (docs/architecture.md, D7), on
+# https behind tlssrv (/rc/bin/service/tcp17443): the WebSockets are
+# webterm's (the request rc-httpd has read: webterm -r), everything else
+# is the wasm32 machine's page, its firmware and its root from
+# /sys/lib/plan2001/web - the same page for every origin: term.MACHINE
+# and APP.MACHINE: the page asks for its app (GET /app, the server's
+# answer, as webterm's) and boots its machine for it.  $pagesonly (the
+# public sandbox, tcp443): the pages only, no WebSocket.  rc-httpd sources
+# this file: $location, $reqlines are its.
+if(~ $#web 0)
+	web=/sys/lib/plan2001/web
+switch($location){
+case /app
+	if(~ $#pagesonly 0)
+		exec $rc_httpd_dir/handlers/plan2001-app
+	error 404
+case /rcpu /resume/* /567 /17019 /17030
+	if(~ $#pagesonly 0)
+		exec /bin/webterm -s -r
+	error 403
+case *
+	exec $rc_httpd_dir/handlers/plan2001-static $web
+}

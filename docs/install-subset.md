@@ -48,7 +48,9 @@ Tikku rakennetaan VM:ssä 9frontin `%.disk`-säännön mallin mukaan
   `plan9.ini` (`bootfile=9pc64`, ei `nobootprompt`ia).
 - `fs`: hjfs, käyttäjät kuten `%.disk`issä, ja
   `disk/mkfs -U -s / subset/amd64/proto`. Plan2001:n kernel ja loader on sidottu
-  polkuihin `/amd64/9pc64` ja `/386/bootx64.efi`.
+  polkuihin `/amd64/9pc64` ja `/386/bootx64.efi`, ja `tools/build.sh`:n
+  hjfs (9frontin, `plan9/patches/9front/hjfs-auth.diff` ajettuna:
+  `plan9/sys/src/cmd/hjfs/auth.c`) polkuun `/amd64/bin/hjfs` (4.10.2026).
 
 Juurilevy valitaan `bootargs`-kehotteessa kuten 9frontin alkuperäisessä
 asennustavassa. bootrc tarjoaa oletukseksi tikun `fs`-osion (QEMUssa
@@ -107,6 +109,12 @@ Suurimmat ryhmät: ohjelmat `/amd64/bin` (levytyökalut, tiedostopalvelimet,
    `<`-mallit ja `LIB=`. Tiedostot haetaan VM:stä kierroksittain.
 6. **Legacy pois** (`LEGACY` tiedostossa `derive.py`): sääntö voittaa kaikki
    löytötavat, ja pois jätetty kirjataan perusteineen.
+7. **Kielletyt pois** (`DENY` tiedostossa `derive.py`, 4.10.2026): 9frontin
+   vitsi- ja sitaattikokoelmat (`/lib/theo`, `/lib/troll`, `/lib/bullshit`,
+   `/lib/human` ...), niitä vain tulostavat skriptit (`/rc/bin/theo`,
+   `troll`, `bullshit`, `nietzsche`) ja `/sys/games/lib/fortunes`. Pohja on
+   9frontin koodi korjauksineen ilman näitä; pelit kuuluvat mukaan. Sääntö
+   voittaa myös `extra`n, ja pois jätetty kirjataan `files`iin kuten legacy.
 
 ### Löydöt
 
