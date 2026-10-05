@@ -1,6 +1,7 @@
 /*
  * cc's compat functions (../third_party/9cc/cc/compat.h) on POSIX, in place
- * of cc/compat, which replaces malloc with brk.  One file per run: no fork.
+ * of cc/compat, which replaces malloc with brk.  One file per run: no fork,
+ * but for the native build's -p (CCPROC: posixproc.c).
  */
 #include "cc.h"
 
@@ -16,11 +17,19 @@ mycreat(char *n, int p)
 	return create(n, OWRITE, p);
 }
 
+#ifdef CCPROC
+int ccfork(void), ccexec(char*, char**), ccwait(int*);
+#endif
+
 int
 mywait(int *s)
 {
+#ifdef CCPROC
+	return ccwait(s);
+#else
 	USED(s);
 	return -1;
+#endif
 }
 
 int
@@ -57,14 +66,22 @@ mygetwd(char *path, int len)
 int
 myexec(char *path, char *argv[])
 {
+#ifdef CCPROC
+	return ccexec(path, argv);
+#else
 	USED(path, argv);
 	return -1;
+#endif
 }
 
 int
 myfork(void)
 {
+#ifdef CCPROC
+	return ccfork();
+#else
 	return -1;
+#endif
 }
 
 void*

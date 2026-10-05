@@ -35,6 +35,8 @@ for f in $befiles; do
 	srcs+=("$be/$f.c")
 done
 srcs+=($(ls "$t"/9cc/libbio/*.c | grep -v btestprint) "$root/cc9/compat.c" "$root/cc9/p9.c" "$root/cc9/qsort.c")
+# native: cc -p runs the preprocessor in a child (posixproc.c, $CPP)
+[ $what = native ] && { srcs+=("$root/cc9/posixproc.c"); CFLAGS="$CFLAGS -DCCPROC"; }
 # drawterm's libc: what builds on POSIX (the rest is for its kernel)
 for f in "$t"/drawterm/libc/*.c; do
 	case $(basename "$f") in

@@ -1,0 +1,92 @@
+#!/bin/bash
+# The wasm32 distribution (docs/architecture.md: 9Front-2001 installed on
+# the browser's disk): the whole 9front release (tools/9front.release's
+# ISO, its checksum checked), with the fork (tools/9front-2001: plan9/ and
+# its patches) and Plan2001's layer (plan2001/) over it, built for wasm32
+# natively with 9front's own mkfiles (tools/native-wasm32: plan9port's mk,
+# rc, yacc; mpc and cpp for the host), and laid out as the machine's
+# installed tree: build/dist/wasm32, and its proto (build/dist/wasm32.proto,
+# disk/mkfs's) for the installer.  Left out as the amd64 install leaves
+# them out (tools/subset/derive.py: DENY, 9front's jokes and quotations;
+# LEGACY, BIOS and ISO9660) and the other architectures' binaries and
+# libraries.  What does not build yet is listed in build/dist/failed.
+#   PLAN9=... tools/dist-wasm32
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+. "$here/9front.release"
+iso=$cache/$ISO
+d=$root/build/dist
+rel=$root/build/release/9front
+[ -x "${PLAN9:-}/bin/mk" ] || { echo "dist-wasm32: PLAN9 must name a plan9port with mk and rc" >&2; exit 2; }
+mkdir -p "$d"
+
+# the release, from the ISO the build VM is installed from
+if [ ! -e "$rel/sys/src/mkfile" ]; then
+	[ -e "$iso" ] || { echo "dist-wasm32: no $iso (tools/vm-setup fetches it)" >&2; exit 1; }
+	echo "$ISO_SHA256  $iso" | sha256sum -c --quiet - || { echo "dist-wasm32: $iso is not $NAME's" >&2; exit 1; }
+	rm -rf "$rel"; mkdir -p "$rel"
+	7z x -y -o"$rel" "$iso" >/dev/null
+fi
+
+# 9Front-2001 over it; and what the release ships unmade (yacc's, mpc's ...)
+# as the subset has it from the build VM's tree, where it was made
+NINEFRONT=$rel "$here/9front-2001" "$d/tree" >/dev/null
+(cd "$root/subset/9front" && find . -type f) | while read -r f; do
+	[ -e "$rel/$f" ] || [ -e "$d/tree/$f" ] || { mkdir -p "$(dirname "$d/tree/$f")"; cp -p "$root/subset/9front/$f" "$d/tree/$f"; }
+done
+mkdir -p "$d/tree/wasm32/bin" "$d/tree/wasm32/lib"
+
+# built: the libraries, the commands, the games (mk -k: on past what fails)
+libs=$(cd "$d/tree/sys/src" && ls -d lib* | grep -v '^libc$')
+libs="libc $libs"
+TREE=$d/tree MKFLAGS=-k "$here/native-wasm32" $libs cmd games >"$d/build.log" 2>&1 || true
+grep '^mk: ' "$d/build.log" >"$d/failed" || true
+
+# the installed tree: the release's layout, the other architectures' binaries and libraries out
+out=$d/wasm32
+rm -rf "$out"; mkdir -p "$out"
+for t in "$d/tree"/*; do
+	n=$(basename "$t")
+	case $n in
+	'[BOOT]'|dist|tmp) continue ;;
+	386|68000|68020|amd64|arm|arm64|mips|power|power64|sparc|sparc64|spim)	# their headers stay (libmach, the cross compilers)
+		mkdir -p "$out/$n"; [ ! -d "$t/include" ] || cp -a "$t/include" "$out/$n/" ;;
+	*) cp -a "$t" "$out/" ;;
+	esac
+done
+# the build's leftovers in the sources: objects, and binaries not installed
+find "$out/sys/src" -type f \( -name '*.3' -o -name '3.*' -o -name '*.a3' \) -delete
+# Plan2001's own layer (plan2001/, as tools/overlay lays it), then what is left out
+"$here/overlay" "$d/full" >/dev/null 2>&1 && cp -a "$d/full/." "$out/" 2>/dev/null; rm -rf "$d/full"
+python3 - "$out" "$d/wasm32.proto" "$root/tools/subset/derive.py" <<'PY'
+import os, re, sys, importlib.util
+out, proto, derive = sys.argv[1:]
+spec = importlib.util.spec_from_file_location('derive', derive)
+os.environ.setdefault('TARGET', 'amd64')
+dv = importlib.util.module_from_spec(spec)
+sys.argv = [derive]
+spec.loader.exec_module(dv)
+rules = [rx for rx, _ in dv.LEGACY + dv.DENY]
+removed = 0
+for dp, dn, fn in os.walk(out, topdown=True):
+	for f in fn:
+		p = '/' + os.path.relpath(os.path.join(dp, f), out)
+		if any(re.search(rx, p) for rx in rules):
+			os.remove(os.path.join(dp, f)); removed += 1
+# the proto (disk/mkfs): every directory and file, with 9front's modes
+def walk(d, depth, o):
+	for n in sorted(os.listdir(d)):
+		p = os.path.join(d, n)
+		if os.path.isdir(p):
+			o.write('\t' * depth + '%s\td775 sys sys\n' % n)
+			walk(p, depth + 1, o)
+		else:
+			x = os.stat(p).st_mode & 0o111
+			o.write('\t' * depth + '%s\t%s sys sys\n' % (n, '775' if x else '664'))
+with open(proto, 'w') as o:
+	o.write('# the wasm32 distribution (tools/dist-wasm32); generated, do not edit\n')
+	walk(out, 0, o)
+print('dist-wasm32: %d left out (DENY, LEGACY)' % removed)
+PY
+echo "dist-wasm32: $out: $(find "$out/wasm32/bin" -type f | wc -l) programs, $(du -sh "$out" | cut -f1); $(wc -l <"$d/failed") build failures (build/dist/failed)"
