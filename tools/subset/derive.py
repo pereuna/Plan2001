@@ -199,7 +199,8 @@ def runtime(b):
 	for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'extra')):
 		if line.strip() and not line.startswith('#'):
 			p, why = line.rstrip('\n').split('\t', 1)
-			add(p, 'iterative', why)
+			for q in (tree.under(p) if p in tree.dirs else [p]):	# a directory: all its files
+				add(q, 'iterative', why)
 
 	# static: every rc script in the set, followed
 	for p in tree.under('/rc/bin/inst'):
@@ -250,6 +251,11 @@ def binsource(tree, p):
 	base = os.path.basename(rel)
 	if base in SRCMAP:
 		return SRCMAP[base]
+	if rel.startswith('games/'):	# /$objtype/bin/games/X: /sys/src/games, built by its mkfile
+		g = rel[len('games/'):]
+		for c in ('/sys/src/games/%s' % g, '/sys/src/games/%s.c' % g, '/sys/src/games/mkfile'):
+			if c in tree.dirs or c in tree.files:
+				return c
 	for c in ('/sys/src/cmd/%s' % rel, '/sys/src/cmd/%s.c' % rel, '/sys/src/cmd/%s.y' % rel):
 		if c in tree.dirs or c in tree.files:
 			return c

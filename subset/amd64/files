@@ -76,7 +76,9 @@
 /adm/timezone/local	runtime	static	named in /rc/bin/inst/tzsetup	4db3482545624ddf43e74c7cac996979
 /adm/users	runtime	static	named in /rc/bin/inst/mountcwfs	b73b40629b811877ca96c6c2605d962f
 /amd64/9pc64	runtime	boot	kernel bootdir	-
+/amd64/bin/aan	runtime	static	run by /rc/bin/rconnect	-
 /amd64/bin/auth/factotum	runtime	boot	kernel bootdir	-
+/amd64/bin/auth/httpauth	runtime	static	run by /rc/bin/rc-httpd/rc-httpd	-
 /amd64/bin/auth/secstore	runtime	boot	bootfs.proto	-
 /amd64/bin/aux/acpi	runtime	dynamic	boot + installer up to copydist	-
 /amd64/bin/aux/apm	runtime	static	run by /rc/bin/termrc	-
@@ -96,6 +98,7 @@
 /amd64/bin/chgrp	runtime	static	run by /rc/bin/inst/mountgefs	-
 /amd64/bin/chmod	runtime	boot	bootfs.proto	-
 /amd64/bin/cleanname	runtime	static	run by /rc/bin/inst/mountdist	-
+/amd64/bin/clock	runtime	iterative	rio's clock on the installed system, as on the wasm32 machine	-
 /amd64/bin/cp	runtime	dynamic	boot + installer up to copydist	-
 /amd64/bin/cwfs64x	runtime	dynamic	boot + installer up to copydist	-
 /amd64/bin/date	runtime	dynamic	boot + installer up to copydist	-
@@ -109,6 +112,53 @@
 /amd64/bin/dossrv	runtime	dynamic	installer after copydist	-
 /amd64/bin/echo	runtime	boot	bootfs.proto	-
 /amd64/bin/exportfs	runtime	iterative	rcpu's client serves the terminal's namespace with it (exportfs -r /)	-
+/amd64/bin/games/2600	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/4s	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/5s	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/ana	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/aout2gba	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/blabs	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/blit	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/c64	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/catclock	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/dmid	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/dmxdec	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/doom	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/dpic	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/festoon	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/galaxy	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/gb	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/gba	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/geigerstats	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/glendy	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/juggle	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/life	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/linden	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mahjongg	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mandel	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/md	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/memo	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mid2s	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/midi	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mines	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mix	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mkgalaxy	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mole	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/mus	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/nes	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/opl3	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/packet	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/rotzoomer	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/snes	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/sokoban	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/sudoku	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/swar	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/timmy	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/todpic	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/turtle	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/vocdec	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/vocenc	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
+/amd64/bin/games/wadfs	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
 /amd64/bin/gefs	runtime	static	run by /rc/bin/inst/mountgefs	-
 /amd64/bin/grep	runtime	boot	bootfs.proto	-
 /amd64/bin/hjfs	runtime	static	run by /rc/bin/inst/mounthjfs	-
@@ -156,6 +206,7 @@
 /amd64/bin/tar	runtime	dynamic	boot + installer up to copydist	-
 /amd64/bin/test	runtime	boot	bootfs.proto	-
 /amd64/bin/tlsclient	runtime	boot	bootfs.proto	-
+/amd64/bin/tlssrv	runtime	static	run by /rc/bin/rconnect	-
 /amd64/bin/touch	runtime	static	run by /rc/bin/inst/copydist	-
 /amd64/bin/unmount	runtime	boot	bootfs.proto	-
 /amd64/bin/walk	runtime	dynamic	boot + installer up to copydist	-
@@ -308,6 +359,8 @@
 /rc/bin/kill	runtime	dynamic	boot + installer up to copydist	2db5c00b3e36218989b6163e477c5695
 /rc/bin/nusbrc	runtime	static	run by /sys/src/9/boot/bootrc	ed1da5df805689cd978933b615c1b092
 /rc/bin/psu	runtime	dynamic	boot + installer up to copydist	7a8e44a5ab67e64288e6e7b649f56404
+/rc/bin/rc-httpd/handlers/error	runtime	iterative	rc-httpd's answers for errors (error 403, 404, 405): rc-httpd and Plan2001's handlers run it by name	33984b7a9cb832c4ca1dbab71857a3de
+/rc/bin/rc-httpd/rc-httpd	runtime	iterative	the https server of the pages (docs/architecture.md, D7): tlssrv runs it (/rc/bin/service/tcp17443), Plan2001's select-handler hands the WebSockets to webterm	ad6dc6f7ab887d63b38a78deb9c02734
 /rc/bin/rconnect	runtime	iterative	rcpu's: it dials, authenticates (tlsclient -a) and sends the script	a17343a1c535e11f7297ca457bc7e254
 /rc/bin/rcpu	runtime	iterative	the wasm32 terminal's rcpu to a cpu server (docs/architecture.md, D4): the user runs it	a7a8ef12f003f83cc8d3368ed29c9e78
 /rc/bin/reboot	runtime	static	run by /rc/bin/fshalt	0be3e1536f27ce214219eb3ff415ce64
@@ -319,6 +372,367 @@
 /rc/bin/window	runtime	iterative	rio's command for a new window: riostart and the user run it	f7be5a36b59b7c08a9f778ca7f60ff88
 /rc/bin/wloc	runtime	iterative	rio's: where the windows are, for riostart	61891a431d5797c01b770216b998d1cf
 /rc/lib/rcmain	runtime	boot	bootfs.proto	68439d3d6a70c834746258abb5df3aa4
+/sys/games/lib/4scores	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d41d8cd98f00b204e9800998ecf8427e
+/sys/games/lib/5scores	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d41d8cd98f00b204e9800998ecf8427e
+/sys/games/lib/anawords	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9874fbd10b6ab1520f6e1f931610cd95
+/sys/games/lib/doom/doom1.wad	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/life/2.eaters	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9265a247c63f49eefdae23679c758977
+/sys/games/lib/life/34osc	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f28adba2d4fa907ff4a55c652e708a26
+/sys/games/lib/life/55555	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4a37147b067282d6c1365011e3d281bc
+/sys/games/lib/life/5row	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	02de18d4addc78e6b963c729de8bc0b6
+/sys/games/lib/life/acorn	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8afc8ef1c3ebf1d60fd5803605233802
+/sys/games/lib/life/background1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e9bd46899e79ad65057013f81cf6016b
+/sys/games/lib/life/baker	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1b1d0aa6879deb6870d30cf2b744bec5
+/sys/games/lib/life/bakery	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5eba0763545e3f72ead6397ad4657624
+/sys/games/lib/life/barber.pole	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fcec9ca31b9a7f5061f456389bc096af
+/sys/games/lib/life/barberpole	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	24d44eb64aac289d58c9fc461083b4b4
+/sys/games/lib/life/beacon	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1c1f350e0254b94cd027e9c6d0168526
+/sys/games/lib/life/beaconmaker	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2a103b68805c0f5c28f4fd0bd8f42f1c
+/sys/games/lib/life/benchmark	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1004c22156d2dd7292d40c1148defba5
+/sys/games/lib/life/bheptomino	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c8daf8bacae45a66e4f8087bed2613f7
+/sys/games/lib/life/biclock	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e775a59935cb0931ab32b810a372e46a
+/sys/games/lib/life/billiard.clock	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fa12287b2d047987df9e89664346ac4d
+/sys/games/lib/life/billiard1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e867d5a8e85ed652177fdfffcdf7a06e
+/sys/games/lib/life/billiard2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b5643886b19aebd5aca78f1b00a8542c
+/sys/games/lib/life/billiard3	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f2eac0666fa04d599d5afa288d9a56ad
+/sys/games/lib/life/billiard4	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4a0b0e282054d91e8798856cc4eaba34
+/sys/games/lib/life/billiard5	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9d706cc57ea8b27e17c99308f1a261ff
+/sys/games/lib/life/billiard6	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8f7ee8543c8b08e13b94de4d34c1313b
+/sys/games/lib/life/billiardgeorge	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e08ef69b83d9a7c1e72267d96b2834b5
+/sys/games/lib/life/billiardsmall	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d216cb4882d2c0d27a3c279398599113
+/sys/games/lib/life/biloaf	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	980a1d03f1261646b19436dd20d3b318
+/sys/games/lib/life/blanker	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1e39ec4c067750a5caed484cb4531369
+/sys/games/lib/life/blinker	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	6de9439834c9147569741d3c9c9fc010
+/sys/games/lib/life/blinkership	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2bb1097c65c9203c9b89c3e953a07cb4
+/sys/games/lib/life/block	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e4e309f013acd7f5dd3f147354691a85
+/sys/games/lib/life/boat.factory	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	53f7483dae22e3750c9d707ba5744a77
+/sys/games/lib/life/boatcap	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bdf806ea354ec9bd6f80c264937b7ebf
+/sys/games/lib/life/boatmaker	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bd6e5e8464a7e6ccd9ca083e8f5f8c1c
+/sys/games/lib/life/breeder	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4cc891a1ba5a2d3a25c4af0ec6dbd534
+/sys/games/lib/life/breeder4753	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d71ce9fdddea0970dfa4c33f6defac9c
+/sys/games/lib/life/c1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	32c6875e0f1b794ee0e3efc11dcb3498
+/sys/games/lib/life/c2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	417bf374246385fac813224bf1c21cb5
+/sys/games/lib/life/c3	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5c99b3adef42a853feb8b90a3531b238
+/sys/games/lib/life/c4	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2fb52b5410c34a45c78d3b3e60d95bd9
+/sys/games/lib/life/c5	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	178aeb815d0b6c11ad058d7672d87318
+/sys/games/lib/life/c6	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0366a5a19884296d7bf7dd24491d6436
+/sys/games/lib/life/c7	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	212bef1fb343b5ebf798528d257d167d
+/sys/games/lib/life/c8	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0437c8cd33c93d0ff72ae1ca692bf708
+/sys/games/lib/life/c9	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	387c4a0a2cbfbe9004e561b383729406
+/sys/games/lib/life/candelabra	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4ed1893627bec2ead28492112b6d1c81
+/sys/games/lib/life/capsule8	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	58045091aa0de6a092969c2a96dd8358
+/sys/games/lib/life/catherinewheel	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	edea87756849a21f1a4db9ccea0cad42
+/sys/games/lib/life/cheshire.cat	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0654191f03fb41bbae076cc86c922a2b
+/sys/games/lib/life/cheshirecat	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	46534d914c675d6cda5afc961df3bca4
+/sys/games/lib/life/clappinghands	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9aea6b80d488392d8134ad20dfd1c4ce
+/sys/games/lib/life/clean.fuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7ad6ece2e3bc958c35d58dcc0161fefb
+/sys/games/lib/life/clock	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	6c72b2adf7822d9e33a9b17a405013e2
+/sys/games/lib/life/clock2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fbab7ee809a45a1c223a0e9944474897
+/sys/games/lib/life/cmu	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	17fe0ce447d55d0eaea402d3a64ea15b
+/sys/games/lib/life/cmu2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	80fbca908eb550123b6b9e835d19e9c9
+/sys/games/lib/life/cmu3	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b80d2f7a4769ddc8a2a11d7bf0a269db
+/sys/games/lib/life/collapsecap	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bb3db0960cc04d3352ad4b5f320c57c7
+/sys/games/lib/life/cow	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ce95ae74e7e9caedd3c1b647d636f25a
+/sys/games/lib/life/cp.48-56-72	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5b61adfe26df594ac99fc4df1830ffec
+/sys/games/lib/life/crab	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	84c3a27a7a3806980b50372d5c4bd007
+/sys/games/lib/life/cross	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	49af6ef8c79bedbc9d5b5028607a6508
+/sys/games/lib/life/diagfuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	eae579abe4ee784c3bad1b61529f9e71
+/sys/games/lib/life/diamond	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1a138882792246c3ed1c27c49e87a2a0
+/sys/games/lib/life/dirty.fuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e999e1dcf03a41eaa506c7fa7b900c7a
+/sys/games/lib/life/eaters3	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	32b6cfe505bbe276b19141c119dc0a9a
+/sys/games/lib/life/eden	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2224e8d615df776a93d95e278f5f1bb7
+/sys/games/lib/life/figure8	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8dc3911e02b275fb325c24e342af2ddf
+/sys/games/lib/life/fisheater	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	6b40f6d1ea2a5220e8aa63e236194b2e
+/sys/games/lib/life/flare.path	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	860540d30708ef90ded85f2cf8a3d371
+/sys/games/lib/life/flasher	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f26c9d0e6863f3de4d122c02b198f9d1
+/sys/games/lib/life/flip.flop	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ff6fe6e3d1a188b26ab2cbe980cd88a4
+/sys/games/lib/life/flotilla	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a5ddb1860d38aa2e0c0babe11cdcc125
+/sys/games/lib/life/flywheel	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	16776ef88d7f86c76780d3b77b36fe18
+/sys/games/lib/life/fool	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	25c27544d86743b0fc51ac9fab9efc9b
+/sys/games/lib/life/fusebranch	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	92892cd5388824d09dbe4275b0921fe8
+/sys/games/lib/life/fusecorner	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5407228831465078a1d33d2a0d8dad14
+/sys/games/lib/life/fusehinge	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	486302457681662d5e72f5a88f71d2d8
+/sys/games/lib/life/futility	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7bc761ca37bdefc6b33f5b149492385a
+/sys/games/lib/life/fuzzcapsule	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1330671c60d51cba3269340e397b7b7d
+/sys/games/lib/life/gear	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d931de8887e7801363d4f97b3a29e7fe
+/sys/games/lib/life/glider	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b64b8c41b3769bf1d00072becd9ca40f
+/sys/games/lib/life/glider.f	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	72c3e1966724d3944154ad15818a832c
+/sys/games/lib/life/glider.gun	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b58482578525a6656c233eb99a7d9f9b
+/sys/games/lib/life/glider.havoc	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4d149af261e193aab8ef2e4b508eda73
+/sys/games/lib/life/glider.step	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9697c356f3af94565382a4d7a1b5c5d6
+/sys/games/lib/life/glider.thing1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	13de4922c34509bfbd7c77d3113fe333
+/sys/games/lib/life/glider.thing2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	79a8c247caec5afbec66223498add1e8
+/sys/games/lib/life/gliderarmyof25	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2cc6e2b599205304be54f013b12d1eb5
+/sys/games/lib/life/glidercap1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	405ca7a5950edadd06a6487ba077c4b6
+/sys/games/lib/life/glidercap2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8a6ded9b1e63370502eec218a42ca18a
+/sys/games/lib/life/glidercap3	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9acf17775ece0ce8c315016c396faab7
+/sys/games/lib/life/glidercap4	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0b02e2fa8b0aa586533e80e1a016520b
+/sys/games/lib/life/glidercap5	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	aab288aa76119b616199bf6fb0f83536
+/sys/games/lib/life/gliderglidergu	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3d390fab7d32aaa120febdb9ca26dc64
+/sys/games/lib/life/glidergun	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2d1c3de92fb86d1ae873afb867e51183
+/sys/games/lib/life/glidergun2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b3bf90f98b6f6c643e562d9922fd71f1
+/sys/games/lib/life/gliders.12	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9710ecd4abd487461f48422fa1fab5e7
+/sys/games/lib/life/gliders.hex	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b12a48bdea021d69c21ea398f6604f55
+/sys/games/lib/life/gosper.flop	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e327c894c377cb69bf9a362a284ebb8c
+/sys/games/lib/life/greymatter1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	feae63cd052750b39d083dfcc5dd8c9f
+/sys/games/lib/life/gun.builder	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	74e78e804b9ff7fa678eeb3b2861ee7b
+/sys/games/lib/life/gun.gliders	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	38ef45697c3050967541929dac67fbe3
+/sys/games/lib/life/gunandeater	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f170937d1418ba7c8db64a03717c98fd
+/sys/games/lib/life/h.heptomino	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4a128a1bad59d49e96ec9ef21ee1e8de
+/sys/games/lib/life/harvester	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	06cbbb2fbfddcb1a7dd8f95d21c3a640
+/sys/games/lib/life/heavy.ship	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	31981509d0851136a10adadde9597ff1
+/sys/games/lib/life/hepto.shuttle	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	12102dd6b0bab555ad635274bf0680c3
+/sys/games/lib/life/hertz.osc	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8ad7d8972195f6ee44575f8dbd25136d
+/sys/games/lib/life/horizfuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2bc90e2fea61e5704f3704c05639d7af
+/sys/games/lib/life/j	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ca844236eaaaca9c9e9e5e2b5441413d
+/sys/games/lib/life/kickback	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	058606867a47d644cf3325d57859680f
+/sys/games/lib/life/lambdabomb	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	363bc8e03f23e71d8591acc60538aab9
+/sys/games/lib/life/largefish	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a56558f99cda5de4b63675e694e060dc
+/sys/games/lib/life/light.ship	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ffa3a594a4451ad1aca9d420c427cee3
+/sys/games/lib/life/longfuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	225672c816157f2558cbcf2001d9fe8f
+/sys/games/lib/life/longfuse2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2a913c6b0bed3ce21bc4885362965110
+/sys/games/lib/life/mathematician	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fca9ffb8c3346ac2d8834d9bda0cb888
+/sys/games/lib/life/mediumfish	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a60329db404bad8123824d2f66b05031
+/sys/games/lib/life/mediumfishgun	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e621a1f1e174ee0064a1c347321e12cc
+/sys/games/lib/life/methuselah	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9e745cc4dd50f5f332db46e340111eba
+/sys/games/lib/life/middle.ship	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ddd4e1eaf33124fcc5bf639b0eef76ce
+/sys/games/lib/life/mip	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b85de7dfcbe70be5211487bb0cc39034
+/sys/games/lib/life/morejunk	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bffc142037f9a0fd3028ef47d5cf1e4d
+/sys/games/lib/life/new.gun	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c538c5097e25c2ff4b91e2c3171c3a75
+/sys/games/lib/life/osc26	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bc570dca38fc1d251fad4d2308499670
+/sys/games/lib/life/osc28	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d1b2650c34998804bc696f87b36a4b7f
+/sys/games/lib/life/osc55	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	75070db20f44b1e0df59723ad93964f0
+/sys/games/lib/life/osc66	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2921834b174d4209ea636ebe363aea34
+/sys/games/lib/life/osc72	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ecddbd8cea01846791698b860655af6b
+/sys/games/lib/life/oscillator1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bade406f7adcca81185cbc88fdc8f620
+/sys/games/lib/life/oscillator2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9b085d8e2a821f0378416dbf2344f8b9
+/sys/games/lib/life/oscillator3	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	044859085fdc2c274a85aa3e8e24fb7c
+/sys/games/lib/life/overw8.ship	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	877a93fafd00aaea3ecf35c9e5a1690b
+/sys/games/lib/life/penta.bounce	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a3cd305788f0d0d6e46f4b07c22de5b4
+/sys/games/lib/life/penta.death	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c90b9f1d099dcc26492c099c1c699521
+/sys/games/lib/life/penta.kill	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ab9d3ded1eb0d8288c48b06e35909079
+/sys/games/lib/life/penta.shuttle	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f3400e8f68750b4e9287186dad3e7159
+/sys/games/lib/life/pentadecathlon	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	93f7b33b6241b85edda3c55f9216cc2e
+/sys/games/lib/life/pi.heptomino	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ac775b96ac633024bf7a0ab8d5e88b47
+/sys/games/lib/life/piecollection	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fcc3f6325f7436e8f23a21f351362908
+/sys/games/lib/life/pifuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	526a4e019b64737595b8df4f9e73977f
+/sys/games/lib/life/piston	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7d8b0f5ee5af71b22c79276e725d140d
+/sys/games/lib/life/piston2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7e74636d8a7b0660bb997e962b1fe38f
+/sys/games/lib/life/pjw	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	993a30a4efc38da97c06e558fc6b94a4
+/sys/games/lib/life/puffer.train	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7027d16fce2ad43f96c28ee88809ec4e
+/sys/games/lib/life/pulsar-48-56-7	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b2b2a9f2f675199c08a6c8dfa861dd7e
+/sys/games/lib/life/pulse1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	051cf041a5206bda20c60363da2ab589
+/sys/games/lib/life/pulse2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8884248b909351f46ef9c4679daad517
+/sys/games/lib/life/pump	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a2c6091c880b558f07fb00850d2c4d5e
+/sys/games/lib/life/queen.bee	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e757692ccbc7c3a0c4438ba97684cf80
+/sys/games/lib/life/r	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	10dd2baa7a6c1e367b35f946d1676f9a
+/sys/games/lib/life/r.pentomino	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1c72d22ad87578d4eaa12a01d37d0650
+/sys/games/lib/life/rake	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9b9238dbb1892991d9431358533c69b9
+/sys/games/lib/life/rake2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ae1c5e3c765d31a7ecf8bc877767522d
+/sys/games/lib/life/relay	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f4438fcf0eaa1181af0f08ee63558632
+/sys/games/lib/life/round	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	41bbc7cbe6086133a1688aefc83a4754
+/sys/games/lib/life/rpentomino	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2de512555b82ddba533121d059374703
+/sys/games/lib/life/s.glider	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	67a037cc94f45605234aa9b2afe52282
+/sys/games/lib/life/saint	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	eecdb2679e1a8988afd2bdc24b305c12
+/sys/games/lib/life/shiningflower	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3f2391cdbe9ee929bfbdf2ab02db01c9
+/sys/games/lib/life/ships.appear	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0b8eb1b521fb94eef3558970014ef784
+/sys/games/lib/life/ships.gliders	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	115447d722f4902858d82f8d128344d9
+/sys/games/lib/life/ships.vanish	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	af8316c34a114fda00d05578ea4e1d86
+/sys/games/lib/life/shuttle	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2e404d2b3be63c8a495b868df2839899
+/sys/games/lib/life/sixgliders	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	525c93b6866bd10e6bc6142ee32d0d3d
+/sys/games/lib/life/skyline	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e3758868c04cfa5bc2f062d06446d0f2
+/sys/games/lib/life/smallfish	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a3b90b4fd47a0a22a17d2e3b9e1c8199
+/sys/games/lib/life/somejunk	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ebc08a801ac89e1ee0eeac8e9d146da5
+/sys/games/lib/life/spark	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	654b517c7206b91c310c289f122f5d0e
+/sys/games/lib/life/spark2	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	12c3a92cd203a9616339def70c1423c4
+/sys/games/lib/life/sparkfuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	6cd29c7577865ebdbc2b3a3afa64baef
+/sys/games/lib/life/sparktopifuse	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	61cf488f8e770b57e27e824214b1ba69
+/sys/games/lib/life/sq.11	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b1a5240b0c4beecf5964e2c45567086b
+/sys/games/lib/life/sq.9	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	be22279216658bf5997ef9c78228cfcc
+/sys/games/lib/life/squareblinker	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0b1e019b3508473ce34b61e9afbddf08
+/sys/games/lib/life/squarecap	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1e30ba1d410823e20af1443eb3055237
+/sys/games/lib/life/squaredance	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e3c72c1763fb9e3f3a43c890a5c54552
+/sys/games/lib/life/stargaterepeat	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4b7c56c82c7b09b2a75184cf0c91d436
+/sys/games/lib/life/still	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	54d0a305e9592616122aabed88803cc2
+/sys/games/lib/life/still.lives	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f95d80e3704f687c0325f0535e25b348
+/sys/games/lib/life/swastika	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5d350e495634b02f3fd4ce6ae8d509c4
+/sys/games/lib/life/switch.block	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	24ede163955920451faaf25ce28353bc
+/sys/games/lib/life/switch.engine	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	67bf803cee88079852d57a43c5b01d5e
+/sys/games/lib/life/testtube	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	57fbe514ee294e05e0799c4b07421d96
+/sys/games/lib/life/thunderbird	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7bfa470b943f03b306f17f4921584873
+/sys/games/lib/life/thunderbirdfus	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1b7c9c11472a8d59b345aaea96a90653
+/sys/games/lib/life/time.bomb	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fcb09db5845f3a7b4e2a498064749efb
+/sys/games/lib/life/toad	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8ef7b89a2e02b43f96e43cdc0ea36c93
+/sys/games/lib/life/tumblers	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e175dc511ee6a1a63249d74c56829af7
+/sys/games/lib/life/turbine8	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	029e630a04a7c9921dddc66edfb77b73
+/sys/games/lib/life/virus.dies	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	11c0d5bb1562c62fe0e686a72ce6ad8d
+/sys/games/lib/life/virus.lives	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8947a8858dd452b6e5ab37fa1ce9a3cf
+/sys/games/lib/life/washerwoman	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	37fd90666d65fcaec92a5820adff12e4
+/sys/games/lib/life/wave1	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d4388ab768cfd76f53b9451d7b70871f
+/sys/games/lib/life/weird.wheel	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	53e77d8357c37802a13807ad1dd96341
+/sys/games/lib/linden/sierpinski	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8c9157693be0adbd32efa2e3ef1bf188
+/sys/games/lib/linden/tree	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8231b15b49ab290cc0b869c9d4cd0679
+/sys/games/lib/mahjongg/backgrounds/default.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/mahjongg/images/border.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/mahjongg/images/gameover.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/mahjongg/images/mask.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/mahjongg/layouts/default.layout	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e62d45057b99feb350b5c49ca93877e6
+/sys/games/lib/mahjongg/tilesets/default.tileset	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/cargo.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/empty.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/goal.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/goalcargo.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/left.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/right.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/wall.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/images/win.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sokoban/levels/easy.slc	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1b6e32414cd16636e6f794a8dce774c6
+/sys/games/lib/sokoban/levels/hard.slc	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	87653c527be7f16a48290a6295cb98b2
+/sys/games/lib/sudoku/boards/easy-2005-01-21.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f2e6c618d34ea1ea8f23e629223ee66f
+/sys/games/lib/sudoku/boards/easy-2005-01-23.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a73c8cd45bef7aa9caea862199c785bd
+/sys/games/lib/sudoku/boards/easy-2005-01-25.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ebd958996c41fb25e27d5e1946c574a7
+/sys/games/lib/sudoku/boards/easy-2005-01-29.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	6d034fb35c379543a7f937945d2cbf07
+/sys/games/lib/sudoku/boards/easy-2005-01-30.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3edd9050f789ed862efb727aee78c66e
+/sys/games/lib/sudoku/boards/easy-2005-02-02.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3bd188394058cad5ff9ffe5b7e190a96
+/sys/games/lib/sudoku/boards/easy-2005-02-03.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4cbdf56c4708da151cbdd8069ef76b3a
+/sys/games/lib/sudoku/boards/easy-2005-02-04.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	23284509ad4d306f0db8634e14558736
+/sys/games/lib/sudoku/boards/easy-2005-02-06.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	41cfa3e0f8ca8be0184e95743971e688
+/sys/games/lib/sudoku/boards/easy-2005-02-07.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	249374c697a92a52aa651da274dff4ff
+/sys/games/lib/sudoku/boards/easy-2005-02-08.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	842d4ecd67c7cef62add2bed5b9b842b
+/sys/games/lib/sudoku/boards/easy-2005-02-09.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d1537844dd6a3aafccf50437845a0658
+/sys/games/lib/sudoku/boards/easy-2005-02-10.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c8dc315ad70ad2cf5bce577e0b7ab552
+/sys/games/lib/sudoku/boards/easy-2005-02-11.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a66bc1f63cccbfc71508c3016d3f3edf
+/sys/games/lib/sudoku/boards/easy-2005-02-12.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2ae8574dde3be8b8515408fa990ecbf0
+/sys/games/lib/sudoku/boards/easy-2005-02-13.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8facb2be96d20a6eac0bff685ebbe491
+/sys/games/lib/sudoku/boards/easy-2005-02-14.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3fd374bac91a8fc13e28ae38b61de441
+/sys/games/lib/sudoku/boards/easy-2005-02-16.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4050f0467eb9f79e0019070afd92a30e
+/sys/games/lib/sudoku/boards/easy-2005-02-17.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8ee1cf16d93628225cb25ac75a022476
+/sys/games/lib/sudoku/boards/easy-2005-03-03.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	caa73746622cc7e774a1cc7c44c8274c
+/sys/games/lib/sudoku/boards/easy-2005-03-04.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	506fe92a9929a01f028621e385852192
+/sys/games/lib/sudoku/boards/easy-2005-03-05.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5aed5b0c61565f37cc6a8e770ad11730
+/sys/games/lib/sudoku/boards/easy-2005-03-06.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	692394de8230e0adc4435352e1a2a07b
+/sys/games/lib/sudoku/boards/easy-2005-03-07.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f43d0df8c083566bb0274e83fe3ad0cb
+/sys/games/lib/sudoku/boards/easy-2005-03-08.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	de9fe745cf0f102873ee0effc7a6b389
+/sys/games/lib/sudoku/boards/easy-2005-03-09.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	215feb1ef06dba9fe155f4767508cc13
+/sys/games/lib/sudoku/boards/easy-2005-03-10.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ccb8297644aafd2c929766bc4f2729df
+/sys/games/lib/sudoku/boards/easy-2005-03-11.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9cb57493e38c29b536a28c3f9a33d34e
+/sys/games/lib/sudoku/boards/easy-2005-03-12.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3e8360f012d3b76d0e932222387d8b00
+/sys/games/lib/sudoku/boards/easy-2005-03-29.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	57bc773a86156a934fc610239eee1beb
+/sys/games/lib/sudoku/boards/easy-2005-04-11.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c0e712b0f4727483e49187e577964f3f
+/sys/games/lib/sudoku/boards/easy-2005-04-26.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	37ac3a19d922e5ae48a702af9ea0f547
+/sys/games/lib/sudoku/boards/easy-2005-04-28.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	70b84f86ff705995704efb396c846bf0
+/sys/games/lib/sudoku/boards/easy-2005-05-24.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5e2e5c5441c58c2d560269406faa2032
+/sys/games/lib/sudoku/boards/easy000.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e91b66696dcf30d2621e3068405b8446
+/sys/games/lib/sudoku/boards/easy001.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	da53f8cd5bb345b45f42cf8dc2e5a318
+/sys/games/lib/sudoku/boards/easy002.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	550717500ea55a57feb35494cf9e9c5d
+/sys/games/lib/sudoku/boards/hard-2005-03-13.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	07e2d063d00e621cd70c3b2d61a8f186
+/sys/games/lib/sudoku/boards/hard-2005-03-14.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	af31ce794c69a18744999e1e5089e600
+/sys/games/lib/sudoku/boards/hard-2005-03-19.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7bdaa075d45526a6a43b3dd46c88479f
+/sys/games/lib/sudoku/boards/hard-2005-03-26.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3c05ae4e7e09256d7498c1fb606a5544
+/sys/games/lib/sudoku/boards/hard-2005-03-27.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	034c95d4a598b4b1fb55489262ee28e0
+/sys/games/lib/sudoku/boards/hard-2005-04-02.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fefe3d5958bb04510ec2ef66e995e5c5
+/sys/games/lib/sudoku/boards/hard-2005-04-03.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f1031026367bb79711e9a04b35d9a2c0
+/sys/games/lib/sudoku/boards/hard-2005-04-07.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5cbc70409bde2ebdfc14ea787d0947f8
+/sys/games/lib/sudoku/boards/hard-2005-04-08.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9eb7374664d0362ad3f1f0138dfd324d
+/sys/games/lib/sudoku/boards/hard-2005-04-09.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	8692c1e946d4e476c99a0f75c7b922a5
+/sys/games/lib/sudoku/boards/hard-2005-04-17.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f6ea9cacaef601ab614945f5364ec7d9
+/sys/games/lib/sudoku/boards/hard-2005-04-22.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a56dc5fb35ba953104c919e5859f9ced
+/sys/games/lib/sudoku/boards/hard-2005-04-23.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	363e46a487bf19c3ea016e7627d7a1b2
+/sys/games/lib/sudoku/boards/hard-2005-04-24.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	892e73e9692f63590dda2070ef239df8
+/sys/games/lib/sudoku/boards/hard-2005-04-30.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2cead9885b08566d5a8411b20cab5a12
+/sys/games/lib/sudoku/boards/hard-2005-05-01.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	197b7b8d6a41cda577a5b3a0b951d6da
+/sys/games/lib/sudoku/boards/hard-2005-05-07.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b2715e4db9a8553d5e17fa456e7fcda6
+/sys/games/lib/sudoku/boards/hard-2005-05-14.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9abaa26f07f02f45418ea279fb236ee2
+/sys/games/lib/sudoku/boards/hard-2005-05-15.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	f8443d140e07d9a9f1c3e356583c7978
+/sys/games/lib/sudoku/boards/hard-2005-05-19.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	75de8d94d9118b263365d7abd46f3edb
+/sys/games/lib/sudoku/boards/hard-2005-05-21.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e556f0484f8fc5d5768779885958d591
+/sys/games/lib/sudoku/boards/hard-2005-05-22.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	470da501e3d5db7a71a855e1e8be7fd7
+/sys/games/lib/sudoku/boards/hard-2005-05-23.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	88fde7bc782cd5ffdc9a4acd4e9bb09a
+/sys/games/lib/sudoku/boards/hard000.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e842ba3f46e1546f98db27b890120a31
+/sys/games/lib/sudoku/boards/medium-2005-01-22.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	fc6c64d881e1a3071fe775842862f1a6
+/sys/games/lib/sudoku/boards/medium-2005-01-24.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	aae2903af7199ceb862eb3f2972c9817
+/sys/games/lib/sudoku/boards/medium-2005-01-26.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c08cc3f3338a684214ab14131b484e36
+/sys/games/lib/sudoku/boards/medium-2005-01-27.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ebfb23d26caa65edd34e79116f1d3d38
+/sys/games/lib/sudoku/boards/medium-2005-01-28.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e24f19e2a1a4c0a624b38dc4482c3a52
+/sys/games/lib/sudoku/boards/medium-2005-01-31.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0503f254d2c4fb42c4a19044089b2b3f
+/sys/games/lib/sudoku/boards/medium-2005-02-01.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b7698330e72f006ed833673963262356
+/sys/games/lib/sudoku/boards/medium-2005-02-05.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0660a9f899002d0fc5fff178133e61c8
+/sys/games/lib/sudoku/boards/medium-2005-02-15.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d2f4d33be22ea02cedc9f582587a6e30
+/sys/games/lib/sudoku/boards/medium-2005-02-18.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	5cd01a88d511fbf4268ddc4a09e6a132
+/sys/games/lib/sudoku/boards/medium-2005-02-19.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	366b0626ca44e340ef07852b76f353a4
+/sys/games/lib/sudoku/boards/medium-2005-02-20.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9a0274da35b7f1436915fabdc1f10dc8
+/sys/games/lib/sudoku/boards/medium-2005-02-21.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	35139a5e84b2a4f5c2f03bc705449b51
+/sys/games/lib/sudoku/boards/medium-2005-02-22.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b774c7b205fb40fde7d8fa74ac362048
+/sys/games/lib/sudoku/boards/medium-2005-02-23.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2403f8f0a360fe1571a1512f930f7d83
+/sys/games/lib/sudoku/boards/medium-2005-02-24.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0414cbad65fcb97e956ae9b116521a85
+/sys/games/lib/sudoku/boards/medium-2005-02-25.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	37036da8d5bec6886b1b256588c1724c
+/sys/games/lib/sudoku/boards/medium-2005-02-26.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	69ab3615ea83e623b2336c635316c94d
+/sys/games/lib/sudoku/boards/medium-2005-02-27.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	911f6fba8eb9fd9fdaca167ada84f9ad
+/sys/games/lib/sudoku/boards/medium-2005-02-28.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1159f97a60ddec38b5aa7d456c4f2641
+/sys/games/lib/sudoku/boards/medium-2005-03-01.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b428a768b7b7b9c616afe9482cd5ee28
+/sys/games/lib/sudoku/boards/medium-2005-03-02.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a9faa185e933bf00a408b73aa2f5c7c6
+/sys/games/lib/sudoku/boards/medium-2005-03-15.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	00f6d61a618fa9407c5a61ebf9c112a6
+/sys/games/lib/sudoku/boards/medium-2005-03-16.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1a22cfbbdd5135325549d31c393c1eeb
+/sys/games/lib/sudoku/boards/medium-2005-03-18.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	41c990573fd4bf77b3692d326c33e396
+/sys/games/lib/sudoku/boards/medium-2005-03-21.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	713e5dfeafe0062edbe22a36ff6e9606
+/sys/games/lib/sudoku/boards/medium-2005-03-22.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	75341b0f08b32a464a7479d9492cc464
+/sys/games/lib/sudoku/boards/medium-2005-03-23.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	b209cee8c1a65293491424e96d8bd128
+/sys/games/lib/sudoku/boards/medium-2005-03-24.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ac0725f40f890deda08897b4754e0891
+/sys/games/lib/sudoku/boards/medium-2005-03-28.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e4757be7c7170654bbaee22f793078e2
+/sys/games/lib/sudoku/boards/medium-2005-03-30.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	295a5a1f0a5034f442db075516e60a31
+/sys/games/lib/sudoku/boards/medium-2005-03-31.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3a346baeb4f0f32defff802d1e8d4aae
+/sys/games/lib/sudoku/boards/medium-2005-04-01.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ca52618d86d66c29db1dc36cad6d1bb0
+/sys/games/lib/sudoku/boards/medium-2005-04-04.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e45fb991c67c2c41e843cdc8e9647935
+/sys/games/lib/sudoku/boards/medium-2005-04-05.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	1478844966ad7eaae19f0b64bc5663c8
+/sys/games/lib/sudoku/boards/medium-2005-04-06.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	93a4985c40ff6761b09f3c813f86f66f
+/sys/games/lib/sudoku/boards/medium-2005-04-12.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4212ff73a6dc59dfb4eba911add96266
+/sys/games/lib/sudoku/boards/medium-2005-04-13.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	10421e6f01ec7ea7dd671c95016093ca
+/sys/games/lib/sudoku/boards/medium-2005-04-14.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	4ef91aff438538cd8eb6a7cd63e492d5
+/sys/games/lib/sudoku/boards/medium-2005-04-15.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	9fb04ffd65d326f9da67b2e56892aa20
+/sys/games/lib/sudoku/boards/medium-2005-04-18.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d735cf345d3efa4d62cb392aa0f5d191
+/sys/games/lib/sudoku/boards/medium-2005-04-19.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	35013c65499129be63faa34cede9cbe4
+/sys/games/lib/sudoku/boards/medium-2005-04-20.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	961e3dcc428164609f66bc0280b776d2
+/sys/games/lib/sudoku/boards/medium-2005-04-21.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c5a64c4226e8a9999d63d8171a370fd2
+/sys/games/lib/sudoku/boards/medium-2005-04-25.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	15cfa89c2c97a3644f81fde3f93e3de6
+/sys/games/lib/sudoku/boards/medium-2005-04-27.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7f8ffedecd0cfb4f2c8df6a2a6cfffc5
+/sys/games/lib/sudoku/boards/medium-2005-04-29.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	164f61c9cb70ec068c805208c2c803a6
+/sys/games/lib/sudoku/boards/medium-2005-05-02.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7203f5e0ca7384c0ef6a7003d4e83c58
+/sys/games/lib/sudoku/boards/medium-2005-05-03.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	ce50f9997b22c930e05a7cbdd7ba05e5
+/sys/games/lib/sudoku/boards/medium-2005-05-04.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c26af89f0a13ebc30a274a03ae616d14
+/sys/games/lib/sudoku/boards/medium-2005-05-05.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bedb8f75d4c69b7a6c5cef6fa46f1baa
+/sys/games/lib/sudoku/boards/medium-2005-05-06.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	3209f2c22226a8e8ca4adf7f33f9b952
+/sys/games/lib/sudoku/boards/medium-2005-05-09.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	19d7d3574ea8e540da4a4510c0aa198f
+/sys/games/lib/sudoku/boards/medium-2005-05-10.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	e1d88af2f6a3eea48a4e8975467f034f
+/sys/games/lib/sudoku/boards/medium-2005-05-11.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	7d4d2314a9a426e4d373229c7be7f1ea
+/sys/games/lib/sudoku/boards/medium-2005-05-12.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	6d8d1c99e9a7eacc6a326d9efd57dd63
+/sys/games/lib/sudoku/boards/medium-2005-05-13.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	df79a3e056253b617247caf9e54c886c
+/sys/games/lib/sudoku/boards/medium-2005-05-16.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	289571e1ae9216252000ff451c2a3efe
+/sys/games/lib/sudoku/boards/medium-2005-05-17.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	c529562d9b38aaf33ab413b6dcb21a84
+/sys/games/lib/sudoku/boards/medium-2005-05-18.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2a4759a06d2ee3f7e16c4207d822eaa1
+/sys/games/lib/sudoku/boards/medium-2005-05-20.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	27c88d6e070f76265b06c9c0c0eb4c64
+/sys/games/lib/sudoku/boards/medium-2005-05-25.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	65be0b811c02024ef5bad25d3d5d3509
+/sys/games/lib/sudoku/boards/medium-2005-05-26.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	25cfaa7b7afe65841f4e534984332988
+/sys/games/lib/sudoku/boards/medium-2005-05-27.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	aa503e8b41157c5bcdccb122743b24bb
+/sys/games/lib/sudoku/boards/medium000.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	0124c6513c87a140cc7ec40d1b84d654
+/sys/games/lib/sudoku/boards/medium002.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	d4d92e9003c2bc9a187b08b947178e57
+/sys/games/lib/sudoku/boards/medium003.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	bef9bf1d7ca0beacd488d7bb75b1ea54
+/sys/games/lib/sudoku/boards/veasy000.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	92f9bbd18f2b5930e8c336f87eba2e1e
+/sys/games/lib/sudoku/boards/veasy001.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	53562f875e71f476661189af9bd43773
+/sys/games/lib/sudoku/boards/vhard-2005-03-17.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a44d63a8880883f4969ab739c451d7ce
+/sys/games/lib/sudoku/boards/vhard-2005-03-20.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	31f79b792d551b75c1770c31426c9c58
+/sys/games/lib/sudoku/boards/vhard-2005-03-25.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	de6acd3fdaec94605d0a8aee3d0e5457
+/sys/games/lib/sudoku/boards/vhard-2005-04-10.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	a07f1acfb149a0bfbfd8f7a753c45494
+/sys/games/lib/sudoku/boards/vhard-2005-04-16.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	370e38e030d405bb876519196db60f43
+/sys/games/lib/sudoku/boards/vhard-2005-05-08.su	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	2f0595803c71818948bc0ad17839aa54
+/sys/games/lib/sudoku/images/1.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/2.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/3.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/4.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/5.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/6.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/7.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/8.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
+/sys/games/lib/sudoku/images/9.bit	runtime	iterative	the games' data (levels, tiles, doom's shareware wad ...)	-
 /sys/lib/kbmap/ar	runtime	boot	bootfs.proto	1ef81a7b5136ce146f3a1e0df54f87a7
 /sys/lib/kbmap/ascii	runtime	boot	bootfs.proto	01e9e36ab140b689c8d4a5f4fc16386b
 /sys/lib/kbmap/azerty	runtime	boot	bootfs.proto	a874f9d2d3808ec6bb6b8dba029bb9ba
@@ -363,6 +777,604 @@
 /sys/src/9/boot/bootrc	runtime	boot	bootfs.proto	875e90429c9761e26687244104cbf13f
 /sys/src/9/boot/net.rc	runtime	boot	bootfs.proto	a16ff9e4db2f3bc951f53e83659f9257
 /sys/src/9/boot/reboot.rc	runtime	boot	bootfs.proto	88a5c58aec97d01388f2f1c4f3d92fed
+/sys/src/cmd/clock.c	runtime	iterative	the wasm32 machine's clock (monolith/tools/build-bin3: tests clock, rioclock); its copy in monolith/third_party/9apps goes once the subset has it	f07019e75301cfed5e4ae363fda9b402
+/sys/src/games/2600/2600.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/2600.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1be40d48b848bae217be6c6e53e111ee
+/sys/src/games/2600/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/aud.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/aud.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a169b779d866bcdf330cea87a1e6db01
+/sys/src/games/2600/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0e22abc604547442fa42292b456b2b0e
+/sys/src/games/2600/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f4db93400d4f0ea34a4f5537aa966b84
+/sys/src/games/2600/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	47a2be3ad6a7c4447b89f268e5b121e5
+/sys/src/games/2600/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	291c74c76b9a507bc28bd5f219ceb423
+/sys/src/games/2600/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	149736b57d75013fa4ff88d67dfa2951
+/sys/src/games/2600/tia.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/2600/tia.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	282d55ea43a34518c668bbfa92b69019
+/sys/src/games/4s.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/4s.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a1112703c17550803c317fe725cb0a11
+/sys/src/games/5s.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/5s.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ed3d6eaccd9986378f45e9133d979f2c
+/sys/src/games/7.4s	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.5s	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.ana	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.aout2gba	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.catclock	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.dmxdec	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.dpic	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.festoon	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.geigerstats	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.glendy	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.juggle	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.life	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.linden	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.mandel	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.memo	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.mole	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.mus	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.packet	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.rotzoomer	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.todpic	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.turtle	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.vocdec	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.vocenc	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/7.wadfs	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/ana.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/ana.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	502d0eca3a5dad09c6b55c96dc75ce10
+/sys/src/games/aout2gba.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/aout2gba.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	829e6c49a70c4b8d82532bc40a0cfbeb
+/sys/src/games/blabs/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blabs/andrew.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4168085e8164b79f9a0e0f318aaa59e2
+/sys/src/games/blabs/bart.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9bab307ed8803a75df3eb35f64a01dbc
+/sys/src/games/blabs/blabs.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blabs/blabs.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1e54108a46747521d9a02b373ee88df3
+/sys/src/games/blabs/bwk.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	93311b93be6f0240efa412c1c7ed6c7d
+/sys/src/games/blabs/dmr.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	408185c72b861c062e42f551b69f2179
+/sys/src/games/blabs/doug.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e36fc5574c8ac48dacbfe810f8fe3b88
+/sys/src/games/blabs/gerard.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a3f2c358a140e1c2d1232aed7c864083
+/sys/src/games/blabs/howard.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3fee8f8d6c99c6dd8fbbbc5f30d0fb40
+/sys/src/games/blabs/ken.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	79ba27efacd7bfd1c656dac09b928d5b
+/sys/src/games/blabs/mkface	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d5e9697f5e436693b5ce8256c3de5538
+/sys/src/games/blabs/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f455b7f1ca1ef891e68a7382b78d4fe9
+/sys/src/games/blabs/philw.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2952d7e31f6fe70eade7c12a3afce057
+/sys/src/games/blabs/pjw.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8baca6c9b3314ae007410633b664e0db
+/sys/src/games/blabs/presotto.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4b7f56dd817857339b0ce910358630ba
+/sys/src/games/blabs/rob.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	676e8dba735e2bf8273bff8101f78aba
+/sys/src/games/blabs/sean.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f95fc8789581535a1249f541ba5c7b12
+/sys/src/games/blabs/td.bits	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8e287ef8c1efa17d27beb9fce1fa22a4
+/sys/src/games/blit/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blit/blit.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blit/blit.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b82542d66dfbbdac43f5b1430994e98c
+/sys/src/games/blit/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blit/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c38bd561365d85f9e3bae3a0034e879b
+/sys/src/games/blit/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7a233691662c44333f3547ff25b7ed4f
+/sys/src/games/blit/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a02c4dfd6f53b38cb1d3ede8e5e31989
+/sys/src/games/blit/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blit/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4cd53fae63ac03bb1fffaa7157dd6fe0
+/sys/src/games/blit/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9ee2a7de1951403820c389b305dc87be
+/sys/src/games/blit/mmap	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ee9e8cadd72908b7fd6e6cf2ad81ce2f
+/sys/src/games/blit/telnet.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/blit/telnet.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	25b1b35cb1395b53c0cd9bfea1776832
+/sys/src/games/c64/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/c64/c64.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/c64/c64.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	213ccd593da88dfe9ce2a07dd25fda6d
+/sys/src/games/c64/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/c64/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a3f3b87278c52ec3388a3704983fed10
+/sys/src/games/c64/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	85584d93f628e1497364a0fb06b392a1
+/sys/src/games/c64/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/c64/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0227b2f8e13abe14c408cef203e396dd
+/sys/src/games/c64/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/c64/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	43aeeb3e74c116f203c105bcf73bd46e
+/sys/src/games/c64/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9a9a64632266857ea373ed8e68307ddc
+/sys/src/games/c64/vic.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/c64/vic.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	11d8056e4bf202b26eac30690325aecf
+/sys/src/games/catback.p	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	95d3aae78ae2f48cd990328d9657a24d
+/sys/src/games/catclock.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/catclock.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	fbce9826a2645044b7d82fa584fb0e1e
+/sys/src/games/dmxdec.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/dmxdec.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5b819ee022462e14baa59e981c3c55de
+/sys/src/games/doom/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/am_map.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/am_map.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	479e5bc118fb59be652507a03983ab49
+/sys/src/games/doom/am_map.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3b3b6a39cbdd7c5f546fa375bd2e4ffc
+/sys/src/games/doom/d_englsh.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	73a9a5cdc74528b6da41097576f331c1
+/sys/src/games/doom/d_event.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	df52e077eb8246447e1c2aa676a56ab7
+/sys/src/games/doom/d_french.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7f19cb3e8e4d3249305291c822272cb5
+/sys/src/games/doom/d_items.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/d_items.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0668a3fddc55bc6a936b3f72d3847072
+/sys/src/games/doom/d_items.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	da963d4fecb3988b00d02bda6f787edd
+/sys/src/games/doom/d_main.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/d_main.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f5c063bf7e75434f5a1df2216083a192
+/sys/src/games/doom/d_main.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e2a43e56b631d91303f76821a39d5561
+/sys/src/games/doom/d_net.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/d_net.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2923f8955b2fdfbdd944f6c5b4610cc5
+/sys/src/games/doom/d_net.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3311e998a349f0eb8a590f88b95c3dc6
+/sys/src/games/doom/d_player.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bcd9a89ab077ed6e19401274c4b51bb2
+/sys/src/games/doom/d_textur.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	07a9712dc63c5dd68d785f27ad116a62
+/sys/src/games/doom/d_think.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	561afd1e4c2035845719e1be243b92f6
+/sys/src/games/doom/d_ticcmd.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b90e23c0127bee7618adb4e50f0654ed
+/sys/src/games/doom/doomdata.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c5f057f07df77c5e4df0b34f97eec4a0
+/sys/src/games/doom/doomdef.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/doomdef.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4574698501a09fcfcbd64b40edbd399d
+/sys/src/games/doom/doomdef.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c2af68751f39773160b54e8ca7ec1974
+/sys/src/games/doom/doomstat.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/doomstat.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5208ef369364bb774942fb4739d166c7
+/sys/src/games/doom/doomstat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	00d20791f7870fd3aff8c4c04d796bd5
+/sys/src/games/doom/doomtype.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2511e654fcf21ad4f41f80718b140cf1
+/sys/src/games/doom/dstrings.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/dstrings.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3618fa328377e5445d344655677c7abf
+/sys/src/games/doom/dstrings.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	009c0950164da8dcda6f22f9bb26bac2
+/sys/src/games/doom/f_finale.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/f_finale.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6de4ea9dc5088742f449dee8248df485
+/sys/src/games/doom/f_finale.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a5d21e1853bd353f056e7ab18cb46b68
+/sys/src/games/doom/f_wipe.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/f_wipe.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	77e19af3bab01b1471240d238b33bb84
+/sys/src/games/doom/f_wipe.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1dff39bdf2bfc9352eb8206f77e5a620
+/sys/src/games/doom/g_game.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/g_game.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	de677e2b6a4e488832525f3fb88a4ebd
+/sys/src/games/doom/g_game.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	87f64d80809c9b65946a0147d7a5b675
+/sys/src/games/doom/hu_lib.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/hu_lib.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8c6d0afb0d8c622af56703e56207aaf3
+/sys/src/games/doom/hu_lib.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4c229dace19db8903e8f8c3dc1b48f32
+/sys/src/games/doom/hu_stuff.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/hu_stuff.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2582a4ce0e01d80ecb0070c1aaa2172f
+/sys/src/games/doom/hu_stuff.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	93745122f19e19ab3b424073bd7c04ea
+/sys/src/games/doom/i_main.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/i_main.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	be8dc89632f750d4f27563c827b4b103
+/sys/src/games/doom/i_net.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/i_net.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	369404f3b1d7af22ad9b0d8072a95334
+/sys/src/games/doom/i_net.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	dd5dc2370ad2f5c0963a243ae61c7f09
+/sys/src/games/doom/i_sound.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/i_sound.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	662eb412b809e0406be6ed478c8ce306
+/sys/src/games/doom/i_sound.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a0c5390f1bd3f178a847b1f6020d277c
+/sys/src/games/doom/i_system.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/i_system.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1e0206f6d56fe65aee0e7fba8ef0c392
+/sys/src/games/doom/i_system.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0fa79d8038d11b856f4ba5e27fbe3658
+/sys/src/games/doom/i_video.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/i_video.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e93852b45c1009203d5f2ea265dad8d5
+/sys/src/games/doom/i_video.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3bf5cd7561f1bdd8c04d6bfae2ca527f
+/sys/src/games/doom/info.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/info.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	fcd97ec84989d2072072f7cf051890db
+/sys/src/games/doom/info.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8f0a99fff637885c29928b8de56b97f0
+/sys/src/games/doom/m_argv.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_argv.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	03ea5e91888c0db74c57fbac87f3e501
+/sys/src/games/doom/m_argv.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9825af6c2e1caa1b00949afeae2288b2
+/sys/src/games/doom/m_bbox.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_bbox.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	54904d4723059ce9f714b78b0b5b6761
+/sys/src/games/doom/m_bbox.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	77673126d4a951e939b3a28d5fac8084
+/sys/src/games/doom/m_cheat.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_cheat.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	09fad6d402bc011106212a6f462bd042
+/sys/src/games/doom/m_cheat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f5c65b46fa2a85caf1607c25d7dac2cf
+/sys/src/games/doom/m_fixed.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_fixed.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e7f05d793445051f01549c602d15221c
+/sys/src/games/doom/m_fixed.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f29d25d7fea8b39d9156078722fa312f
+/sys/src/games/doom/m_menu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_menu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8352b06bb6adf2cd5385cfd1bd005ba9
+/sys/src/games/doom/m_menu.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	395edb4720d1d244e4bd17c2079cff4a
+/sys/src/games/doom/m_misc.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_misc.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	45775ee877574633d1be53f1ae9dd050
+/sys/src/games/doom/m_misc.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f4e00ea23b2a040092ac40a18cae5e1b
+/sys/src/games/doom/m_random.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_random.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	77008bc4d4e1bdbd0addca2db3748269
+/sys/src/games/doom/m_random.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	cbb293f79b388b8e695bd9ef45672470
+/sys/src/games/doom/m_swap.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/m_swap.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9c8a949cf77b001d67743f299f54b51b
+/sys/src/games/doom/m_swap.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	64c28da10e772cc5bfdac543bdbb4280
+/sys/src/games/doom/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	34bfa845a1db0de3d4f5d9687440cc73
+/sys/src/games/doom/p_ceilng.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_ceilng.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b91d1bffa0377eb0a2612387fc0c8ec1
+/sys/src/games/doom/p_doors.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_doors.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8e1895f2af0701bd17a0e9940e661d57
+/sys/src/games/doom/p_enemy.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_enemy.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	df622a25c2fe3241431664c218d58f40
+/sys/src/games/doom/p_floor.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_floor.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	fb4000f374f8f964493595fb743fa0e3
+/sys/src/games/doom/p_inter.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_inter.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7bc4c76db4a4ab38894db4ddfc8db47b
+/sys/src/games/doom/p_inter.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8d9c16a92fb7e600281f860d25e57a89
+/sys/src/games/doom/p_lights.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_lights.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	52e0d24733019350c1c48c926e9963cf
+/sys/src/games/doom/p_local.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ce826483486224d002c2b5eb872b88c2
+/sys/src/games/doom/p_map.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_map.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3cdbac8b905a14e64b5ba6c5ef55ddc8
+/sys/src/games/doom/p_maputl.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_maputl.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1b9f5af18845d04579645e8b55c6e3e0
+/sys/src/games/doom/p_mobj.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_mobj.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	93f03342a87eda76f94be9a45d98afb5
+/sys/src/games/doom/p_mobj.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	98518af2f9fc2cb5d5d7bde8901e5bb6
+/sys/src/games/doom/p_plats.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_plats.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	49c0beac4c28fb0888e40344206df5e0
+/sys/src/games/doom/p_pspr.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_pspr.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	47d8466b29280e42167ee275f5a961ac
+/sys/src/games/doom/p_pspr.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e780c0a7f9d6a688a233266246ab5304
+/sys/src/games/doom/p_saveg.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_saveg.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	091591b5bf373b3bda18ad9a70a3545b
+/sys/src/games/doom/p_saveg.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1d19c659c337562fa07efe41788e5c98
+/sys/src/games/doom/p_setup.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_setup.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f8698f0b12a4fcdafd7d7ec8edb97218
+/sys/src/games/doom/p_setup.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3b6728fd1e6be60df000c09badcea33b
+/sys/src/games/doom/p_sight.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_sight.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	72845784641abc4b7036005d0a3db582
+/sys/src/games/doom/p_spec.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_spec.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9603e8a375d41168f221a321d6b91e15
+/sys/src/games/doom/p_spec.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7877e63a01faa135a538e97d797ba354
+/sys/src/games/doom/p_switch.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_switch.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	200a7a8642a3337f708cc2729be41808
+/sys/src/games/doom/p_telept.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_telept.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	362399fb757efe529d69be0a781c31d5
+/sys/src/games/doom/p_tick.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_tick.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8f54d62218f246306e651d9bce42798c
+/sys/src/games/doom/p_tick.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	770e2f5b807a75389e96de7885ab5cc3
+/sys/src/games/doom/p_user.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/p_user.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bfb925c77b594936587bf626c8ab9f72
+/sys/src/games/doom/pal.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/pal.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9c2c9fa6fcac5e12d60dc667c8dde8dd
+/sys/src/games/doom/r_bsp.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_bsp.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	cb59e7d5e7c5799e595c9e9b9f216108
+/sys/src/games/doom/r_bsp.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3effd2a4eebe07a75be493143f70dc8d
+/sys/src/games/doom/r_data.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_data.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	dab0fcd442b15032dea0a78685ad124f
+/sys/src/games/doom/r_data.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b088851c95cb8a3f1d2d882d815c94dd
+/sys/src/games/doom/r_defs.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7439d3a05d7405c4608aa43eebd31b1f
+/sys/src/games/doom/r_draw.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_draw.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	717ea169d04af0452d256b219d294367
+/sys/src/games/doom/r_draw.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	863662dfc4853a0442ae70b727f6eaff
+/sys/src/games/doom/r_local.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6fd5a050f0bdc7de2bfce15ed2439998
+/sys/src/games/doom/r_main.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_main.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f5ae9a4943cecab97c8bb06a6016c17e
+/sys/src/games/doom/r_main.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	cc733ecec6d48473afcf6e499150fc94
+/sys/src/games/doom/r_plane.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_plane.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e775f20e2e3e494d4bc8826487d9ec9b
+/sys/src/games/doom/r_plane.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3b491107541d2658cb1f0dd08a2121b9
+/sys/src/games/doom/r_segs.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_segs.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3c4db7717d637906b4d7478f1af2b598
+/sys/src/games/doom/r_segs.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6da4e93c48ba21d4107179d1654e8f2d
+/sys/src/games/doom/r_sky.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_sky.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f3e992fbca41d290157d4a1f66fd8251
+/sys/src/games/doom/r_sky.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	722cf8925694cebd85ea4270c8d26188
+/sys/src/games/doom/r_state.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	aceca240554454353ac0fd4e39970a4b
+/sys/src/games/doom/r_things.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/r_things.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c7cd33400b286507c51f8598270d3e03
+/sys/src/games/doom/r_things.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	20bba8efa1498e60db3f486e477063d2
+/sys/src/games/doom/s_sound.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/s_sound.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	006c4d4b3999e0b9a8a400b8e2a5d19d
+/sys/src/games/doom/s_sound.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	58442719573974985ff5badc01c1fcbd
+/sys/src/games/doom/sounds.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/sounds.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ff487a263bc1a4bd6ff3632130a7b160
+/sys/src/games/doom/sounds.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	63558af9d33fa5c7dfbd9924a696d38a
+/sys/src/games/doom/st_lib.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/st_lib.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f312856a11ea7b3fae0229e3f0988334
+/sys/src/games/doom/st_lib.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	31d2a895924b77fd0a8f2b79fe534ade
+/sys/src/games/doom/st_stuff.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/st_stuff.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ea977eaff8459231083fcdb12cf38d5d
+/sys/src/games/doom/st_stuff.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	fec9ef1ab8e994097c3f0433d1220fa7
+/sys/src/games/doom/tables.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/tables.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ee5dd8d6c7234059ab99455093efc2f3
+/sys/src/games/doom/tables.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	dbe37e08579d2e2ecefeb66aad7cb3a6
+/sys/src/games/doom/v_video.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/v_video.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7ca96aebded26b0b03ba0902e9f1812e
+/sys/src/games/doom/v_video.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ceb6eeabeafc2ff30f9e65193b834c59
+/sys/src/games/doom/w_wad.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/w_wad.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	224bfb3dbd71654642c6bd1245154b2d
+/sys/src/games/doom/w_wad.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b1a313e9435c466f4b95460885f8720e
+/sys/src/games/doom/wi_stuff.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/wi_stuff.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	68be976fd87df6ebbb0e9a4cd3ced3b2
+/sys/src/games/doom/wi_stuff.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b354fd9f6d1d68f4aa54e4a192c6611a
+/sys/src/games/doom/z_zone.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/doom/z_zone.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e62f18131e4d75724d451aa525e61b9e
+/sys/src/games/doom/z_zone.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7eca9b576038232d6bbad9b0d5d0a612
+/sys/src/games/dpic.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/dpic.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	db39fc4873bef020f30e4829b0be7f78
+/sys/src/games/eui.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e6076e40e8c2bf92ac814b4dea9500bc
+/sys/src/games/eui.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2cfa8ea77d7615146dcd8124c92452fd
+/sys/src/games/eyes.p	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4258dd96774ac81def004469da6edb76
+/sys/src/games/festoon.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/festoon.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bba23ece443759e30d4d762f6427a8ed
+/sys/src/games/galaxy/7.galaxy	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/7.mkgalaxy	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/body.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/body.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c5b830b01c3ddc43a7b3d08c3c1f8401
+/sys/src/games/galaxy/galaxy.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/galaxy.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	49555f72d257afeef61d6826f1cf5a48
+/sys/src/games/galaxy/galaxy.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8c9e1fa821082534cea6dfb81fbc38b0
+/sys/src/games/galaxy/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	02e621bf5b203a63e64d7bfb557de4de
+/sys/src/games/galaxy/mkgalaxy.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/mkgalaxy.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0cab8bbe62701e2bd2123acf0e67d7f1
+/sys/src/games/galaxy/quad.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/quad.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	cb3c142c0e233e55b42b50620c7e0e21
+/sys/src/games/galaxy/simulate.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/galaxy/simulate.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	89fa8180be1f238ab20739cd64890dd7
+/sys/src/games/gb/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/apu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/apu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	77f25a06f458dafbe1af75b5795d1c27
+/sys/src/games/gb/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6621f7d276cff61f93eae3d1fc7299b1
+/sys/src/games/gb/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2c21a8c6a13f5df2f4f6e01e0e6a4696
+/sys/src/games/gb/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/ev.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/ev.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	193d129b736c57c0cb1400d782c9a1ef
+/sys/src/games/gb/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ac3b65aae9cb05df53f2f641cbddb81c
+/sys/src/games/gb/gb.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/gb.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6efdda8e70e1d1d625ec8aefe82813fa
+/sys/src/games/gb/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	af2cfafe72d08cfd3573ed3dcc9c49cc
+/sys/src/games/gb/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	27fb93aa2ce6fdc5b14e89851abff8e1
+/sys/src/games/gb/ppu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/ppu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6abbd2cac2df034dc5aefdd7e71820c6
+/sys/src/games/gb/serial.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/serial.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f756150f05e8710a85ca7103db989942
+/sys/src/games/gb/state.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gb/state.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8261841bd7a18dd95551bf8f14808cb3
+/sys/src/games/gba/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/apu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/apu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	43fc10234be804ca6459810fc3f85591
+/sys/src/games/gba/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	676cafd54a76e2c455f14d537ff63ae1
+/sys/src/games/gba/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	12934a8bc3eee2a252946cbeaae589bf
+/sys/src/games/gba/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/ev.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/ev.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d4377d22ae9e617819dff4afbfb3f6c1
+/sys/src/games/gba/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	32bb3c639e07cb4b46754593eb164bb5
+/sys/src/games/gba/gba.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/gba.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6fe84dacc96720bf86b6f9e1289bf5a6
+/sys/src/games/gba/gpio.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/gpio.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4e56b2d9f1e985223bec6160cec62d6e
+/sys/src/games/gba/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e709535b03763e848ca5a3f8adbd1158
+/sys/src/games/gba/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e4a87d08918b45f6c467928e5ba7bd00
+/sys/src/games/gba/ppu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/ppu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a2b313c252beebf4d5786b2d52f21e59
+/sys/src/games/gba/rom/l.s	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	b89f2ee917a1e592eb720144faa7d50e
+/sys/src/games/gba/rom/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ee40bcf0a6a208ec5637dc314b4b28bd
+/sys/src/games/gba/rom/mkone	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5716d47f1b2f2d52764797acd6857226
+/sys/src/games/gba/state.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/gba/state.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c8cdeba9af232d1b6d37325d2417ff86
+/sys/src/games/geigerstats.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/geigerstats.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1438724ee02e3b34e443395b64db5895
+/sys/src/games/glendy.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/glendy.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d6c855ff056b536940ea2b33eaa7e4b6
+/sys/src/games/juggle.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/juggle.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	86e97a1dc97b6893fe418ae50280635d
+/sys/src/games/life.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/life.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	15a4991f79481ba00b9e5a8742df86b3
+/sys/src/games/linden.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/linden.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f8046d3276fc7ab3f66e28a2c1e6363e
+/sys/src/games/mahjongg/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mahjongg/graphics.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mahjongg/graphics.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	535bb8d84074978bd88feb0fa5694a0a
+/sys/src/games/mahjongg/level.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mahjongg/level.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f7dad2d4422726206a9a2bd8ab62d4ff
+/sys/src/games/mahjongg/logic.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mahjongg/logic.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d0cd7c31e908378331cb45ab8dab25ee
+/sys/src/games/mahjongg/mahjongg.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mahjongg/mahjongg.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	41e59f8c6c19ce17384087c1e4c885b5
+/sys/src/games/mahjongg/mahjongg.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	fa4aa6d6e7c1b785c0ad835d0c5105c8
+/sys/src/games/mahjongg/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ab20af35a67d3ebd0eda949497dc6e98
+/sys/src/games/mandel.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mandel.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	79333d345374c7cc7ad51e37c39cacde
+/sys/src/games/md/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	cc4b472a93bce8778662b0644c61d53d
+/sys/src/games/md/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	03fce09371d381ef79c81e571ee067ec
+/sys/src/games/md/md.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/md.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	61a5dde06d5ff4814460d5376940f67e
+/sys/src/games/md/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	770d0ffd28eb648c99ad0ae02ac6c019
+/sys/src/games/md/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0f54136233a5b3cb12a86a6aea546c3d
+/sys/src/games/md/vdp.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/vdp.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	cc7fc2675e56fa68486f5988311b84e2
+/sys/src/games/md/ym.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/ym.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e732f06fa6c925c1b7fdde578755d52f
+/sys/src/games/md/z80.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/md/z80.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0b09169ec27e712d0c52e795214ec4cf
+/sys/src/games/memo.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/memo.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3946d77c514bb724d15781ea89d0b136
+/sys/src/games/midi/7.dmid	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/7.mid2s	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/7.midi	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/dmid.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/dmid.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	27be37ed831b3ab49ff6b76f7cc4854f
+/sys/src/games/midi/mid2s.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/mid2s.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	403814d1d5ed13067ecb5501fcab087c
+/sys/src/games/midi/midi.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/midi.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	480fbe54e5ffb9ada3b233345f271998
+/sys/src/games/midi/midifile.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/midi/midifile.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	985abaa0ff6106b48e4348760229eb91
+/sys/src/games/midi/midifile.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ebfff6d06db51d33a2e5a40760accb45
+/sys/src/games/midi/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9d90e2282bc308ddaecda862d1b1300b
+/sys/src/games/mines/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/README	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3e2ea410d2d9eceec3fdecb1a800878f
+/sys/src/games/mines/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8a7826b6c6fa7765c9fd6c561109efc5
+/sys/src/games/mines/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	083658a4f650e7a538e70cb4c72e3074
+/sys/src/games/mines/gfx.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/gfx.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8213c47ae4513dcf3155c30ef0496016
+/sys/src/games/mines/ghost.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/ghost.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2415020113210312747da8eef56f8c1c
+/sys/src/games/mines/mines.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/mines.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a7037d540e4cf18d50c9cf3cb4ffdc75
+/sys/src/games/mines/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0ee05c9f011729df3421b0e664a0de74
+/sys/src/games/mines/pictures/digit0.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit1.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit2.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit3.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit4.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit5.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit6.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit7.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit8.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/digit9.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty0.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ba69cd4129067c0ed3ffd240ee13c194
+/sys/src/games/mines/pictures/empty1.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty2.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty3.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty4.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty5.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty6.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty7.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/empty8.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/explosion.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/fault.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/game.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/mark.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/mined.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/mouse.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/move.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/oops.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/push.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/query.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/sign.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mines/pictures/unknown.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a56a104f6d82d2fcfc6470c1c936d168
+/sys/src/games/mines/pictures/win.raw	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/char.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/char.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9efff5278f58962115cca5a1e1b710d8
+/sys/src/games/mix/examples/maximum.m	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d45b4a3e6db05c47b878b9b90af239bd
+/sys/src/games/mix/examples/maxmain.m	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8c2e885a976d8185af233913b5c6409d
+/sys/src/games/mix/examples/primes.m	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	77af145a0ac2fdd88e26291e45276443
+/sys/src/games/mix/mix.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/mix.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5bca72befb6ba12d3a96c874991231e7
+/sys/src/games/mix/mix.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	43bcc7b6f02c79f8bd2e683d8c225ff2
+/sys/src/games/mix/mixal.y	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f9f209c24126afaafc0ee47cf683d5c5
+/sys/src/games/mix/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	12442cad17cd7f954409b6e42026dd55
+/sys/src/games/mix/repl.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/repl.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	91d7fe400d505e4ad034289a25101eeb
+/sys/src/games/mix/util.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/util.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4f464df46b5fed9e7f5b5267fd7bdf62
+/sys/src/games/mix/y.tab.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mix/y.tab.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	00abbf7066baa6ad0dac4d2c7e05706e
+/sys/src/games/mix/y.tab.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c4c20e8aa36bf2061305b614026a9ed7
+/sys/src/games/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	967aa2c649f377d4412aa770045668ad
+/sys/src/games/mole.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mole.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7729dc102c058d02121487205f00d7c3
+/sys/src/games/mus.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/mus.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4f76211b34bb5372f3125f9b55596685
+/sys/src/games/nes/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/apu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/apu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6eb9c7163ac9362f4a8b90de8e308faa
+/sys/src/games/nes/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8e383b2b8d9336f90222cac6db8003e5
+/sys/src/games/nes/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ede91e8d22ebdf5a61dcbee6657d0356
+/sys/src/games/nes/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	89b950fb3ead5743b47d9e9674d75dc7
+/sys/src/games/nes/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6efd6b8208a04d5c25d589076bce5ee8
+/sys/src/games/nes/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	8e7f79712da56cfbde14fe3427f2a183
+/sys/src/games/nes/nes.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/nes.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	34fe8573d1a4100ec3c3d54bed571253
+/sys/src/games/nes/ppu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/ppu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	de3940d266b6dae04e64ff27b8132fe2
+/sys/src/games/nes/state.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/nes/state.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	087efe1f3e033e70f29e6355e337cb86
+/sys/src/games/opl3/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/opl3/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9c8ad181f33a81163847b07dbc79db6d
+/sys/src/games/opl3/opl3.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/opl3/opl3.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bfb3ee9e6c4f4938f38650389a86daa9
+/sys/src/games/opl3/opl3m.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/opl3/opl3m.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c88ef58df930dd1c9d1e1f003f6b129e
+/sys/src/games/packet.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/packet.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5a71138f4a97879fc38a215b678dcd17
+/sys/src/games/rotzoomer.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/rotzoomer.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a65ca6f9b6886d2b296f4eeaee5f1cdf
+/sys/src/games/snes/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bfb740fc618d30bc52b7d33dc8e8f8bd
+/sys/src/games/snes/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	98c85524a9c2e80a02a1411cdb66e5df
+/sys/src/games/snes/dsp.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/dsp.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	7e2cb34da4f1c97ead6a7be81060f5d5
+/sys/src/games/snes/eui.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d22421fbb4733cf84fe85b0a52784bf1
+/sys/src/games/snes/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	e6b7a620472e5e529396feda7eb9cfbc
+/sys/src/games/snes/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	16004d4d3f8553d417cf76e8ee3aa2a6
+/sys/src/games/snes/ppu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/ppu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	278df9b212346bba1f31727a0563eb97
+/sys/src/games/snes/snes.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/snes.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	09a8ae5318bda71e08be858d9de4cc17
+/sys/src/games/snes/spc.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/spc.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	dac0b368a6c417a6cf3f2a34f8e2e6e3
+/sys/src/games/snes/state.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/snes/state.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	3e10a5e0753aad293e2813387fa13bd8
+/sys/src/games/sokoban/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/README	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	c2d026db6f8b5cb1bd63b67c0bc5a535
+/sys/src/games/sokoban/animation.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/animation.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	efe3d2bfc4b6632030d01769bb4c04b7
+/sys/src/games/sokoban/graphics.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/graphics.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5948620d2e314ddbe02ffaf6ffd00951
+/sys/src/games/sokoban/level.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/level.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ba5dc0763f482ed1d5079078c6064934
+/sys/src/games/sokoban/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f403e3fdccf4038fed336bad22cf9712
+/sys/src/games/sokoban/move.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/move.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	48c95dd6b8e361cd84018c95d3d3a9a6
+/sys/src/games/sokoban/route.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/route.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2cf07dfc190fe206cd06d304d55effd2
+/sys/src/games/sokoban/sokoban.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sokoban/sokoban.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4502c762339d67c8bb09e531b634ea06
+/sys/src/games/sokoban/sokoban.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	735d7697cc6696ab336a96c75bf6e9d3
+/sys/src/games/sudoku/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sudoku/game.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sudoku/game.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	37f6d41020bfd487f7613b4d03533638
+/sys/src/games/sudoku/levels.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sudoku/levels.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ffcde04f843d6a448ef29d14c3c4df6e
+/sys/src/games/sudoku/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a2f70ef1ce389e816c6ed741f4a86e02
+/sys/src/games/sudoku/sudoku.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/sudoku/sudoku.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bf9942fdb701aa22bc6cd5fdabf00efe
+/sys/src/games/sudoku/sudoku.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	757dba2ab7d537e9123bf7d1811732f9
+/sys/src/games/swar/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/swar/accel.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	aa1f5dc26ed6068eea728898e68635dc
+/sys/src/games/swar/boom.icon	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9363a18c7bf3bc7fc71733769bfceb83
+/sys/src/games/swar/deathstar.icon	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ce8450052a2da5499375c252683185f3
+/sys/src/games/swar/missile.icon	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	1d9b797590a46dedc26eb5de597b0b04
+/sys/src/games/swar/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	aeafad0e347260cf763c961a91336df9
+/sys/src/games/swar/player0.icon	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5744a5c91bbba5963de49b0ab81e59c0
+/sys/src/games/swar/player1.icon	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	a69c9aafabc4821f413d83977116bcb2
+/sys/src/games/swar/swar.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/swar/swar.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	94e576c8943bc4c34d48776786c92d44
+/sys/src/games/timmy/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/timmy/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f914dc5215003347e7de7c3df0802552
+/sys/src/games/timmy/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	f85724d2dfbb933eed74328fca8b3337
+/sys/src/games/timmy/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	4cc4b66a429f222b65c8a2ca9b8e75f5
+/sys/src/games/timmy/phys.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/timmy/phys.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	d8c8997e1bb52f2f0e82a0b80780c0e8
+/sys/src/games/timmy/poly.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/timmy/poly.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	fddcc2e11d6eaec91f8bd6cc335d93b1
+/sys/src/games/timmy/simple.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/timmy/simple.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	bf0daa22b2fb8fb6014d57d6c29394eb
+/sys/src/games/timmy/timmy.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/timmy/timmy.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	97834dae780b1530868a5d1e8da415e1
+/sys/src/games/timmy/util.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/timmy/util.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	2a69a00324d61eb0f59577df6fb24c1c
+/sys/src/games/todpic.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/todpic.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	9d6a9596877a9977d25c7bb0bcc60b50
+/sys/src/games/turtle.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/turtle.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	321bfdd4eda76074d9ab4dbdc7eb3fd5
+/sys/src/games/v8e/7.out	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/cpu.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/cpu.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	365347f4877748d5b7351032c068384a
+/sys/src/games/v8e/cpubcd.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/cpubcd.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5d7f749dcb393521d3ac9107088cb06a
+/sys/src/games/v8e/cpufp.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/cpufp.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	76493f133a07c336d9c0159307343194
+/sys/src/games/v8e/dat.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	25e3c2ee8d0e85ef087498e6990aca34
+/sys/src/games/v8e/fns.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	0f743ea2c7ee1db0409be7e19a9a7db2
+/sys/src/games/v8e/mem.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/mem.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	05ab33fb0853f7ba10d5a42d1b66217d
+/sys/src/games/v8e/mkfile	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	18b4c4d9012227b89842133aa45bbf24
+/sys/src/games/v8e/sys.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/sys.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	50c175ef2f6ad9a3752d6e20ccc9ec19
+/sys/src/games/v8e/v8e.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/v8e/v8e.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	77ddb4fa366a59e424a619edc2bd6e2c
+/sys/src/games/vocdec.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/vocdec.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	649a7d751da04594989ef4c2cc63177e
+/sys/src/games/vocenc.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/vocenc.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	6f23173ee9787cea7b0ed11f04f10f2b
+/sys/src/games/wadfs.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/wadfs.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	db4be94f68c1104cc88a4968c71f2773
+/sys/src/games/xs.7	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	-
+/sys/src/games/xs.c	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	ec09c0d8e38726d5ad214067f9066db8
+/sys/src/games/xs.h	runtime	iterative	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read	5f933a66286805ac450d6f54d0c6d613
 /usr/glenda/bin/rc/riostart	runtime	iterative	glenda's profile runs rio -i riostart on a terminal, from $home/bin/rc: the analysis does not follow $home	e522ab15bcd0300ef3b694056a8b8e1f
 /usr/glenda/lib/L.webcookies	runtime	dynamic	boot + installer up to copydist	d41d8cd98f00b204e9800998ecf8427e
 /usr/glenda/lib/plumbing	runtime	dynamic	boot + installer up to copydist	67163f45eb803dfbeeefc18c96e2518c
@@ -370,37 +1382,48 @@
 /usr/glenda/lib/webcookies	runtime	dynamic	boot + installer up to copydist	451773d2c73adfd18aeaff4d7a835941
 /386/include/ureg.h	source	source	included by /sys/src/cmd/aux/realemu/loadcom.c	4ed1b419e3beaac7313c1ada6f0a3875
 /386/mkfile	source	source	mk template of /sys/src/libmp/386/mkfile	02df25d314fc69d63522c2455adfbe88
+/68020/include/ureg.h	source	source	included by /sys/src/libmach/2.c	7b04b789c2498b92b10c5f2dd087f697
 /68020/mkfile	source	source	mk template of /sys/src/libc/68020/68881/mkfile	242c4b6d864d0020fa17e87f6e3a775f
-/amd64/include/u.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	9ded9e8ec3131ebb67931ed3b1296c3c
+/amd64/include/u.h	source	source	included by /sys/src/cmd/aan.c	9ded9e8ec3131ebb67931ed3b1296c3c
 /amd64/include/ureg.h	source	source	included by /sys/src/libc/386/notejmp.c	2a5e96418f9d69f3c3e60b4c6a18e055
 /amd64/mkfile	source	source	mk template of /sys/src/cmd/auth/factotum/mkfile	2c687a6eab59523065ab17fe29f88816
+/arm/include/ureg.h	source	source	included by /sys/src/libmach/5.c	b0c0aaf3fdf8088f69b6e25a8b916095
+/arm64/include/ureg.h	source	source	included by /sys/src/libmach/7.c	274099cc93c888a44ada42b40d82a6d5
+/mips/include/ureg.h	source	source	included by /sys/src/libmach/v.c	b58b209ec491b6d41f986249bfd432a6
+/power/include/ureg.h	source	source	included by /sys/src/libmach/q.c	c3d84c806a96d75d47409ecc23a620d6
 /power/mkfile	source	source	mk template of /sys/src/libmp/power/mkfile	2818a74c01b3e22ab0cea95d1a27fe3e
+/power64/include/ureg.h	source	source	included by /sys/src/libmach/9.c	2d5e5a84f73c9b3f0c0e5482001f6f1f
+/sparc/include/ureg.h	source	source	included by /sys/src/libmach/k.c	def30ac1975093124ac77c6c6efc504c
+/sparc64/include/ureg.h	source	source	included by /sys/src/libmach/u.c	f44137b44356510ecf922fb32214b43e
 /sys/include/9p.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	09c6a5075c8b5fa4d86cb2a238c65f48
 /sys/include/String.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	be314b92e44b96ce50650f55f29835ea
 /sys/include/a.out.h	source	source	included by /sys/src/9/port/sysproc.c	1a71993ba2d810999f53f90f9a6618ac
 /sys/include/aml.h	source	source	included by /sys/src/cmd/aux/acpi.c	0485952eebdd10dea9479f5e856a066c
-/sys/include/auth.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	b5b8acd9ad58eaa9363eeccf752510f4
+/sys/include/ar.h	source	source	included by /sys/src/libmach/obj.c	ce9bdf74298817ebbadf2b08bcdb111f
+/sys/include/auth.h	source	source	included by /sys/src/cmd/aan.c	b5b8acd9ad58eaa9363eeccf752510f4
 /sys/include/authsrv.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	c7d560167423a22859d8a27b08e285e3
-/sys/include/avl.h	source	source	included by /sys/src/cmd/gefs/blk.c	db448a44945af2b2b455bddc5b12014d
+/sys/include/avl.h	source	source	included by /sys/src/games/mix/char.c	db448a44945af2b2b455bddc5b12014d
 /sys/include/bio.h	source	source	included by /sys/src/cmd/auth/secstore/aescbc.c	ff39e780424ce6483c47b4bc40116b64
+/sys/include/bootexec.h	source	source	included by /sys/src/libmach/executable.c	49c7c59bc0e72ae64eb8bc1d0265183d
 /sys/include/complete.h	source	source	included by /sys/src/cmd/rio/wind.c	42001d17a198477024aae7734917b396
 /sys/include/control.h	source	source	included by /sys/src/cmd/auth/factotum/fgui.c	5e57c3ae6b4195d0a8c806d13ea1c90c
 /sys/include/ctype.h	source	source	included by /sys/src/cmd/auth/factotum/chap.c	e4c1601f904d73ddb1d91b393a91e1e3
-/sys/include/cursor.h	source	source	included by /sys/src/cmd/mothra/mothra.c	888b0bedf3a76cbe1d68c6a315e0e763
+/sys/include/cursor.h	source	source	included by /sys/src/games/blit/blit.c	888b0bedf3a76cbe1d68c6a315e0e763
 /sys/include/disk.h	source	source	included by /sys/src/cmd/cwfs/all.h	cfff781cfa60e1dba8e191e1dd4f37b8
 /sys/include/draw.h	source	source	included by /sys/src/cmd/auth/factotum/fgui.c	0bc52e33d72190530bf59e9ca1e051f9
 /sys/include/dtracy.h	source	source	included by /sys/src/9/port/devdtracy.c	8cc18a614fb858d5a116ba82010fc565
-/sys/include/event.h	source	source	included by /sys/src/cmd/mothra/html.syntax.c	d94ddc45caf36b89c0f15f05d20e04f7
-/sys/include/fcall.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	2f7b6df830552f303e5acababd58caad
+/sys/include/event.h	source	source	included by /sys/src/cmd/clock.c	d94ddc45caf36b89c0f15f05d20e04f7
+/sys/include/fcall.h	source	source	included by /sys/src/cmd/aan.c	2f7b6df830552f303e5acababd58caad
 /sys/include/fis.h	source	source	included by /sys/src/9/port/devaoe.c	474332f78810c683eb7155c6a1edbbd4
 /sys/include/flate.h	source	source	included by /sys/src/cmd/paqfs/mkpaqfs.c	ffc4b0ed98da2e21878c23eb2cb49b7f
 /sys/include/frame.h	source	source	included by /sys/src/cmd/rio/data.c	421a2e0bf2dd3fd1234f3f9e74670034
-/sys/include/geometry.h	source	source	included by /sys/src/libdraw/mkwarp.c	d49b22857853ad20cd245962395eff76
+/sys/include/geometry.h	source	source	included by /sys/src/games/rotzoomer.c	d49b22857853ad20cd245962395eff76
 /sys/include/ip.h	source	source	included by /sys/src/cmd/aux/timesync.c	a676ae08e2d4486d45e6fbe090f9410a
 /sys/include/keyboard.h	source	source	included by /sys/src/cmd/auth/factotum/fgui.c	d08c0f6bc6c4a0baefe16b36d581f007
-/sys/include/libc.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	f31f64b088c78d90a34a5aafb3a3f96c
+/sys/include/libc.h	source	source	included by /sys/src/cmd/aan.c	f31f64b088c78d90a34a5aafb3a3f96c
 /sys/include/libsec.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	2a5bba8d70ae992113ece0695a2ba619
-/sys/include/memdraw.h	source	source	included by /sys/src/cmd/reform/pm.c	de30ec4a492532e87e51f09b91c3c95f
+/sys/include/mach.h	source	source	included by /sys/src/games/aout2gba.c	64152ca4a1b1eb89f2b27f4e89aa0bc6
+/sys/include/memdraw.h	source	source	included by /sys/src/games/todpic.c	de30ec4a492532e87e51f09b91c3c95f
 /sys/include/memlayer.h	source	source	included by /sys/src/9/port/devdraw.c	6ceef1ab3c42e71b67c97eb2dc5a8b8f
 /sys/include/mouse.h	source	source	included by /sys/src/cmd/auth/factotum/fgui.c	0fb949689cfab8392953acd9835f8532
 /sys/include/mp.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	51cc39781d93499b82a00011530a50ba
@@ -410,8 +1433,8 @@
 /sys/include/pool.h	source	source	included by /sys/src/cmd/cwfs/malloc.c	eabb862bcf03a7def8f939e17f38380d
 /sys/include/regexp.h	source	source	included by /sys/src/cmd/awk/re.c	34f6f7e09409b4641479965aa5ff3adc
 /sys/include/scribble.h	source	source	included by /sys/src/libcontrol/scribble.c	e28c6b14a0c59152e1daec6fd736ddf8
-/sys/include/stdio.h	source	source	included by /sys/src/libscribble/li_recognizer.c	30bdfb80923cf6f400ccbd812b3aef9f
-/sys/include/thread.h	source	source	included by /sys/src/cmd/auth/factotum/dat.h	472324e944a801493cbd3048c8b6571f
+/sys/include/stdio.h	source	source	included by /sys/src/games/doom/doomdef.h	30bdfb80923cf6f400ccbd812b3aef9f
+/sys/include/thread.h	source	source	included by /sys/src/cmd/aan.c	472324e944a801493cbd3048c8b6571f
 /sys/include/tos.h	source	source	included by /sys/src/libc/9sys/getpid.c	0a9db297ec48b586aed7383910f920a5
 /sys/include/trace.h	source	source	included by /sys/src/9/port/devproc.c	3f307107aefa3e3dd3b938a612dc7e44
 /sys/src/9/boot/boot.c	source	source	kernel / loader	d96c89fca712fdd6e90c2a976f3b453b
@@ -751,6 +1774,7 @@
 /sys/src/boot/efi/pxe.c	source	source	kernel / loader	5114abb65b198127fa2567c16a792144
 /sys/src/boot/efi/sub.c	source	source	kernel / loader	9974a2c95e303b223d494e5756f0676d
 /sys/src/boot/efi/x64.s	source	source	kernel / loader	3e696ec4def16872cba2d4cc8506087c
+/sys/src/cmd/aan.c	source	source	builds /amd64/bin/aan	c69a3aefd4dd3a5a036409b836554f0a
 /sys/src/cmd/auth/factotum/apop.c	source	source	builds /amd64/bin/auth/factotum	acbaa88ed6c6f7525f745570cba6b800
 /sys/src/cmd/auth/factotum/chap.c	source	source	builds /amd64/bin/auth/factotum	be34581cc191d699de86fbe49a3dc99e
 /sys/src/cmd/auth/factotum/confirm.c	source	source	builds /amd64/bin/auth/factotum	8d4e591b7f69e583e87f6144d4a74f4c
@@ -770,6 +1794,8 @@
 /sys/src/cmd/auth/factotum/totp.c	source	source	builds /amd64/bin/auth/factotum	8901da62582537a9645dd01dadcb66a1
 /sys/src/cmd/auth/factotum/util.c	source	source	builds /amd64/bin/auth/factotum	e7e4fa70a6f0c2e91304bbec652d77ba
 /sys/src/cmd/auth/factotum/wpapsk.c	source	source	builds /amd64/bin/auth/factotum	698b506a40d3f2353a943b90f931f47f
+/sys/src/cmd/auth/httpauth.c	source	source	builds /amd64/bin/auth/httpauth	ec97bbb36918bef78abe6cddce15012b
+/sys/src/cmd/auth/mkfile	source	source	builds /sys/src/cmd/auth/httpauth.c	d1e9448bbdf45b303240e1cdc36b890a
 /sys/src/cmd/auth/secstore/SConn.c	source	source	builds /amd64/bin/auth/secstore	f0d7319fbe86ba842c97543d8a5aa6b5
 /sys/src/cmd/auth/secstore/SConn.h	source	source	builds /amd64/bin/auth/secstore	81b9aaa8aa6e7b9a523a654a4680a67e
 /sys/src/cmd/auth/secstore/aescbc.c	source	source	builds /amd64/bin/auth/secstore	f5c82f2508de87da6aba16b576fb1a05
@@ -1679,7 +2705,7 @@
 /sys/src/cmd/ip/ipconfig/ppp.c	source	source	builds /amd64/bin/ip/ipconfig	a3efb66d27578e52d0626fb74a956a94
 /sys/src/cmd/ls.c	source	source	builds /amd64/bin/ls	1c08fcb72799af8ee3a0f163b4130afa
 /sys/src/cmd/mkdir.c	source	source	builds /amd64/bin/mkdir	d663d2ddb1bf7dfc95e54906222acb09
-/sys/src/cmd/mkfile	source	source	builds /sys/src/cmd/basename.c	fc94f2cfd2ed3d320fe880dc0e661fc5
+/sys/src/cmd/mkfile	source	source	builds /sys/src/cmd/aan.c	fc94f2cfd2ed3d320fe880dc0e661fc5
 /sys/src/cmd/mklib	source	source	mk template of /sys/src/cmd/mothra/libpanel/mkfile	a69b2f270d8ee8e05fb3a493ad68fd86
 /sys/src/cmd/mkmany	source	source	mk template of /sys/src/cmd/auth/factotum/mkfile	5149267bffb45cfe366faed891019feb
 /sys/src/cmd/mkone	source	source	mk template of /sys/src/cmd/aux/kbdfs/mkfile	e3a026d80d13128ad89adcbd53d0fecf
@@ -1862,6 +2888,7 @@
 /sys/src/cmd/tar.c	source	source	builds /amd64/bin/tar	34a7fc94a5ef7c6d1c11b5c05c46447b
 /sys/src/cmd/test.c	source	source	builds /amd64/bin/test	42c5254496375be08883c545cb803761
 /sys/src/cmd/tlsclient.c	source	source	builds /amd64/bin/tlsclient	a6a2af622863ad1adfe3a1b8de4428b7
+/sys/src/cmd/tlssrv.c	source	source	builds /amd64/bin/tlssrv	82f7d9679e79665ae5ad94930dea11bf
 /sys/src/cmd/touch.c	source	source	builds /amd64/bin/touch	a68b187a2eb96a8d92769d159d34b2b0
 /sys/src/cmd/unmount.c	source	source	builds /amd64/bin/unmount	02e0b1da94865dd79b7fc1c4d76edd2d
 /sys/src/cmd/walk.c	source	source	builds /amd64/bin/walk	c275316e7eed52041682ed95fc6eff64
@@ -2623,6 +3650,54 @@
 /sys/src/libip/ptclbsum386.s	source	source	LIB of /sys/src/9/pc/mkfile	57447bd6e61a9d4c8803d2d5defb1c97
 /sys/src/libip/readipifc.c	source	source	LIB of /sys/src/9/pc/mkfile	613498af0195b46785f635864389b3a7
 /sys/src/libip/testreadipifc.c	source	source	LIB of /sys/src/9/pc/mkfile	610bfc380e11bd4673a8882d9b32b826
+/sys/src/libmach/0.c	source	source	linked by /sys/include/mach.h	bf64d456cf22b2b65d05cc0ab319e1a9
+/sys/src/libmach/2.c	source	source	linked by /sys/include/mach.h	985c1daeadbd40a4c577470674edf7f3
+/sys/src/libmach/2db.c	source	source	linked by /sys/include/mach.h	ecd754b8739b503994ffbe5ef0afde92
+/sys/src/libmach/2obj.c	source	source	linked by /sys/include/mach.h	d3cb4acecb6c3c3f90ea8895c3afe6af
+/sys/src/libmach/5.c	source	source	linked by /sys/include/mach.h	02aa3fefab48696bb1fedef588d8cf95
+/sys/src/libmach/5db.c	source	source	linked by /sys/include/mach.h	8965d95b168731422acc76341b9062fe
+/sys/src/libmach/5obj.c	source	source	linked by /sys/include/mach.h	599d9fd4c58a74964f7608feec866544
+/sys/src/libmach/6.c	source	source	linked by /sys/include/mach.h	5131b53b79c650ed8085c7ffd6e6fc53
+/sys/src/libmach/6obj.c	source	source	linked by /sys/include/mach.h	aebb6a5e44cb99b344199e42ee994335
+/sys/src/libmach/7.c	source	source	linked by /sys/include/mach.h	6c2a3745d0eb5f1304855895a55c1ff8
+/sys/src/libmach/7db.c	source	source	linked by /sys/include/mach.h	bb6c482fe67625b361eb67b5be04b2bf
+/sys/src/libmach/7obj.c	source	source	linked by /sys/include/mach.h	bfc68fc78b698ac27533993ae9ff2bd2
+/sys/src/libmach/8.c	source	source	linked by /sys/include/mach.h	b89c4edbf022d56734433a9cb93aec34
+/sys/src/libmach/8db.c	source	source	linked by /sys/include/mach.h	80a84550451d5cc88cd4911225b9823b
+/sys/src/libmach/8obj.c	source	source	linked by /sys/include/mach.h	2056e139ed4c9f3b320074d620b12b3f
+/sys/src/libmach/9.c	source	source	linked by /sys/include/mach.h	9cd6f95082e54afeeaa8668a1d9af247
+/sys/src/libmach/9obj.c	source	source	linked by /sys/include/mach.h	644e6b31b6cf3c1621046b8767c1ba89
+/sys/src/libmach/access.c	source	source	linked by /sys/include/mach.h	544922a1ed4aa9511ec20cbc6c96b50e
+/sys/src/libmach/elf.h	source	source	linked by /sys/include/mach.h	3e1c132ea6dca9200cf97bffda1c8c01
+/sys/src/libmach/executable.c	source	source	linked by /sys/include/mach.h	cf34a91eda1f89fd12a2a046b76dfe22
+/sys/src/libmach/k.c	source	source	linked by /sys/include/mach.h	4130f7519a0c3a5daa2688478ad47780
+/sys/src/libmach/kdb.c	source	source	linked by /sys/include/mach.h	f00f91dc30497b9b6fd892a43810f21d
+/sys/src/libmach/kobj.c	source	source	linked by /sys/include/mach.h	4e4b11a11a987c859d62a932a518cc7c
+/sys/src/libmach/machdata.c	source	source	linked by /sys/include/mach.h	9c8cfb224ac3b8d2300b31a0f32d12a0
+/sys/src/libmach/map.c	source	source	linked by /sys/include/mach.h	1c3df295d4d0fc253a13410454b6f468
+/sys/src/libmach/mips2ureg.h	source	source	linked by /sys/include/mach.h	bceee67df025c960bdd244355cf73a9b
+/sys/src/libmach/mkfile	source	source	linked by /sys/include/mach.h	8e3bf28d41f8b52b64ec74c7cece1c46
+/sys/src/libmach/obj.c	source	source	linked by /sys/include/mach.h	98fdac3100a5bef411313ecaef737a38
+/sys/src/libmach/obj.h	source	source	linked by /sys/include/mach.h	9e604af49edfc00d88da40a58f063089
+/sys/src/libmach/q.c	source	source	linked by /sys/include/mach.h	93e22de741d64eed975b8c22a91d98bb
+/sys/src/libmach/qdb.c	source	source	linked by /sys/include/mach.h	6d7b2f226dd342e3a166adab0f8d06eb
+/sys/src/libmach/qobj.c	source	source	linked by /sys/include/mach.h	4ac262208c50fd44e9c967345bad0641
+/sys/src/libmach/setmach.c	source	source	linked by /sys/include/mach.h	9c144aa473cff6452c5a2f44da3d4154
+/sys/src/libmach/swap.c	source	source	linked by /sys/include/mach.h	e4d3756fb322adb7229821679a75eb5f
+/sys/src/libmach/sym.c	source	source	linked by /sys/include/mach.h	1e71705cc5070e2f33c06520c0e302ee
+/sys/src/libmach/t.c	source	source	linked by /sys/include/mach.h	42b2fd55443fc8a06762f008e53387ac
+/sys/src/libmach/tdb.c	source	source	linked by /sys/include/mach.h	109457dafe61ce271a5c2f53d15eb4e5
+/sys/src/libmach/test/mkfile	source	source	linked by /sys/include/mach.h	cc17628571a8c5523cd7c9451b9269ed
+/sys/src/libmach/test/q.c	source	source	linked by /sys/include/mach.h	db99bd41ac0e6b2a2cdb04c641906409
+/sys/src/libmach/u.c	source	source	linked by /sys/include/mach.h	de747818a6864f3f16a6edab4ada37b6
+/sys/src/libmach/uc/README	source	source	linked by /sys/include/mach.h	41153acf7edd496501d6bc61e96c48dc
+/sys/src/libmach/uc/u.out.h	source	source	linked by /sys/include/mach.h	4aa71f0fdeaadb24ed9fa9202da32657
+/sys/src/libmach/udb.c	source	source	linked by /sys/include/mach.h	9eedb4c034794bd205c460733ef9231d
+/sys/src/libmach/uobj.c	source	source	linked by /sys/include/mach.h	a23376f82b7f59884b0d9d0c49ddfa32
+/sys/src/libmach/v.c	source	source	linked by /sys/include/mach.h	de91e4715a24c6b30f6bcbd8f07e2ca2
+/sys/src/libmach/vcodas.c	source	source	linked by /sys/include/mach.h	34bffa19310830918687978318ab823d
+/sys/src/libmach/vdb.c	source	source	linked by /sys/include/mach.h	e5105e39222fdfa6c0a1c934ec4a29f4
+/sys/src/libmach/vobj.c	source	source	linked by /sys/include/mach.h	8eb36b66c29cf9aa29aacb8c83d3aa4b
 /sys/src/libmemdraw/alloc.c	source	source	LIB of /sys/src/9/pc/mkfile	0da163d320c0251739c704e8dd5a7602
 /sys/src/libmemdraw/alpha.hoc	source	source	LIB of /sys/src/9/pc/mkfile	5b229d447871b5fb5a07cba65a5d1ace
 /sys/src/libmemdraw/arc.c	source	source	LIB of /sys/src/9/pc/mkfile	1ccf5f324e316f947c592b248ef4ecdb
@@ -3020,9 +4095,10 @@
 /sys/src/libthread/test.c	source	source	LIB of /sys/src/cmd/rio/mkfile	e786878bf204e9491cda5859831be0cc
 /sys/src/libthread/threadimpl.h	source	source	LIB of /sys/src/cmd/rio/mkfile	8cc43183703baa5708958c049ba4a8ae
 /sys/src/libthread/tprimes.c	source	source	LIB of /sys/src/cmd/rio/mkfile	84ce8f35c100773294d6134f586e5a96
-/sys/src/mkfile.proto	source	source	mk template of /amd64/mkfile	a8ed56537fcf15494831f68a31691385
+/sys/src/mkfile.proto	source	source	mk template of /sys/src/games/gba/rom/mkfile	a8ed56537fcf15494831f68a31691385
 /386/9bootfat	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (dynamic: installer after copydist)	-
 /386/bootia32.efi	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (dynamic: installer after copydist)	-
 /386/mbr	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (static: named in /rc/bin/inst/partdisk)	-
 /386/pbs	excluded	legacy	BIOS/ISO boot: Plan2001 boots by UEFI only (bootx64.efi) (dynamic: installer after copydist)	-
 /amd64/bin/9660srv	excluded	legacy	ISO9660: the medium is a USB disk (static: run by /rc/bin/inst/mountdist)	-
+/sys/games/lib/fortunes	excluded	legacy	9front's quotations: not in Plan2001 (iterative: the games' data (levels, tiles, doom's shareware wad ...))	-

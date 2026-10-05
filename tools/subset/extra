@@ -276,3 +276,6 @@
 /rc/bin/rc-httpd/handlers/error	rc-httpd's answers for errors (error 403, 404, 405): rc-httpd and Plan2001's handlers run it by name
 /sys/src/cmd/clock.c	the wasm32 machine's clock (monolith/tools/build-bin3: tests clock, rioclock); its copy in monolith/third_party/9apps goes once the subset has it
 /amd64/bin/clock	rio's clock on the installed system, as on the wasm32 machine
+/amd64/bin/games	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)
+/sys/games/lib	the games' data (levels, tiles, doom's shareware wad ...)
+/sys/src/games	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read
