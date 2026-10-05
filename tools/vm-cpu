@@ -12,6 +12,9 @@
 #                       /adm/webauthn/invites (none: anyone may sign up);
 #                       passkeyd checks the passkey's signature for
 #                       PASSKEY_RP (default localhost) from PASSKEY_ORIGINS
+#   websession          plan2001/rc/bin/websession: a web account's (signupd's
+#                       group web) rcpu and app sessions limited, sourced by
+#                       tcp17019's fn server and webterm (docs/webauthn.md)
 #   auth/secuser        glenda's secstore account (docs/architecture.md,
 #                       "Avainten paikka"), her secstore password generated
 #                       into cpu.secpass in the cache; secstored on 5356
@@ -182,6 +185,11 @@ webterm() {
 	for x in ${PASSKEY_ORIGINS:-http://localhost:18080 https://localhost:17443}; do po="$po -o $x"; done
 	run9 -t 30 "{ echo '#!/bin/rc'; echo 'exec /bin/aux/passkeyd -r ${PASSKEY_RP:-localhost}$po' } >/rc/bin/service.auth/tcp17041; chmod 775 /rc/bin/service.auth/tcp17041"
 	run9 -t 30 "echo 1 >/sys/lib/plan2001/web/login && chmod 644 /sys/lib/plan2001/web/login"
+	# a web account's session limited (/rc/bin/websession: signupd's group web): rcpu's
+	# (tcp17019's fn server, as the user, before the client's script) and webterm's apps'
+	echo "vm-cpu: websession"
+	run9 -t 30 "cp /tmp/websession /rc/bin/websession && chmod 775 /rc/bin/websession"
+	run9 -t 30 "grep -s websession /rc/bin/service/tcp17019 || { awk '{print} /rm -f .*fn#server/ {print \"\t. /rc/bin/websession\"}' /rc/bin/service/tcp17019 >/tmp/t17019 && cp /tmp/t17019 /rc/bin/service/tcp17019 }; grep websession /rc/bin/service/tcp17019"
 	if [ -n "$web" ]; then
 		echo "vm-cpu: page files from $web"
 		run9 -t 60 "cp /tmp/web/* /sys/lib/plan2001/web/ && chmod 644 /sys/lib/plan2001/web/* && ls -l /sys/lib/plan2001/web"
@@ -194,7 +202,7 @@ for f in "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi"; do
 	[ -s "$f" ] || { echo "vm-cpu: no $f (tools/build.sh)" >&2; exit 1; }
 done
 cp "$root/plan2001/rc/bin/rc-httpd/select-handler" "$root/plan2001/rc/bin/rc-httpd/handlers/plan2001-static" "$stage/"
-cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/sys/src/cmd/aux/signupd.c" "$root/plan2001/sys/src/cmd/aux/passkeyd.c" "$root/plan2001/usr/glenda/lib/profile" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
+cp "$root/plan2001/sys/src/cmd/webterm.c" "$cache/ca/chain.pem" "$cache/ca/cpu.key" "$cache/ca/plan2001-ca.crt" "$root/plan2001/rc/bin/apps" "$root/plan2001/sys/src/cmd/crsrv.c" "$root/plan2001/sys/src/cmd/rcc.c" "$root/plan2001/sys/src/cmd/aux/signupd.c" "$root/plan2001/sys/src/cmd/aux/passkeyd.c" "$root/plan2001/usr/glenda/lib/profile" "$root/plan2001/rc/bin/websession" "$root/build/amd64/9pc64" "$root/build/amd64/bootx64.efi" "$stage/"
 cp -r "$root/plan2001/lib/app" "$stage/app"
 webfiles=
 if [ -n "$web" ]; then
@@ -206,7 +214,7 @@ fi
 scrub() { [ -f "$root/build/in.img" ] && dd if=/dev/zero of="$root/build/in.img" bs=1M count=64 conv=notrunc status=none; true; }
 trap scrub EXIT
 rm -f "$root/build/in.img"
-(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" select-handler plan2001-static webterm.c crsrv.c rcc.c signupd.c passkeyd.c chain.pem cpu.key plan2001-ca.crt apps app profile 9pc64 bootx64.efi $webfiles)
+(umask 077; tar cf "$root/build/in.img" --format=ustar -C "$stage" select-handler plan2001-static webterm.c crsrv.c rcc.c signupd.c passkeyd.c chain.pem cpu.key plan2001-ca.crt apps app profile websession 9pc64 bootx64.efi $webfiles)
 rm -rf "$stage"
 truncate -s '>64M' "$root/build/in.img"
 

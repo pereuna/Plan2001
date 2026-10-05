@@ -23,4 +23,13 @@ error newuser: no home made
 /mnt/ram/keys/alice
 /mnt/ram/keys/carol
 ok
+newuser gina
+newuser web :
+newuser web +gina
+error newuser web: not in the group
+newuser hank
+newuser web +hank
+/mnt/ram/keys/alice
+/mnt/ram/keys/carol
+/mnt/ram/keys/gina
 done

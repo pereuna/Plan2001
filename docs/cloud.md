@@ -362,7 +362,9 @@ alas. Ylläpito jatkuu WireGuard-tunnelin kautta.
 `tools/cloud/accounts` asentaa Plan2001:n tunnukset pilveen
 (`docs/webauthn.md`, vaihe 5): secstored, signupd ja passkeyd, kutsukoodit
 ja sivuston kirjautumisen. Lisäksi `tcp443` vaihtuu pelkistä sivuista
-koko sivustoksi. Kirjautumaton käyttäjä (`/boot/login`in `g`) saa
+koko sivustoksi, ja `/rc/bin/websession` rajaa `web`-tunnusten istunnot
+(vaihe 6: ei verkkoa, `/srv`:iä tai laskentapoolia; rivi lisätään
+`tcp17019`:n `fn server`iin). Kirjautumaton käyttäjä (`/boot/login`in `g`) saa
 saman paikallisen koneen kuin sandbox.
 
 ```

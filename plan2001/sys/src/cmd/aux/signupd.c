@@ -14,13 +14,17 @@
  * The account: a user in keyfs (its aeskey), a secstore account (who/NAME,
  * store/NAME/factotum), the passkey (webauthn/CREDID: whose, its key and
  * wrap) and, with -c, a home on the file server (newuser on its console;
- * ok once usr/NAME, which it makes, is there).
+ * ok once usr/NAME, which it makes, is there) and the user in the file
+ * server's group web (made if it is not there): /rc/bin/websession limits
+ * its sessions.  Ok only once users (-a) has it there: a web account is
+ * never unlimited.
  * With an invites file one of its lines is needed, and used up.  What it
  * had made is undone if a later step fails.
  *
- *	aux/signupd [-k keys] [-s secstore] [-w webauthn] [-c fscons [-u usr]] [-i invites]
+ *	aux/signupd [-k keys] [-s secstore] [-w webauthn] [-c fscons [-u usr] [-a users]] [-i invites]
  *
- * defaults /mnt/keys, /adm/secstore, /adm/webauthn, none, webauthn/invites
+ * defaults /mnt/keys, /adm/secstore, /adm/webauthn, none, /usr, /adm/users,
+ * webauthn/invites
  */
 #include <u.h>
 #include <libc.h>
@@ -36,6 +40,7 @@ static char *secdir = "/adm/secstore";
 static char *wadir = "/adm/webauthn";
 static char *fscons;
 static char *usrdir = "/usr";
+static char *admusers = "/adm/users";
 static char *invites;
 static char *reserved[] = {
 	"glenda", "bootes", "adm", "sys", "none", "upas", "nobody", "root",
@@ -160,6 +165,51 @@ invite(char *code)
 	return found ? 0 : -1;
 }
 
+/*
+ * users' group web (the file server's: id:name:leader:members): -1 if
+ * users can not be read, else whether it is there and has name in it
+ */
+static int
+ingroup(char *name, int *there)
+{
+	Biobuf *b;
+	char *l, *f[4], *m[64];
+	int i, n, in;
+
+	*there = 0;
+	if((b = Bopen(admusers, OREAD)) == nil)
+		return -1;
+	in = 0;
+	while(!in && (l = Brdstr(b, '\n', 1)) != nil){
+		if(getfields(l, f, nelem(f), 0, ":") == 4 && strcmp(f[1], "web") == 0){
+			*there = 1;
+			n = getfields(f[3], m, nelem(m), 0, ",");
+			for(i = 0; i < n; i++)
+				if(strcmp(m[i], name) == 0)
+					in = 1;
+		}
+		free(l);
+	}
+	Bterm(b);
+	return in;
+}
+
+static int
+fscmd(int fd, char *fmt, ...)
+{
+	char *s;
+	va_list arg;
+	int n;
+
+	va_start(arg, fmt);
+	s = vsmprint(fmt, arg);
+	va_end(arg);
+	n = strlen(s);
+	n = write(fd, s, n) == n ? 0 : -1;
+	free(s);
+	return n;
+}
+
 /* what was made, undone */
 static char *made[8];
 static int nmade;
@@ -184,7 +234,7 @@ main(int argc, char **argv)
 	char line[Nline], *f[10], *name, *p, *q;
 	uchar aes[AESKEYLEN];
 	long n, m;
-	int nf, nsec;
+	int nf, nsec, fd, i, there;
 	uchar *sec;
 
 	ARGBEGIN{
@@ -205,6 +255,9 @@ main(int argc, char **argv)
 		break;
 	case 'u':
 		usrdir = EARGF(sysfatal("usage"));
+		break;
+	case 'a':
+		admusers = EARGF(sysfatal("usage"));
 		break;
 	}ARGEND
 	if(invites == nil)
@@ -274,18 +327,27 @@ main(int argc, char **argv)
 		fail("passkey");
 	made[nmade++] = p;
 
-	/* a home on the file server */
+	/* a home on the file server, and the user in its group web */
 	if(fscons != nil && *fscons){
 		/* a line: the file server's console reads its commands a line at a time (cwfs's Brdline) */
-		q = smprint("newuser %s\n", name);
-		if((nf = open(fscons, OWRITE)) < 0 || write(nf, q, strlen(q)) != strlen(q))
+		if((fd = open(fscons, OWRITE)) < 0 || fscmd(fd, "newuser %s\n", name) < 0)
 			fail("newuser");
-		close(nf);
 		/* the console says nothing back: done when its home is there (cwfs's newuser makes /usr/NAME) */
-		for(nf = 0; nf < 100 && !exists("%s/%s", usrdir, name); nf++)
+		for(i = 0; i < 100 && !exists("%s/%s", usrdir, name); i++)
 			sleep(200);
-		if(nf == 100)
+		if(i == 100)
 			fail("newuser: no home made");
+		if((i = ingroup(name, &there)) < 0)
+			fail("newuser web: no users file");
+		if(i == 0){
+			if(!there && fscmd(fd, "newuser web :\n") < 0 || fscmd(fd, "newuser web +%s\n", name) < 0)
+				fail("newuser web");
+			for(i = 0; i < 100 && ingroup(name, &there) == 0; i++)
+				sleep(200);
+			if(i == 100)
+				fail("newuser web: not in the group");
+		}
+		close(fd);
 	}
 	answer("ok");
 }

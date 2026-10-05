@@ -123,7 +123,8 @@ want webauthn $names && PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "g
 # the real programs here with their keyfs, secstore and webauthn directories in a ramfs: an account's
 # files as keyfs, secstored and passkeyd read them; a name taken, a reserved one,
 # a key that is not one; a failure part way undone (secstore's store not writable); invites, used up;
-# the file server's newuser a line on its console, ok only once its home is there (none: undone)
+# the file server's newuser a line on its console, ok only once its home is there (none: undone), and the
+# user in its group web (made once), ok only once its users file has it there (never: undone)
 L="00112233445566778899aabbccddeeff SGlISGlISGlISGlISGlI QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB"
 sd="mntgen -s slashmnt /mnt; ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa; fn sd { aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa }
 echo signup alice $L credidAAAAAAAAAAAAAA pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
@@ -135,11 +136,23 @@ chmod 555 \$r/sec/store; echo signup bob $L credidDDDDDDDDDDDDDD pubkeyAAAAAAAAA
 echo code1 >\$r/wa/invites; echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sd
 echo signup carol $L credidEEEEEEEEEEEEEE pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA code1 | sd
 echo signup dave $L credidFFFFFFFFFFFFFF pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA code1 | sd
-rm \$r/wa/invites; mkdir \$r/usr \$r/usr/gina; touch \$r/cons; fn sdc { aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa -c \$r/cons -u \$r/usr }
+rm \$r/wa/invites; mkdir \$r/usr \$r/usr/gina \$r/usr/hank; touch \$r/cons \$r/users; fn sdc { aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa -c \$r/cons -u \$r/usr -a \$r/users }
 echo signup frank $L credidGGGGGGGGGGGGGG pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc; xd -c \$r/cons; ls \$r/keys
-echo signup gina $L credidHHHHHHHHHHHHHH pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc
+>\$r/cons; {sleep 2; echo 9:web::gina >\$r/users} &
+echo signup gina $L credidHHHHHHHHHHHHHH pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc; cat \$r/cons
+>\$r/cons; echo signup hank $L credidIIIIIIIIIIIIII pubkeyAAAAAAAAAAAAAA wrapAAAAAAAAAAAAAAAA | sdc; cat \$r/cons; ls \$r/keys
 echo done"
 want signupd $names && HALTWAIT=120 run signupd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$sd")"	# init takes no newline
+# a web account's session on the CPU server (docs/webauthn.md, /rc/bin/websession -f: what signupd's group
+# web gets): 9front's chdev (devmask) on the process group - /net and /srv gone, #I and #s not attached
+# again, not after rfork n either, and no chdev lifts it - while mount still works (rcpu's /mnt/term:
+# ramfs on a pipe); the namespace outside it as it was
+wl="mntgen -s slashmnt /mnt; bind '#|' /mnt/p; ramfs -i <>/mnt/p/data1 >[1=0] &
+test -e /net/tcp && test -e /srv/slashmnt && echo before: net and srv
+@{ . /rc/bin/websession -f; echo computepool \$computepool; ls /net /srv; bind '#I' /mnt/i >[2=1]; bind '#s' /mnt/s >[2=1]; @{rfork n; bind '#I' /mnt/i >[2=1]}; mount -c /mnt/p/data /mnt/r && touch /mnt/r/made && ls /mnt/r; echo chdev '&' I >/dev/drivers; bind '#I' /mnt/i >[2=1] }
+test -e /net/tcp && test -e /srv/slashmnt && echo after: net and srv
+echo done"
+want weblimit $names && run weblimit "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' "$wl")"	# init takes no newline
 # the CPU server's signupd and passkeyd themselves, with a passkey: auth/passkey talks to each over a
 # pipe (#|, a server name that is a path), each a process of its own as aux/listen makes them, their
 # keyfs, secstore and webauthn in a ramfs.  An account made; its passkey signs passkeyd's challenge,
@@ -265,12 +278,12 @@ fi
 # made from the browser's machine (auth/passkey signup, a virtual authenticator's passkey), signed in
 # with its passkey (the wrap from passkeyd, the key from secstored), then rcpu to the VM as the new user
 # with that key (the auth server: keyfs's aeskey from signupd).  The name has the time in it (accounts
-# stay on the VM), and goes as erin in what the test says.  mntgen and factotum before the pipe to sed:
+# stay on the VM), and goes as erin in what the test says; its session limited (websession: group web).  mntgen and factotum before the pipe to sed:
 # servers (lib9p's postsrv) keep the fds they started with, and sed would wait for them
 if want signupvm $names; then
 	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
 		MONOLITH_SECSTORE='tcp!cpu!5356' PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go"]' HTTPPORT=18080 HALTWAIT=240 run signupvm "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
-			"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; {n=erin^\`{date -un}; auth/passkey -s cpu signup \$n; auth/passkey -s cpu login | aux/seckeys -I; cat /mnt/factotum/ctl; rcpu -h cpu -u \$n -c 'echo remote: \$user; test -d /usr/\$user && echo home' >[2=1] | sed '/short write in reply/d'; echo rcpu status \$status; echo done} </dev/cons >[2=1] | sed 's/erin[0-9]+/erin/g' >/dev/cons")" \
+			"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; auth/factotum -n -sfactotum; {n=erin^\`{date -un}; auth/passkey -s cpu signup \$n; auth/passkey -s cpu login | aux/seckeys -I; cat /mnt/factotum/ctl; rcpu -h cpu -u \$n -c 'echo remote: \$user; test -d /usr/\$user && echo home; test -e /net/tcp || echo no network; test -e /srv/boot || echo no srv' >[2=1] | sed '/short write in reply/d'; echo rcpu status \$status; echo done} </dev/cons >[2=1] | sed 's/erin[0-9]+/erin/g' >/dev/cons")" \
 			'[["account password: ", "erin-password-1\n"], ["again: ", "erin-password-1\n"]]'
 	else
 		echo "test-9wasm32: signupvm: skipped (no CPU VM: tools/vm-cpu --update; tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"

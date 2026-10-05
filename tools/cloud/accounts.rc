@@ -14,6 +14,9 @@
 #                   (plan2001.com) from https://RP
 #   invites         INVITES' codes added to /adm/webauthn/invites: no
 #                   account without one
+#   websession      a web account's sessions (signupd's group web) limited:
+#                   no network, /srv or compute pool (docs/webauthn.md);
+#                   tcp17019's fn server and webterm source it
 #   tcp443          https://RP: the whole site - the page, its login and
 #                   its WebSockets (rc-httpd, webterm -s -r) - in place of
 #                   the pages-only sandbox; a guest's machine (/boot/login
@@ -63,6 +66,16 @@ fscons=`{ls /srv/cwfs*.cmd /srv/hjfs.cmd >[2]/dev/null | sed 1q}
 } >/rc/bin/service.auth/tcp17041
 chmod 775 /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
 cat /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
+
+step 'websession: the web accounts'' limits'
+cp $repo/plan2001/rc/bin/websession /rc/bin/websession || fail websession
+chmod 775 /rc/bin/websession
+if(! grep -s websession /rc/bin/service/tcp17019){
+	awk '{print} /rm -f .*fn#server/ {print "\t. /rc/bin/websession"}' /rc/bin/service/tcp17019 >/tmp/t17019 &&
+		cp /tmp/t17019 /rc/bin/service/tcp17019 || fail tcp17019
+}
+grep -s websession /rc/bin/service/tcp17019 || fail tcp17019: no fn server to limit
+grep websession /rc/bin/service/tcp17019
 
 step invites
 touch /adm/webauthn/invites

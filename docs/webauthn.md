@@ -200,7 +200,8 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 - Luontitahti: osoitetta ja päivää kohden, sekä kutsukoodit POC-vaiheessa.
 - Käyttäjän nimiavaruus CPU-palvelimella: `/lib/namespace` ilman ulospäin
   avautuvaa `/net`iä (kirjautuminen, ei postia tai skannausta) ja ilman
-  laskentapoolia, ellei käyttäjällä ole siihen oikeutta.
+  laskentapoolia, ellei käyttäjällä ole siihen oikeutta (`websession`,
+  vaihe 6).
 - Resurssit: Plan 9:ssä ei ole kiintiöitä. Siksi käyttäjäkohtaiset rajat
   (procit, muisti) ovat oma työnsä, ja levylle tarvitaan cwfs:n
   käyttöseuranta.
@@ -375,21 +376,41 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
      soittaa `$sysname`en, eikä koneilla ole loopbackia). Oraclen
      ingress-säännöt saavat päästää internetistä vain 443:n, DNS:n ja
      WireGuardin. Tarkista se ennen asennusta.
-   - **Tekemättä: rajat CPU-palvelimella.** Ennen kuin rekisteröinti
-     avataan ilman kutsukoodia, tunnusten istunnoille tarvitaan rajat.
-     Ehdotus:
-     - signupd lisää uuden käyttäjän ryhmään `web` (cwfs:n `newuser web
-       +NIMI`),
-     - rcpu-palvelimen skripti (`tcp17019`) ja webtermin sovellusskripti
-       rakentavat `web`-ryhmän käyttäjälle nimiavaruuden ilman
-       ulospäin avautuvaa `/net`iä ja laskentapoolia,
-     - lisäksi estetään `#I`:n ja muiden laitteiden liittäminen
-       uudelleen. Pelkkä `rfork m` (RFNOMNT) estäisi myös istunnon oman
-       `/mnt/term`-mountin, joten tähän tarvitaan ytimen tuki laitekohtaiselle
-       rajalle (9frontissa tutkittava),
-     - lisäksi prosessi- ja muistirajat sekä levyn käytön seuranta.
-     Siihen asti tunnukset vain kutsukoodilla, ja kutsutut ovat
-     luotettuja.
+6. **Rajat CPU-palvelimella** (tehty 5.10.): `web`-tunnuksen istunto
+   ei pääse verkkoon, `/srv`:hen eikä laskentapooliin.
+   - **Ryhmä:** signupd lisää uuden käyttäjän tiedostopalvelimen
+     ryhmään `web` (`newuser web :` kerran, `newuser web +NIMI`). Vastaus
+     on `ok` vasta, kun `/adm/users` (`-a`) näyttää jäsenyyden. Jos sitä
+     ei voi lukea tai jäsenyys ei näy 20 sekunnissa, kaikki tehty
+     perutaan, joten `web`-tunnus ei koskaan jää rajatta.
+   - **`/rc/bin/websession`** (plan2001/) ajetaan käyttäjänä heti
+     tunnistuksen jälkeen ennen asiakkaan skriptiä. Sen ajavat
+     `tcp17019`:n `fn server` (rcpu, rivi lisätään asennuksessa) ja
+     webtermin sovellusskripti. `web`-ryhmän jäsenelle se tekee:
+     - `unmount /net /net.alt /srv /shr`,
+     - `echo chdev '&~' IlaDsSfuPAσ >/dev/drivers`. Tämä on 9frontin
+       oma laitemaski (`devmask`): prosessiryhmän nimiavaruus ei enää
+       liitä näitä laitteita (`Enoattach`). Maski periytyy lapsille ja
+       uudelle nimiavaruudelle (`rfork n`, `rfork c`), eikä sitä voi
+       purkaa, koska `chdev` vain lisää maskiin. `M` jää, joten
+       `mount -nc /fd/0 /mnt/term` toimii. Ytimeen ei tarvittu muutosta.
+     - `computepool=0` sovelluksen nimiavaruustiedostolle.
+     - Jos rajaus ei onnistu, istunto päättyy. Jos `/adm/users`ia ei
+       voi lukea, rajataan kaikki paitsi isäntä.
+   - Ilman `/srv`:iä istunto ei voi julkaista palveluja (esim. plumber).
+     Oma `/srv`-taulu (9frontin `#s/clone`) on myöhempi parannus.
+   - **Testi `weblimit`** (wasm32-kone, sama 9frontin devcons ja
+     pgrp): `websession -f` aliympäristössä. Sen jälkeen `/net` ja `/srv`
+     ovat tyhjät, `#I` ja `#s` eivät liity (ei myöskään `rfork n`:n
+     jälkeen), putken 9P-palvelin mounttautuu, ja `chdev &` lisää
+     maskia mutta ei pura sitä. Ulompi nimiavaruus säilyy ennallaan.
+     `signupd`-testi näyttää konsolin rivit ja `-a`-tiedoston
+     odottamisen. VM:llä tarkistetaan vielä, että `/adm/users` on
+     käyttäjien luettavissa ja että `signupvm`:n uusi tunnus on
+     rajattu.
+   - **Tekemättä:** prosessi- ja muistirajat sekä levyn käytön
+     seuranta (9frontissa ei ole kiintiöitä). Siihen asti tunnukset
+     tehdään vain kutsukoodilla.
 
 ## Avoimet kysymykset
 

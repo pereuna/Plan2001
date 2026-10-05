@@ -104,6 +104,8 @@ done
 [ $fail = 0 ] && "$l3" -o "$out/root/bin/exportfs" "$out"/o/cmd/exportfs/*.3 $seclibs $libs "$out/lib/libsec.a" >"$out/o/cmd/exportfs.err" 2>&1 ||
 	{ echo "build-bin3: exportfs:"; tail -5 "$out/o/cmd/exportfs.err"; fail=1; }
 cp "$P/subset/9front/rc/bin/rcpu" "$P/subset/9front/rc/bin/rconnect" "$out/root/rc/bin/"
+# Plan2001's CPU server's limits for a web account's session (docs/webauthn.md), tested here
+cp "$P/plan2001/rc/bin/websession" "$out/root/rc/bin/"
 # mntgen: 9front's, /n and /mnt as its bootrc makes them (factotum's /mnt/factotum)
 if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/mntgen.3" mntgen.c) >"$out/o/cmd/mntgen.err" 2>&1 ||
    ! "$l3" -o "$out/root/bin/mntgen" "$out/o/cmd/mntgen.3" "$out/lib/lib9p.a" "$out/lib/libthread.a" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/mntgen.err" 2>&1; then

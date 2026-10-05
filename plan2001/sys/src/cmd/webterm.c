@@ -73,7 +73,8 @@ static int fromhttpd;	/* -r: the request is rc-httpd's ($request, $reqlines) */
  * The rcpu session of an app: the client's script (rcpu's, from the wasm32
  * machine's /boot/app) is read and dropped; the terminal is mounted as
  * rcpu's server script would, and the app's namespace file and image run,
- * as the user (rc -l: the profile).  Its end is rcpu's server's
+ * as the user (rc -l: the profile), a web account's session limited
+ * before anything (/rc/bin/websession: no network, /srv or pool).  Its end is rcpu's server's
  * (/rc/bin/rcpu: fn server): the client's interrupt and hangup through
  * its cpunote, the app's status back, and its "lost connection" taken
  * away.
@@ -91,6 +92,8 @@ static int fromhttpd;	/* -r: the request is rc-httpd's ($request, $reqlines) */
 	"~ $#noteproc 0 || echo -n hangup >/proc/$noteproc/notepg\n" \
 	"echo -n hangup >/proc/$pid/notepg\n"
 static char appscript[] =
+	"computepool=%d\n"
+	". /rc/bin/websession\n"	/* a web account's session limited (or none) */
 	"n=`{read} && ! ~ $#n 0 && read -c $n >/dev/null || exit\n"
 	"mount -nc /fd/0 /mnt/term || exit\n"
 	"bind -q /mnt/term/dev/cons /dev/cons\n"
@@ -98,7 +101,7 @@ static char appscript[] =
 	"	</dev/cons >/dev/cons >[2=1] aux/kbdfs -dq -m /mnt/term/dev\n"
 	"	bind -q /mnt/term/dev/cons /dev/cons\n"
 	"}\n"
-	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s computepool=%d rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image' &\n"
+	"</dev/cons >/dev/cons >[2=1] service=cpu app=%s computepool=$computepool rc -lc '. /lib/app/$app/namespace; exec /lib/app/$app/image' &\n"
 	RCPUEND;
 static char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -958,7 +961,7 @@ rcpu(char *hdr, char *app)
 	origin = header(hdr, "Origin");
 	origin = strdup(origin != nil ? origin : "");
 	/* computepool: the app may use the pool (policy compute: a compute consumer) */
-	script = smprint(appscript, app, allowed(app, "compute"));
+	script = smprint(appscript, allowed(app, "compute"), app);
 	wsaccept(hdr);
 	switch(rfork(RFPROC|RFFDG|RFNOTEG)){
 	case -1:
