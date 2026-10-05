@@ -5,12 +5,15 @@
  * service.auth/tcp17040, as the host owner (keyfs, /adm).
  *
  *	signup NAME AESKEY SECHI SECFILE CREDID PUBKEY WRAP [INVITE]
+ *	add NAME CREDID PUBKEY WRAP MAC
  *
  * None of it is the password: AESKEY the auth server's key (hex, the
  * password's passtokey), SECHI secstore's verifier (PAK's Hi, base64),
  * SECFILE secstore's factotum file (base64, encrypted with the password
  * by the client), CREDID the passkey's id, PUBKEY its public key (SPKI)
- * and WRAP the name and password encrypted with its PRF output (base64url).
+ * and WRAP the name and password encrypted with its PRF output (base64url),
+ * - if the authenticator gave no PRF (the passkey names the account, the
+ * password is typed); all three - when the device made no passkey.
  * The account: a user in keyfs (its aeskey), a secstore account (who/NAME,
  * store/NAME/factotum), the passkey (webauthn/CREDID: whose, its key and
  * wrap) and, with -c, a home on the file server (newuser on its console;
@@ -18,6 +21,10 @@
  * server's group web (made if it is not there): /rc/bin/websession limits
  * its sessions.  Ok only once users (-a) has it there: a web account is
  * never unlimited.
+ * add is another passkey for an account (or its first, if it was made
+ * without one): MAC is the HMAC (SHA-256, hex) of the line before it by the
+ * account's AES key in keyfs, so only who knows the password adds one;
+ * no invite.
  * With an invites file one of its lines is needed, and used up.  What it
  * had made is undone if a later step fails.
  *
@@ -29,6 +36,8 @@
 #include <u.h>
 #include <libc.h>
 #include <bio.h>
+#include <mp.h>
+#include <libsec.h>
 #include <authsrv.h>
 
 enum {
@@ -89,6 +98,13 @@ charset(char *s, char *set, int min, int max)
 
 #define B64	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 #define B64U	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+/* a wrap, or - (the authenticator gave no PRF: the passkey names the account, the password is typed) */
+static int
+wrapok(char *s)
+{
+	return strcmp(s, "-") == 0 || charset(s, B64U, 16, 2048);
+}
 
 static int
 exists(char *fmt, ...)
@@ -228,13 +244,52 @@ fail(char *why)
 	answer("error %s", why);
 }
 
+/*
+ * add NAME CREDID PUBKEY WRAP MAC: another passkey for an account, MAC
+ * the HMAC (SHA-256, hex) of the line before it by the account's key in
+ * keyfs (passtokey's AES key: who knows the password)
+ */
+static void
+addpasskey(char **f)
+{
+	uchar aes[AESKEYLEN], mac[SHA2_256dlen], want[SHA2_256dlen];
+	char *p, *q, *msg;
+	int fd, n;
+
+	if(!validname(f[1]))
+		answer("error bad name");
+	if(!charset(f[2], B64U, 16, 1024) || !charset(f[3], B64U, 16, 1024) || !wrapok(f[4])
+	|| !charset(f[5], "0123456789abcdefABCDEF", 2*SHA2_256dlen, 2*SHA2_256dlen)
+	|| dec16(mac, sizeof mac, f[5], 2*SHA2_256dlen) != SHA2_256dlen)
+		answer("error bad request");
+	p = smprint("%s/%s/aeskey", keys, f[1]);
+	fd = open(p, OREAD);
+	n = fd < 0 ? -1 : read(fd, aes, sizeof aes);
+	if(fd >= 0)
+		close(fd);
+	if(n != AESKEYLEN)
+		answer("error no such account");
+	msg = smprint("add %s %s %s %s", f[1], f[2], f[3], f[4]);
+	hmac_sha2_256((uchar*)msg, strlen(msg), aes, AESKEYLEN, want, nil);
+	memset(aes, 0, sizeof aes);
+	if(tsmemcmp(mac, want, sizeof mac) != 0)
+		answer("error wrong password");
+	if(exists("%s/%s", wadir, f[2]))
+		answer("error passkey taken");
+	p = smprint("%s/%s", wadir, f[2]);
+	q = smprint("name\t%s\npubkey\t%s\nwrap\t%s\ncreated\t%ld\n", f[1], f[3], f[4], time(0));
+	if(put(p, q, strlen(q), 0600) < 0)
+		answer("error passkey");
+	answer("ok");
+}
+
 void
 main(int argc, char **argv)
 {
 	char line[Nline], *f[10], *name, *p, *q;
 	uchar aes[AESKEYLEN];
 	long n, m;
-	int nf, nsec, fd, i, there;
+	int nf, nsec, fd, i, there, nopk;
 	uchar *sec;
 
 	ARGBEGIN{
@@ -274,6 +329,8 @@ main(int argc, char **argv)
 		answer("error no line");
 	*p = 0;
 	nf = tokenize(line, f, nelem(f));
+	if(nf == 6 && strcmp(f[0], "add") == 0)
+		addpasskey(f);
 	if((nf != 8 && nf != 9) || strcmp(f[0], "signup") != 0)
 		answer("error bad request");
 	name = f[1];
@@ -281,11 +338,14 @@ main(int argc, char **argv)
 		answer("error bad name");
 	if(!charset(f[2], "0123456789abcdefABCDEF", 2*AESKEYLEN, 2*AESKEYLEN) || dec16(aes, sizeof aes, f[2], 2*AESKEYLEN) != AESKEYLEN)
 		answer("error bad key");
+	/* no passkey: CREDID, PUBKEY and WRAP all - (the device made none: the password signs in) */
+	nopk = strcmp(f[5], "-") == 0 && strcmp(f[6], "-") == 0 && strcmp(f[7], "-") == 0;
 	if(!charset(f[3], B64, 16, 1024) || !charset(f[4], B64, 16, 8192)
-	|| !charset(f[5], B64U, 16, 1024) || !charset(f[6], B64U, 16, 1024) || !charset(f[7], B64U, 16, 2048))
+	|| !nopk && (!charset(f[5], B64U, 16, 1024) || !charset(f[6], B64U, 16, 1024) || !wrapok(f[7])))
 		answer("error bad request");
-	if(exists("%s/%s", keys, name) || exists("%s/who/%s", secdir, name) || exists("%s/%s", wadir, f[5]))
+	if(exists("%s/%s", keys, name) || exists("%s/who/%s", secdir, name) || !nopk && exists("%s/%s", wadir, f[5]))
 		answer("error name taken");
+	nsec = 0;
 	sec = malloc(strlen(f[4]));
 	if(sec == nil || (nsec = dec64(sec, strlen(f[4]), f[4], strlen(f[4]))) < 32)
 		answer("error bad request");
@@ -320,12 +380,14 @@ main(int argc, char **argv)
 	made[nmade++] = p;
 	made[nmade++] = q;
 
-	/* the passkey */
-	p = smprint("%s/%s", wadir, f[5]);
-	q = smprint("name\t%s\npubkey\t%s\nwrap\t%s\ncreated\t%ld\n", name, f[6], f[7], time(0));
-	if(put(p, q, strlen(q), 0600) < 0)
-		fail("passkey");
-	made[nmade++] = p;
+	/* the passkey, if there is one */
+	if(!nopk){
+		p = smprint("%s/%s", wadir, f[5]);
+		q = smprint("name\t%s\npubkey\t%s\nwrap\t%s\ncreated\t%ld\n", name, f[6], f[7], time(0));
+		if(put(p, q, strlen(q), 0600) < 0)
+			fail("passkey");
+		made[nmade++] = p;
+	}
 
 	/* a home on the file server, and the user in its group web */
 	if(fscons != nil && *fscons){

@@ -112,9 +112,15 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
   ("Kirjaudu passkeylla" tai "Luo passkey"), ja painallus kutsuu
   rajapintaa. Selaimet eivät salli WebAuthnia ilman elettä, ja ele kertoo
   käyttäjälle, mitä on tapahtumassa.
-- rpId on sivun oma rekisteröitävä verkkotunnus (`plan2001.com`). Se
-  kelpaa myös alidomaineille (`cpu.`, `APP.`), joten sama passkey toimii
-  sovellusten origineissa. Sivu ei päästä konetta valitsemaan muuta
+- rpId on sivuston verkkotunnus (`plan2001.com`). Sen kertoo palvelimen
+  `login`-tiedosto (`tools/cloud/accounts.rc` kirjoittaa siihen
+  domainin, testit ja VM `1`:n eli sivun oman hostin). Sivu antaa sen
+  koneelle BootInfon `passkeyrp=`-rivinä vain, jos se on sivun host tai
+  sen yläpuolella (testi `pagerp`). Se kelpaisi myös alidomaineille
+  (`cpu.`, `APP.`), joten sama passkey toimisi sovellusten origineissa.
+  **Päätös 5.10.2026: alidomainit ovat toistaiseksi pois käytöstä.**
+  Kirjautuminen ja passkeyt ovat vain osoitteessa plan2001.com, ja
+  `passkeyrp` on valmiina, kun alidomainit otetaan käyttöön. Sivu ei päästä konetta valitsemaan muuta
   rpId:tä kuin oman originsa suffiksin, joten vieras sivusto ei saa
   plan2001.com:n passkeyta.
 - Laite on 9front-yhteensopiva lisäys wasm32-alustaan: plan9/.
@@ -189,9 +195,35 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 - **Selaimen kone:** P ja avaimet ovat koneen muistissa (factotum) kuten
   nyt. Sivun JavaScript näkee PRF-salaisuuden, joten sivun eheys
   (CSP, SRI ja oma origin) on tärkeä.
-- **PRF puuttuu:** autentikaattori ilman PRF:ää käy vain vaiheen 2
-  tunnistukseen. P on silloin kirjoitettava. Sivu kertoo, kun
-  passkeylla ei voi avata avaimia.
+- **Passkeyn lisäys** (5.10.): valikon `a) add passkey` eli
+  `auth/passkey add NIMI` kysyy tunnuksen salasanan, tekee passkeyn
+  (PRF) ja kääreen ja lähettää signupd:lle rivin `add NIMI CREDID PUBKEY
+  WRAP MAC`. MAC on HMAC-SHA256 rivistä salasanasta johdetulla
+  AES-avaimella, jonka keyfs tuntee, joten salasanaa ei lähetetä ja vain
+  sen tietävä voi lisätä passkeyn. Kutsukoodia ei tarvita. Näin
+  ilman passkeyta tehty tunnus saa sen myöhemmin (esim. puhelimella), ja
+  tunnuksella voi olla useita. Testi `passkeyadd` (oikeat daemonit).
+- **Passkey ilman PRF:ää** (5.10., ulkopuolisen katselmoinnin
+  löydös): Windows 10:n Windows Hello ja monet suojausavaimet eivät anna
+  PRF:ää. Passkey tallennetaan silti ilman käärettä (`wrap -`). Silloin
+  se nimeää tunnuksen: passkeyd tarkistaa allekirjoituksen ja antaa
+  nimen, ja `auth/passkey login` kysyy salasanan ("password for NIMI").
+  Tuloste on sama kuin ennen, joten `/boot/login` ja `aux/seckeys -I`
+  eivät muutu. PRF:n kanssa salasana avautuu kääreestä kuten ennen. Testi
+  `passkeynoprf` (virtuaalinen autentikaattori `hasPrf: False`, oikeat
+  daemonit); aiemmat testit pakottivat PRF:n päälle ja peittivät tämän.
+- **Kolme valintaa:** sivun passkey-pyynnössä ovat "this device"
+  (selain valitsee), "With a phone (QR code)" (`hints: ['hybrid']`) ja
+  "Security key" (`hints: ['security-key']`); kaksi jälkimmäistä
+  ulkoisella autentikaattorilla. Plan2001 ei siis ole riippuvainen
+  selaimen salasanojen hallinnan (esim. Googlen) tilasta.
+- **PRF puuttuu tai passkeyta ei synny:** tunnus syntyy silti
+  pelkällä salasanalla (5.10.). `auth/passkey signup` kertoo syyn ja
+  päättyy tilaan `no passkey`, signupd saa passkeyn kentiksi `- - -`
+  eikä tallenna passkeyta, ja `/boot/login` kirjautuu salasanalla.
+  Näin kävi plan2001.comissa: Windows 10:n Windows Hellossa ei ole
+  PRF:ää, ja Chromen salasanojen hallinta vaati Google-tilin
+  salauksen avaamista. Testi `signupnopk`.
 - **Palautus:** valinnainen palautuskoodi (satunnainen, tulostettava) on
   oma kääreensä. Palvelin ei voi palauttaa tunnusta.
 

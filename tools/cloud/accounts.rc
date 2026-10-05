@@ -70,7 +70,8 @@ chmod 775 /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
 cat /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
 
 step 'weblimitd: the web accounts'' processes and memory'
-test -e /sys/log/weblimit || { touch /sys/log/weblimit && chmod 664 /sys/log/weblimit }
+for(l in weblimit signupd passkeyd)
+	test -e /sys/log/$l || { touch /sys/log/$l && chmod 664 /sys/log/$l }
 grep -s aux/weblimitd $cfg/cpustart || echo 'aux/weblimitd >/dev/null >[2=1] &' >>$cfg/cpustart
 if(! ps | grep -s ' weblimitd$')
 	aux/weblimitd >/dev/null >[2=1] &
@@ -93,7 +94,7 @@ for(c in `{cat $invites})
 echo `{wc -l </adm/webauthn/invites} invites
 
 step 'the site''s login and secstore'
-echo 1 >/sys/lib/plan2001/web/login
+echo $rp >/sys/lib/plan2001/web/login	# the passkeys' rp (kernel.html: passkeyrp=)
 echo 'tcp!secstore!5356' >/sys/lib/plan2001/web/secstore
 chmod 644 /sys/lib/plan2001/web/login /sys/lib/plan2001/web/secstore
 

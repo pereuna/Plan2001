@@ -20,7 +20,12 @@ is no longer in the browser.)
                                            protocol's, with PRF) for the page's
                                            passkeys (devwebauthn.c), and its
                                            buttons clicked in this order: go
-                                           (the request's) or cancel
+                                           (the request's), phone or key (with
+                                           a cross-platform one) or cancel
+  PAGEURL=https://plan2001.com/           a site's page instead of tools/serve's
+  TOUCH=1                                  a phone: a touch screen 400x700
+  WEBAUTHN_NOPRF=1                         the virtual authenticators without PRF
+                                           (Windows 10's Hello, many keys)
   PAGEHOST=localhost                       the page from this host (WebAuthn
                                            takes no IP address for its rp)
 """
@@ -139,6 +144,8 @@ def main():
 				time.sleep(0.2)
 		page = os.environ.get('PAGE') or 'kernel.html'
 		url = f'http://{os.environ.get("PAGEHOST", "127.0.0.1")}:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
+		if os.environ.get('PAGEURL'):	# PAGEURL=https://plan2001.com/: a site's page (by hand: what a person there gets)
+			url = os.environ['PAGEURL'] + '?x=1' + os.environ.get('PAGEARGS', '')
 		def withargs(url, args):
 			for a in args:	# ARGS='["-c", "echo hi"]'
 				url += '&arg=' + urllib.parse.quote(a, safe='')
@@ -155,6 +162,11 @@ def main():
 		cdp = Cdp(t['webSocketDebuggerUrl'])
 		cdp.call('Page.enable')
 		cdp.call('Runtime.enable')
+		if os.environ.get('TOUCH'):	# TOUCH=1: a phone - a touch screen 400x700, the page loaded again as one
+			cdp.call('Emulation.setDeviceMetricsOverride', width=400, height=700, deviceScaleFactor=1, mobile=True)
+			cdp.call('Emulation.setTouchEmulationEnabled', enabled=True, maxTouchPoints=5)
+			cdp.call('Page.reload', ignoreCache=True)
+			time.sleep(1)
 		# WEBAUTHN: the browser's passkeys are a virtual authenticator's, its PRF on; the page's
 		# buttons (devwebauthn.c's requests) clicked as a person would, in the order given
 		webauthn = json.loads(os.environ.get('WEBAUTHN', 'null'))
@@ -162,12 +174,16 @@ def main():
 			cdp.call('WebAuthn.enable', enableUI=False)
 			cdp.call('WebAuthn.addVirtualAuthenticator', options={'protocol': 'ctap2', 'ctap2Version': 'ctap2_1',
 				'transport': 'internal', 'hasResidentKey': True, 'hasUserVerification': True,
-				'isUserVerified': True, 'hasPrf': True, 'automaticPresenceSimulation': True})
+				'isUserVerified': True, 'hasPrf': not os.environ.get('WEBAUTHN_NOPRF'), 'automaticPresenceSimulation': True})
+			if 'phone' in webauthn or 'key' in webauthn:	# the page's phone or security key button: a cross-platform authenticator (a phone's, as hybrid would be)
+				cdp.call('WebAuthn.addVirtualAuthenticator', options={'protocol': 'ctap2', 'ctap2Version': 'ctap2_1',
+					'transport': 'usb', 'hasResidentKey': True, 'hasUserVerification': True,
+					'isUserVerified': True, 'hasPrf': not os.environ.get('WEBAUTHN_NOPRF'), 'automaticPresenceSimulation': True})
 		def passkeys():
 			"""the next button the page shows, clicked"""
 			if not webauthn:
 				return
-			bid = 'webauthn-go' if webauthn[0] == 'go' else 'webauthn-cancel'
+			bid = {'go': 'webauthn-go', 'phone': 'webauthn-phone', 'key': 'webauthn-key'}.get(webauthn[0], 'webauthn-cancel')
 			try:
 				r = cdp.js(f"(() => {{ const b = document.getElementById('{bid}'); if (!b || b.disabled) return null; const r = b.getBoundingClientRect(); return [r.left + r.width/2, r.top + r.height/2]; }})()")
 			except RuntimeError:

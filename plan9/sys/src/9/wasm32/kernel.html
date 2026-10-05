@@ -4,17 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plan2001 wasm32</title>
+<meta name="plan2001-version" content="@VERSION@">
 <style>
 	:root { --bg: #fff; --fg: #000; }
 	@media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #ddd; } }
 	html, body { margin: 0; height: 100%; overflow: hidden; background: #777; }
 	body { color: var(--fg); font: 14px monospace; }
 	/* the machine's screen is the window (rio in all of it); ?console=1 the serial port below it */
-	canvas { display: block; width: 100vw; height: 100vh; background: #777; touch-action: none; outline: none; }
+	canvas { display: block; width: 100vw; height: calc(100vh - var(--barh, 0px)); background: #777; touch-action: none; outline: none; }
 	pre { display: none; margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; background: var(--bg); }
 	body.console { overflow: auto; }
 	body.console canvas { width: auto; height: auto; max-width: 100%; margin: 0 auto; }
 	body.console pre { display: block; }
+	/* the site's login (/boot/login): the console alone, its prompt in view, until rio draws */
+	body.login canvas { display: none; }
+	body.login pre { min-height: 100vh; box-sizing: border-box; }
+	/* a touch screen's key bar (body.touch): the keys a phone's keyboard lacks, and the mouse's buttons */
+	#bar { display: none; position: fixed; left: 0; right: 0; bottom: 0; height: 44px; background: #333; gap: 3px; padding: 4px 3px; box-sizing: border-box; overflow-x: auto; }
+	body.touch #bar { display: flex; }
+	body.touch { --barh: 44px; }
+	body.touch.login pre { padding-bottom: 60px; }
+	#bar button { flex: 1 0 auto; min-width: 28px; padding: 0 4px; font: 14px monospace; color: #fff; background: #555; border: 0; border-radius: 4px; touch-action: manipulation; }
+	#bar button.on { background: #2a7; }
+	/* a phone's keyboard: it opens for a text field, this one, off the screen (a touch focuses it) */
+	#kbd { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; }
 	#halt { display: none; position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px; background: var(--bg); }
 </style>
 </head>
@@ -23,9 +36,17 @@
 <canvas id="screen" width="800" height="600"></canvas>
 <pre id="eia0"></pre>
 <pre id="halt"></pre>
+<div id="bar"><button data-k="kbd">kbd</button><button data-b="1" class="on">m1</button><button data-b="2">m2</button><button data-b="4">m3</button><button data-k="Escape">esc</button><button data-k="Tab">tab</button><button data-k="ctrl">ctl</button><button data-k="Delete">del</button><button data-k="ArrowLeft">←</button><button data-k="ArrowUp">↑</button><button data-k="ArrowDown">↓</button><button data-k="ArrowRight">→</button></div>
+<textarea id="kbd" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="keyboard"></textarea>
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
+/* the page's version (monolith/tools/pages: the commit and its time), so that a cached page shows */
+const version = document.querySelector('meta[name=plan2001-version]')?.content ?? '';
+if (version && !version.startsWith('@')) {
+	pre.textContent = 'Plan2001 page ' + version + '\n';
+	document.title += ' ' + version;
+}
 // init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test);
 // ?conf=name=value plan9.ini's lines (BootInfo's config, as init's init=)
 const q = new URLSearchParams(location.search);
@@ -46,14 +67,25 @@ const appname = /^[a-z0-9-]{1,32}$/.test(app.trim()) ? app.trim() : 'term';
  */
 const sec = appname === 'term' ? await fetch('secstore', { cache: 'no-store' }).then((r) => r.ok ? r.text() : '').catch(() => '') : '';
 const secstore = /^[a-z0-9.!-]{1,64}$/.test(sec.trim()) ? sec.trim() : '';
-/* and its login (GET /login: the site has accounts and passkeys, docs/webauthn.md): /boot/login's menu */
-const login = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok).catch(() => false) : false;
+/*
+ * and its login (GET /login: the site has accounts and passkeys, docs/webauthn.md): /boot/login's
+ * menu.  The file is the passkeys' rp - the site's domain, so that APP.SITE has the same passkeys -
+ * if it is this page's host or above it (else 1: the page's host)
+ */
+const logintext = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok ? r.text() : null).catch(() => null) : null;
+const login = logintext !== null;
+const rpname = (logintext ?? '').trim().toLowerCase();
+const passkeyrp = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(rpname) && (location.hostname === rpname || location.hostname.endsWith('.' + rpname)) ? rpname : '';
 /* the site's login (/boot/login) is on the console too, until a program draws on the screen (rio) */
 const loginconsole = () => login && appname === 'term' && !(q.get('console') === '1');
-if (loginconsole()) document.body.classList.add('console');
+if (loginconsole()) document.body.classList.add('console', 'login');
 const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
-	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '');
+	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '') + (passkeyrp ? 'passkeyrp=' + passkeyrp + '\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
+/* a touch screen (a phone): the key bar, and the screen above it */
+const touch = matchMedia('(pointer: coarse)').matches;
+if (touch) document.body.classList.add('touch');
+const barh = touch ? 44 : 0;
 
 // the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c);
 // w3root.fs is all of it, one file (a server that has no directories: webterm), else each from w3root.txt
@@ -85,6 +117,10 @@ const down = new Map();	/* e.code: the rune its down sent, for its up */
 document.addEventListener('keydown', (e) => {
 	/* Meta itself is Plan 9's Kmod4; Meta with another key is the browser's (its shortcuts) */
 	if (!window.monolith || e.metaKey && e.key !== 'Meta') return;
+	/* Ctrl-C with text selected (the console's) is the browser's copy */
+	if (e.ctrlKey && (e.key === 'c' || e.key === 'C' || e.key === 'Insert') && String(getSelection()).length) return;
+	/* Ctrl-V and Shift-Insert are the browser's paste: its paste event types the text (kernelpaste) */
+	if (e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V') || e.shiftKey && e.key === 'Insert') return;
 	const r = K[e.key] ?? ([...e.key].length === 1 ? e.key : undefined);
 	if (r === undefined) return;
 	down.set(e.code, r);
@@ -114,14 +150,62 @@ window.kernelpaste = (text) => {
 	for (const k of ['Shift', 'Control', 'Alt', 'AltGraph', 'Meta']) window.monolith.kbd('R' + K[k] + '\0');
 	for (const c of text.replace(/\r\n?/g, '\n')) window.monolith.kbd('r' + c + '\0R' + c + '\0');
 };
+/*
+ * a phone: its keyboard types into #kbd (its keydowns are 'Unidentified', or none): what goes in
+ * is typed as keys, Backspace and Return too, and the field kept empty.  A touch on the page
+ * focuses it (opens the keyboard), unless text is being selected
+ */
+const kbdfield = document.getElementById('kbd');
+const kbdreset = () => { kbdfield.value = ' '; kbdfield.setSelectionRange(1, 1); };	/* a space: Backspace has something to delete */
+kbdfield.addEventListener('input', (e) => {
+	if (window.monolith) {
+		if (e.inputType === 'deleteContentBackward') window.monolith.kbd('r' + K.Backspace + '\0R' + K.Backspace + '\0');
+		else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') window.monolith.kbd('r\n\0R\n\0');
+		else if (e.data && ctrl) {	/* the bar's Ctrl: the next key with it */
+			window.monolith.kbd('r' + K.Control + '\0');
+			for (const c of e.data) window.monolith.kbd('r' + c + '\0R' + c + '\0');
+			window.monolith.kbd('R' + K.Control + '\0');
+			ctrl = false;
+			bar.querySelector('[data-k=ctrl]').classList.remove('on');
+		}
+		else if (e.data) for (const c of e.data) window.monolith.kbd('r' + c + '\0R' + c + '\0');
+	}
+	kbdreset();
+});
+kbdfield.addEventListener('focus', kbdreset);
+/*
+ * the key bar: kbd the phone's keyboard (#kbd focused by the tap itself), m1 m2 m3 the button a
+ * finger is (for the next touch, then m1 again: rio's menus), keys as typed, ctl for the next key
+ */
+let ctrl = false, touchbutton = 1;
+const bar = document.getElementById('bar');
+const typekey = (r) => window.monolith?.kbd('r' + r + '\0R' + r + '\0');
+bar.addEventListener('pointerdown', (e) => e.preventDefault());	/* the keyboard stays open */
+bar.addEventListener('click', (e) => {
+	const b = e.target.closest('button');
+	if (!b) return;
+	if (b.dataset.k === 'kbd') kbdfield.focus();
+	else if (b.dataset.k === 'ctrl') b.classList.toggle('on', ctrl = !ctrl);
+	else if (b.dataset.k) typekey(K[b.dataset.k]);
+	else if (b.dataset.b) {
+		touchbutton = Number(b.dataset.b);
+		for (const x of bar.querySelectorAll('[data-b]')) x.classList.toggle('on', x === b);
+	}
+});
+const button1 = () => { touchbutton = 1; for (const x of bar.querySelectorAll('[data-b]')) x.classList.toggle('on', x.dataset.b === '1'); };
+document.addEventListener('pointerup', (e) => { if (e.pointerType === 'touch' && e.target.id === 'screen') button1(); });
+document.addEventListener('touchend', () => { if (!String(getSelection()).length) kbdfield.focus({ preventScroll: true }); });
 document.addEventListener('paste', (e) => {
 	window.kernelpaste(e.clipboardData.getData('text'));
 	e.preventDefault();
 });
 
 boot('9wasm32.wasm', {
-	eia: (b) => { pre.textContent += dec.decode(b, { stream: true }); },
-	drawn: () => { if (loginconsole()) document.body.classList.remove('console'); },
+	eia: (b) => {
+		pre.textContent += dec.decode(b, { stream: true });
+		if (document.body.classList.contains('login')) scrollTo(0, document.body.scrollHeight);	/* the prompt in view */
+	},
+	drawn: () => { if (loginconsole()) document.body.classList.remove('console', 'login'); },
 	halt: (why) => {
 		pre.textContent += '\n[halted: ' + why + ']\n';
 		if (!(q.get('console') === '1')) { const h = document.getElementById('halt'); h.textContent = 'Plan2001 halted: ' + why; h.style.display = 'block'; }
@@ -132,7 +216,8 @@ boot('9wasm32.wasm', {
 	disk: (q.get('disk') ?? '256') !== '0' && navigator.storage?.getDirectory ? { name: 'sdW0', size: Number(q.get('disk') ?? 256) * 1048576, fail: q.get('diskfail') } : null,
 	config: machine + q.getAll('conf').map((c) => c + '\n').join(''),
 	canvas: document.getElementById('screen'),
-	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight) }))((q.get('screen') ?? '').split('x')),
+	touchbutton: () => touchbutton,
+	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight - barh) }))((q.get('screen') ?? '').split('x')),
 	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */
 	/*
 	 * the machine's network: this origin's own webterm, nothing a URL can

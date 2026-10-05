@@ -102,14 +102,15 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
 - ydin ja ohjelmat: `c2a bootinfo badblob oldheader disk diskdead echo long fork forkloop rc rci c3a failfork rfmem
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
-  rci3 rioclock riorc boot paste` (`boot` tarvitsee vga-alifontit, ks. alla)
+  rci3 rioclock riorc boot paste ctrlv touchbar` (`boot` tarvitsee vga-alifontit, ks. alla;
+  `touchbar`: puhelimen näppäinpalkki, test-wasmapp `TOUCH=1`)
 - D3 tunnistus: `crypto dp9ik dp9iknoas secstore seckeys pagesecstore`
   (+ `dp9ikvm` ja `secstorevm` VM:llä, `secstorevm` vaatii `tools/vm-cpu
   --update`:n jälkeisen secstore-tilin; `secstore`: factotumin avaimet `test-authsrv`in secstoresta,
   `seckeys`: niiden salattu kopio levyllä ja haku siitä ilman verkkoa)
 - D4 rcpu: `tls notekill netre nettimeout rcpu rcpuask rcpukeys` (+ `rcpuvm`
   VM:llä; `rcpukeys`: cpu-istunnon factotum on päätteen)
-- WebAuthn: `webauthn signup passkeyoffline signupd passkeyc pagelogin weblimit weblimitd` (+ `signupvm`
+- WebAuthn: `webauthn signup signupnopk passkeyoffline signupd passkeyc passkeyadd passkeyphone passkeynoprf pagelogin pagerp weblimit weblimitd` (+ `signupvm`
   VM:llä) (`#W`, virtuaalinen autentikaattori, `test-authsrv`in signupd ja
   passkeyd; `signupd` ja `passkeyc` ajavat oikeat C-daemonit koneessa,
   `weblimit` CPU-palvelimen `websession`-rajan, `weblimitd` sen

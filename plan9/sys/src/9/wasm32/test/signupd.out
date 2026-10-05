@@ -9,10 +9,15 @@ pubkey	pubkeyAAAAAAAAAAAAAA
 wrap	wrapAAAAAAAAAAAAAAAA
 error name taken
 error bad name
+ok
+/mnt/ram/wa/credidAAAAAAAAAAAAAA
+error bad request
 error bad key
 error secstore store
 /mnt/ram/keys/alice
+/mnt/ram/keys/ivan
 /mnt/ram/sec/who/alice
+/mnt/ram/sec/who/ivan
 /mnt/ram/wa/credidAAAAAAAAAAAAAA
 error invite needed
 ok
@@ -22,6 +27,7 @@ error newuser: no home made
 000000e 
 /mnt/ram/keys/alice
 /mnt/ram/keys/carol
+/mnt/ram/keys/ivan
 ok
 newuser gina
 newuser web :
@@ -32,4 +38,5 @@ newuser web +hank
 /mnt/ram/keys/alice
 /mnt/ram/keys/carol
 /mnt/ram/keys/gina
+/mnt/ram/keys/ivan
 done

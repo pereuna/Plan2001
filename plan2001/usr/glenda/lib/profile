@@ -23,9 +23,11 @@ fn remote {
 
 switch($service){
 case terminal
-	if(! webcookies >[2]/dev/null)
+	# webcookies and webfs where there are (not the wasm32 machine's root)
+	if(test -x /bin/webcookies && ! webcookies >[2]/dev/null)
 		webcookies -f /tmp/webcookies
-	webfs
+	if(test -x /bin/webfs)
+		webfs
 	plumber
 	echo -n accelerated > '#m/mousectl'
 	echo -n 'res 3' > '#m/mousectl'

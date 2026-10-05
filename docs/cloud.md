@@ -359,6 +359,12 @@ alas. Ylläpito jatkuu WireGuard-tunnelin kautta.
 
 ## Tunnukset ja passkeyt: https://plan2001.com (5.10.)
 
+**Päätös 5.10.2026: alidomainit (sovellusoriginit `APP.`) ovat
+toistaiseksi pois käytöstä.** Kirjautuminen ja passkeyt ovat vain
+osoitteessa plan2001.com. Sivuston `login`-tiedosto kertoo passkeyjen
+rp:n (`plan2001.com`), joten alidomainit saavat saman passkeyn, kun ne
+otetaan käyttöön.
+
 `tools/cloud/accounts` asentaa Plan2001:n tunnukset pilveen
 (`docs/webauthn.md`, vaihe 5): secstored, signupd ja passkeyd, kutsukoodit
 ja sivuston kirjautumisen. Lisäksi `tcp443` vaihtuu pelkistä sivuista
