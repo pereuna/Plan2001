@@ -21,6 +21,7 @@ is no longer in the browser.)
                                            passkeys (devwebauthn.c), and its
                                            buttons clicked in this order: go
                                            (the request's) or cancel
+  PAGEURL=https://plan2001.com/           a site's page instead of tools/serve's
   PAGEHOST=localhost                       the page from this host (WebAuthn
                                            takes no IP address for its rp)
 """
@@ -139,6 +140,8 @@ def main():
 				time.sleep(0.2)
 		page = os.environ.get('PAGE') or 'kernel.html'
 		url = f'http://{os.environ.get("PAGEHOST", "127.0.0.1")}:{HTTP}/{page}?x=1' + os.environ.get('PAGEARGS', '')	# PAGEARGS='&failfork=1'
+		if os.environ.get('PAGEURL'):	# PAGEURL=https://plan2001.com/: a site's page (by hand: what a person there gets)
+			url = os.environ['PAGEURL'] + '?x=1' + os.environ.get('PAGEARGS', '')
 		def withargs(url, args):
 			for a in args:	# ARGS='["-c", "echo hi"]'
 				url += '&arg=' + urllib.parse.quote(a, safe='')

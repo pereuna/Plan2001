@@ -1,7 +1,9 @@
 #!/bin/rc
 # Plan2001's site for 9front's rc-httpd (docs/architecture.md, D7), on
 # https behind tlssrv (/rc/bin/service/tcp17443): the WebSockets are
-# webterm's (the request rc-httpd has read: webterm -r), everything else
+# webterm's (the request rc-httpd has read: webterm -r; rcpu, auth, the
+# compute pool, secstore, signupd, passkeyd - each as the origin's policy
+# allows), everything else
 # is the wasm32 machine's page, its firmware and its root from
 # /sys/lib/plan2001/web - the same page for every origin: term.MACHINE
 # and APP.MACHINE: the page asks for its app (GET /app, the server's
@@ -15,7 +17,7 @@ case /app
 	if(~ $#pagesonly 0)
 		exec $rc_httpd_dir/handlers/plan2001-app
 	error 404
-case /rcpu /resume/* /567 /17019 /17030
+case /rcpu /resume/* /567 /17019 /17030 /5356 /17040 /17041
 	if(~ $#pagesonly 0)
 		exec /bin/webterm -s -r
 	error 403

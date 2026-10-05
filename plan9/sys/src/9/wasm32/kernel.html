@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plan2001 wasm32</title>
+<meta name="plan2001-version" content="@VERSION@">
 <style>
 	:root { --bg: #fff; --fg: #000; }
 	@media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #ddd; } }
@@ -18,6 +19,8 @@
 	/* the site's login (/boot/login): the console alone, its prompt in view, until rio draws */
 	body.login canvas { display: none; }
 	body.login pre { min-height: 100vh; box-sizing: border-box; }
+	/* a phone's keyboard: it opens for a text field, this one, off the screen (a touch focuses it) */
+	#kbd { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; }
 	#halt { display: none; position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px; background: var(--bg); }
 </style>
 </head>
@@ -26,9 +29,16 @@
 <canvas id="screen" width="800" height="600"></canvas>
 <pre id="eia0"></pre>
 <pre id="halt"></pre>
+<textarea id="kbd" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="keyboard"></textarea>
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
+/* the page's version (monolith/tools/pages: the commit and its time), so that a cached page shows */
+const version = document.querySelector('meta[name=plan2001-version]')?.content ?? '';
+if (version && !version.startsWith('@')) {
+	pre.textContent = 'Plan2001 page ' + version + '\n';
+	document.title += ' ' + version;
+}
 // init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test);
 // ?conf=name=value plan9.ini's lines (BootInfo's config, as init's init=)
 const q = new URLSearchParams(location.search);
@@ -88,6 +98,8 @@ const down = new Map();	/* e.code: the rune its down sent, for its up */
 document.addEventListener('keydown', (e) => {
 	/* Meta itself is Plan 9's Kmod4; Meta with another key is the browser's (its shortcuts) */
 	if (!window.monolith || e.metaKey && e.key !== 'Meta') return;
+	/* Ctrl-C with text selected (the console's) is the browser's copy */
+	if (e.ctrlKey && (e.key === 'c' || e.key === 'C' || e.key === 'Insert') && String(getSelection()).length) return;
 	const r = K[e.key] ?? ([...e.key].length === 1 ? e.key : undefined);
 	if (r === undefined) return;
 	down.set(e.code, r);
@@ -117,6 +129,23 @@ window.kernelpaste = (text) => {
 	for (const k of ['Shift', 'Control', 'Alt', 'AltGraph', 'Meta']) window.monolith.kbd('R' + K[k] + '\0');
 	for (const c of text.replace(/\r\n?/g, '\n')) window.monolith.kbd('r' + c + '\0R' + c + '\0');
 };
+/*
+ * a phone: its keyboard types into #kbd (its keydowns are 'Unidentified', or none): what goes in
+ * is typed as keys, Backspace and Return too, and the field kept empty.  A touch on the page
+ * focuses it (opens the keyboard), unless text is being selected
+ */
+const kbdfield = document.getElementById('kbd');
+const kbdreset = () => { kbdfield.value = ' '; kbdfield.setSelectionRange(1, 1); };	/* a space: Backspace has something to delete */
+kbdfield.addEventListener('input', (e) => {
+	if (window.monolith) {
+		if (e.inputType === 'deleteContentBackward') window.monolith.kbd('r' + K.Backspace + '\0R' + K.Backspace + '\0');
+		else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') window.monolith.kbd('r\n\0R\n\0');
+		else if (e.data) for (const c of e.data) window.monolith.kbd('r' + c + '\0R' + c + '\0');
+	}
+	kbdreset();
+});
+kbdfield.addEventListener('focus', kbdreset);
+document.addEventListener('touchend', () => { if (!String(getSelection()).length) kbdfield.focus({ preventScroll: true }); });
 document.addEventListener('paste', (e) => {
 	window.kernelpaste(e.clipboardData.getData('text'));
 	e.preventDefault();
