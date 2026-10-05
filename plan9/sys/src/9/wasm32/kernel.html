@@ -67,13 +67,20 @@ const appname = /^[a-z0-9-]{1,32}$/.test(app.trim()) ? app.trim() : 'term';
  */
 const sec = appname === 'term' ? await fetch('secstore', { cache: 'no-store' }).then((r) => r.ok ? r.text() : '').catch(() => '') : '';
 const secstore = /^[a-z0-9.!-]{1,64}$/.test(sec.trim()) ? sec.trim() : '';
-/* and its login (GET /login: the site has accounts and passkeys, docs/webauthn.md): /boot/login's menu */
-const login = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok).catch(() => false) : false;
+/*
+ * and its login (GET /login: the site has accounts and passkeys, docs/webauthn.md): /boot/login's
+ * menu.  The file is the passkeys' rp - the site's domain, so that APP.SITE has the same passkeys -
+ * if it is this page's host or above it (else 1: the page's host)
+ */
+const logintext = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok ? r.text() : null).catch(() => null) : null;
+const login = logintext !== null;
+const rpname = (logintext ?? '').trim().toLowerCase();
+const passkeyrp = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(rpname) && (location.hostname === rpname || location.hostname.endsWith('.' + rpname)) ? rpname : '';
 /* the site's login (/boot/login) is on the console too, until a program draws on the screen (rio) */
 const loginconsole = () => login && appname === 'term' && !(q.get('console') === '1');
 if (loginconsole()) document.body.classList.add('console', 'login');
 const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
-	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '');
+	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '') + (passkeyrp ? 'passkeyrp=' + passkeyrp + '\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
 /* a touch screen (a phone): the key bar, and the screen above it */
 const touch = matchMedia('(pointer: coarse)').matches;

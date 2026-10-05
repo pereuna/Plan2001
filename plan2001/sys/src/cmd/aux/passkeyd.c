@@ -7,6 +7,9 @@
  *	challenge			->	ok CHALLENGE
  *	wrap CREDID AUTH CLIENT SIG	->	ok NAME WRAP | error WHY
  *
+ * WRAP is - for a passkey kept without one (its authenticator gave no
+ * PRF): the passkey names the account, the password is typed.
+ *
  * CHALLENGE is 32 random bytes, this connection's.  AUTH, CLIENT and SIG
  * are the passkey's assertion for it (authenticatorData, clientDataJSON,
  * signature; base64url): clientDataJSON's type webauthn.get, its

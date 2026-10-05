@@ -11,8 +11,9 @@
  * password's passtokey), SECHI secstore's verifier (PAK's Hi, base64),
  * SECFILE secstore's factotum file (base64, encrypted with the password
  * by the client), CREDID the passkey's id, PUBKEY its public key (SPKI)
- * and WRAP the name and password encrypted with its PRF output (base64url);
- * all three - when the device made no passkey (the password signs in).
+ * and WRAP the name and password encrypted with its PRF output (base64url),
+ * - if the authenticator gave no PRF (the passkey names the account, the
+ * password is typed); all three - when the device made no passkey.
  * The account: a user in keyfs (its aeskey), a secstore account (who/NAME,
  * store/NAME/factotum), the passkey (webauthn/CREDID: whose, its key and
  * wrap) and, with -c, a home on the file server (newuser on its console;
@@ -97,6 +98,13 @@ charset(char *s, char *set, int min, int max)
 
 #define B64	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 #define B64U	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+/* a wrap, or - (the authenticator gave no PRF: the passkey names the account, the password is typed) */
+static int
+wrapok(char *s)
+{
+	return strcmp(s, "-") == 0 || charset(s, B64U, 16, 2048);
+}
 
 static int
 exists(char *fmt, ...)
@@ -250,7 +258,7 @@ addpasskey(char **f)
 
 	if(!validname(f[1]))
 		answer("error bad name");
-	if(!charset(f[2], B64U, 16, 1024) || !charset(f[3], B64U, 16, 1024) || !charset(f[4], B64U, 16, 2048)
+	if(!charset(f[2], B64U, 16, 1024) || !charset(f[3], B64U, 16, 1024) || !wrapok(f[4])
 	|| !charset(f[5], "0123456789abcdefABCDEF", 2*SHA2_256dlen, 2*SHA2_256dlen)
 	|| dec16(mac, sizeof mac, f[5], 2*SHA2_256dlen) != SHA2_256dlen)
 		answer("error bad request");
@@ -333,7 +341,7 @@ main(int argc, char **argv)
 	/* no passkey: CREDID, PUBKEY and WRAP all - (the device made none: the password signs in) */
 	nopk = strcmp(f[5], "-") == 0 && strcmp(f[6], "-") == 0 && strcmp(f[7], "-") == 0;
 	if(!charset(f[3], B64, 16, 1024) || !charset(f[4], B64, 16, 8192)
-	|| !nopk && (!charset(f[5], B64U, 16, 1024) || !charset(f[6], B64U, 16, 1024) || !charset(f[7], B64U, 16, 2048)))
+	|| !nopk && (!charset(f[5], B64U, 16, 1024) || !charset(f[6], B64U, 16, 1024) || !wrapok(f[7])))
 		answer("error bad request");
 	if(exists("%s/%s", keys, name) || exists("%s/who/%s", secdir, name) || !nopk && exists("%s/%s", wadir, f[5]))
 		answer("error name taken");

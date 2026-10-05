@@ -94,7 +94,7 @@ for(c in `{cat $invites})
 echo `{wc -l </adm/webauthn/invites} invites
 
 step 'the site''s login and secstore'
-echo 1 >/sys/lib/plan2001/web/login
+echo $rp >/sys/lib/plan2001/web/login	# the passkeys' rp (kernel.html: passkeyrp=)
 echo 'tcp!secstore!5356' >/sys/lib/plan2001/web/secstore
 chmod 644 /sys/lib/plan2001/web/login /sys/lib/plan2001/web/secstore
 

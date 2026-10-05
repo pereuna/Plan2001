@@ -218,7 +218,23 @@ echo done"
 want passkeyadd $names && PAGEHOST=localhost WEBAUTHN='["cancel", "go", "go", "go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyadd "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
 	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pa} </dev/cons >/dev/cons >[2=1]")" \
 	'[["account password: ", "fred-password-1\n"], ["again: ", "fred-password-1\n"], ["account password: ", "wrong-password-1\n"], ["account password: ", "fred-password-1\n"], ["account password: ", "any-password-1\n"]]'
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want signup $names || want signupnopk $names || want passkeyphone $names || want passkeyoffline $names; then
+# a passkey without PRF (Windows 10's Hello, many security keys; the virtual authenticator's PRF off),
+# the real signupd and passkeyd on pipes as above: kept with no wrap (-), so it names the account -
+# passkeyd checks its signature and gives the name - and the password is typed; and added to an
+# account the same way
+pn="ramfs -m /mnt/ram; r=/mnt/ram; mkdir \$r/keys \$r/sec \$r/sec/who \$r/sec/store \$r/wa
+fn sud { bind '#|' /mnt/\$1; aux/signupd -k \$r/keys -s \$r/sec -w \$r/wa <>/mnt/\$1/data1 >[1=0] & }
+sud p0; auth/passkey -s /mnt/p0/data signup gus
+cat \$r/wa/* | sed -n '/^wrap/p'
+bind '#|' /mnt/p1; aux/passkeyd -w \$r/wa -r localhost -o http://localhost:18092 <>/mnt/p1/data1 >[1=0] &
+auth/passkey -s /mnt/p1/data login
+sud p2; auth/passkey -s /mnt/p2/data add gus
+ls \$r/wa | wc -l
+echo done"
+want passkeynoprf $names && PAGEHOST=localhost WEBAUTHN_NOPRF=1 WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeynoprf "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
+	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pn} </dev/cons >/dev/cons >[2=1]")" \
+	'[["account password: ", "gus-password-12\n"], ["again: ", "gus-password-12\n"], ["password for gus: ", "gus-password-12\n"], ["account password: ", "gus-password-12\n"]]'
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want pagerp $names || want signup $names || want signupnopk $names || want passkeyphone $names || want passkeyoffline $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -272,6 +288,10 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	# the page gives the site's secstore (GET /secstore, tools/serve's MONOLITH_SECSTORE) to the
 	# machine in BootInfo's config, as /boot/secstore takes it; none without
 	want pagesecstore $names && MONOLITH_SECSTORE='tcp!relay!5356' run pagesecstore '["/bin/rc", "-c", "echo secstore $secstore; echo done"]'
+	# the site's login file names the passkeys' rp (its domain: APP.SITE has the same passkeys); the
+	# page gives it as passkeyrp= when it is the page's host or above it, not another domain
+	want pagerp $names && PAGEHOST=term.localhost MONOLITH_LOGIN=localhost run pagerp '["/bin/rc", "-c", "echo login $login passkeyrp $passkeyrp; echo done"]'
+	want pagerp $names && EXPECT=$t/pagerp0.out PAGEHOST=term.localhost MONOLITH_LOGIN=example.com run pagerp '["/bin/rc", "-c", "echo login $login passkeyrp $passkeyrp; echo done"]'
 	want pagesecstore $names && run pagesecstore0 '["/bin/rc", "-c", "echo secstore $secstore; echo done"]'
 	# the keys' copy on the machine's disk (aux/seckeys, /boot/secstore): from secstore with the disk,
 	# the copy is in glenda's home - aescbc's, not the keys; then without secstore (test-authsrv

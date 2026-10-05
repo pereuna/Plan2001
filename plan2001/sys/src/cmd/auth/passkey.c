@@ -372,10 +372,12 @@ validname(char *s)
 }
 
 /*
- * a passkey for name, if this device makes one with PRF: its id, public
- * key and the wrap (name and pass, AES-GCM with its PRF output's key);
- * nil, else why not (a passkey can not be had everywhere: Windows 10's
- * Hello has no PRF, a browser's password manager may be locked)
+ * a passkey for name: its id, public key and, if the authenticator gives
+ * PRF output, the wrap (name and pass, AES-GCM with its PRF output's key),
+ * else "-" (Windows 10's Hello and many security keys have no PRF: the
+ * passkey names the account, passkeyd checks it, the password is typed);
+ * nil, else why there is none (cancelled, a browser's password manager
+ * locked)
  */
 static char*
 makepasskey(char *name, char *pass, char **id, char **pk, char **ws)
@@ -402,11 +404,16 @@ makepasskey(char *name, char *pass, char **id, char **pk, char **ws)
 			why = "no PRF here";
 	}
 	free(ans);
+	*ws = "-";
 	if(why == nil){
 		if((nw = wrap(prfout, name, pass, w, sizeof w)) < 0)
 			why = "password too long";
 		else
 			*ws = b64u(w, nw);
+	}else if(strcmp(why, "no PRF here") == 0){
+		/* the passkey kept without a wrap: it names the account, the password is typed */
+		fprint(2, "%s: passkey: no PRF here: it names the account, the password is typed\n", argv0);
+		why = nil;
 	}
 	memset(prfout, 0, sizeof prfout);
 	return why;
@@ -451,7 +458,10 @@ signup(char *name, char *code)
 		print("%s: account %s made, its password (no passkey)\n", argv0, name);
 		exits("no passkey");
 	}
-	print("%s: account %s made, its passkey and password\n", argv0, name);
+	if(strcmp(ws, "-") == 0)
+		print("%s: account %s made, its password and a passkey that names it\n", argv0, name);
+	else
+		print("%s: account %s made, its passkey and password\n", argv0, name);
 	exits(nil);
 }
 
@@ -491,9 +501,9 @@ add(char *name)
 static void
 login(char *cache)
 {
-	char *ans, *id, *u, *salt, *name, *pass, *ws, *f[4], *chal, *line;
+	char *ans, *id, *u, *salt, *name, *pass, *ws, *vname, *f[4], *chal, *line;
 	uchar prfout[32], w[Nwrap], uname[64];
-	int nw, fd, nu, conn;
+	int nw, fd, nu, conn, haveprf;
 
 	/* passkeyd's challenge, which the passkey signs (none without passkeyd: the disk's wrap) */
 	chal = nil;
@@ -514,25 +524,31 @@ login(char *cache)
 		sysfatal("passkey: %r");
 	id = field(ans, "id");
 	u = field(ans, "user");
-	if(id == nil || prf(ans, prfout) < 0)
-		sysfatal("passkey: no PRF here: the password instead");
+	if(id == nil)
+		sysfatal("passkey: no id");
+	id = estrdup(id);
+	haveprf = prf(ans, prfout) >= 0;	/* none (Windows 10's Hello, many keys): the password is typed */
 	nu = u != nil ? unb64u(u, uname, sizeof uname - 1) : 0;
 	uname[nu > 0 ? nu : 0] = 0;
 
 	nw = -1;
-	ws = nil;
+	ws = vname = nil;
 	if(conn >= 0){
-		/* the assertion for passkeyd: its wrap only for the passkey's signature on its challenge */
+		/* the assertion for passkeyd: whose it is, and its wrap, only for the passkey's signature on its challenge */
 		line = smprint("wrap %s %s %s %s\n", id, field(ans, "auth"), field(ans, "client"), field(ans, "sig"));
 		free(ans);
 		if((ans = talk(conn, "passkey", line)) == nil)
 			sysfatal("%r");
 		close(conn);
-		if(tokenize(ans, f, nelem(f)) == 3 && (nw = unb64u(f[2], w, sizeof w)) > 0)
-			ws = estrdup(f[2]);
+		if(tokenize(ans, f, nelem(f)) == 3){
+			vname = estrdup(f[1]);
+			if(strcmp(f[2], "-") != 0 && (nw = unb64u(f[2], w, sizeof w)) > 0)
+				ws = estrdup(f[2]);
+		}
 		free(ans);
 	}else if(cache != nil && (fd = open(cache, OREAD)) >= 0){
 		/* no passkeyd: the wrap kept on the disk, if it is this passkey's */
+		free(ans);
 		ans = emalloc(Nline);
 		nw = read(fd, ans, Nline-1);
 		close(fd);
@@ -541,15 +557,30 @@ login(char *cache)
 		if(tokenize(ans, f, nelem(f)) == 2 && strcmp(f[0], id) == 0)
 			nw = unb64u(f[1], w, sizeof w);
 		free(ans);
-	}else
+	}else if(!haveprf && nu > 0)
+		free(ans);	/* no passkeyd, no PRF: the passkey's user, the password typed (checked by what it opens) */
+	else
 		sysfatal("%r");
-	if(nw <= 0)
-		sysfatal("no wrap for this passkey");
-	if(unwrap(prfout, w, nw, &name, &pass) < 0)
-		sysfatal("the wrap does not open with this passkey");
+	if(!haveprf || nw <= 0){
+		/* the passkey names the account (passkeyd checked its signature); the password is typed */
+		name = vname != nil ? vname : nu > 0 ? estrdup((char*)uname) : nil;
+		if(name == nil)
+			sysfatal("no wrap and no name for this passkey");
+		if(nu > 0 && strcmp((char*)uname, name) != 0)
+			sysfatal("the passkey's user is not passkeyd's");
+		line = smprint("password for %s", name);
+		if((pass = readcons(line, nil, 1)) == nil || *pass == 0)
+			sysfatal("no password");
+		ws = nil;
+	}else{
+		if(unwrap(prfout, w, nw, &name, &pass) < 0)
+			sysfatal("the wrap does not open with this passkey");
+		if(nu > 0 && strcmp((char*)uname, name) != 0)
+			sysfatal("the passkey's user is not the wrap's");
+		if(vname != nil && strcmp(vname, name) != 0)
+			sysfatal("the wrap's user is not passkeyd's");
+	}
 	memset(prfout, 0, sizeof prfout);
-	if(nu > 0 && strcmp((char*)uname, name) != 0)
-		sysfatal("the passkey's user is not the wrap's");
 	if(ws != nil && cache != nil && (fd = create(cache, OWRITE, 0600)) >= 0){
 		fprint(fd, "%s %s\n", id, ws);
 		close(fd);

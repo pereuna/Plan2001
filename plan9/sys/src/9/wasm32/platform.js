@@ -982,11 +982,13 @@ export async function boot(url, front = {}) {
 			Atomics.notify(i32, r.word >> 2);
 		};
 		/*
-		 * phone: the passkey on a phone (hybrid: the browser's QR code), when this device
-		 * has none that can (Windows 10's Hello has no PRF; the browser's password manager
-		 * may be locked) - hints and, to make one, a cross-platform authenticator
+		 * how: this device's (the browser picks: its password manager, Windows Hello ...),
+		 * 'phone' a passkey on a phone (hints hybrid: the browser's QR code), 'key' a security
+		 * key (hints security-key) - the last two, to make one, a cross-platform authenticator
 		 */
-		const ask = async (r, q, phone) => {
+		const ask = async (r, q, how) => {
+			const away = how === 'phone' || how === 'key';	/* not this device's: a cross-platform authenticator */
+			const hints = how === 'phone' ? { hints: ['hybrid'] } : how === 'key' ? { hints: ['security-key'] } : {};
 			const salt = q.salt ? dec(q.salt) : null, ext = salt ? { prf: { eval: { first: salt } } } : {};
 			const challenge = q.challenge ? dec(q.challenge) : crypto.getRandomValues(new Uint8Array(32));
 			if (r.kind === 'create') {
@@ -994,8 +996,8 @@ export async function boot(url, front = {}) {
 					rp: { id: q.rp, name: 'Plan2001' },
 					user: { id: dec(q.user), name: q.name, displayName: q.name },
 					challenge, pubKeyCredParams: [{ type: 'public-key', alg: -7 }],	/* ES256: libsec's P-256 */
-					authenticatorSelection: { residentKey: 'required', userVerification: 'preferred', ...(phone ? { authenticatorAttachment: 'cross-platform' } : {}) },
-					...(phone ? { hints: ['hybrid'] } : {}), attestation: 'none', extensions: ext } });
+					authenticatorSelection: { residentKey: 'required', userVerification: 'preferred', ...(away ? { authenticatorAttachment: 'cross-platform' } : {}) },
+					...hints, attestation: 'none', extensions: ext } });
 				const x = c.getClientExtensionResults().prf, pk = c.response.getPublicKey?.();
 				return 'ok id=' + enc(c.rawId) + ' prf=' + (x?.results?.first ? enc(x.results.first) : 'none') +
 					' prfok=' + (x?.enabled ? 1 : 0) + (pk ? ' pubkey=' + enc(pk) : '') +
@@ -1003,7 +1005,7 @@ export async function boot(url, front = {}) {
 			}
 			const allow = q.allow ? q.allow.split(',').map((id) => ({ type: 'public-key', id: dec(id) })) : [];
 			const c = await navigator.credentials.get({ publicKey: { rpId: q.rp, challenge, allowCredentials: allow,
-				userVerification: 'preferred', ...(phone ? { hints: ['hybrid'] } : {}), extensions: ext } });
+				userVerification: 'preferred', ...hints, extensions: ext } });
 			const x = c.getClientExtensionResults().prf, u = c.response.userHandle;
 			return 'ok id=' + enc(c.rawId) + ' prf=' + (x?.results?.first ? enc(x.results.first) : 'none') +
 				(u ? ' user=' + enc(u) : '') + ' auth=' + enc(c.response.authenticatorData) +
@@ -1024,18 +1026,15 @@ export async function boot(url, front = {}) {
 				ui = document.createElement('div');
 				ui.id = 'webauthn';
 				ui.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);z-index:10;display:flex;gap:12px;padding:16px;background:#ffffea;border:2px solid #000;font:16px sans-serif';
-				const go = document.createElement('button'), ph = document.createElement('button'), no = document.createElement('button');
-				go.id = 'webauthn-go';
-				go.textContent = r.kind === 'create' ? 'Create a passkey for ' + q.name : 'Sign in with a passkey';
-				ph.id = 'webauthn-phone';
-				ph.textContent = 'With a phone (QR code)';
-				no.id = 'webauthn-cancel';
-				no.textContent = 'Cancel';
-				const run = (phone) => { go.disabled = ph.disabled = true; ask(r, q, phone).then((t) => answer(r, t), (e) => answer(r, 'error ' + (e?.name || e))); };
-				go.onclick = () => run(false);
-				ph.onclick = () => run(true);
+				const mk = (id, text) => { const b = document.createElement('button'); b.id = id; b.textContent = text; return b; };
+				const go = mk('webauthn-go', (r.kind === 'create' ? 'Create a passkey for ' + q.name : 'Sign in with a passkey') + ': this device');
+				const ph = mk('webauthn-phone', 'With a phone (QR code)'), key = mk('webauthn-key', 'Security key'), no = mk('webauthn-cancel', 'Cancel');
+				const run = (how) => { go.disabled = ph.disabled = key.disabled = true; ask(r, q, how).then((t) => answer(r, t), (e) => answer(r, 'error ' + (e?.name || e))); };
+				go.onclick = () => run('device');
+				ph.onclick = () => run('phone');
+				key.onclick = () => run('key');
 				no.onclick = () => answer(r, 'error cancelled');
-				ui.append(go, ph, no);
+				ui.append(go, ph, key, no);
 				document.body.append(ui);
 			},
 		};
