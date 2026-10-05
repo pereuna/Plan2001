@@ -234,7 +234,7 @@ echo done"
 want passkeynoprf $names && PAGEHOST=localhost WEBAUTHN_NOPRF=1 WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeynoprf "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1].replace(chr(10), "; ")]))' \
 	"aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashmnt /mnt; {$pn} </dev/cons >/dev/cons >[2=1]")" \
 	'[["account password: ", "gus-password-12\n"], ["again: ", "gus-password-12\n"], ["password for gus: ", "gus-password-12\n"], ["account password: ", "gus-password-12\n"]]'
-if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want pagerp $names || want signup $names || want signupnopk $names || want passkeyphone $names || want passkeyoffline $names; then
+if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $names || want nettimeout $names || want app $names || want appresume $names || want sendq $names || want secstore $names || want seckeys $names || want rcpukeys $names || want pagesecstore $names || want pagerp $names || want signup $names || want signupnopk $names || want passkeyphone $names || want passkeyoffline $names || want install $names; then
 	"$root/tools/test-authsrv" 18099 glenda=gpassword bootes=bpassword secstore:glenda=spassword >/dev/null 2>&1 &
 	aspid=$!
 	trap 'kill $aspid 2>/dev/null' EXIT
@@ -322,6 +322,17 @@ if want dp9ik $names || want netre $names || want rcpu $names || want rcpuask $n
 	want passkeyoffline $names && MONOLITH_WEBTERM=18099 PAGEHOST=localhost WEBAUTHN='["go", "go", "go", "go", "go"]' HALTWAIT=200 run passkeyoffline "$(python3 -c 'import json,sys; print(json.dumps(["/bin/rc", "-c", sys.argv[1]]))' \
 		"aux/kbdfs -q -s cons /dev/eia0; {$pk; rc /boot/disk; ramfs -m /mnt/ram; mkdir /mnt/ram/nonet; c=/usr/glenda/lib/factotum.aes; w=/usr/glenda/lib/passkey.wrap; auth/passkey -s relay signup bob; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c; echo 'delkey user=bob' >/mnt/factotum/ctl; @{rfork n; bind /mnt/ram/nonet /net; auth/passkey -s relay -c \$w login | aux/seckeys -I \$c}; cat /mnt/factotum/ctl; echo done} </dev/cons >/dev/cons >[2=1]")" \
 		'[["account password: ", "bob-password-12\n"], ["again: ", "bob-password-12\n"]]'
+	# 9Front-2001 installed onto the machine's disk (Plan2001's /boot/install; tools/dist-wasm32's parts,
+	# test-authsrv's /17050 as aux/distd): the games part streamed, gunzipped and untarred onto it;
+	# /boot/disk binds the installed system in (as at the next boot: the disk test keeps the disk across
+	# a reload), and a game is the disk's.  Skipped without the parts
+	if want install $names; then
+		if [ -e "$root/../build/dist/parts/games.tgz" ]; then
+			MONOLITH_WEBTERM=18099 HALTWAIT=300 DRAWS=3 run install '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; mntgen -s slashn /n; rc /boot/disk; cpu=relay rc /boot/install games >/dev/null >[2=1]; rc /boot/disk >[2]/dev/null; ls /bin/games | wc -l; games/mines & sleep 6; echo done"]'
+		else
+			echo "test-9wasm32: install: skipped (no build/dist/parts: PLAN9=... tools/dist-wasm32)"
+		fi
+	fi
 	kill $aspid; trap - EXIT
 fi
 want dp9iknoas $names && MONOLITH_WEBTERM=18098 HALTWAIT=120 run dp9iknoas '["/bin/rc", "-c", "'"$fkeys"'; echo '"'"'key proto=dp9ik dom=plan2001 user=glenda !password=gpassword'"'"' >/mnt/factotum/ctl; d3 -p plan2001; echo done"]'

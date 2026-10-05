@@ -1,0 +1,30 @@
+#!/bin/rc
+# /boot/install - 9Front-2001 onto the wasm32 machine's disk (docs/architecture.md:
+# the browser's OPFS disk, the origin's own and kept): the distribution's parts
+# (tools/dist-parts: base, src, games) from the server (aux/getdist: aux/distd,
+# webterm's /17050), unpacked onto the disk's root.  /boot/disk binds what is
+# installed over the root's next time (and now: rc /boot/disk).  Run again it
+# updates: the parts are unpacked over what is there; glenda's home and the
+# machine's own (/usr, /adm, /cfg) are not in them.
+#   /boot/install [part ...]	default base games
+rfork e
+parts=$*
+~ $#parts 0 && parts=(base games)
+if(! test -d /n/disk/usr){
+	echo 'install: no disk (another tab of this site has it, or ?disk=0)' >[1=2]
+	exit 'no disk'
+}
+# hjfs's root is not glenda's: its permissions off while the parts go on
+echo allow >>/srv/disk.cmd
+fn done { echo disallow >>/srv/disk.cmd; echo sync >>/srv/disk.cmd }
+for(p in $parts){
+	echo 'install: '^$p
+	if(! @{cd /n/disk && aux/getdist -v $p | gunzip | tar x}){
+		done
+		echo 'install: '^$p^' failed' >[1=2]
+		exit failed
+	}
+	cat /n/disk/sys/lib/dist/$p >[2]/dev/null
+}
+done
+echo 'install: done; the system is the disk''s from the next boot (now: rc /boot/disk)'

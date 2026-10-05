@@ -17,7 +17,7 @@ case /app
 	if(~ $#pagesonly 0)
 		exec $rc_httpd_dir/handlers/plan2001-app
 	error 404
-case /rcpu /resume/* /567 /17019 /17030 /5356 /17040 /17041
+case /rcpu /resume/* /567 /17019 /17030 /5356 /17040 /17041 /17050
 	if(~ $#pagesonly 0)
 		exec /bin/webterm -s -r
 	error 403

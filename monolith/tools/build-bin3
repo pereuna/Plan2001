@@ -35,10 +35,20 @@ cp "$P/subset/9front/rc/bin/window" "$P/subset/9front/rc/bin/wloc" "$out/root/rc
 mkdir -p "$out/root/boot"
 cp "$P/plan9/sys/src/9/wasm32/init" "$P/plan9/sys/src/9/wasm32/console" "$P/plan9/sys/src/9/wasm32/disk" "$P/plan9/sys/src/9/wasm32/secstore" "$out/root/boot/"
 # an app's origin: its machine is the app's terminal (Plan2001's, D7: docs/app-origins.md)
-cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$P/plan2001/sys/src/9/wasm32/login" "$out/root/boot/"
+cp "$P/plan2001/sys/src/9/wasm32/app" "$P/plan2001/sys/src/9/wasm32/rconnect.app" "$P/plan2001/sys/src/9/wasm32/login" "$P/plan2001/sys/src/9/wasm32/install" "$out/root/boot/"
 mkdir -p "$out/root/adm/timezone"
 cp "$P/subset/9front/adm/timezone/local" "$P/subset/9front/adm/timezone/GMT" "$P/subset/9front/adm/timezone/EET" "$out/root/adm/timezone/"
 
+# tar: 9front's, the installer's (libString)
+if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/tar.3" tar.c) >"$out/o/cmd/tar.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/tar" "$out/o/cmd/tar.3" "$out/lib/libString.a" $libs >>"$out/o/cmd/tar.err" 2>&1; then
+	echo "build-bin3: tar:"; head -5 "$out/o/cmd/tar.err"; fail=1
+fi
+# gunzip: 9front's, the installer's (/boot/install: the distribution's parts are tar.gz)
+if ! (cd "$src/gzip" && "$cc3" -FVw $INC -o "$out/o/cmd/gunzip.3" gunzip.c) >"$out/o/cmd/gunzip.err" 2>&1 ||
+   ! "$l3" -o "$out/root/bin/gunzip" "$out/o/cmd/gunzip.3" "$out/lib/libflate.a" $libs >>"$out/o/cmd/gunzip.err" 2>&1; then
+	echo "build-bin3: gunzip:"; head -5 "$out/o/cmd/gunzip.err"; fail=1
+fi
 # the one-file commands
 for c in basename cat cleanname cp date echo ls mkdir mv rm sleep sort touch wc xd bind unmount ns sed mount pwd ps read test chmod; do
 	if ! (cd "$src" && "$cc3" -FVw $INC -o "$out/o/cmd/$c.3" "$c.c") >"$out/o/cmd/$c.err" 2>&1 ||
@@ -86,7 +96,7 @@ if ! (cd "$P/plan2001/sys/src/cmd/auth" && "$cc3" -FTVw $INC -o "$out/o/cmd/pass
 	echo "build-bin3: passkey:"; head -5 "$out/o/cmd/passkey.err"; fail=1
 fi
 # aux/signupd, aux/passkeyd, aux/weblimitd: the CPU server's (docs/webauthn.md), here for their tests (signupd, weblimitd)
-for c in signupd passkeyd weblimitd; do
+for c in signupd passkeyd weblimitd getdist; do
 	if ! (cd "$P/plan2001/sys/src/cmd/aux" && "$cc3" -FTVw $INC -o "$out/o/cmd/$c.3" $c.c) >"$out/o/cmd/$c.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/aux/$c" "$out/o/cmd/$c.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$c.err" 2>&1; then
 		echo "build-bin3: $c:"; head -5 "$out/o/cmd/$c.err"; fail=1

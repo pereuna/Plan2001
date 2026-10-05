@@ -1,5 +1,5 @@
 ticks in it: ok
-geometry 524288 512
+geometry 4194304 512
 written
 read: error reading <stdin>: i/o error
 status read 12: read error

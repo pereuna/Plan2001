@@ -597,17 +597,37 @@ boot-, kirjautumis- ja asennusympäristöksi, eikä pelejä lisätä sinne
    - Natiivi käännös tavallisena käyttäjänä: `unshare -r`, ja
      kiinnityspisteet `/wasm32`, `/lib/ucd` ja `/lib/keyboard` luodaan
      kerran rootina.
-2. **wasm32-jakelu** (`tools/dist-wasm32`): natiivi käännös koko
-   osajoukon kirjastoille, `cmd`-puulle, peleille ja 3c:lle/3l:lle.
-   Tulos on jakelupuu: 9Front-2001 ilman muiden arkkitehtuurien
-   binäärejä, mukana `/wasm32/{bin,lib,include}`, ja proto.
-3. **Jakelu palvelimelta:** vain luettavana 9P:llä (webterm, policy-sana
-   `dist`, exportfs `none`-käyttäjänä); kone liittää sen `/n/dist`:iin.
-4. **Asennin koneessa (plan2001/):** kopioi jakelun protolla levylle
-   (hjfs), kuten `inst/copydist`. Sama asennin myös päivittää.
-5. **Boot levyltä:** asennettu järjestelmä sidotaan `/bin`:iin, `/rc`:hen,
-   `/lib`:iin ja `/sys`:iin `root.fs`:n edelle.
-6. **Lähteet:** jakelussa (`/sys/src`), ja 3c kääntää koneessa.
+2. **wasm32-jakelu** (`tools/dist-wasm32`, tehty 5.10.):
+   - Pohja on koko 9front-julkaisu lukitusta ISO:sta, ei repon osajoukko,
+     joten repo ei paisu. Päälle tulevat `plan9/`, patchit ja `plan2001/`.
+   - Käännös wasm32:lle `tools/native-wasm32`:lla (`mk -k`). Natiivi
+     käännös kulkee bwrapilla: oma juuri, `/$objtype`-hakemistot ja
+     `/sys`, eikä rootia tarvita. Isännälle käännetään mpc ja 9frontin
+     cpp, ja Linuxille käännetty 3c ajaa cpp:n `-p`:llä.
+   - Tulos on 587 ohjelmaa, mukana 3c, 3l, 3a, 6c, mk, yacc, cpp, acme,
+     git, diff, vt ja pelit. Kaatuneet ovat `build/dist/failed`:ssa,
+     enimmäkseen APE (`pcc`), jonka porttaus on oma vaiheensa.
+   - Jakelupuu on `build/dist/wasm32` (567 Mt, josta wasm32-binäärejä
+     311 Mt) ja proto `build/dist/wasm32.proto`.
+   - Osat (`tools/dist-parts`): `base` 92 Mt, `src` 25 Mt ja `games`
+     6 Mt pakattuna (tar.gz).
+3. **Jakelu palvelimelta:** `aux/distd` (plan2001/) lähettää osan
+   256 kt:n lohkoina, ja seuraava lohko lähtee vasta koneen kuittauksen
+   jälkeen, koska WebSocketissa ei ole vuonohjausta ja sivun raakajono
+   on 1 Mt. Kone hakee osan `aux/getdist`illa. Palvelu on port 17050;
+   testipalvelin (`test-authsrv`) tekee saman.
+4. **Asennin (plan2001/, tehty 5.10.):** `/boot/install [osa…]`
+   (oletuksena base ja games) ajaa `aux/getdist | gunzip | tar x`
+   levyn juureen. tar ja gunzip ovat `root.fs`:ssä. Sama asennin myös
+   päivittää. Levyn oletuskoko on nyt 2 Gt.
+5. **Boot levyltä (plan9/, tehty 5.10.):** `/boot/disk` sitoo
+   asennetun järjestelmän: levy unionina juuren perään (`/sys`,
+   `/wasm32` ja `/acme` näkyvät), ohjelmat ja `/lib` juuren eteen.
+   Uudelleenajo ei enää käynnistä hjfs:ää eikä alusta levyä.
+   Testi `install`: games-osa asennetaan ja miinaharava ajetaan levyltä.
+6. **Tekemättä:** palvelimen palvelu (tcp17050 ja webtermin
+   policy-sana), base-osan asennus selaimessa (koko ja aika), asennus
+   kirjautumisvalikosta ja APE.
 
 ## Avainten paikka: secstore (päätös 4.10.2026)
 

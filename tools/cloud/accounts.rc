@@ -14,6 +14,8 @@
 #                   (plan2001.com) from https://RP
 #   invites         INVITES' codes added to /adm/webauthn/invites: no
 #                   account without one
+#   distd           the wasm32 distribution's parts (tools/dist-parts, if
+#                   built) for the machines' /boot/install, tcp17050 (none)
 #   weblimitd       a web account's processes (32) and memory (48 MB; all of
 #                   them 256 MB), from cpustart: 9front has no quotas
 #   websession      a web account's sessions (signupd's group web) limited:
@@ -38,7 +40,7 @@ rc $repo/tools/cpu-live.rc $repo pages apps webterm || fail cpu-live
 step signupd and passkeyd
 @{
 	cd /tmp
-	for(p in signupd passkeyd weblimitd){
+	for(p in signupd passkeyd weblimitd distd){
 		6c -FTVw $repo/plan2001/sys/src/cmd/aux/$p.c && 6l -o /amd64/bin/aux/$p $p.6 || exit $p
 	}
 } || fail compile
@@ -68,6 +70,20 @@ fscons=`{ls /srv/cwfs*.cmd /srv/hjfs.cmd >[2]/dev/null | sed 1q}
 } >/rc/bin/service.auth/tcp17041
 chmod 775 /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
 cat /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
+
+step 'the wasm32 distribution (aux/distd, tcp17050: /boot/install''s)'
+mkdir -p /sys/lib/plan2001/dist
+if(test -d $repo/build/dist/parts){
+	for(f in $repo/build/dist/parts/*.tgz)
+		cp $f /sys/lib/plan2001/dist/ || fail dist $f
+	chmod 644 /sys/lib/plan2001/dist/*.tgz
+}
+ls -l /sys/lib/plan2001/dist
+{
+	echo '#!/bin/rc'
+	echo 'exec /bin/aux/distd'
+} >/rc/bin/service/tcp17050
+chmod 775 /rc/bin/service/tcp17050
 
 step 'weblimitd: the web accounts'' processes and memory'
 for(l in weblimit signupd passkeyd)

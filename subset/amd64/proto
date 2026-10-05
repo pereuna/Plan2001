@@ -171,6 +171,8 @@ amd64	d775 sys sys
 			wadfs	775 sys sys
 		gefs	775 sys sys
 		grep	775 sys sys
+		gunzip	775 sys sys
+		gzip	775 sys sys
 		hjfs	775 sys sys
 		hoc	775 sys sys
 		ip	d775 sys sys

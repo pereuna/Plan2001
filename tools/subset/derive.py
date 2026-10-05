@@ -81,6 +81,8 @@ SRCMAP = {	# binary -> source, where the name alone does not say it
 	'edisk': '/sys/src/cmd/disk/prep',
 	'fdisk': '/sys/src/cmd/disk/prep',
 	'plumber': '/sys/src/cmd/plumb',
+	'gunzip': '/sys/src/cmd/gzip',
+	'gzip': '/sys/src/cmd/gzip',
 	'test': '/sys/src/cmd/test.c',	# /sys/src/cmd/test/ is 9front's test suite, not test(1)
 }
 

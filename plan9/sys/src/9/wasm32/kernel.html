@@ -212,8 +212,8 @@ boot('9wasm32.wasm', {
 	},
 	fs: args.length ? await rootfs() : undefined,
 	args,
-	/* the machine's disk (#S/sdW0): OPFS, ?disk=MB (256), ?disk=0 none */
-	disk: (q.get('disk') ?? '256') !== '0' && navigator.storage?.getDirectory ? { name: 'sdW0', size: Number(q.get('disk') ?? 256) * 1048576, fail: q.get('diskfail') } : null,
+	/* the machine's disk (#S/sdW0): OPFS, ?disk=MB (2048: room for an installed system), ?disk=0 none */
+	disk: (q.get('disk') ?? '2048') !== '0' && navigator.storage?.getDirectory ? { name: 'sdW0', size: Number(q.get('disk') ?? 2048) * 1048576, fail: q.get('diskfail') } : null,
 	config: machine + q.getAll('conf').map((c) => c + '\n').join(''),
 	canvas: document.getElementById('screen'),
 	touchbutton: () => touchbutton,

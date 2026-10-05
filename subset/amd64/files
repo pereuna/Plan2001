@@ -161,6 +161,8 @@
 /amd64/bin/games/wadfs	runtime	iterative	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)	-
 /amd64/bin/gefs	runtime	static	run by /rc/bin/inst/mountgefs	-
 /amd64/bin/grep	runtime	boot	bootfs.proto	-
+/amd64/bin/gunzip	runtime	iterative	the wasm32 machine's installer (/boot/install): the distribution's parts come as tar.gz (tools/dist-wasm32)	-
+/amd64/bin/gzip	runtime	iterative	gunzip's sources are gzip's (/sys/src/cmd/gzip); and the machine can make an archive	-
 /amd64/bin/hjfs	runtime	static	run by /rc/bin/inst/mounthjfs	-
 /amd64/bin/hoc	runtime	dynamic	installer after copydist	-
 /amd64/bin/ip/ipconfig	runtime	boot	bootfs.proto	-
@@ -1415,7 +1417,7 @@
 /sys/include/event.h	source	source	included by /sys/src/cmd/clock.c	d94ddc45caf36b89c0f15f05d20e04f7
 /sys/include/fcall.h	source	source	included by /sys/src/cmd/aan.c	2f7b6df830552f303e5acababd58caad
 /sys/include/fis.h	source	source	included by /sys/src/9/port/devaoe.c	474332f78810c683eb7155c6a1edbbd4
-/sys/include/flate.h	source	source	included by /sys/src/cmd/paqfs/mkpaqfs.c	ffc4b0ed98da2e21878c23eb2cb49b7f
+/sys/include/flate.h	source	source	included by /sys/src/cmd/gzip/gunzip.c	ffc4b0ed98da2e21878c23eb2cb49b7f
 /sys/include/frame.h	source	source	included by /sys/src/cmd/rio/data.c	421a2e0bf2dd3fd1234f3f9e74670034
 /sys/include/geometry.h	source	source	included by /sys/src/games/rotzoomer.c	d49b22857853ad20cd245962395eff76
 /sys/include/ip.h	source	source	included by /sys/src/cmd/aux/timesync.c	a676ae08e2d4486d45e6fbe090f9410a
@@ -2672,6 +2674,13 @@
 /sys/src/cmd/grep/sub.c	source	source	builds /amd64/bin/grep	f07def8c85b28248414bbc04d8e73da6
 /sys/src/cmd/grep/y.tab.c	source	source	builds /amd64/bin/grep	14a7453637a988316646afb8f80f07ec
 /sys/src/cmd/grep/y.tab.h	source	source	builds /amd64/bin/grep	6f66a39724eb32e795d459770f19a3c2
+/sys/src/cmd/gzip/gunzip.c	source	source	builds /amd64/bin/gunzip	a6838074870bfd7898065493c417cb51
+/sys/src/cmd/gzip/gzip.c	source	source	builds /amd64/bin/gunzip	5cb4ca2d174cedb3345fab8319787bfc
+/sys/src/cmd/gzip/gzip.h	source	source	builds /amd64/bin/gunzip	40b65e343a3f55835be499f85b454594
+/sys/src/cmd/gzip/mkfile	source	source	builds /amd64/bin/gunzip	b0ed6a182ea05949f08b512273dc7a95
+/sys/src/cmd/gzip/unzip.c	source	source	builds /amd64/bin/gunzip	513b1c4e19a5a28d94d53cc5a4827135
+/sys/src/cmd/gzip/zip.c	source	source	builds /amd64/bin/gunzip	9052513ea72f5ecced5b8dd520b0272c
+/sys/src/cmd/gzip/zip.h	source	source	builds /amd64/bin/gunzip	575c4d8cc82ca3ccf6433d0ed0b0f856
 /sys/src/cmd/hjfs/9p.c	source	source	builds /amd64/bin/hjfs	f5ba561e7ac0f83c10def6279da59a25
 /sys/src/cmd/hjfs/auth.c	source	source	builds /amd64/bin/hjfs	5cdfff55e0358e597b09e9cc45fa40d9
 /sys/src/cmd/hjfs/buf.c	source	source	builds /amd64/bin/hjfs	4a7536aac4d43470a57aa527605328d9

@@ -279,3 +279,5 @@
 /amd64/bin/games	9front's games, for the wasm32 machine (plan2001.com): built there from /sys/src/games (games stay; DENY keeps the fortunes out)
 /sys/games/lib	the games' data (levels, tiles, doom's shareware wad ...)
 /sys/src/games	the games' sources: the wasm32 machine's build (tools/native-wasm32, build-bin3) and the source to read
+/amd64/bin/gunzip	the wasm32 machine's installer (/boot/install): the distribution's parts come as tar.gz (tools/dist-wasm32)
+/amd64/bin/gzip	gunzip's sources are gzip's (/sys/src/cmd/gzip); and the machine can make an archive

@@ -1,0 +1,38 @@
+#!/bin/bash
+# The wasm32 distribution's parts (tools/dist-wasm32's build/dist/wasm32)
+# as the machine's installer takes them (/boot/install): tar.gz, one
+# stream each from the server (webterm /17050), unpacked onto the disk.
+#   base   the programs, libraries and the rest of the system - all but
+#          the parts below and what is the machine's own (/usr, /adm, /cfg,
+#          /mail, /cron: its home, users and configuration stay)
+#   src    /sys/src: the sources (3c in the machine builds them)
+#   games  /wasm32/bin/games and their data, /sys/games
+# Each has its version (git describe, and when) at /sys/lib/dist/NAME.
+#   tools/dist-parts [DIST [OUT]]   default build/dist/wasm32, build/dist/parts
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+dist=${1:-$root/build/dist/wasm32}
+out=${2:-$root/build/dist/parts}
+[ -d "$dist/wasm32/bin" ] || { echo "dist-parts: no $dist (tools/dist-wasm32)" >&2; exit 1; }
+v="$(git -C "$root" describe --always --dirty) $(date -u +%Y-%m-%dT%H:%MZ)"
+rm -rf "$out"; mkdir -p "$out"
+mkdir -p "$dist/sys/lib/dist"
+for p in base src games; do echo "$p $v" >"$dist/sys/lib/dist/$p"; done
+# tar as 9front's reads it (ustar), paths relative to /
+tgz() {	# NAME PATH... [-- EXCLUDE...]
+	local n=$1; shift
+	local inc=() exc=()
+	while [ $# -gt 0 ] && [ "$1" != -- ]; do inc+=("$1"); shift; done
+	[ "${1:-}" = -- ] && shift
+	for e in "$@"; do exc+=(--exclude="./$e"); done
+	(cd "$dist" && tar --format=ustar --owner=sys --group=sys "${exc[@]}" -cf - "${inc[@]}") | gzip -9n >"$out/$n.tgz"
+}
+base=()
+for t in "$dist"/*; do
+	n=$(basename "$t")
+	case $n in usr|adm|cfg|mail|cron) ;; *) base+=("./$n") ;; esac
+done
+tgz base "${base[@]}" -- sys/src wasm32/bin/games sys/games 'sys/lib/dist/src' 'sys/lib/dist/games'
+tgz src ./sys/src ./sys/lib/dist/src
+tgz games ./wasm32/bin/games ./sys/games ./sys/lib/dist/games
+ls -l "$out" | awk 'NR > 1 { printf "dist-parts: %s %.1f MB\n", $9, $5/1e6 }'

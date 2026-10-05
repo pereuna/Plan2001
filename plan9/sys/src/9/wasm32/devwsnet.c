@@ -99,6 +99,7 @@ static struct {
 	"secstore",	"5356",
 	"signup",	"17040",	/* Plan2001's accounts (docs/webauthn.md) */
 	"passkey",	"17041",
+	"dist",		"17050",	/* the wasm32 distribution (aux/distd: Plan2001's /boot/install) */
 	"rcpuws",	"/rcpu",	/* webterm's rcpu session for an app's origin: GET /rcpu (aux/wsrcpu, D7) */
 };
 

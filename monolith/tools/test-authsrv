@@ -389,6 +389,30 @@ aeskeys = {}		# user: the auth server's AES key (signupd's)
 passkeys = {}		# credential id (b64url): (user, public key, wrap)
 RESERVED = {'glenda', 'bootes', 'adm', 'sys', 'none', 'upas', 'nobody', 'root', 'admin'}
 
+# aux/distd (plan2001/sys/src/cmd/aux/distd.c): a part of the wasm32 distribution (tools/dist-parts,
+# DIST_PARTS or the repo's build/dist/parts) in blocks of a 4-byte length and its bytes, the next once
+# the machine has sent a byte; 0 ends it, -1 and a line is an error
+async def distd(read, write, w):
+	line = b''
+	while not line.endswith(b'\n'):
+		line += await read(1)
+	name = line.strip().decode(errors='replace')
+	d = os.environ.get('DIST_PARTS') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'build', 'dist', 'parts')
+	p = os.path.join(d, name + '.tgz')
+	if name not in ('base', 'src', 'games') or not os.path.exists(p):
+		write(struct.pack('>i', -1) + b'not here\n')
+		return
+	with open(p, 'rb') as f:
+		while True:
+			b = f.read(256*1024)
+			if not b:
+				break
+			write(struct.pack('>i', len(b)) + b)
+			await w.drain()
+			await read(1)
+	write(struct.pack('>i', 0))
+	await w.drain()
+
 async def linesvc(read, write, serve):
 	buf = b''
 	while True:
@@ -589,7 +613,7 @@ async def ws(r, w, users):
 		await asyncio.sleep(3600)
 		w.close()
 		return
-	if path not in ('/567', '/5356', '/17040', '/17041', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
+	if path not in ('/567', '/5356', '/17040', '/17041', '/17050', '/17019', '/17999', '/17997', '/rcpu') and not path.startswith('/resume/'):
 		w.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
 		w.close()
 		return
@@ -710,6 +734,8 @@ async def ws(r, w, users):
 			await linesvc(read, write, signupd)
 		elif path == '/17041':
 			await linesvc(read, write, passkeyd())
+		elif path == '/17050':	# the wasm32 distribution's parts, as aux/distd sends them
+			await distd(read, write, w)
 		else:
 			await Authsrv(users).run(read, write)
 	except (EOFError, asyncio.IncompleteReadError, ConnectionError, ValueError) as e:
