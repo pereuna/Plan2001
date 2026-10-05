@@ -346,10 +346,50 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
    - Koko sarja vaiheen 4 kanssa (4.10.): `test-9wasm32` ok ja
      `test-native` ok, 59 PASS kumpikin. VM-testit, kuten `signupvm`,
      ohitettiin, koska VM:ää ei ole.
-5. **plan2001.com:**
-   - Sivu kirjautumisineen, kutsukoodit ja nimiavaruusrajat.
-   - Sandbox jää kirjautumattomille.
-   - Käyttöönotto `tools/cloud`in kautta.
+5. **plan2001.com** (koodi 5.10.; pilveen asennus ylläpitäjän koneelta):
+   - **Sivu:** kun sivusto tarjoaa kirjautumisen (`login=1`), sivu
+     näyttää konsolin, jolla `/boot/login`in valikko on. Konsoli
+     poistuu, kun ohjelma (rio) piirtää ruudulle. Kernel piirtää
+     itse vain kerran (`screeninit`), joten toinen piirto kertoo
+     ohjelmasta (`front.drawn`). Testi `pagelogin`: `/boot/init`,
+     valikko konsolilla, `g` (vieras), rio, ja konsoli on taas piilossa.
+     Ilman `drawn`-kutsua testi kaatuu (tarkistettu).
+   - **Vieras** (`g`) saa paikallisen koneen ilman avaimia, eli
+     entisen sandboxin. Kirjautumattomat käyttävät siis samaa sivua.
+   - **`tools/cloud/accounts`** (isäntä, tunnelin yli) ja
+     **`accounts.rc`** (pilvi, admin):
+     - cpu-liven `pages`, `apps` ja `webterm`,
+     - signupd ja passkeyd käännetään,
+     - `/adm/webauthn` ja `/adm/secstore` (700),
+     - secstored `cpustart`ista,
+     - `service.auth/tcp17040` ja `tcp17041` `localonly`-vartijan takana
+       (passkeyd `-r plan2001.com -o https://plan2001.com`, signupd
+       newuser tiedostopalvelimen konsoliin),
+     - kutsukoodit: isäntä tekee `~/.cache/plan2001/cloud/invites`in
+       (oletus 10 koodia), ja ne lisätään `/adm/webauthn/invites`iin,
+     - sivuston `login`- ja `secstore`-tiedostot,
+     - `tcp443`: koko sivusto (rc-httpd ja WebSocketit, webterm
+       `-s -r`) pelkkien sivujen sijaan. `sandbox.rc` ei enää kirjoita
+       sitä yli.
+   - **Edellytys:** secstored kuuntelee kaikkia osoitteita (webterm
+     soittaa `$sysname`en, eikä koneilla ole loopbackia). Oraclen
+     ingress-säännöt saavat päästää internetistä vain 443:n, DNS:n ja
+     WireGuardin. Tarkista se ennen asennusta.
+   - **Tekemättä: rajat CPU-palvelimella.** Ennen kuin rekisteröinti
+     avataan ilman kutsukoodia, tunnusten istunnoille tarvitaan rajat.
+     Ehdotus:
+     - signupd lisää uuden käyttäjän ryhmään `web` (cwfs:n `newuser web
+       +NIMI`),
+     - rcpu-palvelimen skripti (`tcp17019`) ja webtermin sovellusskripti
+       rakentavat `web`-ryhmän käyttäjälle nimiavaruuden ilman
+       ulospäin avautuvaa `/net`iä ja laskentapoolia,
+     - lisäksi estetään `#I`:n ja muiden laitteiden liittäminen
+       uudelleen. Pelkkä `rfork m` (RFNOMNT) estäisi myös istunnon oman
+       `/mnt/term`-mountin, joten tähän tarvitaan ytimen tuki laitekohtaiselle
+       rajalle (9frontissa tutkittava),
+     - lisäksi prosessi- ja muistirajat sekä levyn käytön seuranta.
+     Siihen asti tunnukset vain kutsukoodilla, ja kutsutut ovat
+     luotettuja.
 
 ## Avoimet kysymykset
 

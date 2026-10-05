@@ -1,0 +1,24 @@
+#!/bin/bash
+# Plan2001's accounts at https://plan2001.com (docs/webauthn.md, phase 5):
+# the wasm32 machine's page (monolith/tools/pages) built here, invite codes
+# made here if there are none (the cloud cache's invites, a code a line:
+# give one to each person to be let in), then accounts.rc on the cloud
+# server over the administrators' WireGuard tunnel (tools/cloud/wg-admin up).
+#   tools/cloud/accounts [ADMIN-IP]      NINVITES=n (10), RP=plan2001.com
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$(dirname "$here")")
+admin=${1:-10.201.0.1}
+sec=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cloud
+m=$root/monolith
+T=$m/build/9pterm/9pterm
+p9() { "$T" -h "$admin" -a "tcp!$admin!567" -u admin -P "$sec/admin.pass" -W 20 -T "${TMO:-600}" -c "$1"; }
+[ -s "$sec/admin.pass" ] || { echo "accounts: no $sec/admin.pass" >&2; exit 1; }
+if [ ! -s "$sec/invites" ]; then
+	(umask 077; for i in $(seq "${NINVITES:-10}"); do tr -dc 'a-z0-9' </dev/urandom | head -c 12; echo; done >"$sec/invites")
+	echo "accounts: invite codes in $sec/invites"
+fi
+"$m/tools/pages"
+out=$(p9 "rc /mnt/term$here/accounts.rc /mnt/term$root /mnt/term$sec/invites ${RP:-plan2001.com}" 2>&1 || true)
+echo "$out"
+echo "$out" | grep -q ACCOUNTS-DONE || { echo "accounts: not installed" >&2; exit 1; }
+echo "accounts: https://${RP:-plan2001.com}/ (invites: $sec/invites)"

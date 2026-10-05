@@ -1,0 +1,5 @@
+ticks in it: ok
+disk: a new disk, hjfs -r
+p) passkey  s) password  n) new account  g) guest: g
+/usr/glenda/lib/profile:27: webcookies: file does not exist: './webcookies'
+/usr/glenda/lib/profile:28: webfs: file does not exist: './webfs'

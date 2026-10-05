@@ -356,3 +356,23 @@ alas. Ylläpito jatkuu WireGuard-tunnelin kautta.
   jo factotumissa). `certrenew` uusii molemmat.
 - **tcp443:** `tlssrv -c plan2001.com.crt /bin/webterm -s -n -w
   /sys/lib/sandbox` (ennen varmennetta `*.cpu`:n tai kehitys-CA:n).
+
+## Tunnukset ja passkeyt: https://plan2001.com (5.10.)
+
+`tools/cloud/accounts` asentaa Plan2001:n tunnukset pilveen
+(`docs/webauthn.md`, vaihe 5): secstored, signupd ja passkeyd, kutsukoodit
+ja sivuston kirjautumisen. Lisäksi `tcp443` vaihtuu pelkistä sivuista
+koko sivustoksi. Kirjautumaton käyttäjä (`/boot/login`in `g`) saa
+saman paikallisen koneen kuin sandbox.
+
+```
+tools/build.sh                 # tarvittaessa ydin: tools/cloud/kernel
+tools/cloud/wg-admin up
+tools/cloud/accounts           # NINVITES=10, RP=plan2001.com
+```
+
+Kutsukoodit ovat tiedostossa `~/.cache/plan2001/cloud/invites`, yksi
+riviä kohden, ja jokainen kelpaa kerran. Ennen ajoa tarkista Oraclen
+ingress-säännöistä, että 5356 (secstored), 567, 17019, 17040 ja 17041
+eivät näy internetiin. `localonly` vartioi palvelut, jotka aux/listen
+käynnistää, mutta secstored kuuntelee itse.

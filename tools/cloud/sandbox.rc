@@ -91,6 +91,12 @@ certrenew
 tail -3 /sys/log/certrenew
 
 step https: the sandbox only (tcp443)
+# not over Plan2001's accounts (tools/cloud/accounts.rc): its tcp443 is the whole site
+if(test -e /rc/bin/service/tcp443 && grep -s plan2001/web /rc/bin/service/tcp443){
+	echo tcp443 is the accounts site: kept
+	echo SANDBOX-DONE
+	exit
+}
 cat >/rc/bin/service/tcp443 <<'X'
 #!/bin/rc
 # https: the public diskless sandbox only (rc-httpd, the pages only), with

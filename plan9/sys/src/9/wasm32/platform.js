@@ -865,7 +865,8 @@ export async function boot(url, front = {}) {
 			}
 		}
 		canvas.getContext('2d').putImageData(screen.img, 0, 0, r[0], r[1], r[2] - r[0], r[3] - r[1]);
-		screen.flushes++;
+		/* the kernel draws once (screeninit's grey); the next is a program's (rio): the page's to know */
+		if (++screen.flushes === 2) front.drawn?.();
 	};
 	screen.flush = (r) => {
 		const d = screen.dirty;

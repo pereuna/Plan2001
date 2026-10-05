@@ -1,0 +1,92 @@
+#!/bin/rc
+# Plan2001's accounts on the cloud server (docs/webauthn.md, phase 5): run
+# as admin, the host owner, by tools/cloud/accounts over the
+# administrators' tunnel, the repo and the invites through /mnt/term:
+#	rc accounts.rc REPO INVITES RP
+#   the page        cpu-live's pages, apps and webterm (the policy words
+#                   signup, login, secstore for the terminal's origin)
+#   secstored       from cpustart (it announces tcp!*!5356 itself: none in
+#                   service.auth); the cloud's ingress rules keep 5356 from
+#                   the internet, webterm reaches it as this machine's
+#   signupd         service.auth/tcp17040, local only, newuser on the file
+#                   server's console
+#   passkeyd        service.auth/tcp17041, local only, the passkeys of RP
+#                   (plan2001.com) from https://RP
+#   invites         INVITES' codes added to /adm/webauthn/invites: no
+#                   account without one
+#   tcp443          https://RP: the whole site - the page, its login and
+#                   its WebSockets (rc-httpd, webterm -s -r) - in place of
+#                   the pages-only sandbox; a guest's machine (/boot/login
+#                   g) is the sandbox it was
+# It can be run again.
+rfork e
+repo=$1
+invites=$2
+rp=$3
+fn step { echo; echo '==' $* }
+fn fail { echo FAILED: $*; exit $"* }
+~ $#rp 1 || fail usage: rc accounts.rc REPO INVITES RP
+
+step the page, apps and webterm
+rc $repo/tools/cpu-live.rc $repo pages apps webterm || fail cpu-live
+
+step signupd and passkeyd
+@{
+	cd /tmp
+	for(p in signupd passkeyd){
+		6c -FTVw $repo/plan2001/sys/src/cmd/aux/$p.c && 6l -o /amd64/bin/aux/$p $p.6 || exit $p
+	}
+} || fail compile
+mkdir -p /adm/webauthn /adm/secstore/who /adm/secstore/store
+chmod 700 /adm/webauthn /adm/secstore /adm/secstore/who /adm/secstore/store
+
+step secstored from cpustart
+cfg=/cfg/$sysname
+mkdir -p $cfg
+rm -f /rc/bin/service.auth/tcp5356
+grep -s auth/secstored $cfg/cpustart || echo auth/secstored >>$cfg/cpustart
+if(! ps | grep -s ' secstored$')
+	auth/secstored
+
+step 'services (local only: webterm''s, not the internet''s)'
+fscons=`{ls /srv/cwfs*.cmd /srv/hjfs.cmd >[2]/dev/null | sed 1q}
+~ $#fscons 1 || fail no file server console in /srv
+{
+	echo '#!/bin/rc'
+	echo '. /rc/bin/localonly $3'
+	echo 'exec /bin/aux/signupd -c '^$fscons
+} >/rc/bin/service.auth/tcp17040
+{
+	echo '#!/bin/rc'
+	echo '. /rc/bin/localonly $3'
+	echo 'exec /bin/aux/passkeyd -r '^$rp^' -o https://'^$rp
+} >/rc/bin/service.auth/tcp17041
+chmod 775 /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
+cat /rc/bin/service.auth/tcp17040 /rc/bin/service.auth/tcp17041
+
+step invites
+touch /adm/webauthn/invites
+chmod 600 /adm/webauthn/invites
+for(c in `{cat $invites})
+	grep -s '^'^$c^'$' /adm/webauthn/invites || echo $c >>/adm/webauthn/invites
+echo `{wc -l </adm/webauthn/invites} invites
+
+step 'the site''s login and secstore'
+echo 1 >/sys/lib/plan2001/web/login
+echo 'tcp!secstore!5356' >/sys/lib/plan2001/web/secstore
+chmod 644 /sys/lib/plan2001/web/login /sys/lib/plan2001/web/secstore
+
+step https: the whole site (tcp443)
+cat >/rc/bin/service/tcp443 <<'X'
+#!/bin/rc
+# https: Plan2001's site (tools/cloud/accounts.rc): the wasm32 machine's
+# page, its login and its WebSockets (rc-httpd, webterm -s -r), with the
+# Let's Encrypt certificate for plan2001.com (certrenew), else
+# *.cpu.plan2001.com's, else the development one
+crt=/sys/lib/tls/acmed/plan2001.com.crt
+test -s $crt || crt=/sys/lib/tls/acmed/cpu.plan2001.com.crt
+test -s $crt || crt=/sys/lib/tls/monolith.pem
+web=/sys/lib/plan2001/web exec tlssrv -c $crt /rc/bin/rc-httpd/rc-httpd
+X
+chmod 775 /rc/bin/service/tcp443
+echo ACCOUNTS-DONE

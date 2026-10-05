@@ -48,6 +48,9 @@ const sec = appname === 'term' ? await fetch('secstore', { cache: 'no-store' }).
 const secstore = /^[a-z0-9.!-]{1,64}$/.test(sec.trim()) ? sec.trim() : '';
 /* and its login (GET /login: the site has accounts and passkeys, docs/webauthn.md): /boot/login's menu */
 const login = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok).catch(() => false) : false;
+/* the site's login (/boot/login) is on the console too, until a program draws on the screen (rio) */
+const loginconsole = () => login && appname === 'term' && !(q.get('console') === '1');
+if (loginconsole()) document.body.classList.add('console');
 const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
 	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
@@ -118,6 +121,7 @@ document.addEventListener('paste', (e) => {
 
 boot('9wasm32.wasm', {
 	eia: (b) => { pre.textContent += dec.decode(b, { stream: true }); },
+	drawn: () => { if (loginconsole()) document.body.classList.remove('console'); },
 	halt: (why) => {
 		pre.textContent += '\n[halted: ' + why + ']\n';
 		if (!(q.get('console') === '1')) { const h = document.getElementById('halt'); h.textContent = 'Plan2001 halted: ' + why; h.style.display = 'block'; }

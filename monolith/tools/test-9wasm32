@@ -86,6 +86,11 @@ want riorc $names && HALTWAIT=60 KEYS='["e", "c", "h", "o", " ", "ä", "å", "ö
 	run riorc '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; rio -i '"'"'window -r 20 20 580 400 rc'"'"' & sleep 25; echo done"]'
 want boot $names && RUNS=40 DRAWS=10 KEYDELAY=12 MOUSE='[[0.4, 0.4, 1]]' KEYS='["e", "c", "h", "o", " ", "b", "o", "o", "t", "e", "d", " ", ">", "/", "d", "e", "v", "/", "e", "i", "a", "0", "Enter"]' \
 	PAGEARGS='&x=boot' run boot '[]'
+# the site's login (GET /login, docs/webauthn.md): /boot/init's /boot/login on the console, which the page
+# shows; g (none) and init goes on to rio, whose drawing takes the console away again
+want pagelogin $names && MONOLITH_LOGIN=1 RUNS=40 DRAWS=3 \
+	EXPECTJS="!document.body.classList.contains('console') && document.getElementById('eia0').textContent.includes('g) guest: ')" \
+	run pagelogin '[]' '[["g) guest: ", "g\n"]]'
 want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
 	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
 want crypto $names && run crypto '["/bin/d3"]'
