@@ -932,7 +932,9 @@ export async function boot(url, front = {}) {
 			const b = canvas.getBoundingClientRect();
 			return [Math.round((e.clientX - b.left) * canvas.width / b.width), Math.round((e.clientY - b.top) * canvas.height / b.height)];
 		};
-		const bits = (e) => (e.buttons & 1 ? 1 : 0) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
+		/* a finger is button 1, or the one the page's key bar has chosen (front.touchbutton: 1 2 4) */
+		const bits = (e) => e.pointerType === 'touch' ? (e.buttons & 1 ? (front.touchbutton?.() ?? 1) : 0) :
+			(e.buttons & 1 ? 1 : 0) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
 		canvas.addEventListener('pointermove', (e) => {
 			const b = bits(e), moved = b === buttons;	/* buttons change on a move too (chords) */
 			buttons = b;

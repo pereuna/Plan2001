@@ -22,6 +22,7 @@ is no longer in the browser.)
                                            buttons clicked in this order: go
                                            (the request's) or cancel
   PAGEURL=https://plan2001.com/           a site's page instead of tools/serve's
+  TOUCH=1                                  a phone: a touch screen 400x700
   PAGEHOST=localhost                       the page from this host (WebAuthn
                                            takes no IP address for its rp)
 """
@@ -158,6 +159,11 @@ def main():
 		cdp = Cdp(t['webSocketDebuggerUrl'])
 		cdp.call('Page.enable')
 		cdp.call('Runtime.enable')
+		if os.environ.get('TOUCH'):	# TOUCH=1: a phone - a touch screen 400x700, the page loaded again as one
+			cdp.call('Emulation.setDeviceMetricsOverride', width=400, height=700, deviceScaleFactor=1, mobile=True)
+			cdp.call('Emulation.setTouchEmulationEnabled', enabled=True, maxTouchPoints=5)
+			cdp.call('Page.reload', ignoreCache=True)
+			time.sleep(1)
 		# WEBAUTHN: the browser's passkeys are a virtual authenticator's, its PRF on; the page's
 		# buttons (devwebauthn.c's requests) clicked as a person would, in the order given
 		webauthn = json.loads(os.environ.get('WEBAUTHN', 'null'))

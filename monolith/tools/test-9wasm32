@@ -95,6 +95,10 @@ want pagelogin $names && MONOLITH_LOGIN=1 RUNS=40 DRAWS=3 \
 # types the text - not ^V typed as a key (it was: a box where the invite code was to go)
 want ctrlv $names && EVAL='setTimeout(() => { const k = new KeyboardEvent("keydown", { key: "v", code: "KeyV", ctrlKey: true, cancelable: true, bubbles: true }); document.dispatchEvent(k); const d = new DataTransfer(); d.setData("text/plain", "invite-abc123\n"); document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: d, cancelable: true, bubbles: true })); }, 4000)' \
 	run ctrlv '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; x=`{read </dev/cons}; echo got $x | xd -c >/dev/eia0; echo done"]'
+# a phone (a touch screen): the key bar under the screen; its keyboard's typing (#kbd's input events),
+# the bar's Ctrl with the next key (^U: kbdfs drops the line typed so far), Return
+want touchbar $names && TOUCH=1 EVAL='setTimeout(() => { const t = document.getElementById("kbd"), type = (i, d) => t.dispatchEvent(new InputEvent("input", { inputType: i, data: d })); document.querySelector("[data-k=kbd]").click(); type("insertText", "abc"); document.querySelector("[data-k=ctrl]").click(); type("insertText", "u"); type("insertText", "hello"); type("insertLineBreak", null); window.barshown = getComputedStyle(document.getElementById("bar")).display; }, 5000)' \
+	run touchbar '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; x=`{read </dev/cons}; echo got $x >/dev/eia0; echo done"]'
 want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
 	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
 want crypto $names && run crypto '["/bin/d3"]'
