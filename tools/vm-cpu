@@ -230,7 +230,7 @@ webterm() {
 	# (tcp17019's fn server, as the user, before the client's script) and webterm's apps'
 	# their processes and memory (aux/weblimitd, as the host owner from cpustart: 9front has no quotas)
 	echo "vm-cpu: weblimitd"
-	run9 -t 30 "test -e /sys/log/weblimit || { touch /sys/log/weblimit && chmod 664 /sys/log/weblimit }"
+	run9 -t 30 "for(l in weblimit signupd passkeyd) test -e /sys/log/\$l || { touch /sys/log/\$l && chmod 664 /sys/log/\$l }"
 	run9 -t 30 "grep -s aux/weblimitd /cfg/cirno/cpustart || echo 'aux/weblimitd >/dev/null >[2=1] &' >>/cfg/cirno/cpustart"
 	run9 -t 30 "ps | grep -s ' weblimitd\$' || aux/weblimitd >/dev/null >[2=1] &"
 	echo "vm-cpu: websession"

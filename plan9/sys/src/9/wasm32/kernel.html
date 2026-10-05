@@ -15,6 +15,9 @@
 	body.console { overflow: auto; }
 	body.console canvas { width: auto; height: auto; max-width: 100%; margin: 0 auto; }
 	body.console pre { display: block; }
+	/* the site's login (/boot/login): the console alone, its prompt in view, until rio draws */
+	body.login canvas { display: none; }
+	body.login pre { min-height: 100vh; box-sizing: border-box; }
 	#halt { display: none; position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px; background: var(--bg); }
 </style>
 </head>
@@ -50,7 +53,7 @@ const secstore = /^[a-z0-9.!-]{1,64}$/.test(sec.trim()) ? sec.trim() : '';
 const login = appname === 'term' ? await fetch('login', { cache: 'no-store' }).then((r) => r.ok).catch(() => false) : false;
 /* the site's login (/boot/login) is on the console too, until a program draws on the screen (rio) */
 const loginconsole = () => login && appname === 'term' && !(q.get('console') === '1');
-if (loginconsole()) document.body.classList.add('console');
+if (loginconsole()) document.body.classList.add('console', 'login');
 const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
 	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
@@ -120,8 +123,11 @@ document.addEventListener('paste', (e) => {
 });
 
 boot('9wasm32.wasm', {
-	eia: (b) => { pre.textContent += dec.decode(b, { stream: true }); },
-	drawn: () => { if (loginconsole()) document.body.classList.remove('console'); },
+	eia: (b) => {
+		pre.textContent += dec.decode(b, { stream: true });
+		if (document.body.classList.contains('login')) scrollTo(0, document.body.scrollHeight);	/* the prompt in view */
+	},
+	drawn: () => { if (loginconsole()) document.body.classList.remove('console', 'login'); },
 	halt: (why) => {
 		pre.textContent += '\n[halted: ' + why + ']\n';
 		if (!(q.get('console') === '1')) { const h = document.getElementById('halt'); h.textContent = 'Plan2001 halted: ' + why; h.style.display = 'block'; }
