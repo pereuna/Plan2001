@@ -405,9 +405,8 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
      jälkeen), putken 9P-palvelin mounttautuu, ja `chdev &` lisää
      maskia mutta ei pura sitä. Ulompi nimiavaruus säilyy ennallaan.
      `signupd`-testi näyttää konsolin rivit ja `-a`-tiedoston
-     odottamisen. VM:llä tarkistetaan vielä, että `/adm/users` on
-     käyttäjien luettavissa ja että `signupvm`:n uusi tunnus on
-     rajattu.
+     odottamisen. `signupvm` (VM, 5.10.): uusi tunnus kirjautuu
+     rcpu:lla, sillä on koti, eikä sillä ole verkkoa eikä `/srv`:iä.
    - **Tekemättä:** prosessi- ja muistirajat sekä levyn käytön
      seuranta (9frontissa ei ole kiintiöitä). Siihen asti tunnukset
      tehdään vain kutsukoodilla.
