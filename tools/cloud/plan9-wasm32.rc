@@ -1,0 +1,32 @@
+#!/bin/rc
+# Plan9-wasm32's live image on the cloud server, https://plan2001.com/plan9-wasm32/
+# (another project, github.com/pereuna/plan9-wasm32: its tools/dist's
+# build/dist/live - the page, the kernel, its boot file system, plan9.ini
+# and the distribution's ISO, which its machines read with range requests):
+# run as admin by tools/cloud/plan9-wasm32, the repo and the live image
+# through /mnt/term:  rc plan9-wasm32.rc REPO LIVE
+#   rc-httpd   plan2001-static: a directory's index.html, range requests
+#   $web/plan9-wasm32   the live image, $web tcp443's (the accounts site's)
+rfork e
+repo=$1
+live=$2
+fn fail { echo PLAN9-WASM32 FAILED: $*; exit $1 }
+fn step { echo '###' $* }
+
+step rc-httpd: plan2001-static with ranges
+cp $repo/plan2001/rc/bin/rc-httpd/handlers/plan2001-static /rc/bin/rc-httpd/handlers/plan2001-static || fail plan2001-static
+chmod 775 /rc/bin/rc-httpd/handlers/plan2001-static
+
+web=`{sed -n 's/.*web=([^ ]+).*/\1/p' /rc/bin/service/tcp443 | sed 1q}
+~ $#web 0 && web=/sys/lib/plan2001/web
+d=$web/plan9-wasm32
+step the live image: $d
+mkdir -p $d
+for(f in $live/*){
+	b=`{basename $f}
+	echo $b
+	cp $f $d/$b.new && mv $d/$b.new $d/$b || fail $b
+}
+chmod 664 $d/*
+ls -l $d
+echo PLAN9-WASM32-DONE

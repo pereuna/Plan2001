@@ -4,11 +4,14 @@
 # share memory (COOP and COEP, else no SharedArrayBuffer), its scripts
 # are modules and its kernel is compiled as it comes (the types), and the
 # root's archive is large (FILE.gz when the browser takes gzip; ETag from
-# the file's qid, so an unchanged one is not sent again).
+# the file's qid, so an unchanged one is not sent again).  A directory's
+# path (DIR/) is its index.html.  A Range request (bytes=A-B) gets that
+# part, 206: a machine's read-only disk on the server (Plan9-wasm32's
+# distribution ISO, /plan9-wasm32/) is read in blocks so.
 dir=$1
 f=$location
-if(~ $f /)
-	f=/index.html
+if(~ $f */)
+	f=$f^index.html
 if(! ~ $REQUEST_METHOD GET HEAD){
 	error 405
 	exit
@@ -35,6 +38,40 @@ case *
 	cache=no-cache
 }
 file=$dir$f
+# a part of it: dd in blocks that divide its start and length (the disk's 64 KiB, mostly);
+# the last part, to the end, in any (dd stops at the end)
+rng=`{echo $reqlines | grep -i '^range: *bytes=[0-9]+-[0-9]*' | sed 1q | sed 's/^[^=]*=//; s/[^0-9-]//g'}
+if(~ $REQUEST_METHOD GET && ! ~ $#rng 0){
+	size=`{ls -l $file | awk '{print $6}'}
+	r=`{echo $rng $size | awk -F'[ -]' '{
+		a = $1; s = $3; b = ($2 == "" || $2+1 > s) ? s-1 : $2
+		if(a >= s || a > b){ print "no"; exit }
+		n = b-a+1; bs = 65536
+		while(bs > 1 && (a % bs || (b+1 < s && n % bs)))
+			bs /= 2
+		print a, b, n, bs, int(a/bs), int((n+bs-1)/bs)
+	}'}
+	if(~ $r(1) no){
+		echo 'HTTP/1.1 416 Range Not Satisfiable'$cr
+		emit_extra_headers
+		echo 'Content-Range: bytes */'$size$cr
+		echo 'Content-Length: 0'$cr
+		echo 'Connection: close'$cr
+		echo $cr
+		exit
+	}
+	echo 'HTTP/1.1 206 Partial Content'$cr
+	emit_extra_headers
+	echo 'Content-Type: '$type$cr
+	echo 'Content-Range: bytes '$r(1)^-^$r(2)^/^$size$cr
+	echo 'Content-Length: '$r(3)$cr
+	echo 'Cache-Control: '$cache$cr
+	echo 'Cross-Origin-Opener-Policy: same-origin'$cr
+	echo 'Cross-Origin-Embedder-Policy: require-corp'$cr
+	echo 'Connection: close'$cr
+	echo $cr
+	exec dd -if $file -bs $r(4) -iseek $r(5) -count $r(6) >[2]/dev/null
+}
 enc=()
 if(test -f $file.gz && echo $reqlines | grep -si '^accept-encoding:.*gzip' >/dev/null){
 	file=$file.gz

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Plan9-wasm32's live image (another project's: github.com/pereuna/plan9-wasm32,
+# its tools/dist) on the cloud server, https://plan2001.com/plan9-wasm32/, over
+# the administrators' WireGuard tunnel (tools/cloud/wg-admin up) by
+# plan9-wasm32.rc there.  LIVE: its build/dist/live.
+#   tools/cloud/plan9-wasm32 [LIVE [ADMIN-IP]]
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$(dirname "$here")")
+live=$(cd "${1:-$HOME/plan9-wasm32/build/dist/live}" && pwd)
+admin=${2:-10.201.0.1}
+sec=${PLAN2001_CACHE:-$HOME/.cache/plan2001}/cloud
+T=$root/monolith/build/9pterm/9pterm
+[ -x "$T" ] || "$root/monolith/tools/build" >/dev/null
+[ -s "$live/plan9-wasm32.iso" ] || { echo "plan9-wasm32: no $live/plan9-wasm32.iso (tools/dist there)" >&2; exit 1; }
+out=$("$T" -h "$admin" -a "tcp!$admin!567" -u admin -P "$sec/admin.pass" -W 20 -T "${TMO:-7200}" \
+	-c "rc /mnt/term$here/plan9-wasm32.rc /mnt/term$root /mnt/term$live" 2>&1 || true)
+echo "$out"
+echo "$out" | grep -q PLAN9-WASM32-DONE || { echo "plan9-wasm32: not installed" >&2; exit 1; }
+echo "plan9-wasm32: https://plan2001.com/plan9-wasm32/"
