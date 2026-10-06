@@ -40,7 +40,7 @@ case *
 file=$dir$f
 # a part of it: dd in blocks that divide its start and length (the disk's 64 KiB, mostly);
 # the last part, to the end, in any (dd stops at the end)
-rng=`{echo $reqlines | grep -i '^range: *bytes=[0-9]+-[0-9]*' | sed 1q | sed 's/^[^=]*=//; s/[^0-9-]//g'}
+rng=`{echo $reqlines | grep '^[Rr][Aa][Nn][Gg][Ee]: *bytes=[0-9][0-9]*-[0-9]*' | sed 1q | sed 's/^[^=]*=//'}
 if(~ $REQUEST_METHOD GET && ! ~ $#rng 0){
 	size=`{ls -l $file | awk '{print $6}'}
 	r=`{echo $rng $size | awk -F'[ -]' '{
