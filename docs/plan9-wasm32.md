@@ -23,8 +23,20 @@ https://plan2001.com/plan9-wasm32/.
 
 | Profiili | Mikä | Arkkitehtuuri ja alusta nyt |
 |---|---|---|
-| **palvelin** | CPU-, auth- ja tiedostopalvelin: tunnukset, istunnot, sivusto, laskentapooli | amd64 (UEFI). wasm32 voi myöhemmin olla myös CPU-palvelin |
+| **palvelin** | CPU-, auth- ja tiedostopalvelin: tunnukset, istunnot, sivusto, laskentapooli. CPU-palvelin tarkoittaa myös CR-palvelimia (NPU, GPU jne., `docs/cpu-server-design.md`) | amd64 (UEFI). Myöhemmin arm64, riscv64 ja wasm32 |
 | **terminaali** | käyttäjän GUI ("selaintyyppinen" ympäristö) | vain wasm32 selaimessa ja/tai sarjakonsoli |
+
+## Jakelu
+
+Plan2001 on ohjelmistojakelu, josta tehdään jakeluversio kumpaankin
+ympäristöön:
+
+- **pc64:** CPU-palvelin (plan2001.com:n palvelin, pilvi ja oma rauta).
+- **wasm32:** terminaali.
+
+Myöhemmin tulevat arm- ja RISC-V-portit sekä wasm32:n CPU-palvelin.
+
+## Terminaalin alusta
 
 Terminaalin alusta muuttuu ajan myötä:
 

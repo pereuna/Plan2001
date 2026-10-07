@@ -3,7 +3,8 @@
 Plan2001:llä on kaksi profiilia (`docs/plan9-wasm32.md`):
 
 - **palvelin:** CPU, auth ja fs amd64:llä. Alusta on pc64 (UEFI): pilven
-  VM (virtio) ja oma rauta.
+  VM (virtio) ja oma rauta. CPU-palvelin tarkoittaa myös CR-palvelimia
+  (NPU, GPU jne.).
 - **terminaali:** wasm32-kone selaimessa ja/tai sarjakonsoli.
 
 Tähän on listattu se, mitä kumpikaan profiili ei tarvitse. Jokaisella
@@ -16,12 +17,13 @@ rivillä on suositus:
 Rivit ovat repossa olevasta koodista: pc64:n ytimen konfiguraatio
 (`plan2001/sys/src/9/pc64/pc64`), `subset/9front` ja wasm32:n juuri.
 
-**Huomio palvelimen userlandista.** Palvelin ajaa nyt 9frontin ISO:lta
+**Huomio palvelimen userlandista.** Plan2001 on ohjelmistojakelu, josta
+tehdään jakeluversio pc64:lle (CPU-palvelin) ja wasm32:lle (terminaali),
+ks. `docs/plan9-wasm32.md`. Palvelin ajaa vielä 9frontin ISO:lta
 asennettua järjestelmää, jonka päällä on Plan2001:n ydin ja palvelut
-(`tools/vm-setup`, `tools/vm-cpu`, pilven image). Repo ei siis vielä
-päätä palvelimen ohjelmista. Userlandin poistot (kohdat 4–7) vaativat
-ensin Plan2001:n oman amd64-jakelun, esimerkiksi `subset/`ista
-kootun. Ytimen poistot (kohdat 1–3) voi tehdä heti.
+(`tools/vm-setup`, `tools/vm-cpu`, pilven image). Userlandin poistot
+(kohdat 4–7) koskevat palvelinta vasta, kun se ajaa pc64:n jakeluversiota.
+Ytimen poistot (kohdat 1–3) voi tehdä heti.
 
 ## 1. Arkkitehtuurit
 
@@ -31,8 +33,8 @@ kootun. Ytimen poistot (kohdat 1–3) voi tehdä heti.
 | 68020, power (ja 9frontin muut: arm, mips, spim, sparc) | `subset/9front/68020`, `power` (vain mkfilet) | **pois** |
 | amd64 | pc64 | **jää** (palvelin) |
 | wasm32 | `plan2001/sys/src/9/wasm32` | **jää** (terminaali, myöhemmin myös CPU) |
-| arm64 | `plan2001/sys/src/9/arm64` (boot-työ, QEMU) | **päätä:** jatketaanko, vai pois kunnes on rautaa |
-| riscv64 | `tools/targets/riscv64` (vain kohde) | **päätä:** kuten arm64 |
+| arm64 | `plan2001/sys/src/9/arm64` (boot-työ, QEMU) | **jää:** tuleva portti (päätös 7.10.) |
+| riscv64 | `tools/targets/riscv64` (vain kohde) | **jää:** tuleva portti (päätös 7.10.) |
 
 ## 2. Boot ja laiteohjelmisto
 
@@ -126,6 +128,6 @@ tiedostot `pc/`:ssa ja `port/`:ssa ovat kohdan 2 työ.
 3. **Tunnistus:** p9sk1 ja vanhat protokollat pois factotumista, authsrv:stä
    ja keyfs:stä (kopiot `plan2001/`:een). Testit: `dp9ik`, `rcpu`,
    `secstore`, VM-ketju.
-4. **Palvelimen jakelu:** oma amd64-jakelu, jonka jälkeen kohdat 5–7.
+4. **pc64:n jakeluversio** (CPU-palvelin), jonka jälkeen kohdat 5–7.
 
 Avoimet päätökset ovat yllä **päätä**-riveillä.
