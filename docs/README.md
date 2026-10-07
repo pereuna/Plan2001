@@ -6,6 +6,11 @@ ja poistaa BIOS-ajan legacy-koodi, joka ei ole enää tarpeen puhtaalla UEFI-kon
 
 Tilanne ja suunnitelma: **`docs/status.md`**. Lue se ensin.
 
+Plan2001 ei ole 9front-yhteensopiva: se on moderni järjestelmä, joka
+kopioi 9frontista ja [Plan9-wasm32](https://github.com/pereuna/plan9-wasm32):sta
+ja jättää legacyn pois (päätös 7.10.2026, **`docs/plan9-wasm32.md`**).
+Alla oleva UEFI-boot-kuvaus on sitä edeltävää historiaa.
+
 Kerrokset (arkkitehtuuri, alusta, rooli, ohjelmat) ja wasm32:n suunta:
 **`docs/architecture.md`**.
 

@@ -24,6 +24,23 @@ legacyä rikkovaa muutosta. Älä myöskään tee 9frontin tiedostosta
 kokonaista kopiota, vaan diff `plan9/patches/`iin. `tools/overlay DIR`
 kokoaa molemmat kerrokset yhdeksi 9front-juureksi (`-f`: vain fork).
 
+## Plan2001 ei ole 9front-yhteensopiva (päätös 7.10.2026)
+
+Lue `docs/plan9-wasm32.md`. Plan2001 on oma, moderni järjestelmä. Se
+kopioi koodia, ideoita ja protokollia 9frontista ja Plan9-wasm32:sta
+(pereuna/plan9-wasm32, yhteensopiva wasm32-fork) ja muokkaa niitä
+vapaasti. Siinä on kaksi profiilia: palvelin (CPU, auth, fs) ja
+terminaali (nyt wasm32-kone selaimessa ja/tai sarjakonsoli, lopulta
+vahvasti autentikoitu ja autorisoitu HMI-istunto). Legacy jää pois.
+- Tämän repon wasm32-koodi on Plan2001:n omaa. Kehitä sitä täällä.
+- Kun otat koodia Plan9-wasm32:sta tai 9frontista, kirjaa commitiin
+  lähde (repo ja commit).
+- Plan9-wasm32:een viedään vain bugikorjauksia, ei Plan2001:n
+  ominaisuuksia.
+- Alla oleva kerrosjako (`plan9/` yhteensopivana forkina, 9Front-2001,
+  diffit `plan9/patches`iin) on voimassa, kunnes puun rakenne
+  yksinkertaistetaan (`docs/plan9-wasm32.md`, vaihe 3).
+
 ## Säännöt, joita ei rikota
 
 - **`subset/9front/` on 9frontin julkaisu sellaisenaan** (`tools/9front.release`),
@@ -99,7 +116,7 @@ sivun loki `build/wasmapp-kernel.log` ja kuvakaappaus
 `build/wasmapp-kernel.png`.
 
 Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
-- ydin ja ohjelmat: `c2a bootinfo badblob oldheader disk diskdead echo long fork forkloop rc rci c3a failfork rfmem
+- ydin ja ohjelmat: `c2a bootinfo badblob oldheader disk diskdead echo long fork forkloop rc rcif rci c3a failfork rfmem
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
   rci3 rioclock riorc boot paste ctrlv touchbar` (`boot` tarvitsee vga-alifontit, ks. alla;

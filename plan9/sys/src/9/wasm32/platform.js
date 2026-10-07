@@ -115,6 +115,9 @@ function firmware(front, disksize) {
 // exec's: the program's frames unwind to platuser's loop, which starts the next
 const EXEC = { exec: true };
 // noted's: the program's notify handler's frames unwind to its caller (unote)
+/* a function's address (3l): TEXTBASE + its index in the module's table, as a text segment's - never a small number */
+const TEXTBASE = 0xF0000000;
+const fidx = (p) => (p >>> 0) - TEXTBASE;
 const NOTED = { noted: true };
 // a program's fault: it ends with the note, as a trap would on Plan 9 - the machine goes on
 class Trap extends Error {}
@@ -124,7 +127,7 @@ function kcall(env, fn, ...w) {
 	const x = env.x, k = x.sp.value, top = (k - 8 - 4*w.length) & ~7, d = new DataView(env.mem.buffer);
 	w.forEach((v, i) => d.setUint32(top + 4*i, v, true));
 	x.sp.value = top;
-	x.table.get(fn)();
+	x.table.get(fidx(fn))();
 	x.sp.value = k;
 }
 
@@ -155,15 +158,15 @@ function unote(env) {
 	d.setUint32(top, ureg, true);
 	d.setUint32(top + 4, msg, true);
 	x.sp.value = top;
-	if (!(nt.handler > 0 && nt.handler < x.table.length)) {
+	if (!(fidx(nt.handler) > 0 && fidx(nt.handler) < x.table.length)) {
 		/* not a function of this program's: as if it had no handler */
-		console.log(`KLOG platform: a note's handler ${nt.handler} is not in this program (table ${x.table.length}): ${new TextDecoder().decode(nt.msg)}`);
+		console.log(`KLOG platform: a note's handler 0x${(nt.handler >>> 0).toString(16)} is not in this program (table ${x.table.length}): ${new TextDecoder().decode(nt.msg)}`);
 		x.sp.value = sp;
 		kcall(env, nt.done, nt.p);
 		throw new Trap(new TextDecoder().decode(nt.msg));
 	}
 	try {
-		x.table.get(nt.handler)();
+		x.table.get(fidx(nt.handler))();
 	} catch (e) {
 		if (e !== NOTED) {
 			kcall(env, nt.done, nt.p);
@@ -340,12 +343,12 @@ function runprog(env, K, host, pid, job) {
 			m32().setUint32(sp, t.arg, true);
 			x.sp.value = sp;
 			x.asptr.value = t.base;
-			return tbl.get(t.fn);
+			return tbl.get(fidx(t.fn));
 		}
 		x.asptr.value = t.asptr;
 		x.asstate.value = 2;
 		x.asret.value = c.ret;
-		return t.fn ? tbl.get(t.fn) : x._start;
+		return t.fn ? tbl.get(fidx(t.fn)) : x._start;
 	};
 	/* libc's per-proc region (_perproc: _tos, privalloc's): swapped as procs take turns */
 	const pp = x.perproc ? x.perproc.value : 0, ppn = x.perprocsize ? x.perprocsize.value : 0;
@@ -660,7 +663,7 @@ function cpu({ module, mem, role, fn, arg, sp, user }) {
 			const top = (sp - 16) & ~7;
 			new DataView(mem.buffer).setUint32(top, arg, true);
 			env.x.sp.value = top;
-			env.x.table.get(fn)();
+			env.x.table.get(fidx(fn))();
 			// the proc is Dead and this Worker out of the kernel: a Worker less on its Proc and KSTACK (newproc)
 			const gone = env.x.retw.value;
 			if (gone) {
@@ -687,7 +690,8 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
  * origin's private file system (OPFS), the same file each time the page
  * is loaded - what the machine wrote is there after a reload.  Only a
  * Worker can use it synchronously (a sync access handle), and only one
- * at a time: another tab of the same origin gets no disk.  First the
+ * at a time: another tab of the same origin gets no disk (after 3 s: a
+ * page loaded again waits for the last one's to let go).  First the
  * file, at least size bytes ({ diskready: its size } or { diskfail });
  * then { mem, regs }: the kernel's requests, one at a time, in the
  * registers, into and out of its memory.  Writes go to the file (flush)
@@ -696,8 +700,17 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
 async function disk({ name, size, fail }) {
 	let h;
 	try {
-		const dir = await navigator.storage.getDirectory();
-		h = await (await dir.getFileHandle(name, { create: true })).createSyncAccessHandle();
+		const dir = await navigator.storage.getDirectory(), fh = await dir.getFileHandle(name, { create: true });
+		/* a page loaded again: the last one's disk Worker may hold the file a moment longer (Plan9-wasm32 5823c82) */
+		for (let i = 0; ; i++) {
+			try {
+				h = await fh.createSyncAccessHandle();
+				break;
+			} catch (e) {
+				if (e.name !== 'NoModificationAllowedError' || i >= 30) throw e;
+				await new Promise((r) => setTimeout(r, 100));
+			}
+		}
 		if (h.getSize() < size)
 			h.truncate(size);
 		if (fail === 'flush')	/* a test's: the file fails when it is flushed */
