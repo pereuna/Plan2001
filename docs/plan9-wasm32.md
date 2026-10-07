@@ -78,7 +78,7 @@ Muita terminaalialustoja (natiivi rio PC:llä, drawterm) ei tehdä.
 3. **Puun rakenne** (tehty 7.10., alla). `plan9/` ja `plan2001/`, 9Front-2001:n kokoaja,
    `plan9/patches` ja diff-sääntö korvataan yhdellä Plan2001:n puulla.
    Natiivi käännös säilyy.
-4. **Legacy pois.** Listataan, mitä profiilit eivät tarvitse
+4. **Legacy pois** (lista 7.10.: `docs/legacy.md`). Listataan, mitä profiilit eivät tarvitse
    (arkkitehtuurit, bootloaderit, protokollat, ohjelmat), ja poistetaan
    ne kohta kerrallaan testien kanssa.
 5. `docs/status.md`, `docs/architecture.md` ja AGENTS.md vastaamaan
