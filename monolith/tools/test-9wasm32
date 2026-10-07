@@ -62,6 +62,9 @@ want long $names && run long "[\"/bin/echo\", \"$(printf '%06000d' 0 | tr 0 a)\"
 want fork $names && run fork '["/bin/fork"]'
 want forkloop $names && HALTWAIT=400 run forkloop '["/bin/forkloop", "2000"]'
 want rc $names && run rc '["/bin/rc", "-c", "echo hello from rc; x=(a b c); echo $#x; ls /bin/echo /bin/rc | wc -l; cat /rc/lib/rcmain | wc -l; echo done"]'
+# rc's code is a union of function pointers, ints and strings, told apart by the functions'
+# addresses: a function's address must not be a small number (3l's TEXTBASE; from Plan9-wasm32 9f14449)
+want rcif $names && run rcif '["/bin/rc", "-c", "rc /bin/rcif.rc; echo done"]'
 want rci $names && run rci '["/bin/rc", "-i"]' '["echo hi\n", "ls /bin/echo /bin/rc | wc -l\n", "x=`{echo a b}; echo $#x\n", "cat nonexistent\n", "exit\n"]'
 want c3a $names && run c3a '["/bin/c3a"]'
 want failfork $names && run failfork '["/bin/c3a", "-f"]' '[]' '&failfork=1'

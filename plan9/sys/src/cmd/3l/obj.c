@@ -24,6 +24,22 @@ usage(void)
 	exits("usage");
 }
 
+#define	ARMAGIC	"!<arch>\n"
+
+/* whether f is an archive (ar's magic), whatever its name */
+static int
+isarchive(char *f)
+{
+	char buf[sizeof ARMAGIC - 1];
+	int fd, n;
+
+	if((fd = open(f, OREAD)) < 0)
+		return 0;
+	n = read(fd, buf, sizeof buf);
+	close(fd);
+	return n == sizeof buf && memcmp(buf, ARMAGIC, sizeof buf) == 0;
+}
+
 void
 main(int argc, char *argv[])
 {
@@ -59,7 +75,7 @@ main(int argc, char *argv[])
 	for(; argc > 0; argc--, argv++) {
 		f = *argv;
 		n = strlen(f);
-		if(n > 2 && strcmp(f+n-2, ".a") == 0)
+		if(n > 2 && strcmp(f+n-2, ".a") == 0 || isarchive(f))	/* an archive by its magic too: cc.a$O */
 			libs[nlibs++] = f;
 		else
 			ldfile(f);

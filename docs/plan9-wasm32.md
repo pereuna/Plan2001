@@ -69,7 +69,7 @@ Muita terminaalialustoja (natiivi rio PC:llä, drawterm) ei tehdä.
 ## Vaiheet
 
 1. Päätös kirjattu (tämä dokumentti, README ja AGENTS.md).
-2. **Erot Plan9-wasm32:een.** Käydään läpi tuonnin jälkeiset erot molempiin
+2. **Erot Plan9-wasm32:een** (tehty 7.10., alla). Käydään läpi tuonnin jälkeiset erot molempiin
    suuntiin:
    - Plan2001:n bugikorjaukset, jotka kuuluvat myös Plan9-wasm32:een,
      tarjotaan sinne.
@@ -83,6 +83,45 @@ Muita terminaalialustoja (natiivi rio PC:llä, drawterm) ei tehdä.
    ne kohta kerrallaan testien kanssa.
 5. `docs/status.md`, `docs/architecture.md` ja AGENTS.md vastaamaan
    profiileja.
+
+## Vaihe 2: erot Plan9-wasm32:een (7.10.2026)
+
+**Lähtökohta.** Plan9-wasm32 tuotiin commitista `59ee476`. Se on
+`games`-haaran kärki, joka on neljä committia mainin (`fc40f74`) edellä,
+eikä sitä ole yhdistetty mainiin. Tuonti itse oli tavu tavulta sama,
+kun pc64-, arm64- ja boot/efi-hakemistoja ei lasketa. Plan2001:n mainissa
+ei ole muutettu `plan9/`:ää haarautumisen jälkeen, joten erot ovat:
+
+**`games`-haaran commitit** (45cc42f, d77b8f5, 0823c57, 59ee476): 9frontin
+pelit, koko 9frontin julkaisu wasm32:lle (`tools/dist-wasm32`) ja
+`/boot/install`, joka asentaa sen selaimen levylle (levy 2 Gt, distd).
+Nämä ovat 9front-jakelua, joka on nyt Plan9-wasm32:n työtä, eikä niitä
+oteta. Ainoa korjaus otetaan:
+- **3l tunnistaa arkiston taikaluvusta**, ei vain `.a`-päätteestä
+  (`cc.a$O`). Otettu.
+
+**Plan9-wasm32:n omat commitit** (0da1dbd–819d14d):
+
+| Muutos | Laji | Plan2001:een |
+|---|---|---|
+| 3l: funktion osoite on `TEXTBASE` (0xF0000000) + taulukon indeksi. rc erottaa koodinsa kokonaisluvuista funktioiden osoitteilla, ja pienet indeksit saivat sen keskeyttämään skriptin hiljaa (testi `rcif`). Mukana platform.js:n `fidx` | **bugi** | otettu (9f14449); `rcif` kaatui Plan2001:ssä ilman sitä |
+| levy-Worker odottaa enintään 3 s edellisen sivun sync handlea: uudelleenladattu sivu jäi ilman levyä | **bugi** | otettu (5823c82) |
+| host-mpc luki desimaaliluvut heksana (plan9portin strtomp) | bugi, ei koske | Plan2001:n natiivi käännös ei aja mpc:tä vaan käyttää julkaisun valmiita tiedostoja |
+| d4 -B kirjoittaa 4 Mt:n paloina, sendq 24 Mt | testin vakaus | ei nyt; otetaan, jos `sendq` tai `d4` alkaa kaatuilla |
+| `#c/reboot` (fshalt -r): levyt synkataan ja sivu latautuu | ominaisuus | ehdokas terminaalille myöhemmin |
+| `#¶` swap (muistitilasto) | ominaisuus | ehdokas (stats) myöhemmin |
+| devsdw: useita yksiköitä, `#S/sdctl`, ISO `sdW1` (HTTP range), osiot | 9front-asennus | ei |
+| `/boot/init` 9frontin bootrc:nä, `#/` juurena, `inst/start`, bootsetup, boot levyltä, live-image | 9front-asennus | ei |
+| sivu ottaa `plan9.ini`:n palvelimelta Plan2001:n `/app`-, `/secstore`- ja `/login`-hakujen sijaan | rakenne | ei nyt; Plan2001:n omat haut jäävät |
+| WebAuthn `#W` → `#ω`, Plan2001:n nimet ja dokumenttiviitteet pois | nimet | ei |
+
+**Plan2001:stä Plan9-wasm32:een:** haarautumisen jälkeen Plan2001:ssä
+ei ole tehty alustan bugikorjauksia, joten vietävää ei ole.
+Plan2001:n jälkeiset muutokset koskevat palveluja (`websession`,
+`weblimitd`, `signupd` ja muita) eivätkä alustaa.
+
+Seuraavalla kerralla erot lasketaan tästä eteenpäin: Plan9-wasm32
+`819d14d` ja Plan2001:n tämän vaiheen commit.
 
 ## Avoimet
 
