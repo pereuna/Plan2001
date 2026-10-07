@@ -59,15 +59,16 @@ tiedostot `pc/`:ssa ja `port/`:ssa ovat kohdan 2 työ.
 | `floppy`, `lpt`, `pccard`, `i82365`, `pcmciamodem` (jo kommentoitu), niiden tiedostot `pc/`:ssa | **pois** tiedostoina |
 | ISA- ja vanhat PCI-verkkokortit: `ether2114x`, `ether79c970`, `ether8139`, `etheryuk`, `etherbcm`, kommentoidut (`ether8390`-perhe, `elnk3`, `82557`, `83815`, `ga620`, `vgbe`, `vt610x`, `smc`, `wavelan`) | **pois.** Jäävät `ethervirtio`/`virtio10` (pilvi), `etherigbe`, `ether82563`, `ether8169`, `etheri225`, `ether82598`, `etherx550` (rauta) |
 | WLAN: `etheriwl`, `etherwpi`, `etherrt2860`, `wifi`, `aux/wpa`, factotumin `wpapsk` | **pois** palvelimelta |
-| `sdide` (PATA), `sd53c8xx` (SCSI), `sdmylex`, `sdodin`, `sdmv50xx` | **pois.** Jäävät `sdiahci`, `sdnvme`, `sdvirtio`, `sdmmc`? (päätä), `sdram`, `sdloop` |
+| `sdide` (PATA), `sd53c8xx` (SCSI), `sdmylex`, `sdodin`, `sdmv50xx` | **pois.** Jäävät `sdiahci`, `sdnvme`, `sdvirtio`, `sdmmc`, `sdram`, `sdloop` |
 | `aoe`, `sdaoe` (ATA over Ethernet) | **pois** |
 | `audio`, `audiohda`, `audiosb16`, `audioac97` | **pois** palvelimelta (terminaalin ääni on selaimen) |
 | `vga`, `draw`, `mouse`, `kbd` pc64:llä | **jää** toistaiseksi (päätös 7.10.): palvelimen paikallinen konsoli (GOP-kehyspuskuri, rivieditori, `bootfb`) tarvitsee `vga`:n ja `kbd`:n tekstikonsolina. `draw` ja `mouse` lähtevät vasta kohdassa 2, koska `pc/devvga.c` ja `screen.c` käyttävät `devdraw.c`:n `drawlock`ia ja hiiren `swcursor`ia. Näyttöajureista jää vain `vgasoft`: `vgaigfx`, `vgaradeon` ja `vgavesa` pois confista 7.10. |
 | `usb` ja HCI:t | **jää** (näppäimistö, levyt) |
-| `vmx` (virtualisointi), `dtracy`, `kprof`, `segment` | **päätä:** `vmx` ja `dtracy` ovat isoja. Jos niitä ei käytetä, pois |
-| `cputemp`, `pmmc`, `sdmmc` | **päätä** raudan mukaan |
+| `vmx` (virtualisointi), `dtracy` | **pois** (päätös 7.10.; confista ja pc64:n `main.c`:stä pois 7.10.) |
+| `kprof`, `segment` | **jää** (päätös 7.10.: pieniä; profilointi ja jaettu muisti) |
+| `cputemp`, `pmmc`, `sdmmc` | **jää** (päätös 7.10.) |
 | `bridge`, `gre`, `ipmux`, `igmp`, `rudp`, `netdevmedium` | **pois** (`wg` korvaa tunnelit). `ip/inferno.c` jää: se ei ole medium vaan devip:n apufunktiot (`commonuser`, `bootpread`) |
-| `il` (Plan 9:n IL-protokolla) | **pois** (legacy-protokolla) |
+| `il` (Plan 9:n IL-protokolla) | **pois** (legacy-protokolla). Bootin kehote (9frontin `bootrc`, bootfs.paq) tarjoaa sitä yhä: pois bootrc:n kopiosta |
 
 ## 4. Tunnistus (factotum, authsrv, keyfs)
 
@@ -121,7 +122,9 @@ tiedostot `pc/`:ssa ja `port/`:ssa ovat kohdan 2 työ.
 1. **Ydin (pc64-conf):** kohdan 3 "pois"-rivit. Tämä on yksi conf-muutos.
    Testi: VM:n käännös (`tools/build.sh`), boot ja palvelut
    (`tools/vm-cpu`, VM-testit), sitten oma rauta. **Tehty 7.10.** (VM;
-   rautaa ei testattu). 9pc64 on nyt 5 015 988 tavua.
+   rautaa ei testattu). vmx ja dtracy samoin. 9pc64 on nyt 4 926 985 tavua.
+   Näyttö ilman vesaa: GOP-kehyspuskuri, konsoli ja rivieditori
+   QEMU:n `-vga std`:llä (1280×800).
 2. **Ydin, tiedostot:** kohtien 2 ja 3 tiedostot pois `plan2001/`:n
    kopioista. Niitä ei ole vielä kopioitu, joten tämä vaatii `pc/`:n ja
    `pc64/`:n mkfilen kopion.

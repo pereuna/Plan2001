@@ -163,8 +163,6 @@ uvlong	upaalloc(uvlong, uvlong, uvlong);
 uvlong	upaallocwin(uvlong, uvlong, uvlong, uvlong);
 void	upafree(uvlong, uvlong);
 void	vectortable(void);
-void	vmxprocrestore(Proc *);
-void	vmxshutdown(void);
 void*	vmap(uvlong, vlong);
 
 /* port/bootinfo.c: what the loader told us, see sys/include/bootinfo.h */

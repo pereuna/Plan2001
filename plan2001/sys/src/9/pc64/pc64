@@ -33,8 +33,6 @@ dev
 	kbd
 	
 	segment
-	vmx
-	dtracy
 
 link
 	cputemp		pci
@@ -77,10 +75,6 @@ misc
 	uartpci		pci
 
 	vgasoft		=cur swcursor
-
-	dtracysys
-	dtracytimer
-	dtracydev
 
 ip
 	tcp

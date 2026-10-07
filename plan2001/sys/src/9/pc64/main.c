@@ -289,8 +289,6 @@ reboot(void *entry, void *code, ulong size)
 	 */
 	panic("reboot: no 64-bit kexec handoff yet, refusing to load a new kernel");
 
-	vmxshutdown();
-
 	/*
 	 * the boot processor is cpu0.  execute this function on it
 	 * so that the new kernel has the same cpu0.  this only matters
@@ -347,9 +345,6 @@ procrestore(Proc *p)
 		m->dr7 = p->dr[7];
 		putdr(p->dr);
 	}
-	
-	if(p->vmx != nil)
-		vmxprocrestore(p);
 
 	fpuprocrestore(p);
 }
