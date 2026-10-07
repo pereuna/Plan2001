@@ -23,12 +23,12 @@
 # conversations connected again and again (netre); and glenda to the
 # CPU VM's rcpu (dp9ikvm, skipped without it).
 # KERNEL=FILE: that kernel instead of build-9wasm32's, e.g. the native
-# build's (../tools/native-wasm32: build/9front-2001/wasm32/9wasm32.wasm),
+# build's (../tools/native-wasm32: build/tree/wasm32/9wasm32.wasm),
 # put where build-9wasm32 puts its own.
 #   [KERNEL=FILE] tools/test-9wasm32 [NAME...]
 set -e -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-t=$root/../plan9/sys/src/9/wasm32/test
+t=$root/../plan2001/sys/src/9/wasm32/test
 if [ -n "${KERNEL:-}" ]; then
 	mkdir -p "$root/build/wasm32/kernel"
 	cp "$KERNEL" "$root/build/wasm32/kernel/9wasm32.wasm.new"
@@ -78,7 +78,7 @@ want init $names && run init '["/bin/rc", "/boot/console"]' '["echo hi\n", "echo
 want clock $names && DRAWS=3 run clock '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; clock & sleep 4; echo drawn"]'
 want keys $names && KEYS='["e", "c", "h", "o", " ", "ä", "å", "ö", " ", "$", "s", "y", "s", "n", "a", "m", "e", "Enter", "e", "x", "i", "t", "Enter"]' run keys '["/bin/rc", "/boot/console"]'
 want mouse $names && WAITFOR=ready MOUSE='[[0.75, 0.5, 4]]' EXPECTJS="document.getElementById('screen').style.cursor.startsWith('url(')" run mouse '["/bin/c3d"]'
-h=$root/../plan9/sys/src/cmd/3c/test/host3
+h=$root/../plan2001/sys/src/cmd/3c/test/host3
 want hello $names && EXPECT=$h/hello.out run hello '["/bin/rc", "-c", "hello"]'
 want dclock $names && DRAWS=3 run dclock '["/bin/rc", "-c", "dclock 15 & sleep 3; echo drawn"]'
 want bytes $names && EXPECT=$h/bytes.out SENDFILE=$h/bytes.in run bytes '["/bin/bytes"]'

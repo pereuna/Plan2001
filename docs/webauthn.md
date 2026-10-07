@@ -98,7 +98,7 @@ pilvi: CPU- ja auth-palvelin (9Front-2001 + plan2001/)
   /adm/webauthn/NIMI/ID  julkinen avain (COSE ES256), signCount, kääre
 ```
 
-### Sivu: WebAuthn-laite (plan9/, wasm32:n firmware)
+### Sivu: WebAuthn-laite (plan2001/, wasm32:n firmware)
 
 WebAuthn-rajapinta on vain sivun JavaScriptissä, joten kone käyttää sitä
 laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
@@ -123,7 +123,7 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
   `passkeyrp` on valmiina, kun alidomainit otetaan käyttöön. Sivu ei päästä konetta valitsemaan muuta
   rpId:tä kuin oman originsa suffiksin, joten vieras sivusto ei saa
   plan2001.com:n passkeyta.
-- Laite on 9front-yhteensopiva lisäys wasm32-alustaan: plan9/.
+- Laite on lisäys wasm32-alustaan (plan2001/; myös Plan9-wasm32:ssa `#ω`:na).
 
 ### Kone: kirjautuminen (plan2001/)
 
@@ -255,7 +255,7 @@ laitteen kautta, kuten näppäimistöä ja OPFS-levyä. `devwebauthn.c`
 
 | Osa | Kerros |
 |---|---|
-| `devwebauthn.c`, platform.js:n WebAuthn | plan9/ (wasm32:n firmware ja laite) |
+| `devwebauthn.c`, platform.js:n WebAuthn | plan2001/ (wasm32:n firmware ja laite) |
 | `auth/passkey`, `auth/signup`, `/boot/login` | plan2001/ |
 | `aux/signupd`, `aux/passkeyd`, `/adm/webauthn`, webtermin sanat | plan2001/ |
 | kääreen muoto, protokollat | tämä dokumentti |

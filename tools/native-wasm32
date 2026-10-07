@@ -1,8 +1,8 @@
 #!/bin/bash
-# The wasm32 parts built natively - with 9Front-2001's own mkfiles, as
-# objtype=wasm32 mk on a 9front machine builds them (docs/plan9-fork.md:
-# the native build) - here on Linux, for a test without a 9front machine:
-# tools/9front-2001's tree bound to /sys and /wasm32 in a mount namespace
+# The wasm32 parts built natively - with the tree's own mkfiles, as
+# objtype=wasm32 mk on a 9front machine builds them - here on Linux, for a
+# test without a 9front machine: tools/tree's tree (9front's release and
+# plan2001/ over it) bound to /sys and /wasm32 in a mount namespace
 # of its own (unshare), plan9port's mk and rc ($PLAN9), the 3c and 3l
 # built by monolith/tools/build-cc, and an ar that takes Plan 9's "ar vu".
 # What it builds goes to the tree's /wasm32 (lib, bin) and /sys/src/9/wasm32.
@@ -14,8 +14,14 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 [ -x "${PLAN9:-}/bin/mk" ] && [ -x "$PLAN9/bin/rc" ] || { echo "native-wasm32: PLAN9 must name a plan9port with mk and rc" >&2; exit 2; }
-tree=$root/build/9front-2001
-"$here/9front-2001" "$tree" >/dev/null
+tree=$root/build/tree
+"$here/tree" "$tree" >/dev/null
+# the wasm32 machine keeps 9front's console line discipline and kmesg for
+# now: Plan2001's kbdfs line editor and devcons are the pc64 console's
+# (ESC sequences vga.c draws; the page's console does not take them yet)
+for f in sys/src/cmd/aux/kbdfs/kbdfs.c sys/src/9/port/devcons.c; do
+	cp "$root/subset/9front/$f" "$tree/$f"
+done
 "$root/monolith/tools/build-cc" native 3c >/dev/null
 "$root/monolith/tools/build-cc" native 3l >/dev/null
 bin=$root/build/native-bin

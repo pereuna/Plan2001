@@ -18,16 +18,16 @@ clang.wasm (monolith/docs/wasm-apps.md) jää vertailutoteutukseksi.
 
 ## Lähteet
 
-- `plan9/sys/src/cmd/3c`: backend 9frontin cc-frontendin (`../cc`, pgen.c,
+- `plan2001/sys/src/cmd/3c`: backend 9frontin cc-frontendin (`../cc`, pgen.c,
   pswt.c) päälle, 6c:n rakenteella: gc.h, txt.c, cgen.c, sgen.c, swt.c,
   list.c, enam.c, machcap.c; `3.out.h` on käskykanta ja oliomuoto.
-- `plan9/sys/src/cmd/3l`: obj.c (oliot ja ar-kirjastot), wasm.c (asettelu ja
+- `plan2001/sys/src/cmd/3l`: obj.c (oliot ja ar-kirjastot), wasm.c (asettelu ja
   WebAssembly-moduuli).
-- `plan9/wasm32/include/u.h`, `ureg.h`, `plan9/wasm32/mkfile` (CC=3c LD=3l O=3 AS=3a).
-- `plan9/sys/src/cmd/3a`: vielä vain stub, joka sanoo, ettei assembleria ole, ja
+- `plan2001/wasm32/include/u.h`, `ureg.h`, `plan2001/wasm32/mkfile` (CC=3c LD=3l O=3 AS=3a).
+- `plan2001/sys/src/cmd/3a`: vielä vain stub, joka sanoo, ettei assembleria ole, ja
   palauttaa virheen: mitä muilla arkkitehtuureilla on assemblerina, on
   wasm32:lla C:tä.
-- `plan9/sys/src/libc/wasm32`: mitä 386:lla on assemblerina (main9, tas, atom,
+- `plan2001/sys/src/libc/wasm32`: mitä 386:lla on assemblerina (main9, tas, atom,
   getfcr, setjmp, notejmp) sekä järjestelmäkutsut (syscall.c, sys.h:sta).
   Muu libc on 9frontin port, 9sys ja fmt sellaisenaan.
 - Linuxilla 3c ja 3l käännetään monolith/cc9:n kautta kuten 6c.
@@ -237,7 +237,7 @@ Testit lukevat ja kirjoittavat tekstiä kuten koneen sarjakonsolia
 (`SERIAL=1 [SEND=...] [EXPECT=tiedosto] tools/test-wasmapp host3`), myös
 interaktiivista rc:tä. Kuvakaappaus jää piirtäville ohjelmille. Mukana on
 myös #d (devdup, 9frontin), josta rcmain lukee `#d/0`:n. Alustan osa
-siirtyy sellaisenaan `plan9/sys/src/9/wasm32`:een.
+siirtyy sellaisenaan `plan2001/sys/src/9/wasm32`:een.
 
 Procikohtainen data: Plan 9:ssä `_tos` (getpid) ja privallocin taulukko
 ovat jokaisen prosessin omia samassa virtuaaliosoitteessa. wasm32:n libc
@@ -252,7 +252,7 @@ nykyinen konteksti puretaan, ja kohde rakennetaan uudelleen tai
 käynnistetään. Alusta käynnistää uuden kontekstin kutsumalla funktiota
 3l:n viemän taulun kautta. Kontekstit kuuluvat muistille: aloittamaton
 siirtyy sille procille, joka siihen ensimmäisenä vaihtaa.
-`plan9/sys/src/libthread/wasm32` on 9frontin libthread, jossa sched.c:n
+`plan2001/sys/src/libthread/wasm32` on 9frontin libthread, jossa sched.c:n
 setjmp/longjmp-parit ovat kontekstinvaihtoja, main.c:stä puuttuu `mainjmp`
 ja wasm32.c:n `_threadinitstack` luo kontekstin. Säikeet ovat procin
 konteksteja, ja procit (proccreate) ovat rfork(RFMEM)-procceja.
@@ -283,5 +283,5 @@ Suunnitelma ja vaiheet A–D: docs/architecture.md.
   kokeilematta.
 - Optimointi: skalaarimuuttujat, joiden osoitetta ei oteta, wasm-
   paikallismuuttujiksi muistin sijaan, sekä stackifier.
-- Plan 9:n mkfilet ovat olemassa (`plan9/sys/src/cmd/3c/mkfile`, `3l/mkfile`),
+- Plan 9:n mkfilet ovat olemassa (`plan2001/sys/src/cmd/3c/mkfile`, `3l/mkfile`),
   mutta 3c:tä ei ole vielä käännetty Plan 9:llä.

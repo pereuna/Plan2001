@@ -1,6 +1,6 @@
 #!/bin/bash
 # 3c and 3l (Plan2001's WebAssembly compiler and loader,
-# ../plan9/sys/src/cmd/3c, 3l): each test (../plan9/sys/src/cmd/3c/test/t*.c, no
+# ../plan2001/sys/src/cmd/3c, 3l): each test (../plan2001/sys/src/cmd/3c/test/t*.c, no
 # libc: _trap is the system call) compiled, linked, run by
 # tools/run3.mjs, its output the same as gcc's for the same source; and
 # with 9front's libc (tools/build-libc3): test/libc/NAME.c run with the
@@ -10,7 +10,7 @@
 #   tools/test-3c [NAME...]     default all
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
-td=$(cd "$root/../plan9/sys/src/cmd/3c/test" && pwd)
+td=$(cd "$root/../plan2001/sys/src/cmd/3c/test" && pwd)
 out=$root/build/test-3c
 mkdir -p "$out"
 "$root/tools/build-cc" native 3c >/dev/null
@@ -25,12 +25,12 @@ for t in "${tests[@]}"; do
 	self)
 		"$root/tools/build-3c3" >"$out/self.log" 2>&1 || { echo "test-3c: self: FAIL (build-3c3)"; tail -5 "$out/self.log"; bad=1; continue; }
 		P=$(cd "$root/.." && pwd); t9=$root/third_party/9cc
-		inc="-I$P/plan9/wasm32/include -I$P/subset/9front/sys/include"
+		inc="-I$P/plan2001/wasm32/include -I$P/subset/9front/sys/include"
 		rm -rf "$out/self"; mkdir -p "$out/self/nat" "$out/self/w"
 		n=0; nb=0
-		for spec in $(for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 compat dpchk pgen pswt; do echo "$t9/cc/$f.c:-I$P/plan9/sys/src/cmd/3c"; done
-			for f in cgen enam list sgen swt txt machcap; do echo "$P/plan9/sys/src/cmd/3c/$f.c:-I$t9/cc"; done
-			for f in obj wasm; do echo "$P/plan9/sys/src/cmd/3l/$f.c:"; done); do
+		for spec in $(for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 compat dpchk pgen pswt; do echo "$t9/cc/$f.c:-I$P/plan2001/sys/src/cmd/3c"; done
+			for f in cgen enam list sgen swt txt machcap; do echo "$P/plan2001/sys/src/cmd/3c/$f.c:-I$t9/cc"; done
+			for f in obj wasm; do echo "$P/plan2001/sys/src/cmd/3l/$f.c:"; done); do
 			s=${spec%%:*}; x=${spec#*:}; o=$(basename "${s%.c}").3
 			case $s in */3l/*) o=3l-$o ;; esac
 			(cd "$(dirname "$s")" && "$cc3" -FVw $inc $x -o "$out/self/nat/$o" "$(basename "$s")") >/dev/null 2>&1
@@ -54,7 +54,7 @@ for t in "${tests[@]}"; do
 			libcdone=1
 		fi
 		n=${t#libc/}
-		inc="-I$root/../plan9/wasm32/include -I$root/../subset/9front/sys/include"
+		inc="-I$root/../plan2001/wasm32/include -I$root/../subset/9front/sys/include"
 		if ! (cd "$td/libc" && "$cc3" -FVw $inc -o "$out/$n.3" "$n.c") >"$out/$n.err" 2>&1 ||
 		   ! "$l3" -o "$out/$n.wasm" "$out/$n.3" "$root/build/wasm32/lib/libc.a" >>"$out/$n.err" 2>&1; then
 			echo "test-3c: $t: FAIL (build)"; head -10 "$out/$n.err"; bad=1; continue

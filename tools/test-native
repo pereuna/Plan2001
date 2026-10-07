@@ -1,5 +1,5 @@
 #!/bin/bash
-# 9Front-2001's native build of the wasm32 machine (tools/native-wasm32)
+# The native build of the wasm32 machine (tools/native-wasm32)
 # tested in the browser: its kernel, and its 9front programs in place of
 # build-bin3's in build-bin3's root (the root's other programs - the
 # tests', Plan2001's aux/wsrcpu - stay build-bin3's), then
@@ -10,7 +10,7 @@
 set -e -o pipefail
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 m=$root/monolith; w=$m/build/wasm32
-nat=$root/build/9front-2001/wasm32
+nat=$root/build/tree/wasm32
 "$here/native-wasm32" >"$root/build/native-wasm32.log" 2>&1 || { tail -20 "$root/build/native-wasm32.log"; echo "test-native: native-wasm32 failed (build/native-wasm32.log)"; exit 1; }
 [ -e "$w/root/bin/d2" ] || "$m/tools/build-bin3" >/dev/null
 save=$(mktemp -d)

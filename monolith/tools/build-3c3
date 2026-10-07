@@ -1,6 +1,6 @@
 #!/bin/bash
 # 3c compiled by 3c: the front end (third_party/9cc/cc, as Plan 9's cc.a:
-# with compat), the back end (../plan9/sys/src/cmd/3c) and 9front's libbio, with
+# with compat), the back end (../plan2001/sys/src/cmd/3c) and 9front's libbio, with
 # 9front's libc for wasm32 (tools/build-libc3) -> build/wasm32/bin/3c.wasm,
 # a WebAssembly 3c; and 3l the same way -> 3l.wasm.
 #   tools/build-3c3
@@ -15,7 +15,7 @@ l3=$root/build/cc-native/3l
 "$root/tools/build-cc" native 3l >/dev/null
 "$root/tools/build-libc3" >/dev/null
 mkdir -p "$out/o/3c" "$out/o/3l" "$out/o/libbio" "$out/bin"
-INC="-I$P/plan9/wasm32/include -I$P/subset/9front/sys/include"
+INC="-I$P/plan2001/wasm32/include -I$P/subset/9front/sys/include"
 fail=0
 cc() {	# cc OUTDIR SRC EXTRA...
 	local o=$1/$(basename "${2%.c}").3 s=$2; shift 2
@@ -29,13 +29,13 @@ for f in "$P"/subset/9front/sys/src/libbio/*.c; do
 	cc "$out/o/libbio" "$f"
 done
 for f in y.tab lex mac dcl acid pickle bits com scon funct sub com64 compat dpchk pgen pswt; do
-	cc "$out/o/3c" "$t/9cc/cc/$f.c" -I"$P/plan9/sys/src/cmd/3c"
+	cc "$out/o/3c" "$t/9cc/cc/$f.c" -I"$P/plan2001/sys/src/cmd/3c"
 done
 for f in cgen enam list sgen swt txt machcap; do
-	cc "$out/o/3c" "$P/plan9/sys/src/cmd/3c/$f.c" -I"$t/9cc/cc"
+	cc "$out/o/3c" "$P/plan2001/sys/src/cmd/3c/$f.c" -I"$t/9cc/cc"
 done
 for f in obj wasm; do
-	cc "$out/o/3l" "$P/plan9/sys/src/cmd/3l/$f.c"
+	cc "$out/o/3l" "$P/plan2001/sys/src/cmd/3l/$f.c"
 done
 [ $fail = 0 ] || exit 1
 rm -f "$out/lib/libbio.a"

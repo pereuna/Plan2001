@@ -21,7 +21,7 @@ noin minuutin.
 
 ## Entry
 
-Loader hyppää kernelin entryyn (`_start`, `plan9/sys/src/9/arm64/l.s`) seuraavassa tilassa:
+Loader hyppää kernelin entryyn (`_start`, `plan2001/sys/src/9/arm64/l.s`) seuraavassa tilassa:
 
 | | |
 |---|---|
@@ -45,7 +45,7 @@ MMU:n sammuttamista. Tämä on avoin kohta ennen raudalla testaamista.
   `KZERO + pa` ja ladataan fyysiseen osoitteeseen `0x40100000`
   (`archentry()`: entry − KZERO). Sen boot-sivutaulut ja Machit ovat sen
   alapuolella.
-- UEFI-loader (`plan9/sys/src/boot/efi/archaa64.c`) varaa blobin RAMin ensimmäisten
+- UEFI-loader (`plan2001/sys/src/boot/efi/archaa64.c`) varaa blobin RAMin ensimmäisten
   16 MB:n ulkopuolelta ja kernelin KZERO-ikkunan (`KLIMIT`,
   `0x140000000`) sisältä (`archblobok()`).
 - `7l` aloittaa kernelin datan tekstin jälkeen seuraavalta **64 KB:n** rajalta
@@ -57,7 +57,7 @@ MMU:n sammuttamista. Tämä on avoin kohta ennen raudalla testaamista.
 
 - `_start` tallentaa `X0`:n muuttujaan `bootinfopa` bss:n nollauksen
   jälkeen (MMU pois, joten tallennus on fyysinen).
-- `bootearlymap()` (`plan9/sys/src/9/arm64/bootarch.c`) mappaa blobin samaan
+- `bootearlymap()` (`plan2001/sys/src/9/arm64/bootarch.c`) mappaa blobin samaan
   virtuaaliosoitteeseen ja samoilla attribuuteilla, joihin `kmapram()` mappaa
   sen RAMin myöhemmin (`KZERO+pa` tai `KMAP`-ikkuna). Sivutaulusivuja on kaksi
   omaa. `l1map()` (`mmu.c`) hyväksyy identtisen olemassa olevan merkinnän.

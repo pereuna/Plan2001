@@ -3,7 +3,7 @@
 # (docs/cpu-server-design.md): third_party/9cc (cc, 6c, libbio from 9front)
 # on POSIX through cc9/ (u.h, libc.h, the few system calls) and drawterm's
 # portable libc (fmt, utf, print).  Or Plan2001's 3c (WebAssembly, .3;
-# ../plan9/sys/src/cmd/3c) on the same front end.
+# ../plan2001/sys/src/cmd/3c) on the same front end.
 #   tools/build-cc native [6c|3c]   build/cc-native/6c   (gcc; for testing)
 #   tools/build-cc wasm [6c|3c]     build/cc-wasm/6c.{js,wasm}  (Emscripten; a
 #                                   module the page instantiates per compile)
@@ -19,9 +19,9 @@ wasm)	CC=emcc; out=$root/build/cc-wasm ;;
 esac
 case $cc in
 6c)	be=$t/9cc/6c; befiles="cgen enam list sgen swt txt reg peep machcap div mul" ;;
-3c)	be=$(cd "$root/../plan9/sys/src/cmd/3c" && pwd); befiles="cgen enam list sgen swt txt machcap" ;;
-3l)	be=$(cd "$root/../plan9/sys/src/cmd/3l" && pwd); befiles="obj wasm" ;;	# the loader: no front end
-3a)	be=$(cd "$root/../plan9/sys/src/cmd/3a" && pwd); befiles="3a" ;;	# not yet: says so
+3c)	be=$(cd "$root/../plan2001/sys/src/cmd/3c" && pwd); befiles="cgen enam list sgen swt txt machcap" ;;
+3l)	be=$(cd "$root/../plan2001/sys/src/cmd/3l" && pwd); befiles="obj wasm" ;;	# the loader: no front end
+3a)	be=$(cd "$root/../plan2001/sys/src/cmd/3a" && pwd); befiles="3a" ;;	# not yet: says so
 *)	echo "usage: tools/build-cc [native|wasm] [6c|3c|3l|3a]" >&2; exit 2 ;;
 esac
 mkdir -p "$out/o/$cc"

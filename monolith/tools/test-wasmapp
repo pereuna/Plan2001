@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan2001's wasm32 kernel (plan9/sys/src/9/wasm32) in headless Chromium, real
+"""Plan2001's wasm32 kernel (plan2001/sys/src/9/wasm32) in headless Chromium, real
 time: tools/serve's page (kernel.html: the machine's firmware) with init's
 arguments, until the machine halts (KERNEL-HALT); tools/test-9wasm32 runs it
 for each test.  (Until D7 it also ran programs on drawterm's kernel; drawterm

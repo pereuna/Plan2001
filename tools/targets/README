@@ -5,4 +5,4 @@ is refused with a clear message.  The syntax is the common part of bash
 and rc: name=value, name=(list), # comments - so the file can be
 sourced by bash, by rc in the VM (tools/build.rc) and parsed by Python
 (tools/subset/derive.py).  bootarch is BootInfo.arch
-(plan9/sys/include/bootinfo.h).
+(plan2001/sys/include/bootinfo.h).

@@ -121,7 +121,7 @@ hyväksyvät varoituksen kerran kutakin originia kohden.
 ## D7: originin kone on wasm32-kone (4.10.2026)
 
 Drawterm on poissa selaimesta. Jokainen origin saa saman sivun, joka
-käynnistää wasm32-koneen (`plan9/sys/src/9/wasm32`):
+käynnistää wasm32-koneen (`plan2001/sys/src/9/wasm32`):
 
 - Sivu kysyy palvelimelta sovelluksensa (`GET /app`, rc-httpd:n
   `plan2001-app`). Päätös on sama kuin webtermin `hostapp`: `APP`, jos

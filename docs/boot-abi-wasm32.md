@@ -24,7 +24,7 @@ kutsukonventiolla (argumentit muistissa SP:stä alkaen), samoin kuin
 `platnewproc`in proseille. Muuta tilaa ei ole: ei keskeytyksiä eikä
 sivutauluja. Osoite on lineaarisen muistin osoite, joka on wasm32:lla
 "fyysinen" osoite (`bootearlymap()` palauttaa sen sellaisenaan,
-`plan9/sys/src/9/wasm32/bootarch.c`).
+`plan2001/sys/src/9/wasm32/bootarch.c`).
 
 ## Muistin asettelu
 
@@ -67,7 +67,7 @@ käyttää ajon aikana kellona ja satunnaislukulähteenä.
 
 - `main(uintptr pa)` asettaa `bootinfopa = pa` ja kutsuu
   `bootinfoinit()`, sitten `bootargsinit()`. Molemmat ovat samat kuin
-  pc64:llä ja arm64:llä (`plan9/sys/src/9/port/bootinfo.c`,
+  pc64:llä ja arm64:llä (`plan2001/sys/src/9/port/bootinfo.c`,
   `bootargs.c`).
 - Blob, jota kernel ei hyväksy, pysäyttää koneen. Syitä ovat väärä
   magic, versio tai `arch`, osio blobin ulkopuolella, tyhjä muistikartta,

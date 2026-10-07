@@ -2,7 +2,7 @@
 # Build drawterm from third_party/drawterm in a copy under build/: the
 # Linux tools that reach a Plan2001 CPU server from here.  The browser has
 # none of it since D7 (docs/architecture.md): its terminal and the apps'
-# origins are wasm32 machines (plan9/sys/src/9/wasm32).
+# origins are wasm32 machines (plan2001/sys/src/9/wasm32).
 #   tools/build [9pterm|native]   default 9pterm
 #     9pterm: build/9pterm/9pterm            (Linux, no graphics: drawterm as
 #             a text terminal, Make.9pterm, gui-none; the cloud's admin tools)

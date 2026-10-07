@@ -53,7 +53,7 @@ sellaisenaan, ja mitä Plan2001:n pitää siksi olla.
    paikkamerkillä "QEMU TARGET", ja 9frontin `sdvirtio` käytti aina LUN 0:aa
    (`scsiverify`: `r->lun = 0; /* ??? */`): UEFI löysi levyn ja latasi
    kernelin, mutta kernel ei nähnyt osioita (`/dev/sd00/fscache: file does
-   not exist`). Korjaus: `plan9/sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
+   not exist`). Korjaus: `plan2001/sys/src/9/pc/sdvirtio.c` etsii kunkin kohteen
    ensimmäisen LUNin (0–7), jonka INQUIRY sanoo laitteen olevan kytketty.
    Harjoitus: `tools/vm … --oci` laittaa levyn LUN 1:een (`OCI_LUN`).
 9. **Loaderin ja kernelin on oltava pari.** CPU-palvelin oli 9frontin
@@ -336,7 +336,7 @@ uuden imagen esiin ehjänä. Kone haki heti oman Let's Encrypt
 ## Julkinen sandbox: https://plan2001.com (2.10.)
 
 Portti 443 tarjoilee vain diskless-sandboxin: wasm32-koneen sivun
-(`plan9/sys/src/9/wasm32/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
+(`plan2001/sys/src/9/wasm32/kernel.html` `index.html`:nä, ydin ja juuri yhtenä
 tiedostona, myös gzipattuina) hakemistosta `/sys/lib/sandbox`. Kone
 käynnistyy selaimessa rioon koko ikkunaan, eikä mitään tallenneta.
 `webterm -n` tarjoilee vain sivut: ei WebSocketteja eikä lokia, joten

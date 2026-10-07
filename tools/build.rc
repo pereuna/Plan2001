@@ -15,7 +15,7 @@ mkdir -p $d/9 $d/efi $d/inc $d/src $d/out
 hostsrc=$d/src
 hostbuild=$d/out
 
-# plan9/sys/include/bootinfo.h: the loader's and the kernel's
+# plan2001/sys/include/bootinfo.h: the loader's and the kernel's
 cp $hostsrc/sys/include/bootinfo.h $d/inc/bootinfo.h
 bind -b $d/inc /sys/include
 
@@ -51,7 +51,7 @@ fn buildkernel {
 	cp $o $d/auxbin/kbdfs || exit kbdfs-copy-failed
 	bind -b $d/auxbin /$objtype/bin/aux
 
-	echo '### hjfs: 9front''s with this repo''s fixes (plan9/sys/src/cmd/hjfs, plan9/patches/9front) - the medium''s'
+	echo '### hjfs: 9front''s with this repo''s fixes (plan2001/sys/src/cmd/hjfs) - the medium''s'
 	mkdir -p $d/hjfs
 	dircp /sys/src/cmd/hjfs $d/hjfs
 	dircp $hostsrc/sys/src/cmd/hjfs $d/hjfs
