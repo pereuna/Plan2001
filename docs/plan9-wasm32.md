@@ -30,12 +30,15 @@ Terminaalin alusta muuttuu ajan myötä:
 
 1. nyt selain (wasm32-kone sivulla),
 2. sitten muokattu, koko ruudun Chromium,
-3. lopulta esim. Linuxin tai OpenBSD:n prosessi kontissa, joka ajaa
-   selaintyyppistä ympäristöä.
+3. lopulta kontti tai minimaalinen "firmware"-unix, jonka jälkeen
+   terminaali on **vahvasti autentikoitu ja autorisoitu HMI-istunto**,
+   jonka käytössä on riittävä GUI-resurssi. Alla oleva unix on vain
+   firmwarea, kuten selain nyt: istunto ei näe sitä.
 
-Terminaali on siis aina wasm32-kone selaintyyppisessä ympäristössä tai
-sarjakonsoli. Muita terminaalialustoja (natiivi rio PC:llä, drawterm)
-ei tehdä.
+Terminaali ei siis ole laite vaan istunto: käyttäjä tunnistetaan
+(passkey, dp9ik), istunnolle annetaan oikeudet, ja sillä on GUI-resurssi:
+näyttö ja syöttölaitteet. Sarjakonsoli on terminaali ilman GUI-resurssia.
+Muita terminaalialustoja (natiivi rio PC:llä, drawterm) ei tehdä.
 
 ## Suhde Plan9-wasm32:een ja 9frontiin
 

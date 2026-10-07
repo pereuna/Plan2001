@@ -30,8 +30,8 @@ Lue `docs/plan9-wasm32.md`. Plan2001 on oma, moderni järjestelmä. Se
 kopioi koodia, ideoita ja protokollia 9frontista ja Plan9-wasm32:sta
 (pereuna/plan9-wasm32, yhteensopiva wasm32-fork) ja muokkaa niitä
 vapaasti. Siinä on kaksi profiilia: palvelin (CPU, auth, fs) ja
-terminaali (wasm32-kone selaimessa ja/tai sarjakonsoli). Legacy jää
-pois.
+terminaali (nyt wasm32-kone selaimessa ja/tai sarjakonsoli, lopulta
+vahvasti autentikoitu ja autorisoitu HMI-istunto). Legacy jää pois.
 - Tämän repon wasm32-koodi on Plan2001:n omaa. Kehitä sitä täällä.
 - Kun otat koodia Plan9-wasm32:sta tai 9frontista, kirjaa commitiin
   lähde (repo ja commit).

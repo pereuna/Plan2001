@@ -6,5 +6,6 @@ Plan2001 on moderni järjestelmä, joka perustuu 9frontiin ja
 [Plan9-wasm32](https://github.com/pereuna/plan9-wasm32):een. Se kopioi
 niistä koodia, ideoita ja protokollia, mutta ei ole yhteensopiva niiden
 kanssa, ja legacy jää pois. Profiilit: palvelin (CPU, auth, fs) ja
-terminaali (wasm32-kone selaimessa ja/tai sarjakonsoli). Suhde
+terminaali (nyt wasm32-kone selaimessa ja/tai sarjakonsoli, lopulta
+vahvasti autentikoitu ja autorisoitu HMI-istunto riittävällä GUI-resurssilla). Suhde
 Plan9-wasm32:een ja vaiheet: [docs/plan9-wasm32.md](docs/plan9-wasm32.md).
