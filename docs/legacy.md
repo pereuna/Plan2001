@@ -3,7 +3,7 @@
 Plan2001:llä on kaksi profiilia (`docs/plan9-wasm32.md`):
 
 - **palvelin:** CPU, auth ja fs amd64:llä. Alusta on pc64 (UEFI): pilven
-  VM (virtio) ja oma rauta (Dell T5600).
+  VM (virtio) ja oma rauta.
 - **terminaali:** wasm32-kone selaimessa ja/tai sarjakonsoli.
 
 Tähän on listattu se, mitä kumpikaan profiili ei tarvitse. Jokaisella
@@ -43,11 +43,14 @@ kootun. Ytimen poistot (kohdat 1–3) voi tehdä heti.
 | `bootfs.paq` ja paqfs bootin juurena | pc64-conf `bootdir` | **päätä:** wasm32 käyttää omaa `#R`-arkistoaan. Yhteinen boot-juuren muoto on mahdollinen myöhemmin |
 | `apm.c`, `apmjump.s` (APM-virranhallinta), `aux/apm` | `pc/`, `subset` | **pois** (ACPI) |
 | `bios32.c`, `pcibios.c` | `pc/` (pcibios jo pois confista) | **pois** tiedostoina |
-| `vgavesa` ja `aux/realemu` (VESA BIOS -kutsut reaalitilaemulaatiolla) | pc64-conf `vgavesa`, `subset/aux/realemu` | **pois:** UEFI GOP (`bootfb`, `vgasoft`) korvaa ne |
+| `vgavesa` ja `aux/realemu` (VESA BIOS -kutsut reaalitilaemulaatiolla) | pc64-conf `vgavesa`, `subset/aux/realemu` | **pois:** UEFI GOP (`bootfb`, `vgasoft`) korvaa ne. `vgavesa` pois confista 7.10., `aux/realemu` userlandin mukana |
 | `aux/vga` (näyttötilan vaihto) | `subset/aux/vga` | **pois** palvelimelta. GOP antaa tilan, ja `vgaigfx`/`vgaradeon` jäävät vain, jos rauta tarvitsee |
 | i8259 (PIC), i8253 (PIT) | `archgeneric` | **päätä:** APIC ja HPET riittävät nykyraudalla, mutta ydin kalibroi kellonsa PIT:llä tai HPET:llä (`docs/status.md`). Poisto vaatii testin raudalla |
 
 ## 3. Ytimen laitteet ja ajurit (pc64)
+
+Pois-rivit ovat poissa confista 7.10.2026 (järjestyksen kohta 1). Niiden
+tiedostot `pc/`:ssa ja `port/`:ssa ovat kohdan 2 työ.
 
 | Mikä | Suositus |
 |---|---|
@@ -57,11 +60,11 @@ kootun. Ytimen poistot (kohdat 1–3) voi tehdä heti.
 | `sdide` (PATA), `sd53c8xx` (SCSI), `sdmylex`, `sdodin`, `sdmv50xx` | **pois.** Jäävät `sdiahci`, `sdnvme`, `sdvirtio`, `sdmmc`? (päätä), `sdram`, `sdloop` |
 | `aoe`, `sdaoe` (ATA over Ethernet) | **pois** |
 | `audio`, `audiohda`, `audiosb16`, `audioac97` | **pois** palvelimelta (terminaalin ääni on selaimen) |
-| `vga`, `draw`, `mouse`, `kbd` pc64:llä | **päätä:** palvelimen paikallinen konsoli (GOP-kehyspuskuri, rivieditori, `bootfb`) tarvitsee `vga`:n ja `kbd`:n tekstikonsolina. `draw`, `mouse` ja rio palvelimella ovat terminaalin asioita, joten pois. Kaikki vga-korttiajurit paitsi `vgasoft` (ja ehkä `vgaigfx`) pois |
+| `vga`, `draw`, `mouse`, `kbd` pc64:llä | **jää** toistaiseksi (päätös 7.10.): palvelimen paikallinen konsoli (GOP-kehyspuskuri, rivieditori, `bootfb`) tarvitsee `vga`:n ja `kbd`:n tekstikonsolina. `draw` ja `mouse` lähtevät vasta kohdassa 2, koska `pc/devvga.c` ja `screen.c` käyttävät `devdraw.c`:n `drawlock`ia ja hiiren `swcursor`ia. Näyttöajureista jää vain `vgasoft`: `vgaigfx`, `vgaradeon` ja `vgavesa` pois confista 7.10. |
 | `usb` ja HCI:t | **jää** (näppäimistö, levyt) |
 | `vmx` (virtualisointi), `dtracy`, `kprof`, `segment` | **päätä:** `vmx` ja `dtracy` ovat isoja. Jos niitä ei käytetä, pois |
 | `cputemp`, `pmmc`, `sdmmc` | **päätä** raudan mukaan |
-| `bridge`, `gre`, `ipmux`, `igmp`, `rudp`, `inferno`-medium, `netdevmedium` | **pois** (`wg` korvaa tunnelit) |
+| `bridge`, `gre`, `ipmux`, `igmp`, `rudp`, `netdevmedium` | **pois** (`wg` korvaa tunnelit). `ip/inferno.c` jää: se ei ole medium vaan devip:n apufunktiot (`commonuser`, `bootpread`) |
 | `il` (Plan 9:n IL-protokolla) | **pois** (legacy-protokolla) |
 
 ## 4. Tunnistus (factotum, authsrv, keyfs)
@@ -115,7 +118,8 @@ kootun. Ytimen poistot (kohdat 1–3) voi tehdä heti.
 
 1. **Ydin (pc64-conf):** kohdan 3 "pois"-rivit. Tämä on yksi conf-muutos.
    Testi: VM:n käännös (`tools/build.sh`), boot ja palvelut
-   (`tools/vm-cpu`, VM-testit), sitten T5600.
+   (`tools/vm-cpu`, VM-testit), sitten oma rauta. **Tehty 7.10.** (VM;
+   rautaa ei testattu). 9pc64 on nyt 5 015 988 tavua.
 2. **Ydin, tiedostot:** kohtien 2 ja 3 tiedostot pois `plan2001/`:n
    kopioista. Niitä ei ole vielä kopioitu, joten tämä vaatii `pc/`:n ja
    `pc64/`:n mkfilen kopion.
