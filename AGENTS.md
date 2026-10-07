@@ -1,45 +1,42 @@
 # Ohje koodiagenteille (Codex, Claude): testaus ennen pushia
 
-Tämä repo on Plan2001: 9front-pohjainen järjestelmä, jonka wasm32-ydin
-ajaa 9frontin ohjelmia selaimessa (3c/3l-kääntäjä, `plan9/sys/src/9/wasm32`).
-Suunnitelma ja vaiheet: `docs/architecture.md` (vaihe D). Lue se ennen
-isoja muutoksia.
-
-## Repon kerrokset (päätös 4.10.2026, `docs/plan9-fork.md`)
-
-Plan2001 eriytetään yleisestä Plan 9 -forkista:
-- `plan9/`: puhdas, Plan 9 -yhteensopiva fork 9frontin juuren muodossa.
-  Siihen kuuluvat modernisoitu boot (UEFI, BootInfo) ja uudet
-  arkkitehtuurit (wasm32 selainalustoineen, pc64, myöhemmin arm64 ja
-  vrisc). Tavoite on, että sen voi tuoda 9frontiin ja kääntää natiivisti.
-- 9Front-2001: koottu puu, joka on 9frontin julkaisu, sen päällä `plan9/`
-  ja `plan9/patches` ajettuna.
-- `plan2001/`: legacyä rikkovat muutokset ja Plan2001:n palvelut,
-  overlayna 9Front-2001:n päälle.
-
-Siirto on tehty 4.10.2026. Uusi tiedosto menee `plan9/`:ään tai
-`plan2001/`:een `docs/plan9-fork.md`:n sijoitussääntöjen mukaan, ja
-commitissa kerrotaan, kumpaan kerrokseen muutos kuuluu. Älä tuo forkiin
-legacyä rikkovaa muutosta. Älä myöskään tee 9frontin tiedostosta
-kokonaista kopiota, vaan diff `plan9/patches/`iin. `tools/overlay DIR`
-kokoaa molemmat kerrokset yhdeksi 9front-juureksi (`-f`: vain fork).
+Tämä repo on Plan2001: moderni järjestelmä 9frontin ja Plan9-wasm32:n
+pohjalta, ei 9front-yhteensopiva. Sen wasm32-ydin ajaa ohjelmia
+selaimessa (3c/3l-kääntäjä, `plan2001/sys/src/9/wasm32`). Lue ensin
+`docs/plan9-wasm32.md` (päätös 7.10.2026: profiilit ja suhde
+Plan9-wasm32:een), sitten `docs/architecture.md`.
 
 ## Plan2001 ei ole 9front-yhteensopiva (päätös 7.10.2026)
 
-Lue `docs/plan9-wasm32.md`. Plan2001 on oma, moderni järjestelmä. Se
-kopioi koodia, ideoita ja protokollia 9frontista ja Plan9-wasm32:sta
-(pereuna/plan9-wasm32, yhteensopiva wasm32-fork) ja muokkaa niitä
-vapaasti. Siinä on kaksi profiilia: palvelin (CPU, auth, fs) ja
-terminaali (nyt wasm32-kone selaimessa ja/tai sarjakonsoli, lopulta
-vahvasti autentikoitu ja autorisoitu HMI-istunto). Legacy jää pois.
-- Tämän repon wasm32-koodi on Plan2001:n omaa. Kehitä sitä täällä.
+Plan2001 kopioi koodia, ideoita ja protokollia 9frontista ja
+Plan9-wasm32:sta (pereuna/plan9-wasm32, yhteensopiva wasm32-fork) ja
+muokkaa niitä vapaasti. Siinä on kaksi profiilia: palvelin (CPU, auth,
+fs) ja terminaali (nyt wasm32-kone selaimessa ja/tai sarjakonsoli,
+lopulta vahvasti autentikoitu ja autorisoitu HMI-istunto). Legacy jää
+pois.
 - Kun otat koodia Plan9-wasm32:sta tai 9frontista, kirjaa commitiin
   lähde (repo ja commit).
 - Plan9-wasm32:een viedään vain bugikorjauksia, ei Plan2001:n
   ominaisuuksia.
-- Alla oleva kerrosjako (`plan9/` yhteensopivana forkina, 9Front-2001,
-  diffit `plan9/patches`iin) on voimassa, kunnes puun rakenne
-  yksinkertaistetaan (`docs/plan9-wasm32.md`, vaihe 3).
+
+## Puu (vaihe 3, 7.10.2026)
+
+- **`plan2001/`** on Plan2001:n ainoa puu 9frontin juuren muodossa
+  (`sys/`, `rc/`, `lib/`, `usr/`, `wasm32/`): uudet tiedostot ja ne
+  9frontin tiedostot, joita Plan2001 muuttaa, kokonaisina samassa
+  polussa. Diffejä ei pidetä: muutos 9frontin tiedostoon on sen kopio
+  `plan2001/`:ssa, ja lähde kirjataan commitiin.
+- **`subset/9front/`** on 9frontin julkaisu sellaisenaan (alla), lähde,
+  josta kopioidaan.
+- `tools/tree` kokoaa näistä puun (`build/tree`: julkaisu ja `plan2001/`
+  sen päällä) natiivia käännöstä varten. `tools/overlay DIR` antaa
+  `plan2001/`:n tiedostot, jotka VM:n käännös (`tools/build.sh`)
+  laittaa VM:n `/sys/src`:n päälle.
+- wasm32-kone pitää toistaiseksi 9frontin `kbdfs`:n ja `devcons`:n:
+  Plan2001:n versiot ovat pc64:n konsolin (rivieditori ESC-
+  sekvensseineen, joita sivun konsoli ei vielä tulkitse). Natiivi
+  käännös (`tools/native-wasm32`) ja `build-bin3`/`build-9wasm32`
+  käyttävät niissä julkaisun tiedostoja.
 
 ## Säännöt, joita ei rikota
 
@@ -51,10 +48,9 @@ vahvasti autentikoitu ja autorisoitu HMI-istunto). Legacy jää pois.
   `python3 tools/subset/make.py build/subset/amd64 .` ja `tools/subset/check`
   (ks. `docs/install-subset.md`). Jos VM:ää ei ole, kerro se commitissa:
   käyttäjä ajaa derivoinnin.
-- **Korjaus 9frontin koodiin** on diff `plan9/patches/9front/`iin (upstreamia
-  varten) ja paikattu tiedosto repon `sys/`-puuhun saman polun alle
-  (build laittaa `sys/`in VM:n `/sys/src`:n päälle). Ohje:
-  `plan9/patches/9front/README`.
+- **Muutos 9frontin tiedostoon** on kopio `plan2001/`:ssa saman polun
+  alla, ja commitissa kerrotaan lähde. Jos muutos on bugikorjaus, joka
+  koskee myös Plan9-wasm32:ta, tarjoa se sinne.
 - **Vitsit ja sitaatit eivät tule mukaan**: `DENY` tiedostossa
   `tools/subset/derive.py`. Pelit tulevat.
 - Tee työ omassa haarassasi; älä pushaa toisen haaraan.
@@ -88,15 +84,12 @@ tools/build-bin3       # ohjelmat ja juuri: build/wasm32/root, root.fs
 poikkeava. Uusi ohjelma lisätään `build-bin3`:een (yhden tiedoston
 komennot listaan `for c in ...`), sen kirjastot `build-libc3`:een.
 
-Natiivi käännös (`docs/plan9-fork.md`): `tools/9front-2001` kokoaa
-9Front-2001:n `build/9front-2001`:een. `PLAN9=plan9port tools/native-wasm32`
-kääntää siinä 9frontin mkfileillä wasm32:n kirjastot, ytimen ja juuren
-9front-ohjelmat. `tools/test-native [NIMI...]` ajaa `test-9wasm32`:n
-natiivilla ytimellä ja ohjelmilla. Aja se, kun muutat mkfilejä,
-`plan9/patches/9front`ia tai 3c:n/3l:n objektimuotoa. Kun muutat
-9frontin tiedostoa, korjaa sekä diff että `plan9/`:n kopio: kokoaja
-hylkää puun, jos ne eroavat. Uusi juuren ohjelma lisätään myös
-`native-wasm32`:n listaan. `tools/rccheck` tarvitsee niin ikään
+Natiivi käännös: `tools/tree` kokoaa puun `build/tree`:hen.
+`PLAN9=plan9port tools/native-wasm32` kääntää siinä mkfileillä wasm32:n
+kirjastot, ytimen ja juuren ohjelmat. `tools/test-native [NIMI...]` ajaa
+`test-9wasm32`:n natiivilla ytimellä ja ohjelmilla. Aja se, kun muutat
+mkfilejä, 9frontin tiedostojen kopioita tai 3c:n/3l:n objektimuotoa.
+Uusi juuren ohjelma lisätään myös `native-wasm32`:n listaan. `tools/rccheck` tarvitsee niin ikään
 `PLAN9`:n (plan9portin rc).
 
 ## Testit ennen pushia
@@ -143,8 +136,8 @@ viestissä, kuten `Plan2001's`, avaa lainauksen),
 
 ### Uusi testi
 
-- Testiohjelma `plan9/sys/src/9/wasm32/test/NIMI.c` (lisää `build-bin3`:n
-  testilistaan), odotettu tuloste `plan9/sys/src/9/wasm32/test/NIMI.out`,
+- Testiohjelma `plan2001/sys/src/9/wasm32/test/NIMI.c` (lisää `build-bin3`:n
+  testilistaan), odotettu tuloste `plan2001/sys/src/9/wasm32/test/NIMI.out`,
   ajo `tools/test-9wasm32`iin (`want NIMI $names && run NIMI '[argv]'`).
 - `.out` alkaa rivistä `ticks in it: ok` ja **sen rivinvaihto on `\r\n`**
   (ytimen konsoli), muut rivit `\n`. Python tekstitilassa kadottaa `\r`:n:

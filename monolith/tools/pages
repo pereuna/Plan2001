@@ -1,6 +1,6 @@
 #!/bin/bash
 # The wasm32 machine's page into DIR (default build/pages): its firmware
-# (plan9/sys/src/9/wasm32/kernel.html as index.html, its version in it; platform.js), its
+# (plan2001/sys/src/9/wasm32/kernel.html as index.html, its version in it; platform.js), its
 # kernel (9wasm32.wasm) and its root as one file (w3root.fs), each also
 # gzipped (rc-httpd's page handler sends FILE.gz to a browser that takes
 # it).  The same page for every origin: the terminal and the apps
@@ -13,7 +13,7 @@ P=$(dirname "$root")
 site=${1:-$root/build/pages}
 "$root/tools/build-9wasm32" >/dev/null
 "$root/tools/build-bin3" >/dev/null
-w=$P/plan9/sys/src/9/wasm32
+w=$P/plan2001/sys/src/9/wasm32
 rm -rf "$site"; mkdir -p "$site"
 # its version in it (the commit, dirty if the tree is, and when the page was made): a cached page shows
 v="$(git -C "$P" describe --always --dirty 2>/dev/null || echo unknown) $(date -u +%Y-%m-%dT%H:%MZ)"

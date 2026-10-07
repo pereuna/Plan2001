@@ -138,7 +138,7 @@ Toteutuksen kannalta seuraavat kohdat ratkaisevat, miten sinne päästään.
 |---|---|---|
 | A | 3c/3l-prosessit drawtermin ytimen alla: prosessi on Worker, syscall on drawtermin sysopen, sysread jne., copyin ja copyout alustassa | 3c:llä käännetty clock ja rc toimivat selaimessa (1.10.: rc, fork, exec, putket ja wait sekä 9frontin muuttamaton clock event-kirjastoineen toimivat) |
 | B | 3c/3l: poikkeukset (setjmp, waserror), atomics, rfork(RFMEM) eli säikeet samassa muistissa, libthread | libthreadia käyttävä ohjelma toimii |
-| C | wasm32-ydin: 9frontin port/ ja `plan9/sys/src/9/wasm32` (alusta, ajurit) 3c:llä käännettynä, JavaScript vain alustaliimana | ydin käynnistää rc:n selaimessa ilman drawtermia |
+| C | wasm32-ydin: 9frontin port/ ja `plan2001/sys/src/9/wasm32` (alusta, ajurit) 3c:llä käännettynä, JavaScript vain alustaliimana | ydin käynnistää rc:n selaimessa ilman drawtermia |
 | D | Boot ABI wasm32/selaimelle, terminal- ja cpu-roolit | Monolith, drawterm ja host3 poistettu; webtermistä jää WebSocket-kuljetin |
 
 ## Vaihe D: wasm32-kone Plan2001:n terminalina (suunnitelma 2.10.2026)
@@ -149,7 +149,7 @@ TCP-yhteyksiä, joten palvelimen puolella jokin ottaa WebSocketin vastaan,
 ja webterm tekee sen jo (`GET /17019`, `/567`, `/rcpu`). Siitä jää
 kuljetin, ja sivujen tarjoilu ja Monolithin erityispolut poistuvat.
 
-Repon rakenne (päätös 4.10.2026): Plan 9 -fork (`plan9/`: boot ja
+Repon rakenne (päätös 4.10.2026, korvattu 7.10.: yksi puu `plan2001/`, `docs/plan9-wasm32.md`): Plan 9 -fork (`plan9/`: boot ja
 arkkitehtuurit, 9front-yhteensopiva), 9Front-2001 (9front + fork,
 koottu) ja Plan2001 (`plan2001/`: legacyä rikkovat muutokset ja
 palvelut) - `docs/plan9-fork.md`. Vaiheiden D työ tehdään sen
@@ -641,7 +641,7 @@ Työjärjestys:
    SHA1-MAC). Koneen oikea 9front-asiakas ja se ovat yhtä mieltä
    (`secstore -p`, sitten `/boot/secstore`). Testi kaatuu ilman hakua.
 4. Salattu OPFS-välimuisti itsenäiselle koneelle (tehty 4.10.).
-   `aux/seckeys` (forkin, `plan9/sys/src/cmd/aux/seckeys`) on
+   `aux/seckeys` (forkin, `plan2001/sys/src/cmd/aux/seckeys`) on
    `/boot/secstore`n työkalu, kun kone on käynnistetty levyn kanssa:
    - Se kysyy salasanan kerran (readcons, ei kaiutusta) ja antaa sen
      putkella `auth/secstore -i -G factotum`ille ja `auth/aescbc -i`:lle.
@@ -771,7 +771,7 @@ klustereissa. Lähteet ja yksityiskohdat tarkistetaan suunnittelun alussa.
   osajoukon derive rc-httpd:lle (`tools/subset/derive`, `check`, `test`).
 - Natiivi käännös (`docs/plan9-fork.md`): wasm32:n kirjastot, ydin ja
   juuren 9front-ohjelmat kääntyvät 9frontin mkfileillä 9Front-2001:ssä
-  (`tools/9front-2001`, `tools/native-wasm32`, 4.10.). Kokeiltu
+  (nyt `tools/tree`, `tools/native-wasm32`, 4.10.). Kokeiltu
   Linuxissa plan9portin mk:lla, ja `tools/test-native` ajaa sarjan
   natiivilla ytimellä ja ohjelmilla. Tekemättä: sama oikeassa 9frontissa
   (VM) ja juuren arkisto Plan 9 -työkalulla. wasm32 ei tule CPUS-listaan
@@ -821,14 +821,14 @@ kesken mutta ei välilehtien välillä. Siksi:
 
 ## Vaihe C: wasm32-ydin (päätös 1.10.2026: procit Workereina)
 
-Ydin on 9frontin `port/` ja `plan9/sys/src/9/wasm32`, käännettynä 3c:llä
+Ydin on 9frontin `port/` ja `plan2001/sys/src/9/wasm32`, käännettynä 3c:llä
 yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
 
 - Jokainen ytimen proc on oma Workerinsa. Worker on yksi suoritin, ja sen
   SP ja muut globaalit ovat suorittimen rekisterejä. `sleep`/`wakeup` ovat
   `Atomics.wait`- ja `Atomics.notify`-kutsuja, joten ydin ei vaihda
   pinoa. 9frontin `proc.c`:n ajastinosa korvataan; drawtermin malli.
-- Proc, Worker ja Mach (`plan9/sys/src/9/wasm32/proc.c`): proc on oma Workerinsa,
+- Proc, Worker ja Mach (`plan2001/sys/src/9/wasm32/proc.c`): proc on oma Workerinsa,
   jolla on oma ytimen instanssi, omat `m` ja `up` (3c:n extern-rekisterit)
   ja jaettu ytimen muisti. `sleep` odottaa `p->state`a (`Atomics.wait`),
   `ready` asettaa Readyn ja herättää (New-proc saa Workerin), `sched`
@@ -913,7 +913,7 @@ yhdeksi moduuliksi, jolla on tuotu jaettu muisti.
   (`tools/build-bin3`:n root) ovat vain luettavia. Init sitoo `#c`:n ja
   `#t`:n `/dev`iin sekä `#e`:n, `#s`:n ja `#p`:n paikoilleen, avaa
   `#t/eia0`:n tiedostoiksi 0, 1 ja 2 ja ajaa sivun `?arg=`-argumenteista
-  saadun ohjelman, ilman niitä `/boot/init`in (`plan9/sys/src/9/wasm32/init`).
+  saadun ohjelman, ilman niitä `/boot/init`in (`plan2001/sys/src/9/wasm32/init`).
 - Konsoli (C3c): `/boot/init` käynnistää 9frontin kbdfs:n sarjakonsolille
   (`aux/kbdfs -q -s cons /dev/eia0`, kuten 9frontin boot) ja
   interaktiivisen rc:n sen `/dev/cons`iin. kbdfs tekee rivinmuokkauksen ja

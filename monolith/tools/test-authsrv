@@ -8,7 +8,7 @@ and authsrv.c: the wasm32 machine's factotum and this agree only if
 both are right.  tools/serve's relay (MONOLITH_WEBTERM=PORT) reaches it.
 And a relay for rcpu inside one machine, which cannot listen: /17999
 waits, and the next /17019 (an rcpu client) is joined to it, bytes both
-ways (plan9/sys/src/9/wasm32/test/d4.c's server).  /17998 never answers.
+ways (plan2001/sys/src/9/wasm32/test/d4.c's server).  /17998 never answers.
 And webterm's rcpu session for an app's origin (D7, webterm.c): /17997
 waits (d4 -w: p9any as the server and webterm's script, in the machine),
 and the next /rcpu is joined to it inside webterm's session protocol -

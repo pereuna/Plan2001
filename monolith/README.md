@@ -1,7 +1,7 @@
 # monolith/
 
 Linuxin työkalut Plan2001:n wasm32-koneelle ja CPU-palvelimelle. Selaimessa
-ajetaan Plan2001:n wasm32-ydintä (`plan9/sys/src/9/wasm32`), jonka sivu
+ajetaan Plan2001:n wasm32-ydintä (`plan2001/sys/src/9/wasm32`), jonka sivu
 (`kernel.html`, `platform.js`) on koneen firmware. Pääte ja sovellusten
 originit ovat wasm32-koneita (`docs/architecture.md`, vaiheet C ja D;
 `docs/app-origins.md`).

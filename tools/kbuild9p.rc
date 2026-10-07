@@ -21,13 +21,13 @@ rm -rf $d
 mkdir -p $d/9 $d/inc $d/auxbin $d/kbdfs
 fn cleanup { rm -rf $d }
 
-cp $repo/plan9/sys/include/bootinfo.h $d/inc/bootinfo.h
+cp $repo/plan2001/sys/include/bootinfo.h $d/inc/bootinfo.h
 bind -b $d/inc /sys/include
 
 echo '### overlay '^$"ksrc^' from '^$repo
 dircp /sys/src/9 $d/9
-# the fork's (plan9/), then Plan2001's over it (plan2001/), as tools/overlay
-for(l in plan9 plan2001){
+# Plan2001's tree (plan2001/), as tools/overlay
+for(l in plan2001){
 	for(x in $ksrc) if(test -d $repo/$l/sys/src/9/$x) dircp $repo/$l/sys/src/9/$x $d/9/$x
 	if(test -d $repo/$l/sys/src/9/port) for(f in `{ls $repo/$l/sys/src/9/port})
 		for(x in $ksrc) if(! ~ $x port) rm -f $d/9/$x/`{basename $f}

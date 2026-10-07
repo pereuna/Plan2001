@@ -1,5 +1,10 @@
 # Plan 9 -fork, 9Front-2001 ja Plan2001 (päätös 4.10.2026)
 
+> **Korvattu 7.10.2026.** Plan2001 ei ole enää 9front-yhteensopiva, ja yhteensopiva
+> fork on Plan9-wasm32 (pereuna/plan9-wasm32). `plan9/` siirrettiin `plan2001/`:een,
+> `plan9/patches` poistettiin ja 9Front-2001:n kokoaja on nyt `tools/tree`
+> (`docs/plan9-wasm32.md`, vaihe 3). Alla oleva on historiaa.
+
 Plan2001:n kehitys eriytetään yleisestä Plan 9 -forkista. Tämä dokumentti
 kirjaa päätöksen, kerrokset, sijoitussäännöt ja siirron. Siirto on tehty
 4.10.2026: alla olevan taulukon "Ennen"-sarake on historia, "Uusi" on
@@ -73,18 +78,18 @@ uudelleen (nyt taulukon mukaan).
 
 | Ennen | Uusi | |
 |---|---|---|
-| `wasm32/include/`, `wasm32/mkfile` | `plan9/wasm32/` | ✓ |
-| `sys/src/cmd/3a`, `3c`, `3l` | `plan9/sys/src/cmd/` | ✓ |
-| `sys/src/libc/wasm32`, `sys/src/libthread/wasm32` | `plan9/sys/src/lib{c,thread}/wasm32` | ✓ |
-| `sys/src/9/wasm32/` (myös `platform.js`, `test/`) | `plan9/sys/src/9/wasm32/` | ✓ |
-| `monolith/web/kernel.html` | `plan9/sys/src/9/wasm32/kernel.html` | ✓ firmware |
-| `sys/src/9/pc64/` (`bootarch.c`, `l.s`, `main.c`, `mem.h`, `fns.h`, `trap.c`, `mkfile`, conf `pc64` ilman `wg`ia) | `plan9/sys/src/9/pc64/` | ✓ |
-| `sys/src/9/port/bootargs.c`, `bootfb.c`, `bootinfo.c` | `plan9/sys/src/9/port/` | ✓ |
-| `sys/src/9/pc/memory.c`, `pcipc.c`, `screen.c`, `vga.c`, `devvga.c` | `plan9/sys/src/9/pc/` | ? `vga.c`:n saraketeinen boot-loki on käyttöliittymämuutos |
-| `sys/src/boot/efi/`, `sys/include/bootinfo.h` | `plan9/sys/src/boot/efi/`, `plan9/sys/include/` | ✓ |
-| `sys/src/9/arm64/` | `plan9/sys/src/9/arm64/` | ✓ kesken |
-| `sys/src/cmd/hjfs/auth.c`, `patches/9front/*` | `plan9/sys/src/cmd/hjfs/`, `plan9/patches/` | ✓ 9frontin korjaus |
-| `sys/src/9/pc/sdvirtio.c` (levy ensimmäisellä LUNilla, jolla on levy) | `plan9/sys/src/9/pc/` | ? korjaus; sopii myös upstreamiin |
+| `wasm32/include/`, `wasm32/mkfile` | `plan2001/wasm32/` | ✓ |
+| `sys/src/cmd/3a`, `3c`, `3l` | `plan2001/sys/src/cmd/` | ✓ |
+| `sys/src/libc/wasm32`, `sys/src/libthread/wasm32` | `plan2001/sys/src/lib{c,thread}/wasm32` | ✓ |
+| `sys/src/9/wasm32/` (myös `platform.js`, `test/`) | `plan2001/sys/src/9/wasm32/` | ✓ |
+| `monolith/web/kernel.html` | `plan2001/sys/src/9/wasm32/kernel.html` | ✓ firmware |
+| `sys/src/9/pc64/` (`bootarch.c`, `l.s`, `main.c`, `mem.h`, `fns.h`, `trap.c`, `mkfile`, conf `pc64` ilman `wg`ia) | `plan2001/sys/src/9/pc64/` | ✓ |
+| `sys/src/9/port/bootargs.c`, `bootfb.c`, `bootinfo.c` | `plan2001/sys/src/9/port/` | ✓ |
+| `sys/src/9/pc/memory.c`, `pcipc.c`, `screen.c`, `vga.c`, `devvga.c` | `plan2001/sys/src/9/pc/` | ? `vga.c`:n saraketeinen boot-loki on käyttöliittymämuutos |
+| `sys/src/boot/efi/`, `sys/include/bootinfo.h` | `plan2001/sys/src/boot/efi/`, `plan2001/sys/include/` | ✓ |
+| `sys/src/9/arm64/` | `plan2001/sys/src/9/arm64/` | ✓ kesken |
+| `sys/src/cmd/hjfs/auth.c`, `patches/9front/*` | `plan2001/sys/src/cmd/hjfs/`, `plan9/patches/` | ✓ 9frontin korjaus |
+| `sys/src/9/pc/sdvirtio.c` (levy ensimmäisellä LUNilla, jolla on levy) | `plan2001/sys/src/9/pc/` | ? korjaus; sopii myös upstreamiin |
 
 ### `plan2001/` (overlay)
 
@@ -102,7 +107,7 @@ uudelleen (nyt taulukon mukaan).
 
 ### Kernelin konfiguraatio
 
-`pc64`-conf on jaettu kahtia: `plan9/sys/src/9/pc64/pc64` on forkin
+`pc64`-conf on jaettu kahtia: `plan2001/sys/src/9/pc64/pc64` on forkin
 (bootinfo, bootarch, bootfb, ei `wg`:tä), ja `plan2001/sys/src/9/pc64/pc64`
 on sen kopio, johon on lisätty `wg`. Koska tiedosto on molemmissa,
 overlayssa voittaa `plan2001/`:n. Kun forkin confiin tulee muutos, sama
@@ -120,7 +125,7 @@ tiedostosta on täsmälleen diff ajettuna julkaisuun. Siinä puussa
 - kirjastot `libc` … `libcontrol` (`build-libc3`:n kirjastot, jäsenmäärät
   samat),
 - ytimen: `cd /sys/src/9/wasm32 && mk install` → `/wasm32/9wasm32.wasm`
-  (`plan9/sys/src/9/wasm32/mkfile`; conf-tiedostoa ja mkdevc:tä ei ole,
+  (`plan2001/sys/src/9/wasm32/mkfile`; conf-tiedostoa ja mkdevc:tä ei ole,
   koska `devtab.c` on konfiguraatio),
 - juuren 9front-ohjelmat: `rc`, `hjfs`, `rio`, `aux/kbdfs`,
   `auth/factotum`, `exportfs`, `plumb`, `syscall` ja yhden tiedoston

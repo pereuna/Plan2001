@@ -55,14 +55,14 @@ Muita terminaalialustoja (natiivi rio PC:llä, drawterm) ei tehdä.
 
 ## Mitä tästä seuraa repossa
 
-- Tämän repon wasm32-koodi (`plan9/sys/src/9/wasm32`, 3c/3l, wasm32:n
+- Tämän repon wasm32-koodi (`plan2001/sys/src/9/wasm32`, 3c/3l, wasm32:n
   kirjastot ja `monolith/`:n työkalut) on Plan2001:n omaa. Sitä ei
   poisteta eikä korvata Plan9-wasm32:n rakennuksella. Se on eriytynyt
   tuonnin jälkeen: 48 tiedostoa eroaa, 105 on samoja.
-- Aiempi kerrosjako, jossa `plan9/` on puhdas 9front-yhteensopiva fork ja
+- Aiempi kerrosjako, jossa `plan9/` oli puhdas 9front-yhteensopiva fork ja
   9Front-2001 koottu puu (`docs/plan9-fork.md`, päätös 4.10.), ei enää
-  ole tavoite. Yhteensopiva fork on nyt Plan9-wasm32. Plan2001:n puun
-  rakenne yksinkertaistetaan omana vaiheenaan (alla).
+  ole tavoite. Yhteensopiva fork on nyt Plan9-wasm32. Puu on yksi
+  (vaihe 3, alla).
 - `subset/` on edelleen 9frontin julkaisu sellaisenaan. Se on lähde,
   josta kopioidaan.
 
@@ -75,7 +75,7 @@ Muita terminaalialustoja (natiivi rio PC:llä, drawterm) ei tehdä.
      tarjotaan sinne.
    - Plan9-wasm32:n korjaukset ja tarpeelliset parannukset kopioidaan
      tänne.
-3. **Puun rakenne.** `plan9/` ja `plan2001/`, 9Front-2001:n kokoaja,
+3. **Puun rakenne** (tehty 7.10., alla). `plan9/` ja `plan2001/`, 9Front-2001:n kokoaja,
    `plan9/patches` ja diff-sääntö korvataan yhdellä Plan2001:n puulla.
    Natiivi käännös säilyy.
 4. **Legacy pois.** Listataan, mitä profiilit eivät tarvitse
@@ -122,6 +122,26 @@ Plan2001:n jälkeiset muutokset koskevat palveluja (`websession`,
 
 Seuraavalla kerralla erot lasketaan tästä eteenpäin: Plan9-wasm32
 `819d14d` ja Plan2001:n tämän vaiheen commit.
+
+## Vaihe 3: yksi puu (7.10.2026)
+
+- `plan9/`:n tiedostot siirrettiin `plan2001/`:een samoihin polkuihin.
+  Molemmissa oli vain `sys/src/9/pc64/pc64`. Overlayssa voimassa ollut
+  `plan2001/`:n versio (wg mukana) jäi.
+- `plan9/patches/9front` poistettiin (hjfs:n auth, libc:n 9syscall ja
+  libthreadin mkfile wasm32:lle). Paikatut tiedostot ovat
+  `plan2001/`:ssa kokonaisina, ja samat diffit ovat Plan9-wasm32:ssa.
+- `tools/9front-2001` on nyt `tools/tree` (`build/tree`): julkaisu
+  (`subset/9front`) ja `plan2001/` sen päällä. `tools/overlay` antaa
+  `plan2001/`:n tiedostot (`-f`:ää ei enää ole).
+- **Käytös ei muuttunut.** wasm32-koneen natiivi käännös käyttää
+  julkaisun `kbdfs.c`:tä ja `devcons.c`:tä kuten ennenkin, koska
+  Plan2001:n versiot on tehty pc64:n konsolille (rivieditori
+  ESC-sekvensseineen). Terminaalin konsoli on oma työnsä.
+- `monolith/`:n ja `tools/`:n polut, AGENTS.md ja dokumentit
+  päivitettiin. `docs/plan9-fork.md` on historiaa.
+- Seuraavaksi voi miettiä, siirretäänkö `monolith/tools` `tools/`:iin
+  ja `plan2001/` juureen. Ne ovat nimiä ja polkuja, eivät rakennetta.
 
 ## Avoimet
 

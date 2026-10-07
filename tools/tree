@@ -1,0 +1,22 @@
+#!/bin/bash
+# Plan2001's tree (docs/plan9-wasm32.md): 9front's release as the repo has
+# it (subset/9front) with plan2001/ laid over it - new files, and 9front's
+# files Plan2001 changes, whole.  The tree in 9front's root layout: /sys,
+# /rc, /$objtype ... - the native build here (tools/native-wasm32).
+#   tools/tree [DIR]     default build/tree, made anew
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+out=${1:-$root/build/tree}
+rm -rf "$out"; mkdir -p "$out"
+cp -a "$root/subset/9front/." "$out/"
+over=$(mktemp -d)
+trap 'rm -rf "$over"' EXIT
+"$here/overlay" "$over/t"
+cp -a "$over/t/." "$out/"
+# what the release ships made from another file (libsec's X.c and
+# libauthsrv's X.mpc from X.mp, by mpc) newer than it, as on a 9front machine: a checkout's mtimes are
+# in any order, and mk would make it again with a tool the host lacks
+find "$out" -name '*.mp' | while read -r m; do
+	for g in "${m%.mp}.c" "${m}c"; do [ ! -e "$g" ] || touch "$g"; done
+done
+echo "tree: $out ($(cd "$root/plan2001" && git ls-files | wc -l) files of plan2001/)"

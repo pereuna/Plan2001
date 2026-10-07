@@ -19,7 +19,7 @@ BIOS-perua olevan legacy-koodin, joka ei ole enää tarpeen puhtaalla UEFI-konee
   ole päällekkäin kernelin boot-alueen kanssa, ja kernelin muistialue on varattu
   `EfiLoaderCode`na (firmware merkitsee vapaan muistin NX:ksi).
 - **Vaihe B — rakenteinen `BootInfo`.** Loader kokoaa versioidun `BootInfo`-rakenteen
-  (`plan9/sys/include/bootinfo.h`) `plan9.ini`-tekstin sijaan: muistikartta, ACPI RSDP,
+  (`plan2001/sys/include/bootinfo.h`) `plan9.ini`-tekstin sijaan: muistikartta, ACPI RSDP,
   framebuffer.
 - **Vaihe 1 — UEFI-tietojen laajempi käyttö (lisäävä, mitään ei vielä poistettu).**
   - BootServices-muisti (koodi ja data) on nyt käyttökelpoista RAM-muistia
@@ -495,7 +495,7 @@ sarjakonsolin tekstillä.
 ## Plan2001 Boot ABI v1 (25.9.2026)
 
 Loaderin ja kernelin välinen sopimus on nyt Plan2001:n oma
-(`docs/boot-abi.md`, `plan9/sys/include/bootinfo.h`): **RDI = BootInfo-blobin
+(`docs/boot-abi.md`, `plan2001/sys/include/bootinfo.h`): **RDI = BootInfo-blobin
 fyysinen osoite**, eikä sopimuksessa ole yhtään kiinteää fyysistä osoitetta.
 
 - Blob on `header | plan9.ini | loader log | muistikartta` yhdessä
@@ -539,7 +539,7 @@ ARM64 otetaan huomioon heti ja RISC-V tulevaisuuden mahdollisuutena.
 Rajaperiaate: **BootInfo on koneesta riippumaton protokolla. Entry, MMU,
 trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 
-- **Boot ABI kahtia:** data-ABI `docs/boot-abi.md` ja `plan9/sys/include/bootinfo.h`
+- **Boot ABI kahtia:** data-ABI `docs/boot-abi.md` ja `plan2001/sys/include/bootinfo.h`
   (yhteinen), entry-ABI `docs/boot-abi-amd64.md` (RDI). ARM64 (X0) ja RV64
   (a0, a1 = hart) on kirjattu tuleviksi. `tscfreq` on AMD64:n kenttä, muilla 0.
 - **Kernel:** `bootinfo.c`, `bootargs.c` ja `bootfb.c` siirretty `pc/` → `port/`.
@@ -600,7 +600,7 @@ trap, keskeytykset, SMP ja cache ovat ISA-portin asioita.**
 - **Loader:** `aa64.s` upstreamista (X0 = BootInfo). Uusi arch-hook
   `archdataround()`, koska `7l` pyöristää datan 64 KB:iin. Firmwarelle ei
   anneta bss-osoitteita (ARM64:llä loader siirtyy muistissa). `FdtMax` on 2 MB.
-- **Kernel** (`plan9/sys/src/9/arm64/`, upstreamin tiedostot ensin muuttamattomina,
+- **Kernel** (`plan2001/sys/src/9/arm64/`, upstreamin tiedostot ensin muuttamattomina,
   commit `36245f4`): X0 → `bootinfopa`, `bootearlymap()` samaan osoitteeseen
   kuin `kmapram()`, `meminit()` UEFI-kartasta (8 pankkia, blob leikattuna pois),
   `DTBADDR`/`CONFADDR`/`writeconf` pois ja `reboot()` → `panic`.

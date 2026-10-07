@@ -46,7 +46,7 @@ hjfs -f $d/fs -n $s -S -r
 mount -N -c /srv/$s /n/usbnew
 bind $i/$kernel /$objtype/$kernel
 bind $i/$loader /$loaderdir/$loader
-# hjfs with Plan2001's fixes (tools/build.sh: plan9/sys/src/cmd/hjfs, plan9/patches/9front)
+# hjfs with Plan2001's fixes (tools/build.sh: plan2001/sys/src/cmd/hjfs)
 bind $i/hjfs /$objtype/bin/hjfs
 # Plan2001's own runtime files (the repo's plan2001/usr/..., same paths)
 for(f in `{cd $i/root && walk -f})
