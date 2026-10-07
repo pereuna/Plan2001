@@ -24,6 +24,13 @@ legacyä rikkovaa muutosta. Älä myöskään tee 9frontin tiedostosta
 kokonaista kopiota, vaan diff `plan9/patches/`iin. `tools/overlay DIR`
 kokoaa molemmat kerrokset yhdeksi 9front-juureksi (`-f`: vain fork).
 
+## wasm32-kone on Plan9-wasm32 (7.10.2026)
+
+Ydin, sivu, 3c/3l ja wasm32:n kirjastot kehitetään nyt repossa
+pereuna/plan9-wasm32. Tämän repon kopio poistuu vaiheittain
+(`docs/plan9-wasm32.md`). Älä tee uutta alustatyötä `plan9/sys/src/9/wasm32`:een
+tai `monolith/`:n wasm32-työkaluihin, vaan Plan9-wasm32:een.
+
 ## Säännöt, joita ei rikota
 
 - **`subset/9front/` on 9frontin julkaisu sellaisenaan** (`tools/9front.release`),

@@ -6,6 +6,11 @@ ja poistaa BIOS-ajan legacy-koodi, joka ei ole enää tarpeen puhtaalla UEFI-kon
 
 Tilanne ja suunnitelma: **`docs/status.md`**. Lue se ensin.
 
+wasm32-kone on siirretty omaksi projektikseen
+([Plan9-wasm32](https://github.com/pereuna/plan9-wasm32)). Mikä kuuluu
+kummallekin ja miten täällä oleva kopio poistuu:
+**`docs/plan9-wasm32.md`**.
+
 Kerrokset (arkkitehtuuri, alusta, rooli, ohjelmat) ja wasm32:n suunta:
 **`docs/architecture.md`**.
 
