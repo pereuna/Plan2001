@@ -24,12 +24,22 @@ legacyä rikkovaa muutosta. Älä myöskään tee 9frontin tiedostosta
 kokonaista kopiota, vaan diff `plan9/patches/`iin. `tools/overlay DIR`
 kokoaa molemmat kerrokset yhdeksi 9front-juureksi (`-f`: vain fork).
 
-## wasm32-kone on Plan9-wasm32 (7.10.2026)
+## Plan2001 ei ole 9front-yhteensopiva (päätös 7.10.2026)
 
-Ydin, sivu, 3c/3l ja wasm32:n kirjastot kehitetään nyt repossa
-pereuna/plan9-wasm32. Tämän repon kopio poistuu vaiheittain
-(`docs/plan9-wasm32.md`). Älä tee uutta alustatyötä `plan9/sys/src/9/wasm32`:een
-tai `monolith/`:n wasm32-työkaluihin, vaan Plan9-wasm32:een.
+Lue `docs/plan9-wasm32.md`. Plan2001 on oma, moderni järjestelmä. Se
+kopioi koodia, ideoita ja protokollia 9frontista ja Plan9-wasm32:sta
+(pereuna/plan9-wasm32, yhteensopiva wasm32-fork) ja muokkaa niitä
+vapaasti. Siinä on kaksi profiilia: palvelin (CPU, auth, fs) ja
+terminaali (wasm32-kone selaimessa ja/tai sarjakonsoli). Legacy jää
+pois.
+- Tämän repon wasm32-koodi on Plan2001:n omaa. Kehitä sitä täällä.
+- Kun otat koodia Plan9-wasm32:sta tai 9frontista, kirjaa commitiin
+  lähde (repo ja commit).
+- Plan9-wasm32:een viedään vain bugikorjauksia, ei Plan2001:n
+  ominaisuuksia.
+- Alla oleva kerrosjako (`plan9/` yhteensopivana forkina, 9Front-2001,
+  diffit `plan9/patches`iin) on voimassa, kunnes puun rakenne
+  yksinkertaistetaan (`docs/plan9-wasm32.md`, vaihe 3).
 
 ## Säännöt, joita ei rikota
 

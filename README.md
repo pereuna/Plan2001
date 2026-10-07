@@ -2,8 +2,9 @@
 
 Plan2001:n ei rakenna Internetin vapaaehtoisista koneista luotettua infrastruktuuria. Se rakentaa tarkoituksella epäluotettavan kerroksen, jonka päällä on luotettava verifiointi
 
-Selaimen wasm32-kone on oma projektinsa,
-[Plan9-wasm32](https://github.com/pereuna/plan9-wasm32). Plan2001 on
-järjestelmä sen ja 9frontin päällä: CPU-palvelin, tunnukset, sivusto
-plan2001.com ja laskentapooli. Rajanveto ja siirtymän vaiheet:
-[docs/plan9-wasm32.md](docs/plan9-wasm32.md).
+Plan2001 on moderni järjestelmä, joka perustuu 9frontiin ja
+[Plan9-wasm32](https://github.com/pereuna/plan9-wasm32):een. Se kopioi
+niistä koodia, ideoita ja protokollia, mutta ei ole yhteensopiva niiden
+kanssa, ja legacy jää pois. Profiilit: palvelin (CPU, auth, fs) ja
+terminaali (wasm32-kone selaimessa ja/tai sarjakonsoli). Suhde
+Plan9-wasm32:een ja vaiheet: [docs/plan9-wasm32.md](docs/plan9-wasm32.md).
