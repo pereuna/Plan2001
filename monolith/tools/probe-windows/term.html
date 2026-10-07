@@ -1,0 +1,14 @@
+<!doctype html><meta charset=utf-8><title>term</title>
+<script>
+window.r = {};
+const sw = new SharedWorker('broker.js', { name: 'plan9' });
+sw.port.onmessage = (e) => {
+	if (e.data.nomachine) { window.r.nomachine = 1; return; }
+	const p = e.data.port;
+	p.onmessage = (m) => { (window.r.got ??= []).push(m.data); };
+	p.start();
+	p.postMessage('key a'); setTimeout(() => p.postMessage('key b'), 300);
+};
+sw.port.postMessage({ term: 1 });
+navigator.locks.request('plan9-machine', { ifAvailable: true }, (l) => { window.r.lockfree = !!l; });
+</script>

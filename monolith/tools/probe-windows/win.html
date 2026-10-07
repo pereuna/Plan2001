@@ -1,0 +1,12 @@
+<!doctype html><meta charset=utf-8><title>win</title>
+<script>
+window.r = { iso: crossOriginIsolated, opener: !!window.opener };
+addEventListener('message', (e) => {
+	try {
+		const a = new Int32Array(e.data.mem.buffer);
+		const v0 = Atomics.load(a, 1);
+		setTimeout(() => { window.r.v = [v0, Atomics.load(a, 1)]; opener.postMessage({ seen: window.r.v }, location.origin); }, 500);
+	} catch (x) { window.r.err = String(x); }
+});
+opener.postMessage('ready', location.origin);
+</script>

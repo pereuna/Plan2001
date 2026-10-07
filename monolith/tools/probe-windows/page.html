@@ -1,0 +1,17 @@
+<!doctype html><meta charset=utf-8><title>swprobe</title>
+<script type=module>
+window.r = { page: { iso: self.crossOriginIsolated }, msgs: [] };
+const sw = new SharedWorker('sw.js', { type: 'module', name: 'plan9' });
+sw.onerror = (e) => window.r.msgs.push({ swerror: String(e.message || e) });
+sw.port.onmessage = (e) => {
+	const m = e.data;
+	if (m.mem) {	// shared memory from the SharedWorker: can the page read it?
+		try { window.r.memread = new Int32Array(m.mem.buffer)[1]; } catch (x) { window.r.memread = 'ERR ' + x; }
+		return;
+	}
+	window.r.msgs.push(m);
+};
+sw.port.start();
+sw.port.postMessage({ hello: location.search });
+window.ask = (q) => sw.port.postMessage(q);
+</script>

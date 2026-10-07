@@ -1,0 +1,19 @@
+<!doctype html><meta charset=utf-8><title>machine</title>
+<script>
+window.r = { iso: crossOriginIsolated };
+const mem = new WebAssembly.Memory({ initial: 1, maximum: 4, shared: true });
+const a = new Int32Array(mem.buffer);
+a[1] = 7;
+// a proc: a dedicated Worker on the same memory (as platform.js), which writes the "framebuffer"
+const w = new Worker(URL.createObjectURL(new Blob(['onmessage=(e)=>{const a=new Int32Array(e.data.buffer);setInterval(()=>{Atomics.add(a,1,1);Atomics.notify(a,0)},50)}'], { type: 'text/javascript' })));
+w.postMessage(mem);
+window.openwin = () => {
+	const p = window.open('win.html', '_blank', 'popup,width=400,height=300');
+	window.r.popup = !!p;
+	addEventListener('message', (e) => { if (e.data === 'ready') p.postMessage({ mem }, location.origin); if (e.data.seen) window.r.seen = e.data.seen; });
+};
+// a tab opened by the user, not by us: the broker (a SharedWorker without shared memory)
+const sw = new SharedWorker('broker.js', { name: 'plan9' });
+sw.port.onmessage = (e) => { if (e.data.port) { const p = e.data.port; p.onmessage = (m) => p.postMessage({ frame: Atomics.load(a, 1), asked: m.data }); p.start(); window.r.brokered = (window.r.brokered ?? 0) + 1; } };
+sw.port.postMessage({ machine: 1 });
+</script>
