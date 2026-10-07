@@ -42,6 +42,7 @@ link
 	etherx550	pci
 	etheri225	pci ethermii
 	etherigbe	pci ethermii
+	etheriwl	pci wifi
 	ethersink
 	ethervirtio	pci
 	ethervirtio10	pci virtio10pc

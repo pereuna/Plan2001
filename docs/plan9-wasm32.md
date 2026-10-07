@@ -23,7 +23,7 @@ https://plan2001.com/plan9-wasm32/.
 
 | Profiili | Mikä | Arkkitehtuuri ja alusta nyt |
 |---|---|---|
-| **palvelin** | CPU-, auth- ja tiedostopalvelin: tunnukset, istunnot, sivusto, laskentapooli. CPU-palvelin tarkoittaa myös CR-palvelimia (NPU, GPU jne., `docs/cpu-server-design.md`) | amd64 (UEFI). Myöhemmin arm64, riscv64 ja wasm32 |
+| **palvelin** | CPU-, auth- ja tiedostopalvelin: tunnukset, istunnot, sivusto, laskentapooli. CPU-palvelin tarkoittaa myös CR-palvelimia (NPU, GPU jne., `docs/cpu-server-design.md`). Palvelin ei ole vain räkissä oleva PC: se voi olla myös pieni, RPi:n kaltainen kiinteistöautomaatiolaite | amd64 (UEFI). Myöhemmin arm64, riscv64 ja wasm32 |
 | **terminaali** | käyttäjän GUI ("selaintyyppinen" ympäristö) | vain wasm32 selaimessa ja/tai sarjakonsoli |
 
 ## Jakelu
@@ -35,6 +35,11 @@ ympäristöön:
 - **wasm32:** terminaali.
 
 Myöhemmin tulevat arm- ja RISC-V-portit sekä wasm32:n CPU-palvelin.
+
+**WLAN (päätös 7.10.2026).** Palvelin voi olla WLANissa (esimerkiksi
+kiinteistöautomaatiolaite), joten WLAN jää: pc64:llä `etheriwl`, `wifi`
+ja `aux/wpa`. Tavoite on lisätä WPA3. Nyt `aux/wpa` osaa vain
+WPA/WPA2:n.
 
 **Paikallinen näyttö (vaatimus 7.10.2026).** pc64:n CPU-palvelimella on
 toimiva paikallinen näyttö (HDMI tai muu näyttö, jolle firmware piirtää)

@@ -58,7 +58,8 @@ tiedostot `pc/`:ssa ja `port/`:ssa ovat kohdan 2 työ.
 |---|---|
 | `floppy`, `lpt`, `pccard`, `i82365`, `pcmciamodem` (jo kommentoitu), niiden tiedostot `pc/`:ssa | **pois** tiedostoina |
 | ISA- ja vanhat PCI-verkkokortit: `ether2114x`, `ether79c970`, `ether8139`, `etheryuk`, `etherbcm`, kommentoidut (`ether8390`-perhe, `elnk3`, `82557`, `83815`, `ga620`, `vgbe`, `vt610x`, `smc`, `wavelan`) | **pois.** Jäävät `ethervirtio`/`virtio10` (pilvi), `etherigbe`, `ether82563`, `ether8169`, `etheri225`, `ether82598`, `etherx550` (rauta) |
-| WLAN: `etheriwl`, `etherwpi`, `etherrt2860`, `wifi`, `aux/wpa`, factotumin `wpapsk` | **pois** palvelimelta |
+| WLAN: `etheriwl`, `wifi`, `aux/wpa`, factotumin `wpapsk`, bootin `net.rc`:n `wifi` | **jää** (päätös 7.10.): palvelin voi olla myös kiinteistöautomaatiolaite WLANissa. Tavoite: WPA3 (nyt `aux/wpa` osaa WPA/WPA2:n). `etheriwl` tarvitsee Intelin firmwaren (`/lib/firmware/iwn-*`, `iwm-*`, `boot/etheriwl.proto`), jota build-VM:ssä ei ole: se on vielä tuotava |
+| WLAN: `etherwpi` (Intel 3945, 2006), `etherrt2860` (Ralink RT28xx, 2007) | **pois** (vanhat piirit) |
 | `sdide` (PATA), `sd53c8xx` (SCSI), `sdmylex`, `sdodin`, `sdmv50xx` | **pois.** Jäävät `sdiahci`, `sdnvme`, `sdvirtio`, `sdmmc`, `sdram`, `sdloop` |
 | `aoe`, `sdaoe` (ATA over Ethernet) | **pois** |
 | `audio`, `audiohda`, `audiosb16`, `audioac97` | **pois** palvelimelta (terminaalin ääni on selaimen) |
