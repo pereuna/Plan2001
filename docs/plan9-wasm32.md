@@ -36,6 +36,24 @@ ympäristöön:
 
 Myöhemmin tulevat arm- ja RISC-V-portit sekä wasm32:n CPU-palvelin.
 
+**Paikallinen näyttö (vaatimus 7.10.2026).** pc64:n CPU-palvelimella on
+toimiva paikallinen näyttö (HDMI tai muu näyttö, jolle firmware piirtää)
+ja näppäimistö bootia, asennusta ja huoltoa varten, vaikka ajossa oleva
+palvelin ei niitä tarvitse.
+
+- Toteutus: UEFI:n GOP-kehyspuskuri. Loader ottaa firmwaren valitseman
+  tilan eikä kutsu `SetMode`a (`docs/status.md`), ja ydin piirtää siihen
+  `bootfb`:llä ja `vgasoft`illa. Konsoli on `vga` ja `kbd`, ja
+  rivieditori on kbdfs.
+- VESA (`vgavesa`, `aux/realemu`) oli 9frontissa yleisin toimiva
+  näyttöajuri, mutta se kutsuu näytönohjaimen BIOSia, jota UEFI-bootissa
+  ei ole. GOP toimii samoin kaikilla korteilla.
+- Rajoitus: resoluutio on se, jonka firmware valitsee (sama, jossa sen
+  asetusruutu näkyy). Ajon aikana sitä ei vaihdeta.
+- Testi: ydin QEMU:ssa `-vga std`:llä ja näytön kuva QEMU:n
+  `screendump`illa: konsoli ja rivieditori näkyvät. Testi ei vielä ole
+  automaattinen (`tools/test-qemu.sh` tarkistaa vain sarjalokin).
+
 ## Terminaalin alusta
 
 Terminaalin alusta muuttuu ajan myötä:
