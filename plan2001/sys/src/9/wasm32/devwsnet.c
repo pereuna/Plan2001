@@ -16,7 +16,17 @@
  * the conversation's ring here, what goes out goes to it as a message.
  * A conversation's WebSocket is the page's by (n, gen): a new gen each
  * connect, so an old connection's close, data or end touches no new one
- * whatever order the page gets the Workers' messages in.  connect,
+ * whatever order the page gets the Workers' messages in.
+ *
+ * NAME.rtc!port is another browser's machine, not webterm: the page's
+ * WebRTC DataChannel to the peer NAME (its signaling server only brings
+ * the two together; the bytes go between the browsers), labelled with the
+ * port.  announce *!port: the page takes the peers' DataChannels with that
+ * label, and an open of listen waits for one - a new conversation, its
+ * ring the same as a WebSocket's.  So a browser's machine can serve: the
+ * first way in to one.  What the channel carries is as untrusted as a
+ * WebSocket's (a signaling server could be in the middle): the services
+ * over it authenticate themselves (dp9ik, TLS).  connect,
  * hangup and writes go under the conversation's QLock, a write with the
  * gen of the connection open when it was made.  The page empties the
  * ring when it opens a gen, and only the page writes it, all on its one
@@ -24,8 +34,8 @@
  * in the ring (readers), and a reader leaves when the gen changes or
  * the connection goes, within a second.
  *
- *	/net/tcp/clone, /net/tcp/n/{ctl,data,local,remote,status}
- *	ctl: connect host!port, hangup
+ *	/net/tcp/clone, /net/tcp/n/{ctl,data,local,remote,status,listen}
+ *	ctl: connect host!port, announce *!port, hangup (accept, reject: nothing)
  *	/net/cs: a connection server, as ndb/cs answers - net or tcp, a
  *	host as it is, a service by the names below or its number
  */
@@ -46,6 +56,7 @@ enum
 	Qlocal,
 	Qremote,
 	Qstatus,
+	Qlisten,
 };
 
 #define	QID(c, t)	(((c)+1)<<8 | (t))
@@ -75,10 +86,14 @@ struct Conv
 	char	raddr[64];
 	Ring	*in;
 	int	open;		/* a WebSocket, the page's */
+	int	announced;	/* the page takes the peers' DataChannels for lport (announce) */
+	char	lport[24];
 };
 
 static	Conv	convs[Nconv];
 static	Lock	convlock;
+
+static	Conv*	listenconv(Conv*);
 
 static char *names[] = {
 	[Qctl]		"ctl",
@@ -86,6 +101,7 @@ static char *names[] = {
 	[Qlocal]	"local",
 	[Qremote]	"remote",
 	[Qstatus]	"status",
+	[Qlisten]	"listen",
 };
 
 /* port names wasm32 knows without a cs: /lib/ndb/common's */
@@ -154,7 +170,7 @@ wsgen(Chan *c, char*, Dirtab*, int, int s, Dir *dp)
 		return 1;
 	default:
 		n = QCONV(c->qid);
-		if(s >= Qstatus-Qctl+1)
+		if(s >= Qlisten-Qctl+1)
 			return -1;
 		mkqid(&q, QID(n, Qctl+s), 0, QTFILE);
 		devdir(c, q, names[Qctl+s], 0, eve, 0666, dp);
@@ -215,6 +231,7 @@ newconv(void)
 	}
 	cv->st = 0;
 	cv->open = 0;
+	cv->announced = 0;
 	cv->raddr[0] = 0;
 	cv->gen++;
 
@@ -239,6 +256,10 @@ wsopen(Chan *c, int omode)
 		break;
 	case Qclone:
 		cv = newconv();
+		mkqid(&c->qid, QID(cv-convs, Qctl), 0, QTFILE);
+		break;
+	case Qlisten:
+		cv = listenconv(&convs[QCONV(c->qid)]);
 		mkqid(&c->qid, QID(cv-convs, Qctl), 0, QTFILE);
 		break;
 	case Qctl:
@@ -282,9 +303,10 @@ wsclose(Chan *c)
 	cv = &convs[QCONV(c->qid)];
 	lock(&convlock);
 	if(--cv->ref == 0){
-		if(cv->open)
+		if(cv->open || cv->announced)
 			platnetclose(cv-convs, cv->gen);
 		cv->open = 0;
+		cv->announced = 0;
 		cv->used = 0;
 	}
 	unlock(&convlock);
@@ -404,19 +426,101 @@ csquery(char *q)
 	return q;
 }
 
+/* a peer's name, as the signaling server takes it: [a-z0-9-], at most 32 */
+static int
+rtcname(char *s, int n)
+{
+	int i;
+
+	if(n < 1 || n > 32)
+		return 0;
+	for(i = 0; i < n; i++)
+		if(!(s[i] >= 'a' && s[i] <= 'z' || s[i] >= '0' && s[i] <= '9' || s[i] == '-'))
+			return 0;
+	return 1;
+}
+
+/* announce *!port (or name!port): the page takes the peers' DataChannels for port; called with cv qlocked */
+static void
+announce(Conv *cv, char *addr)
+{
+	char *p;
+
+	if(cv->open || cv->announced)
+		error("already in use");
+	if((p = strrchr(addr, '!')) == nil)
+		error("bad address: *!port");
+	if((p = service(p+1)) == nil || p[0] == '/')
+		error("bad port");
+	strecpy(cv->lport, cv->lport+sizeof cv->lport, p);
+	lock(&convlock);
+	cv->gen++;
+	cv->announced = 1;
+	unlock(&convlock);
+	platnetannounce(cv-convs, cv->gen, cv->lport);
+}
+
+/*
+ * an open of listen: a new conversation, which the page gives the next
+ * DataChannel for the announced port; it waits for one (a note ends the
+ * wait), and the open is then of the new one's ctl, as clone's
+ */
+static Conv*
+listenconv(Conv *lc)
+{
+	Conv *cv;
+
+	if(!lc->announced)
+		error("not announced");
+	cv = newconv();
+	if(waserror()){
+		lock(&convlock);
+		cv->open = 0;
+		cv->ref = 0;
+		cv->used = 0;
+		unlock(&convlock);
+		nexterror();
+	}
+	lock(&convlock);
+	cv->gen++;
+	cv->st = 0;
+	cv->open = 1;
+	unlock(&convlock);
+	snprint(cv->raddr, sizeof cv->raddr, "rtc!%s", lc->lport);
+	platnetaccept(lc-convs, lc->gen, cv-convs, cv->gen, cv->in, &cv->st);
+	if(waserror()){
+		platnetclose(cv-convs, cv->gen);
+		nexterror();
+	}
+	netwait(&cv->st, 0, 0);
+	poperror();
+	if(cv->st < 0)
+		error(Ehungup);
+	poperror();
+	return cv;
+}
+
 /* called with cv qlocked */
 static void
 connect(Conv *cv, char *addr)
 {
-	char path[32], *p;
+	char path[64], *p, *bang;
+	int n;
 
-	if(cv->open)
+	if(cv->open || cv->announced)
 		error("already connected");
-	if((p = strrchr(addr, '!')) == nil)
+	if((bang = strrchr(addr, '!')) == nil)
 		error("bad address: host!port");
-	if((p = service(p+1)) == nil)
+	if((p = service(bang+1)) == nil)
 		error("bad port");
-	snprint(path, sizeof path, "%s%s", p[0] == '/' ? "" : "/", p);
+	n = bang - addr;
+	if(n > 4 && strncmp(bang-4, ".rtc", 4) == 0){
+		/* a peer's machine: NAME.rtc!port, the page's DataChannel labelled port */
+		if(p[0] == '/' || !rtcname(addr, n-4))
+			error("bad address: NAME.rtc!port");
+		snprint(path, sizeof path, "rtc!%.*s!%s", n-4, addr, p);
+	}else
+		snprint(path, sizeof path, "%s%s", p[0] == '/' ? "" : "/", p);
 	/* the page empties the ring when it opens: no reader of an older gen in it then */
 	for(;;){
 		lock(&convlock);
@@ -470,11 +574,16 @@ wsread(Chan *c, void *a, long n, vlong off)
 		snprint(buf, sizeof buf, "%ld", (long)(cv-convs));
 		return readstr(off, a, n, buf);
 	case Qlocal:
-		return readstr(off, a, n, "::!0\n");
+		snprint(buf, sizeof buf, "::!%s\n", cv->announced ? cv->lport : "0");
+		return readstr(off, a, n, buf);
 	case Qremote:
 		snprint(buf, sizeof buf, "%s\n", cv->raddr);
 		return readstr(off, a, n, buf);
 	case Qstatus:
+		if(cv->announced){
+			snprint(buf, sizeof buf, "Announced\n");
+			return readstr(off, a, n, buf);
+		}
 		snprint(buf, sizeof buf, "%s\n", !cv->open || cv->st < 0 ? "Closed" : cv->st == 0 ? "Syn_sent" :
 			cv->in->closed ? "Closed" : "Established");
 		return readstr(off, a, n, buf);
@@ -563,10 +672,15 @@ wswrite(Chan *c, void *a, long n, vlong)
 		}
 		if(cb->nf == 2 && strcmp(cb->f[0], "connect") == 0)
 			connect(cv, cb->f[1]);
+		else if(cb->nf == 2 && strcmp(cb->f[0], "announce") == 0)
+			announce(cv, cb->f[1]);
+		else if(cb->nf >= 1 && (strcmp(cb->f[0], "accept") == 0 || strcmp(cb->f[0], "reject") == 0))
+			;	/* libc's accept and reject: the DataChannel is the page's already */
 		else if(cb->nf >= 1 && strcmp(cb->f[0], "hangup") == 0){
-			if(cv->open)
+			if(cv->open || cv->announced)
 				platnetclose(cv-convs, cv->gen);
 			cv->open = 0;
+			cv->announced = 0;
 		}else
 			error(Ebadctl);
 		poperror();

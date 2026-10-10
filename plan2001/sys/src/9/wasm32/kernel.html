@@ -11,23 +11,14 @@
 	html, body { margin: 0; height: 100%; overflow: hidden; background: #777; }
 	body { color: var(--fg); font: 14px monospace; }
 	/* the machine's screen is the window (rio in all of it); ?console=1 the serial port below it */
-	canvas { display: block; width: 100vw; height: calc(100vh - var(--barh, 0px)); background: #777; touch-action: none; outline: none; }
+	canvas { display: block; width: 100vw; height: 100vh; background: #777; touch-action: none; outline: none; }
 	pre { display: none; margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; background: var(--bg); }
 	body.console { overflow: auto; }
 	body.console canvas { width: auto; height: auto; max-width: 100%; margin: 0 auto; }
-	body.console pre { display: block; }
-	/* the site's login (/boot/login): the console alone, its prompt in view, until rio draws */
+	body.console #eia0 { display: block; }	/* the console's, not #halt's (a pre too) */
+	/* the console alone, its prompt in view, until a program draws (rio): the kernel's and init's messages, the site's login (/boot/login), a cpu machine's rc */
 	body.login canvas { display: none; }
-	body.login pre { min-height: 100vh; box-sizing: border-box; }
-	/* a touch screen's key bar (body.touch): the keys a phone's keyboard lacks, and the mouse's buttons */
-	#bar { display: none; position: fixed; left: 0; right: 0; bottom: 0; height: 44px; background: #333; gap: 3px; padding: 4px 3px; box-sizing: border-box; overflow-x: auto; }
-	body.touch #bar { display: flex; }
-	body.touch { --barh: 44px; }
-	body.touch.login pre { padding-bottom: 60px; }
-	#bar button { flex: 1 0 auto; min-width: 28px; padding: 0 4px; font: 14px monospace; color: #fff; background: #555; border: 0; border-radius: 4px; touch-action: manipulation; }
-	#bar button.on { background: #2a7; }
-	/* a phone's keyboard: it opens for a text field, this one, off the screen (a touch focuses it) */
-	#kbd { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; }
+	body.login #eia0 { min-height: 100vh; min-height: 100dvh; box-sizing: border-box; }	/* dvh: a phone's 100vh is taller than what shows */
 	#halt { display: none; position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px; background: var(--bg); }
 </style>
 </head>
@@ -36,8 +27,6 @@
 <canvas id="screen" width="800" height="600"></canvas>
 <pre id="eia0"></pre>
 <pre id="halt"></pre>
-<div id="bar"><button data-k="kbd">kbd</button><button data-b="1" class="on">m1</button><button data-b="2">m2</button><button data-b="4">m3</button><button data-k="Escape">esc</button><button data-k="Tab">tab</button><button data-k="ctrl">ctl</button><button data-k="Delete">del</button><button data-k="ArrowLeft">←</button><button data-k="ArrowUp">↑</button><button data-k="ArrowDown">↓</button><button data-k="ArrowRight">→</button></div>
-<textarea id="kbd" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="keyboard"></textarea>
 <script type="module">
 import { boot } from './platform.js';
 const pre = document.getElementById('eia0'), dec = new TextDecoder();
@@ -50,6 +39,32 @@ if (version && !version.startsWith('@')) {
 // init: ?arg=... what it runs, /boot/init (kbdfs and rc) without; ?noinit=1 none (C2a's test);
 // ?conf=name=value plan9.ini's lines (BootInfo's config, as init's init=)
 const q = new URLSearchParams(location.search);
+/*
+ * ?debuglog=1: what the page says - its console, its errors, its eia0, its
+ * visibility and a heartbeat - to the signaling server's log (tools/rtcsignal
+ * --log), to see a phone's page from elsewhere
+ */
+if (q.get('debuglog') === '1' && q.get('signal')) {
+	const ws = new WebSocket(q.get('signal')), held = [], who = q.get('rtcname') || '?';
+	const say = (line) => { const m = JSON.stringify({ type: 'log', name: who, line: String(line) }); ws.readyState === 1 ? ws.send(m) : held.push(m); };
+	ws.onopen = () => { for (const m of held.splice(0)) ws.send(m); };
+	window.debuglog = say;
+	for (const k of ['log', 'warn', 'error']) { const f = console[k].bind(console); console[k] = (...a) => { say(k + ': ' + a.join(' ')); f(...a); }; }
+	addEventListener('error', (e) => say('error: ' + e.message + ' ' + e.filename + ':' + e.lineno));
+	addEventListener('unhandledrejection', (e) => say('rejection: ' + (e.reason?.stack || e.reason)));
+	document.addEventListener('visibilitychange', () => say('visibility: ' + document.visibilityState));
+	addEventListener('pagehide', () => say('pagehide'));
+	addEventListener('resize', () => say('resize: ' + innerWidth + 'x' + innerHeight));
+	new MutationObserver(() => say('body: ' + document.body.className)).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+	let n = 0;
+	setInterval(() => {
+		const r = document.getElementById('eia0').getBoundingClientRect(), v = visualViewport;
+		say('alive ' + (++n) + ' mem ' + (performance.memory?.usedJSHeapSize ?? '?') + ' scrollY ' + Math.round(scrollY) + ' body.scrollTop ' + Math.round(document.body.scrollTop) +
+			' pre top ' + Math.round(r.top) + ' h ' + Math.round(r.height) + ' view ' + innerWidth + 'x' + innerHeight + (v ? ' visual ' + Math.round(v.offsetTop) + '+' + Math.round(v.height) + ' scale ' + v.scale : '') +
+			' focus ' + (document.activeElement?.id || document.activeElement?.tagName));
+	}, 2000);
+	say('page: ' + navigator.userAgent + ' ' + innerWidth + 'x' + innerHeight + ' ' + matchMedia('(prefers-color-scheme: dark)').matches);
+}
 if ((q.get('console') === '1')) document.body.classList.add('console');
 const args = q.has('noinit') ? [] : q.getAll('arg').length ? q.getAll('arg') : ['/bin/rc', '/boot/init'];
 /*
@@ -76,16 +91,16 @@ const logintext = appname === 'term' ? await fetch('login', { cache: 'no-store' 
 const login = logintext !== null;
 const rpname = (logintext ?? '').trim().toLowerCase();
 const passkeyrp = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(rpname) && (location.hostname === rpname || location.hostname.endsWith('.' + rpname)) ? rpname : '';
-/* the site's login (/boot/login) is on the console too, until a program draws on the screen (rio) */
-const loginconsole = () => login && appname === 'term' && !(q.get('console') === '1');
+/*
+ * the console alone until a program draws on the screen (rio): what the
+ * kernel and init say, the site's login (/boot/login), and the rc of a
+ * machine without rio (service=cpu) - before, the screen's grey hid them
+ */
+const loginconsole = () => appname === 'term' && !(q.get('console') === '1');
 if (loginconsole()) document.body.classList.add('console', 'login');
 const machine = 'cpu=' + location.hostname + '\n' + (appname !== 'term' ? 'app=' + appname + '\n' : '') +
 	(secstore ? 'secstore=' + secstore + '\n' : '') + (login ? 'login=1\n' : '') + (passkeyrp ? 'passkeyrp=' + passkeyrp + '\n' : '');
 if (appname !== 'term') document.body.classList.add('console');	/* its key is asked on the console */
-/* a touch screen (a phone): the key bar, and the screen above it */
-const touch = matchMedia('(pointer: coarse)').matches;
-if (touch) document.body.classList.add('touch');
-const barh = touch ? 44 : 0;
 
 // the root (tools/build-bin3): each file's path and 0, its length (4 bytes), its bytes (rootfs.c);
 // w3root.fs is all of it, one file (a server that has no directories: webterm), else each from w3root.txt
@@ -151,50 +166,10 @@ window.kernelpaste = (text) => {
 	for (const c of text.replace(/\r\n?/g, '\n')) window.monolith.kbd('r' + c + '\0R' + c + '\0');
 };
 /*
- * a phone: its keyboard types into #kbd (its keydowns are 'Unidentified', or none): what goes in
- * is typed as keys, Backspace and Return too, and the field kept empty.  A touch on the page
- * focuses it (opens the keyboard), unless text is being selected
+ * a phone: no keyboard of its own on the page yet (the key bar and its #kbd
+ * field were taken away 10.10.2026: opening the phone's keyboard scrolled the
+ * page, and the console went out of view); a finger is mouse button 1
  */
-const kbdfield = document.getElementById('kbd');
-const kbdreset = () => { kbdfield.value = ' '; kbdfield.setSelectionRange(1, 1); };	/* a space: Backspace has something to delete */
-kbdfield.addEventListener('input', (e) => {
-	if (window.monolith) {
-		if (e.inputType === 'deleteContentBackward') window.monolith.kbd('r' + K.Backspace + '\0R' + K.Backspace + '\0');
-		else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') window.monolith.kbd('r\n\0R\n\0');
-		else if (e.data && ctrl) {	/* the bar's Ctrl: the next key with it */
-			window.monolith.kbd('r' + K.Control + '\0');
-			for (const c of e.data) window.monolith.kbd('r' + c + '\0R' + c + '\0');
-			window.monolith.kbd('R' + K.Control + '\0');
-			ctrl = false;
-			bar.querySelector('[data-k=ctrl]').classList.remove('on');
-		}
-		else if (e.data) for (const c of e.data) window.monolith.kbd('r' + c + '\0R' + c + '\0');
-	}
-	kbdreset();
-});
-kbdfield.addEventListener('focus', kbdreset);
-/*
- * the key bar: kbd the phone's keyboard (#kbd focused by the tap itself), m1 m2 m3 the button a
- * finger is (for the next touch, then m1 again: rio's menus), keys as typed, ctl for the next key
- */
-let ctrl = false, touchbutton = 1;
-const bar = document.getElementById('bar');
-const typekey = (r) => window.monolith?.kbd('r' + r + '\0R' + r + '\0');
-bar.addEventListener('pointerdown', (e) => e.preventDefault());	/* the keyboard stays open */
-bar.addEventListener('click', (e) => {
-	const b = e.target.closest('button');
-	if (!b) return;
-	if (b.dataset.k === 'kbd') kbdfield.focus();
-	else if (b.dataset.k === 'ctrl') b.classList.toggle('on', ctrl = !ctrl);
-	else if (b.dataset.k) typekey(K[b.dataset.k]);
-	else if (b.dataset.b) {
-		touchbutton = Number(b.dataset.b);
-		for (const x of bar.querySelectorAll('[data-b]')) x.classList.toggle('on', x === b);
-	}
-});
-const button1 = () => { touchbutton = 1; for (const x of bar.querySelectorAll('[data-b]')) x.classList.toggle('on', x.dataset.b === '1'); };
-document.addEventListener('pointerup', (e) => { if (e.pointerType === 'touch' && e.target.id === 'screen') button1(); });
-document.addEventListener('touchend', () => { if (!String(getSelection()).length) kbdfield.focus({ preventScroll: true }); });
 document.addEventListener('paste', (e) => {
 	window.kernelpaste(e.clipboardData.getData('text'));
 	e.preventDefault();
@@ -202,6 +177,7 @@ document.addEventListener('paste', (e) => {
 
 boot('9wasm32.wasm', {
 	eia: (b) => {
+		window.debuglog?.('eia0: ' + new TextDecoder().decode(b));
 		pre.textContent += dec.decode(b, { stream: true });
 		if (document.body.classList.contains('login')) scrollTo(0, document.body.scrollHeight);	/* the prompt in view */
 	},
@@ -216,8 +192,7 @@ boot('9wasm32.wasm', {
 	disk: (q.get('disk') ?? '256') !== '0' && navigator.storage?.getDirectory ? { name: 'sdW0', size: Number(q.get('disk') ?? 256) * 1048576, fail: q.get('diskfail') } : null,
 	config: machine + q.getAll('conf').map((c) => c + '\n').join(''),
 	canvas: document.getElementById('screen'),
-	touchbutton: () => touchbutton,
-	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight - barh) }))((q.get('screen') ?? '').split('x')),
+	screen: (([w, h]) => ({ w: Number(w) || ((q.get('console') === '1') ? 800 : innerWidth), h: Number(h) || ((q.get('console') === '1') ? 600 : innerHeight) }))((q.get('screen') ?? '').split('x')),
 	/* the machine's webterm, as Monolith's page finds it: ?ws=, wss on https, else the next port */
 	/*
 	 * the machine's network: this origin's own webterm, nothing a URL can
@@ -229,6 +204,17 @@ boot('9wasm32.wasm', {
 	ws: location.protocol === 'https:' ? `wss://${location.host}`
 		: /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname) ? `ws://${location.hostname}:${location.port ? +location.port + 1 : 8081}`
 		: 'ws://0.0.0.0:0',	/* none */
+	/*
+	 * the machine's WebRTC peers (devwsnet.c's NAME.rtc!port, announce): a
+	 * signaling server (tools/rtcsignal), this machine's name in its room and
+	 * STUN servers.  The server only introduces the peers; it could put itself
+	 * in the middle, as ?ws= could, so what goes over a channel authenticates
+	 * itself (dp9ik, TLS) - no app's rcpu goes this way
+	 */
+	signal: q.get('signal'),
+	rtcname: q.get('rtcname'),
+	rtcroom: q.get('rtcroom'),
+	ice: q.getAll('stun').map((urls) => ({ urls })),
 	failfork: Number(q.get('failfork')) || 0,
 	ringstart: Number(q.get('ringstart')) || 0,	/* a test's: the network rings' counters start there */
 	failhelper: Number(q.get('failhelper')) || 0,

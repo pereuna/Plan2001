@@ -636,6 +636,8 @@ function imports(env) {
 			env.post({ netsend: { id: iarg(0), gen: arg(1), b } }, [b.buffer]);
 		},
 		platnetclose: () => env.post({ netclose: { id: iarg(0), gen: arg(1) } }),
+		platnetannounce: () => env.post({ netannounce: { id: iarg(0), gen: arg(1), port: str(arg(2)) } }),
+		platnetaccept: () => env.post({ netaccept: { lid: iarg(0), lgen: arg(1), id: iarg(2), gen: arg(3), ring: arg(4), st: arg(5) } }),
 		platkbdring: () => env.post({ kring: arg(0) }),
 		platwebauthn: () => env.post({ webauthn: { gen: arg(0), req: arg(1) ? str(arg(1)) : null, buf: arg(2), n: iarg(3), word: arg(4) } }),
 	};
@@ -854,7 +856,7 @@ export async function boot(url, front = {}) {
 	 * memory, drawn on front.canvas where it changed, once a frame; the
 	 * canvas's pointer the mouse, into the kernel's ring
 	 */
-	const screen = { f: null, dirty: null, mring: 0, img: null, flushes: 0 };
+	const screen = { f: null, dirty: null, mring: 0, img: null, flushes: 0, cursors: 0 };
 	const canvas = front.canvas;
 	screen.fb = (fb) => {
 		screen.f = fb;
@@ -889,6 +891,8 @@ export async function boot(url, front = {}) {
 	/* Plan 9's cursor (16x16: set black, clr white) as the canvas's */
 	screen.cursor = (c) => {
 		if (!canvas) return;
+		/* the kernel's arrow first; the next is a program's, one that uses the screen and the mouse as one that draws */
+		if (++screen.cursors === 2) front.drawn?.();
 		const cc = document.createElement('canvas');
 		cc.width = cc.height = 16;
 		const g = cc.getContext('2d'), im = g.createImageData(16, 16);
@@ -945,8 +949,8 @@ export async function boot(url, front = {}) {
 			const b = canvas.getBoundingClientRect();
 			return [Math.round((e.clientX - b.left) * canvas.width / b.width), Math.round((e.clientY - b.top) * canvas.height / b.height)];
 		};
-		/* a finger is button 1, or the one the page's key bar has chosen (front.touchbutton: 1 2 4) */
-		const bits = (e) => e.pointerType === 'touch' ? (e.buttons & 1 ? (front.touchbutton?.() ?? 1) : 0) :
+		/* a finger is button 1 */
+		const bits = (e) => e.pointerType === 'touch' ? (e.buttons & 1 ? 1 : 0) :
 			(e.buttons & 1 ? 1 : 0) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
 		canvas.addEventListener('pointermove', (e) => {
 			const b = bits(e), moved = b === buttons;	/* buttons change on a move too (chords) */
@@ -1052,6 +1056,137 @@ export async function boot(url, front = {}) {
 			},
 		};
 	})();
+	/*
+	 * WebRTC (devwsnet.c's NAME.rtc!port and announce): the machine is
+	 * front.rtcname in front.rtcroom on the signaling server front.signal
+	 * (tools/rtcsignal: it only brings the peers' offers, answers and ICE
+	 * candidates to each other; the bytes go between the browsers).  One
+	 * RTCPeerConnection a peer, negotiated as MDN's "perfect negotiation"
+	 * (the polite one the lesser name); a conversation is a DataChannel of
+	 * its own, ordered, labelled with the port.  A channel looks to net.open
+	 * as a WebSocket does (Sock): readyState 0, 1 or 3, bufferedAmount,
+	 * send, close and the on* handlers; what comes before the kernel takes
+	 * it is held.
+	 */
+	class Sock {
+		constructor() { this.ch = null; this.state = 0; this.held = []; this.msg = null; this.onopen = this.onclose = this.onerror = null; }
+		get readyState() { return this.state; }
+		get bufferedAmount() { return this.ch?.bufferedAmount ?? 0; }
+		get onmessage() { return this.msg; }
+		set onmessage(f) { this.msg = f; if (f) for (const e of this.held.splice(0)) f(e); }
+		attach(ch) {
+			this.ch = ch;
+			ch.binaryType = 'arraybuffer';
+			ch.onmessage = (e) => this.msg ? this.msg(e) : this.held.push(e);
+			ch.onclose = () => { if (this.state !== 3) { this.state = 3; this.onclose?.(); } };
+			const open = () => { if (this.state === 0) { this.state = 1; this.onopen?.(); } };
+			if (ch.readyState === 'open') open(); else ch.onopen = open;
+		}
+		fail() { if (this.state !== 3) { this.state = 3; this.onclose?.(); } }
+		send(b) { this.ch?.readyState === 'open' && this.ch.send(b); }
+		close() { this.state = 3; this.ch?.close(); }
+	}
+	const rtc = (() => {
+		const me = front.rtcname, room = front.rtcroom || 'plan2001';
+		const pcs = new Map(), here = new Set(), listeners = new Map(), waiters = [];
+		let sig = null, joined = null;
+		const say = (to, data) => sig?.readyState === 1 && sig.send(JSON.stringify({ type: 'signal', to, data }));
+		const join = () => joined ??= new Promise((ok, no) => {
+			if (!front.signal || !me) { no(new Error('no signaling server or name (?signal=, ?rtcname=)')); return; }
+			sig = new WebSocket(front.signal);
+			sig.onopen = () => sig.send(JSON.stringify({ type: 'join', room, name: me }));
+			sig.onerror = () => no(new Error('signaling'));
+			sig.onclose = () => { joined = null; };	/* the channels open go on; a new dial joins again */
+			sig.onmessage = (e) => {
+				let m;
+				try { m = JSON.parse(e.data); } catch { return; }
+				if (m.type === 'welcome') { m.peers.forEach((p) => here.add(p)); seen(); ok(); }
+				else if (m.type === 'peer-joined') { here.add(m.name); seen(); }
+				else if (m.type === 'peer-left') here.delete(m.name);
+				else if (m.type === 'signal') hear(m.from, m.data);
+				else if (m.type === 'error') { console.log('rtc: signaling: ' + m.reason); no(new Error(m.reason)); }
+			};
+		});
+		const seen = () => { for (const w of waiters.splice(0)) if (!w()) waiters.push(w); };
+		const present = (who, ms) => new Promise((ok, no) => {
+			const t = setTimeout(() => no(new Error('no peer ' + who)), ms);
+			const w = () => here.has(who) && (clearTimeout(t), ok(), true);
+			if (!w()) waiters.push(w);
+		});
+		const peer = (who) => {
+			let p = pcs.get(who);
+			if (p) return p;
+			const pc = new RTCPeerConnection({ iceServers: front.ice ?? [] });
+			p = { pc, polite: me < who, making: false, ignore: false };
+			pcs.set(who, p);
+			pc.onicecandidate = ({ candidate }) => candidate && say(who, { candidate });
+			pc.onnegotiationneeded = async () => {
+				try { p.making = true; await pc.setLocalDescription(); say(who, { description: pc.localDescription }); }
+				catch (e) { console.log('rtc: offer: ' + e); }
+				finally { p.making = false; }
+			};
+			pc.ondatachannel = ({ channel }) => incoming(who, channel);
+			pc.onconnectionstatechange = () => {
+				if (pc.connectionState === 'failed' || pc.connectionState === 'closed') { if (pcs.get(who) === p) pcs.delete(who); pc.close(); }
+			};
+			return p;
+		};
+		const hear = async (from, { description, candidate } = {}) => {
+			const p = peer(from), pc = p.pc;
+			try {
+				if (description) {
+					const collision = description.type === 'offer' && (p.making || pc.signalingState !== 'stable');
+					p.ignore = !p.polite && collision;
+					if (p.ignore) return;
+					await pc.setRemoteDescription(description);
+					if (description.type === 'offer') { await pc.setLocalDescription(); say(from, { description: pc.localDescription }); }
+				} else if (candidate)
+					await pc.addIceCandidate(candidate);
+			} catch (e) {
+				if (!p.ignore) console.log('rtc: ' + from + ': ' + e);
+			}
+		};
+		const incoming = (who, ch) => {
+			const l = listeners.get(ch.label);
+			if (!l) { ch.close(); return; }	/* no announce for that port: refused */
+			const s = new Sock();
+			s.peer = who;
+			s.attach(ch);
+			const w = l.waiting.shift();
+			if (w) w.give(s); else l.queue.push(s);
+		};
+		return {
+			/* the kernel's NAME.rtc!port: a channel to the peer, once it is in the room (the kernel gives up after 60 s) */
+			dial(path) {
+				const [, who, port] = path.split('!'), s = new Sock();
+				join().then(() => present(who, 55000)).then(() => s.attach(peer(who).pc.createDataChannel(port, { ordered: true })),
+					(e) => { console.log('rtc: dial ' + who + ': ' + e.message); s.fail(); });
+				return s;
+			},
+			announce({ id, gen, port }) {
+				listeners.set(port, { id, gen, queue: [], waiting: [] });
+				join().catch((e) => console.log('rtc: announce: ' + e.message));
+			},
+			/* the next channel for the announced (lid, lgen) to give(s), or give(null): none will come */
+			accept({ lid, lgen, id, gen }, give) {
+				const l = [...listeners.values()].find((x) => x.id === lid && x.gen === lgen);
+				if (!l) { give(null); return; }
+				const s = l.queue.shift();
+				if (s) give(s); else l.waiting.push({ id, gen, give });
+			},
+			/* conversation id hung up: its announce, or its wait in an accept */
+			close(id, gen) {
+				for (const [port, l] of listeners) {
+					if (l.id === id && (gen === undefined || l.gen === gen)) {
+						listeners.delete(port);
+						for (const w of l.waiting) w.give(null);
+						for (const s of l.queue) s.close();
+					}
+					l.waiting = l.waiting.filter((w) => !(w.id === id && (gen === undefined || w.gen === gen)) || (w.give(null), false));
+				}
+			},
+		};
+	})();
 	const net = { ws: new Map() };	/* n -> its conversation: { gen, ws, opened, session } */
 	const NRING = 64*1024;		/* a power of 2: the counters run on modulo 2^32, the index masked */
 	/*
@@ -1080,7 +1215,7 @@ export async function boot(url, front = {}) {
 	 * gone from a plain WebSocket's bufferedAmount.
 	 */
 	const QMAX = 9*1024*1024, QMAXRAW = 1024*1024;
-	net.open = ({ id, gen, path, ring, st }) => {
+	net.open = ({ id, gen, path, ring, st, sock }) => {
 		net.close({ id });	/* an older gen's, if its close has not come yet */
 		const i32 = new Int32Array(mem.buffer);
 		const word = (a, v) => { Atomics.store(i32, a >> 2, v); Atomics.notify(i32, a >> 2); };
@@ -1161,7 +1296,7 @@ export async function boot(url, front = {}) {
 		const connect = (p) => {
 			let ws;
 			try {
-				ws = new WebSocket((front.ws ?? '') + p);
+				ws = sock ?? (p.startsWith('rtc!') ? rtc.dial(p) : new WebSocket((front.ws ?? '') + p));
 			} catch (e) {
 				end(2);
 				return;
@@ -1190,6 +1325,9 @@ export async function boot(url, front = {}) {
 				if (!put(b) || !s) return;
 				s.rcvd += b.length;	/* had: a resume starts after it; acknowledged once in the ring (deliver) */
 			};
+			/* an accepted DataChannel: open (or closed) before the kernel took it */
+			if (ws.readyState === 1) ws.onopen();
+			else if (ws.readyState === 3) ws.onclose();
 		};
 		connect(path);
 	};
@@ -1231,6 +1369,7 @@ export async function boot(url, front = {}) {
 			net.release(c, b.length);	/* nowhere to go: not held */
 	};
 	net.close = ({ id, gen }) => {	/* gen undefined: whichever */
+		rtc.close(id, gen);
 		const c = net.ws.get(id);
 		if (!c || gen !== undefined && c.gen !== gen) return;
 		net.ws.delete(id);
@@ -1266,6 +1405,14 @@ export async function boot(url, front = {}) {
 			if (m.netopen) net.open(m.netopen);
 			if (m.netsend) net.send(m.netsend);
 			if (m.netclose) net.close(m.netclose);
+			if (m.netannounce) rtc.announce(m.netannounce);
+			if (m.netaccept) rtc.accept(m.netaccept, (sock) => {
+				const a = m.netaccept;
+				if (sock) { net.open({ ...a, path: 'rtc', sock }); return; }
+				const i32 = new Int32Array(mem.buffer);
+				Atomics.store(i32, a.st >> 2, -1);
+				Atomics.notify(i32, a.st >> 2);
+			});
 			if (m.kring !== undefined) kring = m.kring;
 			if (m.webauthn) passkey.request(m.webauthn);
 			if (m.halt !== undefined) { console.log('KERNEL-HALT ' + m.halt); front.halt?.(m.halt); }

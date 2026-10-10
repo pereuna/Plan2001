@@ -1,0 +1,19 @@
+#!/bin/bash
+# The machine's page for tools/rtcsignal --web: the firmware (kernel.html,
+# platform.js), the kernel and the root as one file - what a phone needs to
+# be a wasm32 machine with WebRTC peers, from one small server.
+#   tools/rtcsite DIR
+set -e
+root=$(cd "$(dirname "$0")/.." && pwd)
+[ $# = 1 ] || { echo 'usage: tools/rtcsite DIR' >&2; exit 2; }
+for f in "$root/build/wasm32/kernel/9wasm32.wasm" "$root/build/wasm32/root.fs"; do
+	[ -s "$f" ] || { echo "rtcsite: no $f (tools/build-9wasm32, build-bin3)" >&2; exit 1; }
+done
+mkdir -p "$1"
+w3=$root/../plan2001/sys/src/9/wasm32
+cp "$w3/kernel.html" "$1/kernel.html"
+cp "$w3/kernel.html" "$1/index.html"
+cp "$w3/platform.js" "$1/platform.js"
+cp "$root/build/wasm32/kernel/9wasm32.wasm" "$1/9wasm32.wasm"
+cp "$root/build/wasm32/root.fs" "$1/w3root.fs"
+echo "rtcsite: $1"

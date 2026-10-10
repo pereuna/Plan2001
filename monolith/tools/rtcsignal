@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""WebRTC signaling for wasm32 machines (devwsnet.c's NAME.rtc!port, platform.js's
+rtc): a WebSocket at /, rooms of named peers, and nothing else - it brings a
+peer's offer, answer and ICE candidates to the peer it names; the bytes of a
+conversation go between the browsers.  No storage: the rooms are in memory.
+Python's standard library only (it runs on the test machine and on a small
+server, OpenBSD's python3 as it is).
+
+  tools/rtcsignal [--host ::] [--port 8443] [--cert FULLCHAIN --key KEY] [--web DIR] [--log FILE]
+
+--log FILE: a page with ?debuglog=1 sends what it says - its console, its
+errors, its eia0, a heartbeat - as {"type": "log", "line": L}; each goes to
+FILE with the time and the page's name (a phone's page, seen from here).
+
+--web DIR: the machine's page from DIR as well (GET of a file, html, js, wasm
+and fs gzipped), with the COOP and COEP headers its threads need - so one
+small server is a phone's whole way to a machine (tools/rtcsite makes DIR).
+
+From a page:  {"type": "join", "room": R, "name": N}  ->  {"type": "welcome", "peers": [...]}
+              {"type": "signal", "to": N, "data": {...}}  ->  N gets {"type": "signal", "from": me, "data": {...}}
+and peer-joined, peer-left, error (bad-json, bad-room, bad-name, name-taken,
+room-full, not-joined, no-peer, unknown).  A name is [a-z0-9-], at most 32
+(devwsnet.c's); a room [A-Za-z0-9_-], at most 64.  A message at most 64 KB,
+8 peers a room, 256 connections.
+"""
+import argparse, asyncio, time, base64, gzip, hashlib, json, os, re, ssl, struct, sys, urllib.parse
+
+GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+MAXMSG = 64 * 1024
+MAXPEERS = 8
+MAXCONNS = 256
+NAME = re.compile(r'[a-z0-9-]{1,32}\Z')
+ROOM = re.compile(r'[A-Za-z0-9_-]{1,64}\Z')
+
+rooms = {}	# room -> {name: Peer}
+conns = 0
+web = None	# --web DIR
+logf = None	# --log FILE
+zipped = {}	# path -> (mtime, gzip bytes)
+TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.wasm': 'application/wasm',
+	'.txt': 'text/plain; charset=utf-8', '.fs': 'application/octet-stream'}
+
+
+def page(w, head):
+	"""a file of --web's, or 404; the connection then closed"""
+	line = head.split(b'\r\n', 1)[0].decode(errors='replace').split()
+	path = None
+	if web and len(line) == 3 and line[0] in ('GET', 'HEAD'):
+		rel = urllib.parse.unquote(urllib.parse.urlsplit(line[1]).path).lstrip('/') or 'index.html'
+		full = os.path.realpath(os.path.join(web, rel))
+		if full.startswith(web + os.sep) and os.path.isfile(full):
+			path = full
+	if path is None:
+		w.write(b'HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+		return
+	ext = os.path.splitext(path)[1]
+	body, enc = open(path, 'rb').read(), b''
+	if ext in ('.html', '.js', '.wasm', '.fs') and re.search(rb'(?im)^accept-encoding:.*gzip', head):
+		mtime = os.stat(path).st_mtime
+		if zipped.get(path, (None,))[0] != mtime:
+			zipped[path] = (mtime, gzip.compress(body, 6))
+		body, enc = zipped[path][1], b'Content-Encoding: gzip\r\nVary: Accept-Encoding\r\n'
+	w.write(b'HTTP/1.1 200 OK\r\nContent-Type: ' + TYPES.get(ext, 'application/octet-stream').encode() + b'\r\n' + enc +
+		b'Content-Length: %d\r\n' % len(body) + b'Cross-Origin-Opener-Policy: same-origin\r\n'
+		b'Cross-Origin-Embedder-Policy: require-corp\r\nCache-Control: no-cache\r\nX-Content-Type-Options: nosniff\r\n'
+		b'Connection: close\r\n\r\n')
+	if line[0] == 'GET':
+		w.write(body)
+
+
+class Peer:
+	def __init__(self, w):
+		self.w = w
+		self.room = self.name = None
+
+	def send(self, obj):
+		data = json.dumps(obj).encode()
+		n = len(data)
+		hdr = bytes([0x81]) + (bytes([n]) if n < 126 else bytes([126]) + struct.pack('>H', n) if n < 65536
+			else bytes([127]) + struct.pack('>Q', n))
+		try:
+			self.w.write(hdr + data)
+		except Exception:
+			pass
+
+
+async def frames(r, w):
+	"""text messages from a client (masked, unfragmented); None at its end"""
+	while True:
+		b0, b1 = await r.readexactly(2)
+		op, n = b0 & 0x0f, b1 & 0x7f
+		if not b0 & 0x80 or not b1 & 0x80:
+			return	# fragmented or unmasked: not a browser's
+		if n == 126:
+			n = struct.unpack('>H', await r.readexactly(2))[0]
+		elif n == 127:
+			n = struct.unpack('>Q', await r.readexactly(8))[0]
+		if n > MAXMSG:
+			return	# too big: before it is read
+		mask = await r.readexactly(4)
+		data = bytes(c ^ mask[i & 3] for i, c in enumerate(await r.readexactly(n)))
+		if op == 8:
+			return
+		if op == 9:
+			w.write(bytes([0x8a, len(data)]) + data)
+		elif op == 1:
+			yield data.decode(errors='replace')
+
+
+def handle(p, text):
+	try:
+		m = json.loads(text)
+	except ValueError:
+		return p.send({'type': 'error', 'reason': 'bad-json'})
+	if not isinstance(m, dict):
+		return p.send({'type': 'error', 'reason': 'bad-json'})
+	if m.get('type') == 'join' and p.room is None:
+		room, name = m.get('room'), m.get('name')
+		if not isinstance(room, str) or not ROOM.match(room):
+			return p.send({'type': 'error', 'reason': 'bad-room'})
+		if not isinstance(name, str) or not NAME.match(name):
+			return p.send({'type': 'error', 'reason': 'bad-name'})
+		members = rooms.setdefault(room, {})
+		if name in members:
+			return p.send({'type': 'error', 'reason': 'name-taken'})
+		if len(members) >= MAXPEERS:
+			return p.send({'type': 'error', 'reason': 'room-full'})
+		p.send({'type': 'welcome', 'peers': sorted(members)})
+		for o in members.values():
+			o.send({'type': 'peer-joined', 'name': name})
+		members[name] = p
+		p.room, p.name = room, name
+	elif m.get('type') == 'log' and logf is not None and isinstance(m.get('line'), str):
+		who = m.get('name') if isinstance(m.get('name'), str) and NAME.match(m.get('name')) else '?'
+		logf.write(f'{time.strftime("%H:%M:%S")} {who}: {m["line"][:2000]!r}\n')
+		logf.flush()
+	elif m.get('type') == 'signal':
+		if p.room is None:
+			return p.send({'type': 'error', 'reason': 'not-joined'})
+		o = rooms.get(p.room, {}).get(m.get('to'))
+		if o is None:
+			return p.send({'type': 'error', 'reason': 'no-peer'})
+		o.send({'type': 'signal', 'from': p.name, 'data': m.get('data')})
+	else:
+		p.send({'type': 'error', 'reason': 'unknown'})
+
+
+async def client(r, w):
+	global conns
+	if conns >= MAXCONNS:
+		w.close()
+		return
+	conns += 1
+	p = Peer(w)
+	try:
+		head = await asyncio.wait_for(r.readuntil(b'\r\n\r\n'), 10)
+		key = re.search(rb'(?im)^sec-websocket-key:\s*(\S+)', head)
+		if not key or not re.search(rb'(?im)^upgrade:\s*websocket', head):
+			page(w, head)
+			await w.drain()
+			return
+		accept = base64.b64encode(hashlib.sha1(key.group(1) + GUID).digest())
+		w.write(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+			b'Sec-WebSocket-Accept: ' + accept + b'\r\n\r\n')
+		async for text in frames(r, w):
+			handle(p, text)
+			await w.drain()
+	except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError, ConnectionError, ssl.SSLError):
+		pass
+	finally:
+		conns -= 1
+		members = rooms.get(p.room)
+		if members is not None and members.get(p.name) is p:
+			del members[p.name]
+			for o in members.values():
+				o.send({'type': 'peer-left', 'name': p.name})
+			if not members:
+				del rooms[p.room]
+		w.close()
+
+
+async def main():
+	a = argparse.ArgumentParser(description='WebRTC signaling for wasm32 machines')
+	a.add_argument('--host', default='::')
+	a.add_argument('--port', type=int, default=8443)
+	a.add_argument('--cert')
+	a.add_argument('--key')
+	a.add_argument('--web')
+	a.add_argument('--log')
+	o = a.parse_args()
+	global web, logf
+	logf = open(o.log, 'a') if o.log else None
+	web = os.path.realpath(o.web) if o.web else None
+	tls = None
+	if o.cert:
+		tls = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+		tls.load_cert_chain(o.cert, o.key)
+	srv = await asyncio.start_server(client, o.host, o.port, ssl=tls, limit=MAXMSG)
+	print(f'rtcsignal: {"wss" if tls else "ws"} on {o.host} port {srv.sockets[0].getsockname()[1]}', flush=True)
+	async with srv:
+		await srv.serve_forever()
+
+
+if __name__ == '__main__':
+	try:
+		asyncio.run(main())
+	except KeyboardInterrupt:
+		sys.exit(0)

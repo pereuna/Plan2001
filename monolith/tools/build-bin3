@@ -193,7 +193,7 @@ done
 # the kernel's tests (tools/test-9wasm32)
 # rc scripts of the tests (rcif: rc's code told from its ints, Plan9-wasm32's 9f14449)
 cp "$P/plan2001/sys/src/9/wasm32/test/rcif.rc" "$out/root/bin/rcif.rc"
-for t in forkloop c3a c3b c3d d2 d3 d4 d5 fault; do
+for t in forkloop c3a c3b c3d d2 d3 d4 d5 fault rtc; do
 	if ! (cd "$P/plan2001/sys/src/9/wasm32/test" && "$cc3" -FVw $INC -o "$out/o/cmd/$t.3" "$t.c") >"$out/o/cmd/$t.err" 2>&1 ||
 	   ! "$l3" -o "$out/root/bin/$t" "$out/o/cmd/$t.3" $seclibs $libs "$out/lib/libsec.a" >>"$out/o/cmd/$t.err" 2>&1; then
 		echo "build-bin3: $t:"; head -5 "$out/o/cmd/$t.err"; fail=1

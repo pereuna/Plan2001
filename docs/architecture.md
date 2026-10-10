@@ -166,6 +166,10 @@ sijoitussääntöjen mukaan.
 | D7 | siirtymä: index.html (Monolith) korvataan wasm32-terminalilla; app-originit (docs/app-origins.md) wasm32-koneina; host3, third_party/drawterm ja Monolithin JS poistetaan; webtermistä poistetaan sivujen tarjoilu | pilvi ja sovellukset toimivat ilman drawtermia (toteutettu 4.10.; koneen sisäinen sovellusistunto testattu, VM ja pilvi tarkistamatta) |
 | D8 | cpu-rooli: selain compute poolissa wasm32-koneena | **odottaa (päätös 4.10.)**: suunnitellaan uudelleen XCPU-arkkitehtuuri huomioiden, kun 9front + wasm32 on viimeistelty ja testattu (alla) |
 
+Kokeilu 10.10. (ei vaihe): D2:n verkon toinen kuljetin, WebRTC DataChannel
+selainkoneiden välillä. `announce`, `listen` ja `NAME.rtc!port`; selainkone voi
+ottaa yhteyksiä vastaan. Testi `rtc`. [docs/webrtc.md](webrtc.md).
+
 Järjestys (päätös 2.10.): rio paikallisesti ensin, sillä se on ytimen ja
 ruudun luonteva koe ja terminal tarvitsee sen joka tapauksessa. host3
 poistetaan vasta D7:ssä.

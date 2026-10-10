@@ -28,6 +28,14 @@ is no longer in the browser.)
                                            (Windows 10's Hello, many keys)
   PAGEHOST=localhost                       the page from this host (WebAuthn
                                            takes no IP address for its rp)
+  PEERARGS='["arg", ...]'                  a second machine first, in a tab of its
+  [PEERPAGEARGS=&rtcname=a]                own from PEERHOST (localhost: another
+  [PEERWAIT=text] [PEEREXPECT=text]        origin, its own OPFS), until its eia0
+                                           says PEERWAIT; both pages get
+                                           tools/rtcsignal's ?signal= (WebRTC,
+                                           devwsnet.c's NAME.rtc); at the end its
+                                           eia0 in build/wasmapp-P-peer.txt, and
+                                           PEEREXPECT must be in it
 """
 import base64, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
@@ -134,6 +142,12 @@ def main():
 	chrome = subprocess.Popen(['chromium', '--headless=new', '--no-sandbox', '--disable-gpu',
 		f'--user-data-dir={tmp}', f'--remote-debugging-port={DEVTOOLS}', '--window-size=600,600', 'about:blank'],
 		stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+	peerargs = json.loads(os.environ.get('PEERARGS', 'null'))
+	sig = None
+	if peerargs is not None:	# WebRTC's signaling (tools/rtcsignal) for the two machines
+		sigport = HTTP + 7
+		sig = subprocess.Popen([sys.executable, os.path.join(root, 'tools/rtcsignal'), '--host', '127.0.0.1', '--port', str(sigport)],
+			stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 	try:
 		for _ in range(50):
 			try:
@@ -154,9 +168,32 @@ def main():
 			if os.environ.get('SERIAL'):
 				url += '&console=eia0'
 			return url
+		if sig is not None:
+			url += '&signal=' + urllib.parse.quote(f'ws://127.0.0.1:{sigport}/', safe='')
 		base = url
 		url = withargs(base, json.loads(os.environ.get('ARGS', '[]')))
 		serial = bool(os.environ.get('SERIAL'))
+		pcdp = None
+		if peerargs is not None:	# the other machine, up first: its tab, its origin
+			purl = f'http://{os.environ.get("PEERHOST", "localhost")}:{HTTP}/{page}?x=1' + os.environ.get('PEERPAGEARGS', '')
+			purl = withargs(purl + '&signal=' + urllib.parse.quote(f'ws://127.0.0.1:{sigport}/', safe=''), peerargs)
+			pt = json.loads(urllib.request.urlopen(urllib.request.Request(
+				f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(purl, safe="")}', method='PUT')).read())
+			pcdp = Cdp(pt['webSocketDebuggerUrl'])
+			pcdp.call('Page.enable')
+			pcdp.call('Runtime.enable')
+			pwait = os.environ.get('PEERWAIT', '')
+			end = time.time() + 60
+			while True:
+				try:
+					o = base64.b64decode(pcdp.js('window.monolith ? window.monolith.eia0b64() : ""') or '').decode(errors='replace')
+				except RuntimeError:
+					o = ''
+				if pwait in o and (o or not pwait):
+					break
+				if time.time() > end:
+					raise SystemExit(f'FAIL: {name}: the peer did not say {pwait!r}: {o[-300:]!r}')
+				time.sleep(0.3)
 		t = json.loads(urllib.request.urlopen(urllib.request.Request(
 			f'http://127.0.0.1:{DEVTOOLS}/json/new?{urllib.parse.quote(url, safe="")}', method='PUT')).read())
 		cdp = Cdp(t['webSocketDebuggerUrl'])
@@ -324,6 +361,15 @@ def main():
 				got = b''
 			open(os.path.join(root, f'build/wasmapp-{name}.txt'), 'wb').write(got)
 			open(os.path.join(root, f'build/wasmapp-{name}.log'), 'w').write('\n'.join(cdp.log) + '\n')
+			if pcdp is not None:
+				try:
+					pgot = base64.b64decode(pcdp.js('window.monolith ? window.monolith.eia0b64() : ""') or '')
+				except RuntimeError:
+					pgot = b''
+				open(os.path.join(root, f'build/wasmapp-{name}-peer.txt'), 'wb').write(pgot)
+				open(os.path.join(root, f'build/wasmapp-{name}-peer.log'), 'w').write('\n'.join(pcdp.log) + '\n')
+				if os.environ.get('PEEREXPECT') and os.environ['PEEREXPECT'].encode() not in pgot:
+					raise SystemExit(f'FAIL: {name}: the peer did not say {os.environ["PEEREXPECT"]!r} (build/wasmapp-{name}-peer.txt)')
 			halt = [l for l in cdp.log if l.startswith('KERNEL-HALT')]
 			print(f'test-wasmapp: {name}: {halt or "did not halt"}')
 			want = open(os.environ['EXPECT'], 'rb').read() if os.environ.get('EXPECT') else None
@@ -360,6 +406,8 @@ def main():
 	finally:
 		chrome.terminate()
 		srv.terminate()
+		if sig is not None:
+			sig.terminate()
 		try:
 			chrome.wait(10)
 		except Exception:

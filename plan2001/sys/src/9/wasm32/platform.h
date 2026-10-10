@@ -46,6 +46,8 @@ void	platmousering(void*);
 /* the network (devwsnet.c): WebSockets to the machine's webterm, the page's */
 void	platnetopen(int, ulong, char*, void*, long*);	/* conversation n, its gen: the path (/17019), its ring (r, w, closed, b[64K]; the page empties it), its word (1 open, -1 not) */
 void	platnetsend(int, ulong, void*, long);	/* bytes out, if (n, gen) is still the page's */
-void	platnetclose(int, ulong);		/* hang up (n, gen) */		/* the page's mouse events into the ring: w, r, ev[64][4] (x, y, buttons, msec) */
+void	platnetclose(int, ulong);		/* hang up (n, gen), or its announce */		/* the page's mouse events into the ring: w, r, ev[64][4] (x, y, buttons, msec) */
+void	platnetannounce(int, ulong, char*);	/* conversation n, its gen: the page takes the peers' DataChannels for this port (devwsnet.c) */
+void	platnetaccept(int, ulong, int, ulong, void*, long*);	/* the announced (n, gen): the next DataChannel to conversation m, its gen, ring and word (1 open, -1 none) */
 /* WebAuthn (devwebauthn.c): request gen to the page, which shows a button; its answer into buf (at most n), then its length in the word (-1 none); a nil request takes the page's button away */
 void	platwebauthn(ulong, char*, char*, long, long*);

@@ -1,0 +1,7 @@
+ticks in it: ok
+disk: none (another tab of this site has it?): nothing is kept
+cpu% echo service $service
+service cpu
+cpu% ps | sed -n /rio/p | wc -l
+      0
+cpu% exit

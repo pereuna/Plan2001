@@ -40,19 +40,24 @@ case terminal
 	if not
 		rio -i riostart
 case cpu
-	# factotum: the terminal's, where her keys are (docs/architecture.md,
-	# "Avainten paikka"): none of them stay on this machine, and what she
-	# does here authenticates as she does there
-	if(test -e /mnt/term/mnt/factotum/rpc)
-		bind /mnt/term/mnt/factotum /mnt/factotum
-	bind /mnt/term/dev/cons /dev/cons
-	bind -q /mnt/term/dev/consctl /dev/consctl
-	>[2] /dev/null {
-		cp /dev/sysname /mnt/term/dev/label
-		if(test -s /mnt/term/env/wsys)
-			wsys=/mnt/term^`{cat /mnt/term/env/wsys}
-	} 
-	bind -a /mnt/term/dev /dev
+	# a cpu session (rcpu): the terminal's /mnt/term.  Without one - a
+	# wasm32 machine booted as cpu (plan9.ini's service=cpu, no rio) - its
+	# own console
+	if(test -d /mnt/term/dev){
+		# factotum: the terminal's, where her keys are (docs/architecture.md,
+		# "Avainten paikka"): none of them stay on this machine, and what she
+		# does here authenticates as she does there
+		if(test -e /mnt/term/mnt/factotum/rpc)
+			bind /mnt/term/mnt/factotum /mnt/factotum
+		bind /mnt/term/dev/cons /dev/cons
+		bind -q /mnt/term/dev/consctl /dev/consctl
+		>[2] /dev/null {
+			cp /dev/sysname /mnt/term/dev/label
+			if(test -s /mnt/term/env/wsys)
+				wsys=/mnt/term^`{cat /mnt/term/env/wsys}
+		} 
+		bind -a /mnt/term/dev /dev
+	}
 	prompt=('cpu% ' '	')
 	fn cpu%{ $* }
 case con

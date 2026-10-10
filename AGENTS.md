@@ -112,8 +112,7 @@ Testien ryhmät (`tools/test-9wasm32`in alussa tarkemmin):
 - ydin ja ohjelmat: `c2a bootinfo badblob oldheader disk diskdead echo long fork forkloop rc rcif rci c3a failfork rfmem
   threads preempt rfmemloop failhelper failrfmem init fault procargs`
 - ruutu, näppäimistö, hiiri, rio: `clock keys mouse hello dclock bytes rc3
-  rci3 rioclock riorc boot paste ctrlv touchbar` (`boot` tarvitsee vga-alifontit, ks. alla;
-  `touchbar`: puhelimen näppäinpalkki, test-wasmapp `TOUCH=1`)
+  rci3 rioclock riorc boot paste ctrlv` (`boot` tarvitsee vga-alifontit, ks. alla)
 - D3 tunnistus: `crypto dp9ik dp9iknoas secstore seckeys pagesecstore`
   (+ `dp9ikvm` ja `secstorevm` VM:llä, `secstorevm` vaatii `tools/vm-cpu
   --update`:n jälkeisen secstore-tilin; `secstore`: factotumin avaimet `test-authsrv`in secstoresta,

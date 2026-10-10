@@ -98,10 +98,6 @@ want pagelogin $names && MONOLITH_LOGIN=1 RUNS=40 DRAWS=3 \
 # types the text - not ^V typed as a key (it was: a box where the invite code was to go)
 want ctrlv $names && EVAL='setTimeout(() => { const k = new KeyboardEvent("keydown", { key: "v", code: "KeyV", ctrlKey: true, cancelable: true, bubbles: true }); document.dispatchEvent(k); const d = new DataTransfer(); d.setData("text/plain", "invite-abc123\n"); document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: d, cancelable: true, bubbles: true })); }, 4000)' \
 	run ctrlv '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; x=`{read </dev/cons}; echo got $x | xd -c >/dev/eia0; echo done"]'
-# a phone (a touch screen): the key bar under the screen; its keyboard's typing (#kbd's input events),
-# the bar's Ctrl with the next key (^U: kbdfs drops the line typed so far), Return
-want touchbar $names && TOUCH=1 EVAL='setTimeout(() => { const t = document.getElementById("kbd"), type = (i, d) => t.dispatchEvent(new InputEvent("input", { inputType: i, data: d })); document.querySelector("[data-k=kbd]").click(); type("insertText", "abc"); document.querySelector("[data-k=ctrl]").click(); type("insertText", "u"); type("insertText", "hello"); type("insertLineBreak", null); window.barshown = getComputedStyle(document.getElementById("bar")).display; }, 5000)' \
-	run touchbar '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; x=`{read </dev/cons}; echo got $x >/dev/eia0; echo done"]'
 want paste $names && HALTWAIT=150 EVAL='setTimeout(() => { window.kernelpaste(("x".repeat(199) + "\r\n").repeat(100)); setTimeout(() => window.monolith.kbd("c\x04\0"), 40000); }, 4000)' \
 	run paste '["/bin/rc", "-c", "aux/kbdfs -q -s cons /dev/eia0; wc -c </dev/cons >/dev/eia0; echo pasted"]'
 want crypto $names && run crypto '["/bin/d3"]'
@@ -373,6 +369,17 @@ if want rcpuvm $names; then
 		echo "test-9wasm32: rcpuvm: skipped (no CPU VM: tools/vm start --disk ~/.cache/plan2001/cpu.qcow2 --net)"
 	fi
 fi
+# a machine booted as cpu (plan9.ini's service=cpu): /boot/init as always, glenda's profile without
+# rio and without an rcpu session's /mnt/term - her rc on the console, and the console on the page,
+# not the screen's grey (kernel.html: the console alone until a program draws)
+want cpuboot $names && EXPECTJS="document.body.classList.contains('login') && getComputedStyle(document.getElementById('screen')).display === 'none'" \
+	run cpuboot '["/bin/rc", "/boot/init"]' '[["cpu% ", "echo service $service\n"], ["cpu% ", "ps | sed -n /rio/p | wc -l\n"], ["cpu% ", "exit\n"]]' '&conf=service%3Dcpu&disk=0'
+# WebRTC (devwsnet.c's announce, listen and NAME.rtc!port): two machines, b here and a in a tab of
+# its own (another origin), brought together by tools/rtcsignal; a exports its /env with exportfs on
+# an announced port, b dials a.rtc and mounts it - 9P between the browsers over a DataChannel
+want rtc $names && PEERARGS='["/bin/rc", "-c", "peer=a; rtc -l 17007 /bin/exportfs -r /env"]' \
+	PEERPAGEARGS='&rtcname=a&disk=0' PEERWAIT='rtc: announced' PEEREXPECT='rtc: a call' \
+	run rtc '["/bin/rc", "-c", "rtc -m tcp!a.rtc!17007 /mnt && x=`{cat /mnt/peer} && echo peer $x; echo done"]' '[]' '&rtcname=b&disk=0'
 if want net $names; then
 	if (exec 3<>/dev/tcp/127.0.0.1/17080) 2>/dev/null; then
 		HTTPPORT=18080 run net '["/bin/d2"]'
