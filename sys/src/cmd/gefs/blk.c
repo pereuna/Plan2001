@@ -365,6 +365,18 @@ loadlog(Arena *a, Bptr bp)
 						a->logtl = b;
 						cachedel(b->bp.addr);
 						setflag(b, Bdirty, 0);
+						/*
+						 * Plan2001: the truncated tail on the disk
+						 * too, or the disk's chain goes on past it to
+						 * blocks allocated after the sync, which are
+						 * free now; a walk of the chain (check, the
+						 * free of the old log after compresslog)
+						 * would cache and free them.
+						 */
+						if(!agetl(&fs->rdonly)){
+							finalize(b);
+							syncblk(b);
+						}
 						return;
 					}
 					dropblk(b);

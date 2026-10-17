@@ -29,6 +29,8 @@ int	nogroupid	= 9999;
 int	admid		= -1;
 Blk	*blkbuf;
 
+static void	gwritetrace(vlong);
+
 enum {
 	Nfd	= 16,
 	Nmsgerr	= 256,
@@ -274,6 +276,7 @@ gsysfatal(char *fmt, ...)
 _Noreturn void
 _babort(vlong addr, char *msg)
 {
+	gwritetrace(addr);
 	panic("gefs: assert failed for [%llx]: %s", addr, msg);
 }
 
@@ -307,9 +310,51 @@ gfprint(int fd, char *fmt, ...)
 	return n;
 }
 
+/* main.c's trace (plan9.ini gefstrace=MiB), by pid */
 void
-_trace(char*, Bptr, vlong, vlong)
+_trace(char *msg, Bptr bp, vlong v0, vlong v1)
 {
+	Trace *t;
+	ulong idx;
+
+	idx = aincl(&fs->traceidx, 1);
+	t = &fs->trace[(idx-1) % fs->ntrace];
+	strecpy(t->msg, t->msg+sizeof(t->msg), msg);
+	t->tid = up != nil ? up->pid : 0;
+	t->qgen = agetv(&fs->qgen);
+	t->bp = bp;
+	t->v0 = v0;
+	t->v1 = v1;
+}
+
+/* main.c's writetrace: what the trace has of addr (or all, -1), oldest first */
+static void
+gwritetrace(vlong addr)
+{
+	Trace *t;
+	long ti;
+	int i;
+
+	if(fs == nil || fs->trace == nil)
+		return;
+	ti = agetl(&fs->traceidx);
+	for(i = 0; i < fs->ntrace; i++){
+		t = &fs->trace[(ti+i) % fs->ntrace];
+		if(t->msg[0] == 0)
+			continue;
+		if(addr != -1 && t->bp.addr != -1 && t->bp.addr != addr && t->v0 != addr)
+			continue;
+		if(addr != -1 && t->bp.addr == -1 && t->v0 != addr)
+			continue;
+		print("[%d@%d] %s", t->tid, t->qgen, t->msg);
+		if(t->bp.addr != -1)
+			print(" %B", t->bp);
+		if(t->v0 != -1)
+			print(" %llx", t->v0);
+		if(t->v1 != -1)
+			print(" %llx", t->v1);
+		print("\n");
+	}
 }
 
 void*
@@ -855,6 +900,11 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv)
 	if((d = getconf("gefsdebug")) != nil)
 		debug = strtol(d, nil, 0);
 	initfs((vlong)cachemb()*MiB, !rw);
+	if((d = getconf("gefstrace")) != nil && strtol(d, nil, 0) > 0){
+		fs->ntrace = strtol(d, nil, 0)*MiB/sizeof(Trace);
+		if((fs->trace = mallocz(fs->ntrace*sizeof(Trace), 1)) == nil)
+			fs->ntrace = 0;
+	}
 	fmtinstall('B', Bconv);
 	fmtinstall('N', Mconv);
 	fmtinstall('P', Pconv);

@@ -58,12 +58,13 @@ checktree(int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
 		}
 		if(b->type == Tpivot){
 			bp = getptr(&x, &fill);
-			if(bp.gen <= pred)
-				goto Skip;
+			/* Plan2001: the free list against every pointer, older ones too */
 			if(isfree(bp.addr)){
-				fprint(fd, "freed block in use: %llx\n", bp.addr);
+				fprint(fd, "freed block in use: %B\n", bp);
 				fail++;
 			}
+			if(bp.gen <= pred)
+				goto Skip;
 			if((c = getblk(bp, 0)) == nil){
 				fprint(fd, "corrupt block: %B\n", bp);
 				fail++;
@@ -96,6 +97,10 @@ Skip:
 	if(b->type == Tpivot){
 		getval(b, b->nval-1, &y);
 		bp = getptr(&x, &fill);
+		if(isfree(bp.addr)){	/* Plan2001: the last child was not looked at */
+			fprint(fd, "freed block in use: %B\n", bp);
+			fail++;
+		}
 		if(bp.gen > pred){
 			if((c = getblk(bp, 0)) == nil){
 				fprint(fd, "corrupt block: %B\n", bp);
@@ -157,6 +162,11 @@ checklog(int fd, Bptr hd, Bptr tl)
 			return 0;
 		}
 		pb = bp;
+		if(isfree(bp.addr)){	/* Plan2001 */
+			fprint(fd, "freed log block in use: %B\n", bp);
+			poperror();
+			return 0;
+		}
 		b = getblk(bp, 0);
 		nb = b->logp;
 		dropblk(b);
@@ -251,11 +261,11 @@ checkdata(int fd, Tree *t, vlong pred)
 			nexterror();
 		}
 		bp = unpackbp(s.kv.v, s.kv.nv);
+		if(isfree(bp.addr)){	/* Plan2001: older data too */
+			fprint(fd, "free block in use: %B\n", bp);
+			error("free block in use");
+		}
 		if(bp.gen > pred){
-			if(isfree(bp.addr)){
-				fprint(fd, "free block in use: %B\n", bp);
-				error("free block in use");
-			}
 			b = getblk(bp, GBraw);
 			dropblk(b);
 		}

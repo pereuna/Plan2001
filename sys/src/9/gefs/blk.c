@@ -169,7 +169,8 @@ freerange(Avltree *t, vlong off, vlong len)
 		error(Enomem);
 	r->off = off;
 	r->len = len;
-	assert(avllookup(t, r, 0) == nil);
+	if(avllookup(t, r, 0) != nil)	/* Plan2001: the trace of off (_babort) */
+		_babort(off, "freerange: already free");
 	avlinsert(t, r);
 
 Again:
@@ -182,7 +183,8 @@ Again:
 			r = s;
 			goto Again;
 		}
-		assert(s->off+s->len < r->off);
+		if(s->off+s->len >= r->off)
+			_babort(off, "freerange: overlaps the one before");
 	}
 	s = (Arange*)avlnext(r);
 	if(s != nil){
@@ -194,7 +196,8 @@ Again:
 			r = s;
 			goto Again;
 		}
-		assert(r->off+r->len < s->off);
+		if(r->off+r->len >= s->off)
+			_babort(off, "freerange: overlaps the one after");
 	}
 }
 
@@ -358,6 +361,18 @@ loadlog(Arena *a, Bptr bp)
 						a->logtl = b;
 						cachedel(b->bp.addr);
 						setflag(b, Bdirty, 0);
+						/*
+						 * Plan2001: the truncated tail on the disk
+						 * too, or the disk's chain goes on past it to
+						 * blocks allocated after the sync, which are
+						 * free now; a walk of the chain (check, the
+						 * free of the old log after compresslog)
+						 * would cache and free them.
+						 */
+						if(!agetl(&fs->rdonly)){
+							finalize(b);
+							syncblk(b);
+						}
 						return;
 					}
 					dropblk(b);

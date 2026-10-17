@@ -129,19 +129,26 @@ Upstreamin vikoja, jotka löytyivät (korjattu vain kernelin kopiossa):
 - `user.c`:n `slurp` jätti lohkon pitoon, ja `readblk`in virheviesti
   antoi `%llx`:lle Bptr-rakenteen.
 
-**Avoin vika (17.10.2026): palautus kaatumisesta.** Kun QEMU tapetaan
-kesken kirjoituksen, osio latautuu ja `check` on puhdas, mutta
-seuraavat vapautukset (`rm`, sync) törmäävät: kernelissä
-`freerange`n assert (lohko vapautetaan, vaikka se on jo vapaa), ja
-käyttäjätilan gefs:ssä samassa tilanteessa `getblk`in
-`b->bp.gen == bp.gen`. Vika on siis upstreamin gefs:ssä, ei portissa.
+**Palautus kaatumisesta (korjattu 17.10.2026, kumpaankin kopioon).**
+Upstreamin `loadlog` katkaisee allokointilokin viimeisen kelvollisen
+sync-merkin kohdalle vain muistissa. Levyllä häntälohko osoitti yhä
+seuraavaan lokilohkoon, jonka varaus oli merkin jälkeen (eli nyt vapaa).
+`check` luki ketjun levyltä välimuistiin, ja ensimmäinen sync, joka
+tiivistää lokin, vapautti vanhan ketjun sen kautta: jo vapaa lohko
+vapautettiin uudelleen (kernelissä `freerange`n assert, käyttäjätilassa
+myöhemmin `getblk`in `b->bp.gen == bp.gen`). Nyt katkaistu häntä
+kirjoitetaan levylle heti palautuksessa (ei vain luku -mountissa).
+Kernelin `check` on tiukempi kuin upstreamin: jokainen viitattu lohko
+(myös vanhemmat sukupolvet, viimeinen pivotin lapsi ja lokiketjut)
+tarkistetaan vapaiden listaa vasten, ja `gefstrace=MiB` tallentaa
+gefs:n trace-puskurin, jonka assert tulostaa lohkon osalta.
 `mk install`, kernelin ja loaderin käännös gefs-juuressa toimivat
 (`BUILD=1`).
 
 Avoinna: arm64-kernelin konfiguraatio, gefs:n luonti ilman
 käyttäjätilan gefs:ää (Linuxissa ei ole gefs:ää: juuri kopioidaan
-Plan2001:ssä), `rootdir` (Monolithin `/lib/namespace`), kaatumistesti
-(`CRASH`), automaattiset snapshotit ja rauta.
+Plan2001:ssä), `rootdir` (Monolithin `/lib/namespace`), automaattiset
+snapshotit, rebootin shutdown-halt ja rauta.
 
 ## Testit
 
@@ -150,6 +157,6 @@ toisen levyn gefs-osion omalla gefs:llään ja kopioi itsensä sinne,
 (2) kernelin gefs juurena (kirjoitus, käännös, check, snapshot,
 fshalt), (3) ext4-juuri tarkistaa osion (`gefs -c`) ja lukee boot 2:n
 tiedostot takaisin. `ONLY=2` ajaa bootit 2 ja 3 edellisen ajon
-levyillä uudella kernelillä (`INI=gefsdebug=1`). Tulossa: kaatuminen
-kesken kirjoituksen, `mk install` gefs-juuressa ja snapshotista
-käynnistys.
+levyillä uudella kernelillä (`INI=gefsdebug=1`). `BUILD=1` kääntää
+gefs-juuressa puun, kernelin ja loaderin, ja `CRASH=N` tappaa QEMU:n N
+kertaa kesken kirjoituksen. Tulossa: snapshotista käynnistys.
