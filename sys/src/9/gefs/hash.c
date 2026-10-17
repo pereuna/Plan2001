@@ -23,13 +23,7 @@
 // SOFTWARE.
 //
 
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 #define rotate_right(v, k)\
 	(((v) >> (k)) | ((v) << (64 - (k))))

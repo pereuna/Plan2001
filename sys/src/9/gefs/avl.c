@@ -1,5 +1,8 @@
-#include <u.h>
-#include <libc.h>
+#include "u.h"
+#include "../port/lib.h"
+#include "mem.h"
+#include "dat.h"
+#include "fns.h"
 #include <avl.h>
 
 /* See Knuth Volume 3, 6.2.3 */

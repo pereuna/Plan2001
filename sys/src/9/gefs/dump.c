@@ -1,11 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <avl.h>
-#include <fcall.h>
-#include <ctype.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 char	spc[128];
 
@@ -292,7 +285,7 @@ rshowblk(int fd, Blk *b, int indent, int recurse)
 	case Tpivot:
 		for(i = 0; i < b->nbuf; i++){
 			getmsg(b, i, &m);
-			fprint(fd, "%.*s[%03d]|%M\n", 4*indent, spc, i, &m);
+			fprint(fd, "%.*s[%03d]|%N\n", 4*indent, spc, i, &m);
 		}
 		/* wet floor */
 	case Tleaf:

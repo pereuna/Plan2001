@@ -1,10 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 /* Terminated so we can use them directly in C */
 char*
@@ -35,11 +29,11 @@ packstr(char *p, char *e, char *s)
 }
 		
 void
-dir2kv(vlong up, Xdir *d, Kvp *kv, char *buf, int nbuf)
+dir2kv(vlong pup, Xdir *d, Kvp *kv, char *buf, int nbuf)
 {
 	char *ek, *ev, *eb;
 
-	ek = packdkey(buf, nbuf, up, d->name);
+	ek = packdkey(buf, nbuf, pup, d->name);
 	kv->k = buf;
 	kv->nk = ek - buf;
 	eb = buf + nbuf;
@@ -49,27 +43,27 @@ dir2kv(vlong up, Xdir *d, Kvp *kv, char *buf, int nbuf)
 }
 
 char*
-packdkey(char *p, int sz, vlong up, char *name)
+packdkey(char *p, int sz, vlong pup, char *name)
 {
 	char *ep;
 
 	ep = p + sz;
 	PACK8(p, Kent);	p += 1;
-	PACK64(p, up);	p += 8;
+	PACK64(p, pup);	p += 8;
 	if(name != nil)
 		p = packstr(p, ep, name);
 	return p;
 }
 
 char*
-unpackdkey(char *p, int sz, vlong *up)
+unpackdkey(char *p, int sz, vlong *pup)
 {
 	char key, *ep, *name;
 
 	ep = p + sz;
 	assert(sz > 9);
 	key = UNPACK8(p);	p += 1;
-	*up = UNPACK64(p);	p += 8;
+	*pup = UNPACK64(p);	p += 8;
 	assert(key == Kent);
 	p = unpackstr(p, ep, &name);
 	assert(p <= ep);
@@ -77,13 +71,13 @@ unpackdkey(char *p, int sz, vlong *up)
 }
 
 char*
-packsuper(char *p, int sz, vlong up)
+packsuper(char *p, int sz, vlong pup)
 {
 	char *ep;
 
 	ep = p+sz;
 	PACK8(p, Kup);	p += 1;
-	PACK64(p, up);	p += 8;
+	PACK64(p, pup);	p += 8;
 	assert(p <= ep);
 	return p;
 }

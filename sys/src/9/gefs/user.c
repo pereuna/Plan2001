@@ -1,10 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 static char*
 slurp(Tree *t, vlong path, vlong len)
@@ -32,6 +26,7 @@ slurp(Tree *t, vlong path, vlong len)
 			memcpy(ret + o, b->buf, Blksz);
 		else
 			memcpy(ret + o, b->buf, len - o);
+		dropblk(b);	/* Plan2001: upstream kept it held */
 	}
 	ret[len] = 0;
 	return ret;

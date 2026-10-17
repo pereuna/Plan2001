@@ -1,19 +1,12 @@
-#include <u.h>
-#include <libc.h>
-#include <auth.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 static void	rerror(Fmsg*, char*, ...);
 static void	clunkfid(Conn*, Fid*, Amsg**);
 static void	snapmsg(char*, char*);
-static void	authfree(AuthRpc*);
+static void	authfree(void*);
 
 int
-walk1(Tree *t, vlong up, char *name, Qid *qid, vlong *len)
+walk1(Tree *t, vlong pup, char *name, Qid *qid, vlong *len)
 {
 	char *p, kbuf[Keymax], rbuf[Kvmax];
 	int err;
@@ -22,7 +15,7 @@ walk1(Tree *t, vlong up, char *name, Qid *qid, vlong *len)
 	Key k;
 
 	err = 0;
-	p = packdkey(kbuf, sizeof(kbuf), up, name);
+	p = packdkey(kbuf, sizeof(kbuf), pup, name);
 	k.k = kbuf;
 	k.nk = p - kbuf;
 	if(err)
@@ -75,6 +68,7 @@ wrwait(void)
 	aincv(&fs->qgen, 1);
 	while(fs->syncing != 0)
 		rsleep(&fs->syncrz);
+	gflushdev();	/* Plan2001: the disk's write cache too */
 	tracev("flushed", agetv(&fs->qgen));
 }
 
@@ -311,6 +305,7 @@ okname(char *name)
 	return Elength;
 }
 
+/* Plan2001: the queue with a qlock, as the kernel has no semacquire for it */
 Chan*
 mkchan(int size)
 {
@@ -318,8 +313,8 @@ mkchan(int size)
 
 	if((c = mallocz(sizeof(Chan) + size*sizeof(void*), 1)) == nil)
 		sysfatal("create channel");
-	aswapl(&c->avail, size);
-	aswapl(&c->count, 0);
+	c->fullrz.l = &c->lk;
+	c->emptyrz.l = &c->lk;
 	c->size = size;
 	c->rp = c->args;
 	c->wp = c->args;
@@ -331,34 +326,31 @@ void*
 chrecv(Chan *c)
 {
 	void *a;
-	long v;
 
-	v = agetl(&c->count);
-	if(v == 0 || !acasl(&c->count, v, v-1))
-		semacquire(&c->count.v, 1);
-	lock(&c->rl);
+	qlock(&c->lk);
+	while(c->n == 0)
+		rsleep(&c->emptyrz);
 	a = *c->rp;
 	if(++c->rp >= &c->args[c->size])
 		c->rp = c->args;
-	unlock(&c->rl);
-	semrelease(&c->avail.v, 1);
+	c->n--;
+	rwakeup(&c->fullrz);
+	qunlock(&c->lk);
 	return a;
 }
 
 void
 chsend(Chan *c, void *m)
 {
-	long v;
-
-	v = agetl(&c->avail);
-	if(v == 0 || !acasl(&c->avail, v, v-1))
-		semacquire(&c->avail.v, 1);
-	lock(&c->wl);
+	qlock(&c->lk);
+	while(c->n == c->size)
+		rsleep(&c->fullrz);
 	*c->wp = m;
 	if(++c->wp >= &c->args[c->size])
 		c->wp = c->args;
-	unlock(&c->wl);
-	semrelease(&c->count.v, 1);
+	c->n++;
+	rwakeup(&c->emptyrz);
+	qunlock(&c->lk);
 }
 
 static void
@@ -384,17 +376,16 @@ respond(Fmsg *m, Fcall *r)
 {
 	Conn *c;
 	RWLock *lk;
-	uchar buf[Max9p+IOHDRSZ];
 	int w, n;
 
 	r->tag = m->tag;
 	dprint("→ %F\n", r);
 	assert(m->type+1 == r->type || r->type == Rerror);
-	if((n = convS2M(r, buf, sizeof(buf))) == 0)
-		abort();
 	c = m->conn;
 	qlock(&c->wrlk);
-	w = c->hangup? n: write(c->wfd, buf, n);
+	if((n = convS2M(r, c->wbuf, Max9p+IOHDRSZ)) == 0)
+		abort();
+	w = c->hangup? n: write(c->wfd, c->wbuf, n);
 	qunlock(&c->wrlk);
 	if(w != n)
 		fshangup(c, Eio);
@@ -595,112 +586,12 @@ Out:
 }
 
 /*
- * Load snapshots into history, trimming old ones if we have more
- * snapshots than expected (eg, reducing the count in the config).
- */
-void
-loadhist(Mount *mnt, Cron *c)
-{
-	static Tzone *tz;
-	char pfx[128], buf[128];
-	int i, ns;
-	Scan s;
-	Tm tm;
-
-	i = 0;
-	pfx[0] = Klabel;
-	buf[0] = 0;
-	ns = snprint(pfx+1, sizeof(pfx)-1, "%s@%s.", mnt->name, c->tag);
-	btnewscan(&s, pfx, ns+1);
-	btenter(&fs->snap, &s);
-	while(1){
-		if(!btnext(&s, &s.kv))
-			break;
-		if(s.kv.nk-1 >= sizeof(c->lbl[0])-1)
-			continue;
-		memcpy(buf, s.kv.k+1, s.kv.nk-1);
-		buf[s.kv.nk-1] = 0;
-		if(c->cnt == 0){
-			snapmsg(buf, nil);
-			continue;
-		}
-		if(c->lbl[i][0] != 0 && c->cnt > 0)
-			snapmsg(c->lbl[i], nil);
-		memcpy(c->lbl[i], buf, sizeof(buf));
-		i = (c->cnt > 0) ? (i+1) % c->cnt : 0;
-	}
-	btexit(&s);
-	if(tz == nil)
-		tz = tzload("UTC");
-	if(buf[0] != 0 && tmparse(&tm, Tmfmt, buf+ns, tz, nil) != nil)
-		c->last = tmnorm(&tm);
-	c->i = i;
-}
-
-/*
- * Load up automatic snapshots. Don't error on bad config,
- * so that the user can mount the snap and fix it.
+ * Plan2001: no automatic snapshots (retain) yet: they need libc's
+ * time zones and formats.  Snapshots are made by the ctl file.
  */
 static void
-loadautos(Mount *mnt)
+loadautos(Mount *)
 {
-	char *s, *p, pfx[32], rbuf[Kvmax+1];
-	int i, n, c, div, cnt, op;
-	Kvp kv, r;
-
-	pfx[0] = Kconf;
-	n = snprint(pfx+1, sizeof(pfx)-1, "retain");
-	kv.k = pfx;
-	kv.nk = n+1;
-	if(btlookup(agetp(&mnt->root), &kv, &r, rbuf, sizeof(rbuf)-1)
-	|| btlookup(&fs->snap, &kv, &r, rbuf, sizeof(rbuf)-1)){
-		s = r.v;
-		s[r.nv] = 0;
-	}else
-		s = "60@m 24@h @d";
-
-	Cron crons[nelem(mnt->cron)] = {
-		{.cnt=0, .div=60, .tag="minute"},
-		{.cnt=0, .div=3600, .tag="hour"},
-		{.cnt=0, .div=24*3600, .tag="day"},
-	};
-	p = s;
-	memcpy(mnt->cron, crons, sizeof crons);
-	while(*p){
-		cnt = -1;
-		div = 1;
-		op = -1;
-
-		/* parse the conf. */
-		if(*p >= '0' && *p <= '9')
-			cnt = strtol(p, &p, 10);
-		if(*p++ != '@')
-			goto Bad;
-		if(*p >= '0' && *p <= '9')
-			div = strtol(p, &p, 10);
-		if(*p == 'm' || *p == 'h' || *p == 'd')
-			op = *p++;
-		while(*p == ' ' || *p == '\t')
-			p++;
-		if(div <= 0){
-Bad:			memset(mnt->cron, 0, sizeof(mnt->cron));
-			fprint(2, "ignoring invalid snap schedule %q\n", s);
-			return;
-		}
-
-		for(i = 0; i < nelem(crons); i++)
-			if(crons[i].tag[0] == op)
-				break;
-		if(i == nelem(crons))
-			goto Bad;
-
-		c = (cnt <= 0) ? 1 : cnt;
-		mnt->cron[i].cnt = cnt;
-		mnt->cron[i].div = div*crons[i].div;
-		mnt->cron[i].lbl = emalloc(c*128, 1);
-	}
-	for(i = 0; i < nelem(mnt->cron); i++)
-		loadhist(mnt, &mnt->cron[i]);
 }
 
 /* caller must hold mountlk */
@@ -779,6 +670,15 @@ clunkmount(Mount *mnt)
 		return;
 	qlock(&fs->mountlk);
 	if(aincl(&mnt->ref, -1) == 0){
+		/*
+		 * Plan2001: a written tree stays until a sync has put it
+		 * in its label (sync updates the mounts on the list):
+		 * upstream lost what was written since the last sync.
+		 */
+		if((mnt->flag & Lmut) && ((Tree*)agetp(&mnt->root))->dirty){
+			qunlock(&fs->mountlk);
+			return;
+		}
 		pp = nil;
 		for(p = agetp(&fs->mounts); p != nil; p = p->next){
 			if(p == mnt)
@@ -1026,89 +926,32 @@ fsversion(Fmsg *m)
 	respond(m, &r);
 }
 
+/*
+ * Plan2001: no 9P authentication.  The kernel's pipe is gefs's only
+ * connection, devmnt names the user (noauth), and fsauth refuses.
+ */
 static void
-authfree(AuthRpc *rpc)
+authfree(void*)
 {
-	if(rpc == nil)
-		return;
-	close(rpc->afd);
-	auth_freerpc(rpc);
 }
 
-AuthRpc*
+static void*
 authnew(void)
 {
-	static char *keyspec = "proto=p9any role=server";
-	AuthRpc *rpc;
-	int fd;
-
-	if(access("/mnt/factotum", 0) < 0)
-		if((fd = open("/srv/factotum", ORDWR)) >= 0)
-			mount(fd, -1, "/mnt", MBEFORE, "");
-	if((fd = open("/mnt/factotum/rpc", ORDWR)) < 0)
-		return nil;
-	if((rpc = auth_allocrpc(fd)) == nil){
-		close(fd);
-		return nil;
-	}
-	if(auth_rpc(rpc, "start", keyspec, strlen(keyspec)) != ARok){
-		authfree(rpc);
-		return nil;
-	}
-	return rpc;
+	werrstr("no authentication");
+	return nil;
 }
 
 static void
-authread(Fid *f, Fcall *r, void *data, vlong count)
+authread(Fid*, Fcall*, void*, vlong)
 {
-	AuthInfo *ai;
-	AuthRpc *rpc;
-	User *u;
-
-	if((f->dir->qid.type & QTAUTH) == 0 || (rpc = f->dir->auth) == nil)
-		error(Etype);
-
-	switch(auth_rpc(rpc, "read", nil, 0)){
-	default:
-		error(Eauthp);
-	case ARdone:
-		if((ai = auth_getinfo(rpc)) == nil)
-			goto Phase;
-		rlock(&fs->userlk);
-		u = name2user(ai->cuid);
-		auth_freeAI(ai);
-		if(u == nil){
-			runlock(&fs->userlk);
-			error(Enouser);
-		}
-		f->uid = u->id;
-		runlock(&fs->userlk);
-		return;
-	case ARok:
-		if(count < rpc->narg)
-			error(Eauthd);
-		memmove(data, rpc->arg, rpc->narg);
-		r->count = rpc->narg;
-		return;
-	case ARphase:
-	Phase:
-		error(Eauthph);
-	}
+	error(Etype);
 }
 
 static void
-authwrite(Fid *f, Fmsg *m)
+authwrite(Fid*, Fmsg*)
 {
-	AuthRpc *rpc;
-	Fcall r;
-
-	if((f->dir->qid.type & QTAUTH) == 0 || (rpc = f->dir->auth) == nil)
-		error(Etype);
-	if(auth_rpc(rpc, "write", m->data, m->count) != ARok)
-		error(Ebotch);
-	r.type = Rwrite;
-	r.count = m->count;
-	respond(m, &r);
+	error(Etype);
 }
 
 /* fsauth: must not raise error() */
@@ -1379,13 +1222,13 @@ fsattach(Fmsg *m)
 }
 
 static int
-findparent(Tree *t, vlong up, vlong *qpath, char **name, char *buf, int nbuf)
+findparent(Tree *t, vlong pup, vlong *qpath, char **name, char *buf, int nbuf)
 {
 	char *p, kbuf[Keymax];
 	Kvp kv;
 	Key k;
 
-	p = packsuper(kbuf, sizeof(kbuf), up);
+	p = packsuper(kbuf, sizeof(kbuf), pup);
 	k.k = kbuf;
 	k.nk = p - kbuf;
 	if(!btlookup(t, &k, &kv, buf, nbuf))
@@ -1395,11 +1238,11 @@ findparent(Tree *t, vlong up, vlong *qpath, char **name, char *buf, int nbuf)
 }
 
 static void
-dkey(Key *k, vlong up, char *name, char *buf, int nbuf)
+dkey(Key *k, vlong pup, char *name, char *buf, int nbuf)
 {
 	char *p;
 
-	p = packdkey(buf, nbuf, up, name);
+	p = packdkey(buf, nbuf, pup, name);
 	k->k = buf;
 	k->nk = p - buf;
 }
@@ -1409,7 +1252,7 @@ fswalk(Fmsg *m)
 {
 	char *name, kbuf[Maxent], kvbuf[Kvmax];
 	int duid, dgid, dmode;
-	vlong up, upup, prev;
+	vlong pup, upup, prev;
 	Dent *dent, *dir;
 	Fid *o, *f;
 	Mount *mnt, *wmnt;
@@ -1435,7 +1278,7 @@ fswalk(Fmsg *m)
 		error(Einuse);
 	t = agetp(&o->mnt->root);
 	mnt = o->mnt;
-	up = o->pqpath;
+	pup = o->pqpath;
 	prev = o->qpath;
 	rlock(o->dent);
 	d = *o->dent;
@@ -1451,15 +1294,15 @@ fswalk(Fmsg *m)
 		if(fsaccess(o, d.mode, d.uid, d.gid, DMEXEC) != 0)
 			break;
 		if(strcmp(name, "..") == 0){
-			if(up == -1 && o->fromdump){
+			if(pup == -1 && o->fromdump){
 				mnt = fs->snapmnt;
 				filldumpdir(&d);
 				prev = -1ULL;
-				up = -1ULL;
+				pup = -1ULL;
 				r.wqid[i] = d.qid;
 				continue;
 			}
-			findparent(t, up, &prev, &name, kbuf, sizeof(kbuf));
+			findparent(t, pup, &prev, &name, kbuf, sizeof(kbuf));
 		}else if(d.qid.path == Qdump){
 			mnt = getmount(name);
 			clunkmount(wmnt);
@@ -1468,7 +1311,7 @@ fswalk(Fmsg *m)
 			wmnt = mnt;
 			t = agetp(&mnt->root);
 		}
-		up = prev;
+		pup = prev;
 		duid = d.uid;
 		dgid = d.gid;
 		dmode = d.mode;
@@ -1507,16 +1350,16 @@ fswalk(Fmsg *m)
 			wunlock(f);
 			nexterror();
 		}
-		dent = getdent(mnt, up, &d);
+		dent = getdent(mnt, pup, &d);
 		if(waserror()){
 			clunkdent(mnt, dent);
 			nexterror();
 		}
-		if(up == -1ULL){
+		if(pup == -1ULL){
 			/* the root contains itself, I guess */
-			dir = getdent(mnt, up, &d);
+			dir = getdent(mnt, pup, &d);
 		}else{
-			findparent(t, up, &upup, &name, kbuf, sizeof(kbuf));
+			findparent(t, pup, &upup, &name, kbuf, sizeof(kbuf));
 			dkey(&k, upup, name, kbuf, sizeof(kbuf));
 			if(!btlookup(t, &k, &kv, kvbuf, sizeof(kvbuf)))
 				broke("missing parent");
@@ -1532,7 +1375,7 @@ fswalk(Fmsg *m)
 			f->mnt = mnt;
 		}
 		f->qpath = r.wqid[i-1].path;
-		f->pqpath = up;
+		f->pqpath = pup;
 		f->dent = dent;
 		f->dir = dir;
 		f->duid = duid;
@@ -1550,7 +1393,7 @@ fswalk(Fmsg *m)
 static void
 fsstat(Fmsg *m)
 {
-	char buf[STATMAX];
+	char buf[STATFIXLEN+Maxname+3*128];	/* Plan2001: was STATMAX, on the kernel stack; names and users fit */
 	Fcall r;
 	Fid *f;
 	int n;
@@ -1580,8 +1423,9 @@ fsstat(Fmsg *m)
 static void
 fswstat(Fmsg *m, int id, Amsg **ao)
 {
+	static char strs[65535];	/* Plan2001: not on the kernel stack; the mutator's (mutlk) */
 	char rnbuf[Kvmax], opbuf[Kvmax], upbuf[Upksz];
-	char *p, *e, strs[65535];
+	char *p, *e;
 	int op, nm, rename, nulldir;
 	vlong oldlen;
 	Qid old;
@@ -2543,6 +2387,10 @@ newconn(int rfd, int wfd, int cfd)
 
 	if((c = mallocz(sizeof(*c), 1)) == nil)
 		return nil;
+	if((c->wbuf = malloc(Max9p+IOHDRSZ)) == nil){
+		free(c);
+		return nil;
+	}
 
 	c->rfd = rfd;
 	c->wfd = wfd;
@@ -2584,6 +2432,7 @@ putconn(Conn *c)
 		close(c->wfd);
 	if(c->cfd >= 0)
 		close(c->cfd);
+	free(c->wbuf);
 
 	for(i = 0; i < Nfidtab; i++){
 		for(;;){
@@ -2951,10 +2800,9 @@ runsweep(int id, void*)
 					break;
 				}
 				sync(id);
+				poperror();	/* Plan2001: upstream exits here */
 			}
-			fprint(2, "gefs: ending\n");
-			postnote(PNGROUP, getpid(), "halted");
-			exits(nil);
+			gefshalted();	/* Plan2001: the kprocs stay, read-only */
 			break;
 		case AOsync:
 			tracem("syncreq");
@@ -3180,38 +3028,12 @@ snapmsg(char *old, char *new)
 	chsend(fs->admchan, a);
 }
 
-static void
-cronsync(char *name, Cron *c, Tm *tm, vlong now)
-{
-	char *p, *e;
-
-	if(c->div == 0 || c->cnt == 0)
-		return;
-	if(now/c->div == c->last/c->div)
-		return;
-
-	if(c->cnt > 0 && c->lbl[c->i][0] != 0)
-		snapmsg(c->lbl[c->i], nil);
-	p = c->lbl[c->i];
-	e = p + sizeof(c->lbl[c->i]);
-	c->i = (c->cnt > 0) ? (c->i+1) % c->cnt : 0;
-	seprint(p, e, "%s@%s.%τ",
-		name, c->tag,
-		tmfmt(tm, Tmfmt));
-	snapmsg(name, p);
-	c->last = now;
-}
-
+/* Plan2001: a sync every 5 seconds; no automatic snapshots (loadautos) */
 void
 runtasks(int, void *)
 {
-	vlong now;
-	Mount *mnt;
 	Amsg *a;
-	Tm tm;
-	int i;
 
-	tmnow(&tm, nil);
 	while(1){
 		sleep(5000);
 		if(agetl(&fs->rdonly))
@@ -3223,16 +3045,6 @@ runtasks(int, void *)
 		a = emalloc(sizeof(Amsg), 1);
 		a->op = AOsync;
 		chsend(fs->admchan, a);
-
-		tmnow(&tm, nil);
-		now = tmnorm(&tm);
-
-		for(mnt = agetp(&fs->mounts); mnt != nil; mnt = mnt->next){
-			if(!(mnt->flag & Lmut))
-				continue;
-			for(i = 0; i < nelem(mnt->cron); i++)
-				cronsync(mnt->name, &mnt->cron[i], &tm, now);
-		}
 		poperror();
 	}
 }

@@ -1,11 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <bio.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 static vlong	blkalloc_lk(Arena*, int);
 static vlong	blkalloc(int, uint, int);
@@ -81,7 +74,7 @@ readblk(Blk *b, Bptr bp, int flg, uintptr)
 	b->type = (flg&GBraw) ? Tdat : UNPACK16(b->buf+0);
 	switch(b->type){
 	default:
-		error("invalid block type %d @%llx", b->type, bp);
+		error("invalid block type %d @%llx", b->type, bp.addr);	/* Plan2001: was bp, a Bptr */
 		break;
 	case Tdat:
 	case Tsuper:

@@ -1,20 +1,27 @@
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-#include <bio.h>
+#include "gefs.h"
 
-#include "dat.h"
-#include "fns.h"
+/* Plan2001: in integers, as the kernel uses no floating point */
+static void
+fmtsz(Fmt *fmt, uvlong v)
+{
+	char *units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", nil};
+	uvlong h;
+	int u;
+
+	h = v*100;
+	for(u = 0; u < nelem(units)-2 && v >= 500 ; u++){
+		h = v*100/1024;
+		v /= 1024;
+	}
+	fmtprint(fmt, "%llud.%02llud%s", h/100, h%100, units[u]);
+}
 
 static void
 fmtdf(Fmt *fmt)
 {
-	char *units[] = {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", nil};
-	vlong size, used;
-	double hsize, hused;
+	vlong size, used, pct;
 	Arena *a;
-	int i, us, uu;
+	int i;
 
 	size = 0;
 	used = 0;
@@ -25,16 +32,12 @@ fmtdf(Fmt *fmt)
 		used += a->used;
 		qunlock(a);
 	}
-	hsize = size;
-	hused = used;
-	for(us = 0; us < nelem(units)-1 && hsize >= 500 ; us++)
-		hsize /= 1024;
-	for(uu = 0; uu < nelem(units)-1 && hused >= 500 ; uu++)
-		hused /= 1024;
-	fmtprint(fmt, "usage \t%.2f%%\t%.2f%s\t%.2f%s\n",
-		100.0*used/size,
-		hused, units[uu],
-		hsize, units[us]);
+	pct = size > 0 ? 10000*used/size : 0;
+	fmtprint(fmt, "usage \t%lld.%02lld%%\t", pct/100, pct%100);
+	fmtsz(fmt, used);
+	fmtprint(fmt, "\t");
+	fmtsz(fmt, size);
+	fmtprint(fmt, "\n");
 }
 
 static void

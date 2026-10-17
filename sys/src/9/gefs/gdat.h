@@ -10,7 +10,6 @@ typedef struct Conn	Conn;
 typedef struct Cron	Cron;
 typedef struct Dent	Dent;
 typedef struct Dlist	Dlist;
-typedef struct Errctx	Errctx;
 typedef struct Fid	Fid;
 typedef struct Fmsg	Fmsg;
 typedef struct Gefs	Gefs;
@@ -412,13 +411,6 @@ struct Dlist {
 	Bptr	tl;	/* deadlist tail */
 };
 
-struct Errctx {
-	long	tid;
-	char	err[128];
-	jmp_buf	errlab[Estacksz];
-	int	nerrlab;
-};
-
 struct Arange {
 	Avl;
 	vlong	off;
@@ -721,6 +713,7 @@ struct Conn {
 	int	rfd;
 	int	wfd;
 	int	cfd;
+	uchar	*wbuf;	/* Plan2001: respond's, with wrlk (not on the kernel stack) */
 	int	iounit;
 	int	versioned;
 	int	authok;
@@ -829,11 +822,13 @@ struct Blk {
 	vlong	magic;
 };
 
+/* Plan2001: a queue of size messages, with the kernel's locks */
 struct Chan {
+	QLock	lk;
+	Rendez	fullrz;	/* lk; a sender waits for room */
+	Rendez	emptyrz;	/* lk; a receiver waits for one */
 	int	size;	/* size of queue */
-	Along	count;	/* how many in queue (semaphore) */
-	Along	avail;	/* how many available to send (semaphore) */
-	Lock	rl, wl;	/* circular pointers */
+	int	n;	/* in it */
 	void	**rp;
 	void	**wp;
 	void*	args[];	/* list of saved pointers, [->size] */

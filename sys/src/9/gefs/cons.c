@@ -1,11 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-#include <bio.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 static void
 showfid(int fd)
@@ -20,7 +13,7 @@ showfid(int fd)
 			lock(&c->fidtablk[i]);
 			for(f = c->fidtab[i]; f != nil; f = f->next){
 				rlock(f->dent);
-				fprint(fd, "\tfid[%d] from %#zx: %d [refs=%ld, k=%K, qid=%Q m=%d, dmode:%d duid: %d, dgid: %d]\n",
+				fprint(fd, "\tfid[%d] from %#zx: %d [refs=%ld, k=%K, qid=%J m=%d, dmode:%d duid: %d, dgid: %d]\n",
 					i, getmalloctag(f), f->fid,
 					agetl(&f->dent->ref), &f->dent->Key, f->dent->qid,
 					f->mode, f->dmode, f->duid, f->dgid);
@@ -57,38 +50,11 @@ showtree(int fd, int tid, char *name)
 	epochend(tid);
 }
 
+/* Plan2001: no trace buffer in the kernel (tracesz 0) */
 static void
-showtrace(int fd, char *name)
+showtrace(int fd, char*)
 {
-	Biobuf *bfd;
-	Trace *t;
-	long ti;
-	int i;
-
-	if(name != nil)
-		bfd = Bopen(name, OWRITE);
-	else
-		bfd = Bfdopen(fd, OWRITE);
-	if(bfd == nil){
-		fprint(fd, "error opening output");
-		return;
-	}
-	for(i = 0; i < fs->ntrace; i++){
-		ti = agetl(&fs->traceidx);
-		t = &fs->trace[(ti+ i) % fs->ntrace];
-		if(t->msg[0] == 0)
-			continue;
-		Bprint(bfd, "[%d@%d] %s", t->tid, t->qgen, t->msg);
-		if(t->bp.addr != -1)
-			Bprint(bfd, " %B", t->bp);
-		if(t->v0 != -1)
-			Bprint(bfd, " %llx", t->v0);
-		if(t->v1 != -1)
-			Bprint(bfd, " %llx", t->v1);
-		Bprint(bfd, "\n");
-	}
-	Bterm(bfd);
-	fprint(fd, "saved\n");
+	fprint(fd, "no trace\n");
 }
 
 static void

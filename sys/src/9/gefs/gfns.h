@@ -1,18 +1,17 @@
-#pragma varargck type "M"	Msg*
+#pragma varargck type "N"	Msg*	/* Plan2001: %M is the kernel's (ip) */
 #pragma varargck type "P"	Kvp*
 #pragma varargck type "K"	Key*
 #pragma varargck type "V"	Val*
 #pragma varargck type "B"	Bptr
 #pragma varargck type "R"	Arange*
 #pragma varargck type "X"	char*
-#pragma varargck type "Q"	Qid
+#pragma varargck type "J"	Qid	/* Plan2001: %Q is the kernel's (quote) */
 
 extern Gefs*	fs;
 extern int	debug;
 extern int	permissive;
 extern int	usereserve;
 extern char*	reamuser;
-extern Errctx**	errctx;
 extern Blk*	blkbuf;
 extern int	noneid;
 extern int	nogroupid;
@@ -150,15 +149,8 @@ int	checkfs(int);
 #define tracev(msg, v0)	tracex(msg, Zb, v0, -1)
 #define tracem(msg)	tracex(msg, Zb, -1, -1)
 
-jmp_buf*	_waserror(void);
-_Noreturn void	error(char*, ...);
 _Noreturn void	broke(char*, ...);
-_Noreturn void	nexterror(void);
 _Noreturn void	_babort(vlong, char*);
-#define waserror()	(setjmp(*_waserror()))
-#define errmsg()	((*errctx)->err)
-#define	poperror()	assert((*errctx)->nerrlab-- > 0)
-#define estacksz()	((*errctx)->nerrlab)
 void	writetrace(void*, vlong);
 void	_trace(char*, Bptr, vlong, vlong);
 char*	packstr(char*, char*, char*);

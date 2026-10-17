@@ -1,10 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 typedef struct Path	Path;
 
@@ -399,7 +393,7 @@ statupdate(Kvp *kv, Msg *m)
 		p += 4;
 	}
 	if(p != m->v + m->nv)
-		fatal("malformed stat: kv=%P, m=%M\n", kv, m);
+		fatal("malformed stat: kv=%P, m=%N\n", kv, m);
 	e = packdval(kv->v, kv->nv, &d);
 	if(e == nil || e - kv->v != kv->nv)
 		fatal("repacking dir failed\n");
@@ -489,7 +483,7 @@ pullmsg(Path *p, int i, Kvp *v, Msg *m, int *full, int spc)
  * When pidx != -1, 
  */
 static void
-updateleaf(Tree *t, Path *up, Path *p)
+updateleaf(Tree *t, Path *pup, Path *p)
 {
 	char buf[Msgmax];
 	int i, j, c, ok, full, spc;
@@ -499,7 +493,7 @@ updateleaf(Tree *t, Path *up, Path *p)
 	Kvp v;
 
 	i = 0;
-	j = up->lo;
+	j = pup->lo;
 	b = p->b;
 	/*
 	 * spc is the amount of room we have
@@ -513,17 +507,17 @@ updateleaf(Tree *t, Path *up, Path *p)
 	spc = Leafspc - blkfill(b);
 	n = newblk(t, b->type);
 	assert(i >= 0 && j >= 0);
-	while(i < b->nval || j < up->hi){
+	while(i < b->nval || j < pup->hi){
 		if(i >= b->nval)
 			c = 1;
 		else{
 			c = -1;
 			getval(p->b, i, &v);
-			if(j < up->hi){
-				if(up->ins != nil)
-					m = up->ins[j];
+			if(j < pup->hi){
+				if(pup->ins != nil)
+					m = pup->ins[j];
 				else
-					getmsg(up->b, j, &m);
+					getmsg(pup->b, j, &m);
 				if(msgsz(&m) <= spc)
 					c = keycmp(&v, &m);
 				else
@@ -558,15 +552,15 @@ updateleaf(Tree *t, Path *up, Path *p)
 			if(m.op != Oclearb && m.op != Oclobber){
 				/* New keys need to start off with Oinsert */
 				if(m.op != Oinsert)
-					broke("%s: broken entry: %M\n", Efs, &m);
+					broke("%s: broken entry: %N\n", Efs, &m);
 				spc -= valsz(&m);
 				p->pullsz += msgsz(&m);
 				ok = 1;
 			}
 			goto Copyloop;
 		Copyloop:
-			while(j < up->hi){
-				if(pullmsg(up, j, &v, &m, &full, spc) != 0)
+			while(j < pup->hi){
+				if(pullmsg(pup, j, &v, &m, &full, spc) != 0)
 					break;
 				assert(!full);
 				if(ok && v.nk > 0 && v.k[0] == Kdat)
@@ -585,7 +579,7 @@ updateleaf(Tree *t, Path *up, Path *p)
 			break;
 		}
 	}
-	p->npull = (j - up->lo);
+	p->npull = (j - pup->lo);
 	p->op = POmod;
 	setb(&p->nl, t, n);
 }
@@ -599,7 +593,7 @@ updateleaf(Tree *t, Path *up, Path *p)
  * When pidx != -1, 
  */
 static void
-updatepiv(Tree *t, Path *up, Path *p, Path *pp)
+updatepiv(Tree *t, Path *pup, Path *p, Path *pp)
 {
 	char buf[Msgmax];
 	int i, j, r, sz, full, spc;
@@ -619,7 +613,7 @@ updatepiv(Tree *t, Path *up, Path *p, Path *pp)
 		}
 	}
 	i = 0;
-	j = up->lo;
+	j = pup->lo;
 	sz = 0;
 	full = 0;
 	/*
@@ -647,7 +641,7 @@ updatepiv(Tree *t, Path *up, Path *p, Path *pp)
 		 * we report a full buffer here -- it's only too full for new
 		 * data when that happens.
 		 */
-		r = pullmsg(up, j, &m, &u, &full, spc - sz);
+		r = pullmsg(pup, j, &m, &u, &full, spc - sz);
 		switch(r){
 		case -1:
 		case 0:
@@ -656,7 +650,7 @@ updatepiv(Tree *t, Path *up, Path *p, Path *pp)
 			break;
 		case 1:
 			cpkvp(&m, &u, buf, sizeof(buf));
-			while(pullmsg(up, j, &m, &u, &full, spc) == 0){
+			while(pullmsg(pup, j, &m, &u, &full, spc) == 0){
 				setmsg(n, &u);
 				sz = msgsz(&u);
 				p->pullsz += sz;
@@ -665,8 +659,8 @@ updatepiv(Tree *t, Path *up, Path *p, Path *pp)
 			}
 		}
 	}
-	while(j < up->hi){
-		pullmsg(up, j, nil, &u, &full, spc);
+	while(j < pup->hi){
+		pullmsg(pup, j, nil, &u, &full, spc);
 		if(full)
 			break;
 		setmsg(n, &u);
@@ -675,7 +669,7 @@ updatepiv(Tree *t, Path *up, Path *p, Path *pp)
 		spc -= sz;
 		j++;
 	}
-	p->npull = (j - up->lo);
+	p->npull = (j - pup->lo);
 	p->op = POmod;
 	setb(&p->nl, t, n);
 }
@@ -686,7 +680,7 @@ updatepiv(Tree *t, Path *up, Path *p, Path *pp)
  * grow the total height of the tree by more than 1.
  */
 static void
-splitleaf(Tree *t, Path *up, Path *p)
+splitleaf(Tree *t, Path *pup, Path *p)
 {
 	char buf[Msgmax];
 	Blk *b, *d, *l, *r;
@@ -712,10 +706,10 @@ splitleaf(Tree *t, Path *up, Path *p)
 
 	d = l;
 	i = 0;
-	j = up->lo;
+	j = pup->lo;
 	full = 0;
 	copied = 0;
-	halfsz = (2*b->nval + b->valsz + up->sz) / 2;
+	halfsz = (2*b->nval + b->valsz + pup->sz) / 2;
 	if(halfsz > Leafspc/2)
 		halfsz = Leafspc/2;
 	spc = Leafspc - (halfsz + Msgmax);
@@ -733,7 +727,7 @@ splitleaf(Tree *t, Path *up, Path *p)
 			spc = Leafspc - (halfsz + Msgmax);
 		}
 		getval(b, i, &v);
- 		c = pullmsg(up, j, &v, &m, &full, spc);
+ 		c = pullmsg(pup, j, &v, &m, &full, spc);
 		switch(c){
 		case -1:
 			i++;
@@ -762,15 +756,15 @@ splitleaf(Tree *t, Path *up, Path *p)
 			if(m.op != Oclearb && m.op != Oclobber){
 				/* New keys need to start off with Oinsert */
 				if(m.op != Oinsert)
-					broke("%s: broken entry: %M\n", Efs, &m);
+					broke("%s: broken entry: %N\n", Efs, &m);
 				spc -= valsz(&m);
 				p->pullsz += msgsz(&m);
 				ok = 1;
 			}
 			goto Copyloop;
 		Copyloop:
-			while(j < up->hi){
-				if(pullmsg(up, j, &v, &m, &full, spc) != 0)
+			while(j < pup->hi){
+				if(pullmsg(pup, j, &v, &m, &full, spc) != 0)
 					break;
 				if(ok && v.nk > 0 && v.k[0] == Kdat)
 				if(m.op == Oclearb
@@ -788,7 +782,7 @@ splitleaf(Tree *t, Path *up, Path *p)
 			break;
 		}
 	}
-	p->npull = (j - up->lo);
+	p->npull = (j - pup->lo);
 	p->op = POsplit;
 	setb(&p->nl, t, l);
 	setb(&p->nr, t, r);
@@ -1072,7 +1066,7 @@ static Path*
 flush(Tree *t, Path *path, int npath)
 {
 
-	Path *up, *p, *pp, *rp;
+	Path *pup, *p, *pp, *rp;
 
 	/*
 	 * The path must contain at minimum two elements:
@@ -1084,17 +1078,17 @@ flush(Tree *t, Path *path, int npath)
 	rp = nil;
 	pp = nil;
 	p = &path[npath - 1];
-	up = &path[npath - 2];
+	pup = &path[npath - 2];
 	if(p->b->type == Tleaf){
-		if(!filledleaf(p->b, up->sz)){
+		if(!filledleaf(p->b, pup->sz)){
 			updateleaf(t, p-1, p);
 			rp = p;
 		}else{
-			splitleaf(t, up, p);
+			splitleaf(t, pup, p);
 		}
 		p->midx = -1;
 		pp = p;
-		up--;
+		pup--;
 		p--;
 	}
 	while(p != path){
@@ -1119,7 +1113,7 @@ flush(Tree *t, Path *path, int npath)
 			 * then we want to drop it from the
 			 * tree.
 			 */
-			if(up == path			/* at root */
+			if(pup == path			/* at root */
 			&& pp != nil			/* has child */
 			&& pp->nl != nil		/* didn't drop this node */
 			&& pp->nr == nil		/* no siblings */
@@ -1131,13 +1125,13 @@ flush(Tree *t, Path *path, int npath)
 					goto Out;
 				}
 			}
-			updatepiv(t, up, p, pp);
+			updatepiv(t, pup, p, pp);
 			rp = p;
 		}else{
-			splitpiv(t, up, p, pp);
+			splitpiv(t, pup, p, pp);
 		}
 		pp = p;
-		up--;
+		pup--;
 		p--;
 	}
 	if(pp->nl != nil && pp->nr != nil){
@@ -1439,7 +1433,7 @@ btlookup(Tree *t, Key *k, Kvp *r, char *buf, int nbuf)
 		if(ok || m.op == Oinsert)
 			ok = apply(r, &m, buf, nbuf);
 		else if(m.op != Oclearb && m.op != Oclobber)
-			fatal("lookup %K << %M missing insert\n", k, &m);
+			fatal("lookup %K << %N missing insert\n", k, &m);
 		for(j++; j < p[i]->nbuf; j++){
 			getmsg(p[i], j, &m);
 			if(keycmp(k, &m) != 0)
@@ -1576,7 +1570,7 @@ Again:
 		else if(m.op == Oclobber || m.op == Oclearb)
 			ok = 0;
 		else
-			broke("%s: broken entry: %M\n", Efs, &m);
+			broke("%s: broken entry: %N\n", Efs, &m);
 		bufsrc = start-1;
 	}
 
@@ -1590,7 +1584,7 @@ Again:
 			else if(n.op == Oclobber || n.op == Oclearb)
 				ok = 0;
 			else
-				broke("%s: broken entry: %M\n", Efs, &n);
+				broke("%s: broken entry: %N\n", Efs, &n);
 			bufsrc = i;
 			m = n;
 		}

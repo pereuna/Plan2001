@@ -644,7 +644,7 @@ enum
 	TCSys,
 	TCReal,
 
-	NERR = 32,
+	NERR = 64,		/* gefs nests its error labels as deep (Estacksz) */
 	NNOTE = 5,
 
 	Npriq		= 20,		/* number of scheduler priority levels */

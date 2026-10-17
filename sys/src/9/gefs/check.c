@@ -1,10 +1,4 @@
-#include <u.h>
-#include <libc.h>
-#include <fcall.h>
-#include <avl.h>
-
-#include "dat.h"
-#include "fns.h"
+#include "gefs.h"
 
 static int
 isfree(vlong bp)
@@ -114,7 +108,7 @@ Skip:
 		if(b->nbuf > 0){
 			getmsg(b, 0, &mx);
 			if(hi && keycmp(&mx, hi) >= 0){
-				fprint(fd, "out of range messages %P != %M\n", hi, &mx);
+				fprint(fd, "out of range messages %P != %N\n", hi, &mx);
 				fail++;
 			}
 		}

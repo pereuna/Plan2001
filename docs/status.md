@@ -915,3 +915,17 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   VM:n), `fshalt`, e2fsck puhdas.
 - Löytyi devext4:stä: yli 64 KiB:n write palautti lyhyen määrän (ar
   kaatui); korjattu, ktest `fsbigio`, ktest fs 16/16.
+
+## gefs kernelin tallentimeksi (17.10.2026, haara `gefs-kernel`)
+
+- Päätös: gefs (9frontin CoW-tiedostojärjestelmä, Bε-puu) on kernelin
+  pysyvä oliotallennin: yksi osio, puut `kernel`, `secrets` ja `main`.
+  ext4 ja FAT palaavat käyttäjätilan palvelimiksi, kun gefs-juuri toimii
+  raudalla (`docs/gefs.md`).
+- Vaihe 1: gefs kernelissä kproceina (`sys/src/9/gefs`, `port/devgefs.c`),
+  9P putken kautta juureksi (`root=-w PARTUUID=...`). Käyttäjätilan
+  gefs ja libavl tuotiin formaatin työkaluksi. `tools/test-gefs.sh`
+  PASS QEMU:ssa: ream ja kopio, gefs-juuri (kirjoitus, käännös, check,
+  snapshot, fshalt) ja `gefs -c` puhdas jälkeenpäin.
+- Löytyi upstreamista: mountin viimeinen clunk ennen synciä hävitti
+  puun kirjoitukset (korjattu kernelin kopiossa).
