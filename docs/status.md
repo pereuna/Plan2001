@@ -983,3 +983,27 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   `~/plan9mp/tools/p5-screen.sh`, QEMU-monitorin sendkey ja screendump):
   fi-merkit, 2x fontti, MicroPythonin REPL (Enter, nuolet, historia,
   Backspace ja Delete keskellä riviä, ^D).
+
+## MicroPython ensimmäisenä käyttäjäohjelmana (17.10.2026, haara `mp-init`)
+
+- `sys/src/cmd/micropython`: MicroPython v1.27.0:n ydin (`tools/micropython.import`,
+  `tools/importmp`) ja Plan2001:n portti: `plan9`-moduuli (syscallit),
+  skriptit, import (`sys.path`: `''`, `/sys/lib/python`), `-B` (sisäänrakennettu
+  `boot.py`), note `interrupt` → KeyboardInterrupt (konsoli cooked koodin
+  ajon ajan), UTF-8 rivieditorissa. `genhdr/` Linuxista (`make genhdr`).
+- Kernelin kuvassa (pc64 `bootdir`) `/boot/mp` ja `/boot/kbdfs`: kernel
+  2,0 → 2,5 Mt. `init=/boot/mp -B` toimii ilman `root=`:a; `user=` aina.
+- kbdfs: Ctrl-C keskeyttää (interrupt) kuten Del tyhjällä rivillä.
+- `tools/test-mpinit.sh` PASS (QEMU, ei juurilevyä, sarjakonsoli): kehote
+  suoraan kernelistä, `/boot`, kbdfs:n `/dev`, `#c/user`, tiedosto `/env`:ssä,
+  spawn + wait, f-string ja `%`, UTF-8, OSError, Ctrl-C, Ctrl-D (REPL alkaa
+  uudelleen). `tools/build.sh` ja `test-gefs.sh` (rc-init) PASS.
+- `ROOT=1 tools/test-mpinit.sh` PASS: gefs-juuri (`tools/gefsdisk`,
+  `init=/boot/mp -B`), Pythonista rc (komento, virhestatus, 6c+6l:llä
+  käännetty cat), tiedosto juureen, `rc -i` konsolissa (cooked Pythonin
+  odottaessa, Ctrl-D palaa REPLiin), `fshalt` (gefs: halted), REPL toimii
+  juuren jälkeenkin; gefsck: puhdas ja tiedosto tallessa.
+- Löytyi: build.rc:n puukäännös ei käytä puun omia työkaluja `/bin`:n kautta:
+  uudet ohjelmat sidotaan `/amd64/bin`:in päälle, mutta `/bin` on bootin
+  unioni VM:n hakemistosta. micropython kutsuu siksi `/$objtype/bin/6c`:tä
+  (VM:n 6c ohittaa `-u`:n hiljaa ja tulkki kaatuu).

@@ -164,10 +164,12 @@ init0(void)
 		setconfenv();
 		/*
 		 * The root from plan9.ini root= (devgefs): its init= or
-		 * /amd64/init.  There is no boot file system to fall back to.
+		 * /amd64/init.  An init= in the kernel's image (/boot/mp:
+		 * devroot's /boot, docs/mpinit.md) runs without a root too.
 		 */
-		if(rootmount()){
-			if((s = getconf("init")) != nil){
+		s = getconf("init");
+		if(rootmount() || s != nil && strncmp(s, "/boot/", 6) == 0){
+			if(s != nil){
 				p = nil;
 				kstrdup(&p, s);
 				ac = tokenize(p, av, nelem(av)-1);

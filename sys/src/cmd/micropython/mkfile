@@ -1,0 +1,75 @@
+# MicroPython (docs/mpinit.md): /$objtype/bin/micropython, and in the
+# kernel's image /boot/mp, Plan2001's first user program (-B: boot.py).
+# 6c -p (ANSI cpp) -u (ANSI C's integer promotions); genhdr/ comes from
+# Linux (Makefile: make genhdr).
+</$objtype/mkfile
+
+TARG=micropython
+BIN=/$objtype/bin
+
+PYOFILES=\
+	argcheck.$O bc.$O binary.$O builtinevex.$O builtinhelp.$O\
+	builtinimport.$O compile.$O cstack.$O emitbc.$O emitcommon.$O\
+	emitglue.$O formatfloat.$O frozenmod.$O gc.$O lexer.$O\
+	malloc.$O map.$O modarray.$O modbuiltins.$O modcmath.$O\
+	modcollections.$O moderrno.$O modgc.$O modio.$O modmath.$O\
+	modmicropython.$O modstruct.$O modsys.$O modthread.$O\
+	mpprint.$O mpstate.$O mpz.$O nativeglue.$O objarray.$O\
+	objattrtuple.$O objbool.$O objboundmeth.$O obj.$O objcell.$O\
+	objclosure.$O objcode.$O objcomplex.$O objdeque.$O objdict.$O\
+	objenumerate.$O objexcept.$O objfilter.$O objfloat.$O objfun.$O\
+	objgenerator.$O objgetitemiter.$O objint.$O objint_longlong.$O\
+	objint_mpz.$O objlist.$O objmap.$O objmodule.$O\
+	objnamedtuple.$O objnone.$O objobject.$O objpolyiter.$O\
+	objproperty.$O objrange.$O objreversed.$O objringio.$O\
+	objset.$O objsingleton.$O objslice.$O objstr.$O objstringio.$O\
+	objstrunicode.$O objtuple.$O objtype.$O objzip.$O opmethods.$O\
+	pairheap.$O parse.$O parsenumbase.$O parsenum.$O\
+	persistentcode.$O profile.$O pystack.$O qstr.$O reader.$O\
+	repl.$O ringbuf.$O runtime.$O runtime_utils.$O scheduler.$O\
+	scope.$O sequence.$O showbc.$O smallint.$O stackctrl.$O\
+	stream.$O unicode.$O vm.$O vstr.$O warning.$O\
+	nlr.$O\
+	nlrsetjmp.$O\
+
+OFILES=\
+	main.$O\
+	modplan9.$O\
+	p9builtin.$O\
+	p9console.$O\
+	p9hal.$O\
+	$PYOFILES\
+	readline.$O\
+	pyexec.$O\
+	stdout_helpers.$O\
+	gchelper_generic.$O\
+
+HFILES=mpconfigport.h mphalport.h genhdr/qstrdefs.generated.h
+CLEANFILES=boot.h
+
+</sys/src/cmd/mkone
+
+# the compiler of /$objtype/bin, not /bin's: in tools/build.rc's tree the
+# new 6c (with -u) is bound on /$objtype/bin, but /bin still has the old
+# one, which ignores -u
+CC=/$objtype/bin/$CC
+CFLAGS=-p -u -D__PLAN9__ -DNDEBUG -Iinclude -I.
+
+%.$O:	py/%.c
+	$CC $CFLAGS py/$stem.c
+
+%.$O:	shared/readline/%.c
+	$CC $CFLAGS shared/readline/$stem.c
+
+%.$O:	shared/runtime/%.c
+	$CC $CFLAGS shared/runtime/$stem.c
+
+main.$O:	boot.h
+
+# boot.py as a C string
+boot.h:D:	boot.py
+	{
+		echo 'static const char bootpy[] ='
+		sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/	"&\\n"/' boot.py
+		echo '	"";'
+	} >$target

@@ -236,12 +236,12 @@ rootmount(void)
 	char *s, *u;
 	int rw;
 
-	if((s = getconf("root")) == nil)
-		return 0;
 	if((u = getconf("user")) != nil && *u != 0){
 		kstrdup(&eve, u);
 		kstrdup(&up->user, u);
 	}
+	if((s = getconf("root")) == nil)
+		return 0;
 	rw = strncmp(s, "-w ", 3) == 0;
 	if(waserror()){
 		print("root=%s: %s\n", s, up->errstr);

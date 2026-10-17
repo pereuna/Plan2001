@@ -10,7 +10,9 @@
 #   what=all     the tree (mk install in /sys/src), then the kernel and
 #                the loader with it: out root/$objtype/{bin,lib}
 #   what=kernel  the kernel, the loader, kbdfs and ktest with the VM's
-#                libraries and tools (quick)
+#                libraries and tools (quick); first the repo's 6c, which
+#                micropython needs (-u), then micropython and kbdfs into
+#                the VM's /$objtype/bin for the kernel's image (bootdir)
 #   what=loader  the loader alone (a target whose kernel is not ready)
 #   passes=2     what=all twice: the second pass builds the tree with
 #                the first one's tools and compares their binaries
@@ -113,7 +115,7 @@ fn tree {
 	walk -f -e mp $r/$objtype | awk '$1 < '^$t^' {print $2}' | xargs rm
 	for(x in `{walk -d $r/$objtype | sort -r})
 		rm $x >[2]/dev/null
-	for(f in mk rc 6c 6l 7c git/fs ip/ipconfig ndb/dns webfs aux/kbdfs ktest)
+	for(f in mk rc 6c 6l 7c git/fs ip/ipconfig ndb/dns webfs aux/kbdfs ktest micropython)
 		test -x $r/$objtype/bin/$f || fail tree:$f
 	echo tree: `{du -s $r/$objtype | awk '{print $1}'} KiB, `{walk -f $r/$objtype/bin | wc -l} programs in $r/$objtype
 }
@@ -125,9 +127,12 @@ if(~ $what loader){
 if not if(~ $what kernel){
 	buildhjfs
 	bindtree
-	for(c in aux/kbdfs ktest){
-		mklog /sys/src/cmd/$c `{basename $c} install 'BIN='^$out
-	}
+	mklog /sys/src/cmd/cc cc install
+	mklog /sys/src/cmd/6c 6c install
+	for(c in aux/kbdfs micropython)
+		mklog /sys/src/cmd/$c `{basename $c} install
+	cp /$objtype/bin/aux/kbdfs $out
+	mklog /sys/src/cmd/ktest ktest install 'BIN='^$out
 	kernel
 	loader
 }
