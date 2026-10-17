@@ -1,5 +1,11 @@
 # ext4 kernelissä: juuri ilman tiedostopalvelinta (16.10.2026)
 
+> **Poistettu kernelistä 17.10.2026.** Kernelin juuri on gefs
+> (`docs/gefs.md`), ja ext4 on käyttäjätilan palvelin (9frontin ext4srv,
+> Monolith). Tämä dokumentti on historiaa; sen lwext4-korjaukset (alla)
+> siirretään Monolithin ext4srv:hen. Koodi: commit ennen poistoa
+> (`git log -- sys/src/9/port/devext4.c`).
+
 Plan2001:n juuritiedostojärjestelmä voi olla ext4, jonka kernel lukee
 itse (`#E`, `sys/src/9/port/devext4.c`). Juuren ja ohjelmien
 välissä ei ole käyttäjätilan 9P-palvelinta. Muut tiedostojärjestelmät

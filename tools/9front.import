@@ -30,6 +30,17 @@ sys/src/9/arm64
 !sys/src/9/ip/rudp.c
 !sys/src/9/pc/apbootstrap.s
 !sys/src/9/pc/apm.c
+# obsolete (17.10.2026): legacy virtio (QEMU: *-non-transitional), PCI
+# SDHCI, Intel 8254x PCI-X and 10GbE, USB 1.1 (UHCI, OHCI)
+!sys/src/9/pc/sdvirtio.c
+!sys/src/9/pc/ethervirtio.c
+!sys/src/9/port/sdmmc.c
+!sys/src/9/pc/pmmc.c
+!sys/src/9/pc/etherigbe.c
+!sys/src/9/pc/ether82598.c
+!sys/src/9/pc/etherx550.c
+!sys/src/9/pc/usbuhci.c
+!sys/src/9/pc/usbohci.c
 !sys/src/9/pc/apmjump.s
 !sys/src/9/pc/archmp.c
 !sys/src/9/pc/audioac97.c

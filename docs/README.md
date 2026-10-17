@@ -117,7 +117,7 @@ UEFI firmware
             └─ _efi64 (sys/src/9/pc64/l.s), RDI = blob   ← Plan2001 Boot ABI v1 (docs/boot-abi.md)
                  └─ main() (pc64/main.c)                    ei kiinteitä boot-osoitteita
                       bootinfoinit (mappaa VMAP+pa) → ... → bootinforandinit → ... → bootinfoclock
-                      └─ init0: rootmount (plan9.ini root=, devext4) → exec juuren init (docs/init.md)
+                      └─ init0: rootmount (plan9.ini root=, devgefs) → exec juuren init (docs/init.md)
 ```
 
 ## Monolith ja 9pterm (erotettu 16.10.2026)

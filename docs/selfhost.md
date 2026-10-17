@@ -12,7 +12,7 @@ sen käännöstyökalut sekä kernelin testaus ja profilointi.
 Repon juuri on Plan 9 -juuri, kuten 9frontin omassa repossa:
 
 ```
-sys/src/9/{port,pc,pc64,ip,ext4,arm64}   kernel
+sys/src/9/{port,pc,pc64,ip,gefs,arm64}   kernel
 sys/src/boot/efi                         UEFI-loader
 sys/src/lib*                             kirjastot (kernelin, työkaluketjun, komentojen)
 sys/src/cmd                              kääntäjät, mk, rc, git, verkko, testit
@@ -76,16 +76,19 @@ cd /sys/src/boot/efi && mk bootx64.efi
 - `tools/selfroot DIR`: HEADin klooni (origin GitHub), 9frontin gitin
   `.git/INDEX9` ja irtoviitteet (9frontin git ei lue `packed-refs`iä),
   binäärit `build/amd64/root`:sta, `/tmp` ja `/usr/glenda`.
-- `tools/selfroot -p /dev/nvme0n1p5`: sama osiolle (sudo); vanha sisältö
-  pois, `lost+found`, label ja UUID säilyvät.
-- `tools/rootpull -p /dev/nvme0n1p5`: `git pull --ff-only` juureen
-  Linuxista, kun Plan2001:llä ei ole verkkoa (silli); `-l` tämän repon
-  HEADista (commitoitu, ei pushattu). Juuri kääntää sitten itsensä.
-  `tools/git9` pitää kloonin 9frontin gitille luettavana.
-- `tools/test-selfroot.sh`: juuri ext4-levynä QEMU:ssa virtio-verkolla
-  (QEMU:n user-verkko): DHCP, DNS, `hget https://...`, `git/clone`
-  GitHubista, `mk install` omilla työkaluilla, kernel ja loader, `fshalt`
-  ja Linuxin `e2fsck`.
+- `tools/gefsroot DIR OUT [MiB]`: puu gefs-kuvaksi käännös-VM:ssä (Linux
+  ei osaa gefs:ää): puun oma gefs reamaa, tar puretaan, `gefs -c`.
+  `tools/gefsdisk` tekee siitä levyn (GPT, ESP, `root=-w PARTUUID=`), ja
+  `tools/gefsck IMG [PATH...]` tarkistaa osion VM:ssä ja lukee siitä.
+- `tools/selfroot -p /dev/nvme0n1p5`: sama gefs-kuvana osiolle (sudo dd,
+  osion kokoisena); PARTUUID säilyy.
+- Juuri päivittyy itse (`git/pull`, `mk install`), kun sillä on verkko.
+  Linuxista sitä ei voi enää päivittää (`rootpull` poistui ext4:n
+  mukana): uusi kuva `selfroot -p`:llä.
+- `tools/test-selfroot.sh`: gefs-juuri QEMU:ssa virtio-verkolla (QEMU:n
+  user-verkko): DHCP, DNS, `hget https://...`, `git/clone` GitHubista,
+  `mk install` omilla työkaluilla, kernel ja loader, `fshalt` ja
+  `tools/gefsck`.
 
 ## /init
 

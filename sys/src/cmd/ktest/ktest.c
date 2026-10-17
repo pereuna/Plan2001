@@ -1,14 +1,13 @@
 /*
  * ktest: Plan2001's kernel under load, from a root it mounted itself
- * (tools/ext4root's /init runs it when plan9.ini has ktest=...).  Each
- * test runs in its own process, under an alarm; a note or an exit
- * string is a failure.  The file system tests work in -d dir (default
- * /tmp/ktest, on the root: devext4); the others stress memory and
- * processes, and look at what Plan2001 changed against 9front.  The
- * directory is the root's #E/root/tmp/ktest by default, a device path:
- * the same in any name space (a ramfs on /tmp is not devext4); ktest
- * refuses one that is not on #E.
- *	ktest [-d dir] [-s scale] [-t secs] [all | fs | mem | proc | mix | k | test...]
+ * (the root's /init runs it when plan9.ini has ktest=...).  Each test
+ * runs in its own process, under an alarm; a note or an exit string is
+ * a failure.  The file system tests work in -d dir (default /tmp/ktest,
+ * on the root: the kernel's gefs, devgefs); the others stress memory and
+ * processes, and look at what Plan2001 changed against 9front.  ktest
+ * refuses a directory that is not the kernel's gefs (a ramfs on /tmp)
+ * unless -u.
+ *	ktest [-u] [-d dir] [-s scale] [-t secs] [all | fs | mem | proc | mix | k | test...]
  * Prints KTEST name OK ms / KTEST name FAIL why, then
  * KTEST-DONE ok N fail M.  fsfill (fills the file system) only by name.
  */
@@ -22,7 +21,8 @@ struct Test {
 	void	(*fn)(void);
 };
 
-char	*dir = "#E/root/tmp/ktest";
+char	*dir = "/tmp/ktest";
+int	anyfs;		/* -u: the fs tests on any file server (a userspace gefs) */
 int	scale = 1;
 int	secs = 300;
 char	buf[64*1024];
@@ -222,7 +222,7 @@ procs(int n, void (*fn)(int))
 }
 
 /*
- * file system: devext4 (the root), written
+ * file system: the kernel's gefs (the root), written
  */
 void
 fsbig(void)
@@ -256,7 +256,7 @@ fsbig(void)
 }
 
 /*
- * one write bigger than devext4's bounce buffer (64 KiB): all of it, not
+ * one write bigger than a 9P message (64 KiB): all of it, not
  * a short count (ar wrote a big member at once and took one for an error)
  */
 void
@@ -344,7 +344,7 @@ fsdeep(void)
 		mkdirp(p);
 	}
 	seprint(e, p+8192, "/file");
-	/* one walk of n+3 names: the kernel's stack, devext4's walk */
+	/* one walk of n+3 names: the kernel's stack, the file server's walk */
 	writefile(p, 7, 10000);
 	checkfile(p, 7, 10000);
 	if((fd = open(p, OREAD)) < 0)
@@ -670,34 +670,46 @@ fsexec(void)
 }
 
 /* OTRUNC needs write permission, ORCLOSE the directory's: as none */
+/*
+ * A file server checks its attach's user: the root is attached as the
+ * host owner, so none mounts it anew (an fd of #s/gefs.root opened
+ * before) and is checked there.
+ */
 void
 fsperm(void)
 {
 	Waitmsg *w;
-	int fd;
+	int fd, sfd;
+	char f[256];
 
 	mkdirp(path("perm"));
 	writefile(path("perm/f"), 21, 5000);
+	if((sfd = open("#s/gefs.root", ORDWR)) < 0)
+		fail("#s/gefs.root: %r");
+	snprint(f, sizeof f, "/n/ktestnone%s", path("perm/f"));
 	switch(fork()){
 	case 0:
 		if((fd = open("#c/user", OWRITE)) < 0 || write(fd, "none", 4) != 4)
 			fail("becoming none: %r");
 		close(fd);
-		if((fd = open(path("perm/f"), OREAD)) < 0)
+		if(rfork(RFNAMEG) < 0 || mount(sfd, -1, "/n/ktestnone", MREPL|MCREATE, "main") < 0)
+			fail("none's mount: %r");
+		if((fd = open(f, OREAD)) < 0)
 			fail("none cannot read: %r");
 		close(fd);
-		if(open(path("perm/f"), OREAD|OTRUNC) >= 0)
+		if(open(f, OREAD|OTRUNC) >= 0)
 			fail("none truncated a file it cannot write");
-		if((fd = open(path("perm/f"), OREAD|ORCLOSE)) >= 0){
+		if((fd = open(f, OREAD|ORCLOSE)) >= 0){
 			close(fd);
 			fail("none opened ORCLOSE in a directory it cannot write");
 		}
-		if(remove(path("perm/f")) == 0)
+		if(remove(f) == 0)
 			fail("none removed it");
 		exits(nil);
 	case -1:
 		fail("fork: %r");
 	}
+	close(sfd);
 	if((w = wait()) == nil || w->msg[0])
 		fail("%s", w ? w->msg : "wait");
 	checkfile(path("perm/f"), 21, 5000);
@@ -736,29 +748,6 @@ fsstale(void)
 		remove(path("stale%d", i));
 	}
 	free(f);
-}
-
-/* the root once more, written or not: refused */
-void
-fsdouble(void)
-{
-	char *s, *u, cmd[128];
-	int fd;
-
-	s = readstr("#E/ctl");
-	if((u = strstr(s, "uuid ")) == nil)
-		fail("no uuid in #E/ctl");
-	u += 5;
-	u[36] = 0;
-	if((fd = open("#E/ctl", OWRITE)) < 0)
-		fail("#E/ctl: %r");
-	snprint(cmd, sizeof cmd, "mount -w ktest2 UUID=%s", u);
-	if(write(fd, cmd, strlen(cmd)) >= 0)
-		fail("mounted the root again, written");
-	snprint(cmd, sizeof cmd, "mount ktest2 UUID=%s", u);
-	if(write(fd, cmd, strlen(cmd)) >= 0)
-		fail("mounted the written root again, read-only");
-	close(fd);
 }
 
 /* a write far past the end: zeros, a chunk at a time, stopped by a note */
@@ -806,32 +795,21 @@ fsgrow(void)
 	free(f);
 }
 
-long
-nflush(void)
-{
-	char *s;
-
-	if((s = strstr(readstr("#E/ctl"), " flushes ")) == nil)
-		fail("no flushes in #E/ctl");
-	return strtol(s+9, nil, 10);
-}
-
-/* sync: the blocks, then the disk's cache flushed (#E/ctl counts them) */
+/* sync through the adm tree's ctl (gefs's sync: the disk's cache flushed too) */
 void
 fssync(void)
 {
 	int fd;
-	long n0;
 
 	writefile(path("sync"), 5, 300000);
-	n0 = nflush();
-	if((fd = open("#E/ctl", OWRITE)) < 0)
-		fail("#E/ctl: %r");
+	if(mount(open("#s/gefs.root", ORDWR), -1, "/n/ktestadm", MREPL|MCREATE, "adm") < 0)
+		fail("mount #s/gefs.root adm: %r");
+	if((fd = open("/n/ktestadm/ctl", OWRITE)) < 0)
+		fail("adm ctl: %r");
 	if(fprint(fd, "sync") < 0)
 		fail("sync: %r");
 	close(fd);
-	if(nflush() <= n0)
-		fail("no cache flush at sync (%ld)", n0);
+	unmount(nil, "/n/ktestadm");
 	checkfile(path("sync"), 5, 300000);
 	remove(path("sync"));
 }
@@ -1239,10 +1217,7 @@ kenv(void)
 {
 	char *s;
 
-	/* rootmount: $rootdir, the host owner from user= */
-	s = getenv("rootdir");
-	if(s == nil || strcmp(s, "#E/root") != 0)
-		fail("rootdir %s", s);
+	/* rootmount: the host owner from user= */
 	if(strcmp(readstr("/dev/hostowner"), "glenda") != 0)
 		fail("hostowner %s", readstr("/dev/hostowner"));
 	if(strcmp(readstr("/dev/user"), "glenda") != 0)
@@ -1255,44 +1230,22 @@ kenv(void)
 void
 kroot(void)
 {
-	char *s;
 	Dir *d;
 
-	/* #E/root before #/: the root's /rc, not #/'s empty one */
+	/* the root before #/: its /rc, not #/'s empty one */
 	if(access("/rc/lib/rcmain", AREAD) < 0)
 		fail("/rc/lib/rcmain: %r");
-	if(access("/amd64/init", AEXEC) < 0)
-		fail("/amd64/init: %r");
+	if(access("/init", AEXEC) < 0)
+		fail("/init: %r");
 	/* #/'s mount points it lacks */
 	if((d = dirstat("/proc")) == nil)
 		fail("/proc: %r");
 	free(d);
-	s = readstr("#E/ctl");
-	if(strstr(s, "root ") != s || strstr(s, " rw ") == nil)
-		fail("#E/ctl: %s", s);
-	/* the root's srv for fshalt */
-	if(access("#s/ext4.root.cmd", AEXIST) < 0)
-		fail("#s/ext4.root.cmd: %r");
-}
-
-/* kernel stack: many names walked in one system call, unions, devmnt */
-/* the kernel stack used at the device (#E/ctl): well within KSTACK */
-void
-kstack(void)
-{
-	char *s;
-	long used, max;
-
-	s = readstr("#E/ctl");
-	if((s = strstr(s, "kstack ")) == nil)
-		fail("no kstack in #E/ctl");
-	used = strtol(s+7, &s, 10);
-	if(strncmp(s, " of ", 4) != 0)
-		fail("kstack line");
-	max = strtol(s+4, nil, 10);
-	print("KTEST kstack: %ld of %ld bytes at the device\n", used, max);
-	if(used <= 0 || used > max*3/4)
-		fail("%ld of %ld", used, max);
+	/* the kernel's gefs: its 9P and its console, for fshalt */
+	if(access("#s/gefs.root", AEXIST) < 0)
+		fail("#s/gefs.root: %r");
+	if(access("#s/gefs.root.cmd", AEXIST) < 0)
+		fail("#s/gefs.root.cmd: %r");
 }
 
 void
@@ -1301,7 +1254,7 @@ kwalk(void)
 	char *p, *e;
 	int i, fd;
 
-	/* 600 names: ".." and back, on #E, one open */
+	/* 600 names: ".." and back, on the root, one open */
 	p = malloc(16384);
 	e = seprint(p, p+16384, "%s", dir);
 	for(i = 0; i < 300; i++)
@@ -1311,8 +1264,7 @@ kwalk(void)
 	close(fd);
 	/*
 	 * a union of 30 bound in turn on /mnt, first replaced by an empty
-	 * directory of ours (mntgen there makes any name a directory; a #E
-	 * path itself is not looked up in the mount table)
+	 * directory of ours (mntgen there makes any name a directory)
 	 */
 	if(rfork(RFNAMEG) < 0)
 		fail("rfork: %r");
@@ -1341,7 +1293,6 @@ Test tests[] = {
 	"fsexec",	"fs",	fsexec,
 	"fsperm",	"fs",	fsperm,
 	"fsstale",	"fs",	fsstale,
-	"fsdouble",	"fs",	fsdouble,
 	"fsgrow",	"fs",	fsgrow,
 	"fssync",	"fs",	fssync,
 	"fsfill",	"fill",	fsfill,
@@ -1359,7 +1310,6 @@ Test tests[] = {
 	"kenv",	"k",	kenv,
 	"kroot",	"k",	kroot,
 	"kwalk",	"k",	kwalk,
-	"kstack",	"k",	kstack,
 };
 
 int
@@ -1387,7 +1337,7 @@ alarmed(void*, char *s)
 void
 usage(void)
 {
-	fprint(2, "usage: ktest [-d dir] [-s scale] [-t secs] [all|fs|mem|proc|mix|k|fill|test...]\n");
+	fprint(2, "usage: ktest [-u] [-d dir] [-s scale] [-t secs] [all|fs|mem|proc|mix|k|fill|test...]\n");
 	exits("usage");
 }
 
@@ -1401,6 +1351,9 @@ main(int argc, char **argv)
 	vlong t0;
 
 	ARGBEGIN{
+	case 'u':
+		anyfs = 1;
+		break;
 	case 'd':
 		dir = EARGF(usage());
 		break;
@@ -1416,11 +1369,11 @@ main(int argc, char **argv)
 
 	rmtree(dir);
 	mkdirp(dir);
-	/* the file system tests are devext4's */
+	/* the file system tests are the kernel's gefs' (a mount of its pipe) */
 	if((d = dirstat(dir)) == nil)
 		sysfatal("%s: %r", dir);
-	if(d->type != 'E')
-		sysfatal("%s is not on #E (devext4) but #%C", dir, d->type);
+	if(!anyfs && (d->type != 'M' || access("#s/gefs.root", AEXIST) < 0))
+		sysfatal("%s is not on the kernel's gefs but #%C", dir, d->type);
 	free(d);
 	nok = nfail = 0;
 	for(t = tests; t < tests+nelem(tests); t++){

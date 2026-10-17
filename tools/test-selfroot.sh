@@ -1,10 +1,11 @@
 #!/bin/bash
 # The self-hosting root (tools/selfroot, docs/selfhost.md) in QEMU: its
-# ext4 disk (written: root=-w), QEMU's user network (DHCP, DNS), and over
+# gefs disk (tools/gefsroot, tools/gefsdisk: root=-w PARTUUID=), QEMU's
+# user network (DHCP, DNS), and over
 # the serial console (tools/9run's relay): the network (ip/ipconfig, dns,
 # webfs: hget over https), git (git/clone from GitHub), the tree built by
 # its own tools (mk install in /sys/src) and the kernel and loader with
-# them, then fshalt and Linux's e2fsck.
+# them, then fshalt and tools/gefsck (the userspace gefs, in the build VM).
 #   tools/test-selfroot.sh
 #   NOROOT=1    build/selfroot as it is (else tools/selfroot makes it)
 #   NET=0       no network checks          BUILD=0   no self build
@@ -19,14 +20,10 @@ vm=$b/selfvm
 [ "${NOROOT:-0}" = 1 ] && [ -d "$tree/.git" ] || "$here/selfroot" "$tree"
 
 # the root: the tree and 2 GiB to build in
-mkfs=$(command -v mkfs.ext4 || echo /sbin/mkfs.ext4)
-uuid=$(python3 -I -c 'import uuid; print(uuid.uuid4())')
-size=$(( $(du -sm "$tree" | cut -f1) + 2048 ))
-rm -f "$b/root.ext4"
-"$mkfs" -q -F -t ext4 -b 4096 -L plan2001 -U "$uuid" -E root_owner="$(id -u):$(id -g)" -d "$tree" "$b/root.ext4" "${size}M"
-echo "$uuid" > "$b/root.uuid"; : > "$b/root.dir"
 disk=$b/selfdisk.img
-CONSOLE=0 NOROOT=1 RW=1 INIT=/init "$here/ext4disk" "$disk"
+rm -f "$b/root.gefs"
+"$here/gefsroot" "$tree" "$b/root.gefs" $(( $(du -sm "$tree" | cut -f1) + 2048 ))
+CONSOLE=0 INIT=/init "$here/gefsdisk" "$disk"
 
 mkdir -p "$vm"; rm -f "$vm"/*.sock "$vm/serial.in"
 : > "$vm/serial.log"
@@ -34,8 +31,8 @@ cp "$fwvars" "$vm/vars.fd"
 "$qemu" -name plan2001-selfroot -nodefaults "${qemuargs[@]}" -m "${MEM:-4096}" -smp "${SMP:-4}" \
 	-drive if=pflash,format=raw,readonly=on,file="$fwcode" \
 	-drive if=pflash,format=raw,file="$vm/vars.fd" \
-	-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci,drive=d0,bootindex=0 \
-	-nic user,model=virtio-net-pci -display none \
+	-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci-non-transitional,drive=d0,bootindex=0 \
+	-nic user,model=virtio-net-pci-non-transitional -display none \
 	-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 	2>"$vm/qemu.log" &
 q=$!
@@ -67,7 +64,7 @@ clean | grep -q 'plan2001% ' || { clean | tail -20; fail "no prompt"; exit 1; }
 clean | grep '^init:'
 [ "${BOOT:-0}" = 1 ] && { trap - EXIT; echo "QEMU running (pid $q, relay $relay), console: tools/9run -d $vm"; exit 0; }
 
-run "cat '#E/ctl'; ls /amd64/bin | wc -l" || fail root
+run "ls /srv; ls /amd64/bin | wc -l" || fail root
 if [ "${NET:-1}" != 0 ]; then
 	run 'cat /net/ndb' || fail ndb
 	run 'echo github.com ip | ndb/dnsquery' || fail dns
@@ -89,7 +86,8 @@ until clean | grep -q 'done halting' || [ $SECONDS -ge $end ]; do sleep 1; done
 clean | grep -q 'done halting' || fail "fshalt"
 kill $q 2>/dev/null || true; wait $q 2>/dev/null || true
 part=$b/selfpart.img
-dd if="$disk" of="$part" bs=1M skip=65 status=none
-e2fsck=$(command -v e2fsck || echo /sbin/e2fsck)
-"$e2fsck" -fn "$part" > "$vm/fsck.log" 2>&1 && echo "e2fsck -fn clean" || { fail e2fsck; head -20 "$vm/fsck.log"; }
+rm -f "$part"
+dd if="$disk" of="$part" bs=1M skip=65 count=$(( $(stat -c %s "$disk") / 1048576 - 66 )) conv=sparse status=none
+"$here/gefsck" "$part" > "$vm/fsck.log" 2>&1 && grep -q '^ok' "$vm/fsck.log" && echo "gefsck ok" || { fail gefsck; tail -20 "$vm/fsck.log"; }
+rm -f "$part"
 [ "$fails" = 0 ] && echo "PASS: self-hosting root" || { echo "FAIL: $fails"; exit 1; }

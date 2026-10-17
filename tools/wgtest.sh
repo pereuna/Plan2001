@@ -1,7 +1,7 @@
 #!/bin/bash
 # NOTE 16.10.2026: boots a cwfs root through bootrc (bootargs=local!...),
 # which this kernel no longer has (no bootfs.paq, docs/init.md): broken
-# until the VM's root is ext4 and plan9.ini has root= (Monolith).
+# until the VM's root is gefs and plan9.ini has root= (Monolith).
 # WireGuard regression test: a Plan2001 kernel with #W (build/amd64/9pc64,
 # e.g. from tools/kbuild9p.rc) against Linux's own WireGuard, driven with
 # 9pterm.  Every check must pass: the exit status is the number that failed.

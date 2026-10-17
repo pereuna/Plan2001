@@ -279,7 +279,7 @@ nvmebio(SDunit *u, int lun, int write, void *a, long count, uvlong lba)
 /*
  * Plan2001: synchronize cache is NVMe's Flush (opcode 0): what was
  * written is on the medium, not in the controller's volatile write
- * cache.  9front took it as done.  devext4 sends it at its syncs.
+ * cache.  9front took it as done.  gefs sends it at its syncs (devgefs).
  */
 static void
 nvmeflush(SDunit *u)

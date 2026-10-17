@@ -8,7 +8,7 @@ kdir=pc64
 kconf=pc64
 kernel=9pc64
 # kernel source directories this repo overlays and Monolith's subset copies
-ksrc=(port pc pc64 ip ext4)
+ksrc=(port pc pc64 ip gefs)
 # the UEFI loader: mk target in /sys/src/boot/efi, where an installed
 # system keeps it (inst/bootsetup copies it to the ESP), its ESP name
 loader=bootx64.efi
