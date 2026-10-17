@@ -1587,7 +1587,11 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 	Qid old;
 	Fcall r;
 	Dent *de;
-	Msg mb[4];
+	char zkbuf[Offksz], zvbuf[Ptrsz];
+	vlong prevlen, zn;
+	int zeroed;
+	Bptr zbp;
+	Msg mb[5];
 	Xdir n;
 	Dir d;
 	Tree *t;
@@ -1597,6 +1601,7 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 
 	*ao = nil;
 	rename = 0;
+	prevlen = -1;
 	if((f = getfid(m->conn, m->fid)) == nil)
 		error(Enofid);
 	if(waserror()){
@@ -1646,6 +1651,7 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 		if(d.length < 0 || (de->mode & DMDIR) != 0)
 			error(Ewstatl);
 		if(d.length != de->length){
+			prevlen = de->length;
 			if(d.length < de->length){
 				*ao = emalloc(sizeof(Amsg), 1);
 				if(waserror()){
@@ -1795,8 +1801,35 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 		mb[nm].nv = p - opbuf;
 		nm++;
 	}
+	/*
+	 * Plan2001: truncated within a block: the rest of that block zeroed
+	 * (a new block), or a later extension or write in it shows the old
+	 * data.  AOclear frees the whole blocks after it.
+	 */
+	zeroed = 0;
+	if(prevlen > (vlong)n.length && (n.length & (Blksz-1)) != 0){	/* length is unsigned */
+		static char zeros[Blksz];
+
+		zn = Blksz - (n.length & (Blksz-1));
+		if(zn > prevlen - n.length)
+			zn = prevlen - n.length;
+		mb[nm].op = Oinsert;
+		mb[nm].k = zkbuf;
+		mb[nm].nk = sizeof(zkbuf);
+		mb[nm].v = zvbuf;
+		mb[nm].nv = sizeof(zvbuf);
+		writeb(f, &mb[nm], &zbp, zeros, n.length, zn, prevlen);
+		nm++;
+		zeroed = 1;
+	}
 	assert(nm <= nelem(mb));
+	if(zeroed && waserror()){
+		freebp(t, zbp);
+		nexterror();
+	}
 	upsert(f->mnt, mb, nm);
+	if(zeroed)
+		poperror();
 
 	de->Xdir = n;
 	if(rename)
@@ -3110,7 +3143,13 @@ Syncout:
 			}
 			fs->snap.dirty = 1;
 			nm = 0;
-			for(off = am->off; off < am->end; off += Blksz){
+			/*
+			 * Plan2001: from the block after the new end: the keys
+			 * are block offsets (the one with the end was zeroed in
+			 * fswstat); from am->off itself no key matched, and no
+			 * block was freed
+			 */
+			for(off = (am->off + Blksz-1) & ~(Blksz-1); off < am->end; off += Blksz){
 				mb[nm].op = Oclearb;
 				mb[nm].k = buf + Offksz * nm;
 				mb[nm].nk = Offksz;
