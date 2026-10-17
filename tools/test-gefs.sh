@@ -1,59 +1,30 @@
 #!/bin/bash
-# gefs as the root in the kernel (devgefs, docs/gefs.md) in QEMU, three
-# boots over the serial console (tools/9run's relay):
-#   1. the ext4 root (tools/selfroot) reams a gefs partition on a second
-#      disk with its own gefs (sys/src/cmd/gefs) and copies itself there;
-#   2. root=-w PARTUUID= of that partition: the kernel's gefs is the
-#      root; files written, a program built, the console's check, the
-#      adm tree's ctl and status (/srv/gefs.root), then fshalt;
-#   3. the ext4 root again: gefs -c of the partition, and the files of
-#      boot 2 read back with the userspace gefs.
+# gefs as the root in the kernel (devgefs, docs/gefs.md) in QEMU, over
+# the serial console (tools/9run's relay): tools/gefsroot makes the root
+# image in the build VM, tools/gefsdisk the disk (ESP and gefs, root=-w
+# PARTUUID=), then the root is booted: files written, a program built,
+# the console's check, the adm tree's ctl and status (/srv/gefs.root), a
+# snapshot, fshalt.  At the end tools/gefsck checks the partition in the
+# build VM with the userspace gefs and reads the boot's files back.
 #   tools/test-gefs.sh
 #   NOROOT=1    build/selfroot as it is (else tools/selfroot makes it)
-#   GEFSMB      the gefs disk in MiB (default 4096)
-#   BUILD=1     boot 2 also builds the tree (mk install), the kernel and the
-#               loader on the gefs root (MEM=4096 SMP=4 is quicker)
+#   BUILD=1     also build the tree (mk install), the kernel and the loader
+#               on the gefs root (MEM=4096 SMP=4 is quicker)
 #   CRASH=N     then N boots killed (QEMU, no sync) while they write; each
 #               next one must load, check clean and keep what it synced
+#   INI='k=v ...'  more plan9.ini lines (gefsdebug=1, gefstrace=16)
 #   KEEP=1      leave QEMU running after a failure (tools/9run -d build/$TARGET/gefsvm)
-#   ONLY=2      boot 2 (and 3) on the disks of an earlier run (3: boot 3), with the
-#               kernel of build/$TARGET; INI="line ..." more plan9.ini lines
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 b=$tbuild
 tree=$root/build/selfroot
 vm=$b/gefsvm
-disk=$b/gefsboot.img
-gdisk=$b/gefsdisk.img
-if [ "${ONLY:-}" = 2 ] || [ "${ONLY:-}" = 3 ]; then
-	. "$b/gefs-run.sh"
-	mcopy -o -i "$disk@@1M" "$b/$kernel" ::/
-else
+disk=$b/gefsdisk.img
 [ "${NOROOT:-0}" = 1 ] && [ -d "$tree/.git" ] || "$here/selfroot" "$tree"
-
-# the boot disk: the ESP and the ext4 root (as test-selfroot.sh)
-mkfs=$(command -v mkfs.ext4 || echo /sbin/mkfs.ext4)
-uuid=$(python3 -I -c 'import uuid; print(uuid.uuid4())')
-size=$(( $(du -sm "$tree" | cut -f1) + 1024 ))
-rm -f "$b/root.ext4"
-"$mkfs" -q -F -t ext4 -b 4096 -L plan2001 -U "$uuid" -E root_owner="$(id -u):$(id -g)" -d "$tree" "$b/root.ext4" "${size}M"
-echo "$uuid" > "$b/root.uuid"; : > "$b/root.dir"
-CONSOLE=0 NOROOT=1 RW=1 INIT=/init "$here/ext4disk" "$disk"
-cp "$b/ext4plan9.ini" "$b/gefs-ext4.ini"
-
-# the gefs disk: GPT, one Plan 9 partition from sector 2048, its PARTUUID known
-mb=${GEFSMB:-4096}
-sectors=$((mb*2048))
-psize=$((sectors - 4096))
-puuid=$(python3 -I -c 'import uuid; print(uuid.uuid4())')
-rm -f "$gdisk"; truncate -s ${mb}M "$gdisk"
-sfdisk=$(command -v sfdisk || echo /sbin/sfdisk)
-printf 'label: gpt\nstart=2048, size=%d, type=C91818F9-8025-47AF-89D2-F030D7000C2C, uuid=%s, name=gefs\n' \
-	$psize "$puuid" | "$sfdisk" -q "$gdisk"
-printf 'sectors=%d\npsize=%d\npuuid=%s\n' $sectors $psize "$puuid" > "$b/gefs-run.sh"
-fi
-{ sed "s/^root=.*/root=-w PARTUUID=$puuid/" "$b/gefs-ext4.ini"; for l in $INI; do echo "$l"; done; } > "$b/gefs-gefs.ini"
+rm -f "$b/root.gefs"
+"$here/gefsroot" "$tree" "$b/root.gefs" $(( $(du -sm "$tree" | cut -f1) + 4096 ))
+CONSOLE=0 INIT=/init "$here/gefsdisk" "$disk"
 
 q= relay=
 mkdir -p "$vm"
@@ -74,11 +45,9 @@ run() {
 	fi
 	sed 's/^/	/' "$vm/out" | tail -20; return 1
 }
-# boot with plan9.ini $1; 0 at the prompt
 boot() {
 	stop
-	echo "=== boot: $(grep '^root=' "$1")"
-	mcopy -o -i "$disk@@1M" "$1" ::/plan9.ini
+	echo "=== boot: $(grep '^root=' "$disk.ini")"
 	rm -f "$vm"/*.sock "$vm/serial.in"
 	: > "$vm/serial.log"
 	cp "$fwvars" "$vm/vars.fd"
@@ -86,7 +55,6 @@ boot() {
 		-drive if=pflash,format=raw,readonly=on,file="$fwcode" \
 		-drive if=pflash,format=raw,file="$vm/vars.fd" \
 		-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci-non-transitional,drive=d0,bootindex=0 \
-		-drive file="$gdisk",format=raw,if=none,id=d1 -device virtio-blk-pci-non-transitional,drive=d1 \
 		-nic none -display none \
 		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 		2>"$vm/qemu.log" &
@@ -96,7 +64,7 @@ boot() {
 	relay=$!
 	local end=$((SECONDS + ${SECONDS_TO_RUN:-150}))
 	until clean | grep -q 'plan2001% \|^panic' || [ $SECONDS -ge $end ] || ! kill -0 $q 2>/dev/null; do sleep 1; done
-	clean | grep -a '^gefs\|^init:\|^root='
+	clean | grep -a '^gefs\|^init:'
 	clean | grep -q '^panic' && { clean | tail -30; fail "panic"; return 1; }
 	clean | grep -q 'plan2001% ' || { clean | tail -30; fail "no prompt"; return 1; }
 }
@@ -105,27 +73,12 @@ halt() {
 	local end=$((SECONDS + 120))
 	until clean | grep -q 'done halting' || [ $SECONDS -ge $end ]; do sleep 1; done
 	clean | grep -q 'done halting' || fail "fshalt"
+	clean | grep -q 'gefs: halted' || fail "gefs not halted"
 }
-# the gefs disk's partition as /dev/sdXX/gefs: the disk of $sectors sectors
-part="d=(); for(c in /dev/sd*/ctl) if(grep -s '^geometry '$sectors' ' \$c) d=\`{basename -d \$c}; \
-	echo part gefs 2048 $((2048 + psize)) >\$d(1)^/ctl; g=\$d(1)^/gefs; echo \$g"
 
-# 1: ream and copy the ext4 root to gefs
-if [ -z "${ONLY:-}" ]; then
-boot "$b/gefs-ext4.ini" || exit 1
-run "$part; gefs -r glenda -f \$g && gefs -A -n gt -f \$g && mount -c /srv/gt /n/g && ls /n/g" 120 || fail ream
-run "@{cd '#E/root' && tar c .} | @{cd /n/g && tar x}; du -s /n/g; ls /n/g" 1800 || fail copy
-run "test -x /n/g/amd64/bin/rc && test -r /n/g/init && echo copied" 60 || fail "copy: no rc or init"
-# synced before the unmount: gefs drops an unmounted tree's writes since its last sync
-run "mount -c /srv/gt /n/a adm && echo sync >/n/a/ctl && unmount /n/a && unmount /n/g; echo halt >>/srv/gt.cmd; for(i in 1 2 3 4 5 6 7 8 9 10) if(test -e /srv/gt.cmd) sleep 1; ! test -e /srv/gt.cmd" 60 || fail "userspace gefs halt"
-halt
-[ "$fails" = 0 ] || { echo "FAIL: $fails (boot 1)"; exit 1; }
-fi
-
-# 2: the kernel's gefs as the root
-if [ "${ONLY:-}" != 3 ]; then
-boot "$b/gefs-gefs.ini" || exit 1
+boot || exit 1
 clean | grep -q '^gefs: .*read-write' || fail "no gefs line"
+clean | grep -q '^init: / on gefs' || fail "init: not on gefs"
 run "ls /amd64/bin | wc -l; cat /dev/sysname" || fail root
 run "echo gefs root >/tmp/gefstest && cat /tmp/gefstest && rm /tmp/gefstest && echo hello >/usr/glenda/gefshello && cat /usr/glenda/gefshello" || fail write
 run "dd -if /dev/zero -of /tmp/big -bs 65536 -count 512 >[2]/dev/null; ls -l /tmp/big; md5sum </tmp/big >/usr/glenda/bigsum; cat /usr/glenda/bigsum" 120 || fail "big write"
@@ -140,35 +93,37 @@ if [ "${BUILD:-0}" = 1 ]; then
 	run "cd /sys/src/9/pc64 && md5sum 9pc64 && size 9pc64; cat /n/adm/status | sed 2q; echo check >/n/adm/ctl && echo checked" 600 || fail "check after build"
 fi
 halt
-clean | grep -q 'gefs: halted' || fail "gefs not halted"
-[ "$fails" = 0 ] || { echo "FAIL: $fails (boot 2)"; exit 1; }
+[ "$fails" = 0 ] || { echo "FAIL: $fails (boot)"; exit 1; }
 
 # crashes: QEMU killed (no sync, no halt) while files are written; each
 # next boot must load, check clean and have what was synced before
 n=${CRASH:-0}
 for r in $(seq 1 $((n > 0 ? n+1 : 0))); do
-	boot "$b/gefs-gefs.ini" || exit 1
+	boot || exit 1
 	run "mount -c /srv/gefs.root /n/adm adm && echo check >/n/adm/ctl && echo checked; cat /usr/glenda/synced$((r-1)) /usr/glenda/crashcount >[2]/dev/null; echo done" 600 30 || fail "crash $r: check"
 	grep -q '^checked' "$vm/out" || fail "crash $r: not checked"
 	[ $r -gt 1 ] && { grep -q "^synced $((r-1))" "$vm/out" || fail "crash $r: synced$((r-1)) lost"; }
 	[ "$fails" = 0 ] || { echo "FAIL: $fails (crash $r)"; exit 1; }
-	[ $r -gt $n ] && { halt; clean | grep -q 'gefs: halted' || fail "gefs not halted"; break; }
+	[ $r -gt $n ] && { halt; break; }
 	run "rm -f /tmp/crash*; echo synced $r >/usr/glenda/synced$r && echo sync >/n/adm/ctl && echo synced" 300 || fail "crash $r: sync"
-	run "{ for(i in \`{seq 1 100000}){ dd -if /dev/zero -of /tmp/crash\$i -bs 16384 -count 8; echo \$i >/usr/glenda/crashcount } } >/dev/null >[2=1] &" 30 || fail "crash $r: writer"
-	t=$((3 + RANDOM % 10))
+	run "{ for(i in \`{seq 1 100000}){ dd -if /dev/zero -of /tmp/crash\$i -bs 16384 -count 8; echo \$i >/usr/glenda/crashcount; if(~ \$i *0) rm -f /tmp/crash*[1-5] } } >/dev/null >[2=1] &" 30 || fail "crash $r: writer"
+	t=$((3 + RANDOM % 15))
 	sleep $t
 	echo "=== crash $r: QEMU killed after ${t}s of writing"
 	kill -9 $q; wait $q 2>/dev/null || true; q=
 done
 [ "$fails" = 0 ] || { echo "FAIL: $fails (crashes)"; exit 1; }
-fi
-
-# 3: checked and read back by the userspace gefs
-boot "$b/gefs-ext4.ini" || exit 1
-run "$part; gefs -c -f \$g && echo gefs-check-ok" 600 30 || fail "gefs -c"
-grep -q gefs-check-ok "$vm/out" || fail "gefs -c: not ok"
-run "$part; gefs -R -A -n gt -f \$g && mount -c /srv/gt /n/g && cat /n/g/usr/glenda/gefshello /n/g/usr/glenda/bigsum" 120 || fail "read back"
-grep -q '^hello' "$vm/out" || fail "read back: no hello"
-halt
 stop
+
+# the partition checked and read back in the build VM (userspace gefs)
+part=$b/gefspart.img
+rm -f "$part"
+mib=$(( $(stat -c %s "$disk") / 1048576 - 66 ))
+dd if="$disk" of="$part" bs=1M skip=65 count=$mib conv=sparse status=none
+echo "### gefsck"
+"$here/gefsck" "$part" /usr/glenda/gefshello /usr/glenda/bigsum > "$vm/out" 2>&1 || fail gefsck
+sed 's/^/	/' "$vm/out" | tail -5
+grep -q '^ok' "$vm/out" || fail "gefsck: not ok"
+grep -q '^hello' "$vm/out" || fail "gefsck: no hello"
+rm -f "$part"
 [ "$fails" = 0 ] && echo "PASS: gefs root" || { echo "FAIL: $fails"; exit 1; }

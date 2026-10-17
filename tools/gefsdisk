@@ -1,0 +1,60 @@
+#!/bin/bash
+# A disk for booting Plan2001 with its root in the kernel's gefs
+# (devgefs, docs/gefs.md): GPT, an ESP (the loader as EFI/BOOT, the
+# kernel, plan9.ini) and the gefs root (tools/gefsroot's image), found by
+# its partition's PARTUUID.  plan9.ini has root=-w PARTUUID=... and
+# user=glenda: the kernel mounts the root and runs its init
+# (docs/init.md).  dd it to a USB stick for real hardware; the tests boot
+# it in QEMU.
+#   tools/gefsdisk [OUT]      default build/$TARGET/gefsdisk.img
+#   ROOTIMG=FILE              the gefs image (default build/$TARGET/root.gefs;
+#                             made by tools/gefsroot from build/selfroot
+#                             if missing)
+#   CONSOLE=0                 the serial console (plan9.ini console=0);
+#                             without it the machine's screen and keyboard
+#   INIT=/init                plan9.ini init= (default the kernel's:
+#                             /$objtype/init -t)
+#   INI='k=v ...'             more plan9.ini lines
+#   ESPDIR=EFI/BOOT           plan9.ini and the kernel in the loader's
+#                             directory, not the ESP's root (the loader
+#                             looks there first: as in another system's
+#                             ESP, \EFI\plan2001 chainloaded by GRUB)
+# Writes OUT.partuuid and OUT.ini (plan9.ini) next to OUT.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+b=$tbuild
+out=${1:-$b/gefsdisk.img}
+for f in "$b/$kernel" "$b/$loader"; do
+	[ -s "$f" ] || { echo "gefsdisk: no $f (tools/build.sh)" >&2; exit 1; }
+done
+rootimg=${ROOTIMG:-$b/root.gefs}
+[ -s "$rootimg" ] || "$here/gefsroot" "$root/build/selfroot" "$rootimg"
+puuid=$(python3 -I -c 'import uuid; print(uuid.uuid4())')
+
+esp=$b/gefsesp.img
+rm -f "$esp"
+{
+	printf 'bootfile=/%s\n' "${ESPDIR:+$ESPDIR/}$kernel"
+	[ -n "$CONSOLE" ] && printf 'console=%s\n' "$CONSOLE"
+	printf 'user=glenda\nroot=-w PARTUUID=%s\n' "$puuid"
+	[ -n "$INIT" ] && printf 'init=%s\n' "$INIT"
+	for l in $INI; do printf '%s\n' "$l"; done
+} > "$out.ini"
+mformat -C -i "$esp" -T 131072 -h 64 -s 32 ::
+mmd -i "$esp" ::/EFI ::/EFI/BOOT
+mcopy -i "$esp" "$b/$loader" "::/EFI/BOOT/$espname"
+mcopy -i "$esp" "$b/$kernel" ::/${ESPDIR:+$ESPDIR/}
+mcopy -i "$esp" "$out.ini" ::/${ESPDIR:+$ESPDIR/}plan9.ini
+
+# 1 MiB, the ESP (64 MiB), the root, 1 MiB for the backup GPT
+rmib=$(( ($(stat -c %s "$rootimg") + 1048575) / 1048576 ))
+rm -f "$out"
+truncate -s $((1 + 64 + rmib + 1))M "$out"
+sfdisk=$(command -v sfdisk || echo /sbin/sfdisk)
+printf 'label: gpt\nstart=2048, size=%d, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP\nstart=%d, size=%d, type=C91818F9-8025-47AF-89D2-F030D7000C2C, uuid=%s, name=plan2001\n' \
+	$((64*2048)) $((65*2048)) $((rmib*2048)) "$puuid" | "$sfdisk" -q "$out"
+dd if="$esp" of="$out" bs=1M seek=1 conv=notrunc status=none
+dd if="$rootimg" of="$out" bs=1M seek=65 conv=notrunc,sparse status=none
+echo "$puuid" > "$out.partuuid"
+echo "gefsdisk: $out ($(( $(stat -c %s "$out") / 1048576 )) MiB), root PARTUUID=$puuid"
