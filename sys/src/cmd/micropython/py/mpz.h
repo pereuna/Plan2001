@@ -94,7 +94,7 @@ typedef struct _mpz_t {
     // Zero has neg=0, len=0.  Negative zero is not allowed.
     size_t neg : 1;
     size_t fixed_dig : 1; // flag, 'dig' buffer cannot be reallocated
-    size_t alloc : (8 * sizeof(size_t) - 2); // number of entries allocated in 'dig'
+    size_t alloc MP_BITS(8 * sizeof(size_t) - 2); // number of entries allocated in 'dig'
     size_t len; // number of entries used in 'dig'
     mpz_dig_t *dig;
 } mpz_t;

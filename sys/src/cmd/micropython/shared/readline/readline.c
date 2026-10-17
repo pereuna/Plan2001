@@ -109,6 +109,44 @@ typedef struct _readline_t {
 
 static readline_t rl;
 
+// MICROPY_REPL_UTF8: the line is edited a character at a time, and the
+// terminal shows a character in a cell, whatever its UTF-8 bytes
+#if MICROPY_REPL_UTF8
+#define UTF8_CONT(b) (((b) & 0xc0) == 0x80)
+static char utf8_buf[4];
+static int utf8_n, utf8_want;
+#else
+#define UTF8_CONT(b) (0)
+#endif
+
+// the bytes of the character before the cursor, and of the one at it
+static size_t char_back(void) {
+    size_t p = rl.cursor_pos - 1;
+    while (p > rl.orig_line_len && UTF8_CONT(rl.line->buf[p])) {
+        p--;
+    }
+    return rl.cursor_pos - p;
+}
+
+static size_t char_fwd(void) {
+    size_t p = rl.cursor_pos + 1;
+    while (p < rl.line->len && UTF8_CONT(rl.line->buf[p])) {
+        p++;
+    }
+    return p - rl.cursor_pos;
+}
+
+// the terminal's cells of the line's bytes from..to
+static size_t cells(size_t from, size_t to) {
+    size_t n = 0;
+    for (; from < to; from++) {
+        if (!UTF8_CONT(rl.line->buf[from])) {
+            n++;
+        }
+    }
+    return n;
+}
+
 #if MICROPY_REPL_EMACS_WORDS_MOVE
 static size_t cursor_count_word(int forward) {
     const char *line_buf = vstr_str(rl.line);
@@ -193,6 +231,14 @@ int readline_process_char(int c) {
             goto backward_kill_word;
         #endif
         } else if (c == '\r') {
+            #if MICROPY_REPL_AUTO_INDENT && MICROPY_REPL_AUTO_INDENT_ENTER_ENDS
+            // Enter on a line of only the indentation just added: a blank
+            // line, which ends the statement (as in CPython's REPL)
+            if (rl.auto_indent_state & AUTO_INDENT_JUST_ADDED) {
+                vstr_cut_tail_bytes(rl.line, rl.line->len - rl.orig_line_len);
+                rl.cursor_pos = rl.orig_line_len;
+            }
+            #endif
             // newline
             mp_hal_stdout_tx_str("\r\n");
             readline_push_history(vstr_null_terminated_str(rl.line) + rl.orig_line_len);
@@ -214,12 +260,12 @@ int readline_process_char(int c) {
                     nspace += 1;
                 }
                 if (nspace < 4) {
-                    nspace = 1;
+                    nspace = char_back();
                 } else {
                     nspace = 4;
                 }
                 #else
-                int nspace = 1;
+                int nspace = char_back();
                 #endif
 
                 // do the backspace
@@ -274,6 +320,25 @@ int readline_process_char(int c) {
                 // set redraw parameters
                 redraw_from_cursor = true;
                 redraw_step_forward = compl_len;
+            }
+        #endif
+        #if MICROPY_REPL_UTF8
+        } else if (c >= 0x80 && c <= 0xff) {
+            // a UTF-8 character, inserted when all its bytes have come
+            if (!UTF8_CONT(c)) {
+                utf8_n = 0;
+                utf8_want = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : 2;
+            }
+            if (utf8_n < 4) {
+                utf8_buf[utf8_n++] = c;
+            }
+            if (utf8_n == utf8_want) {
+                for (int i = 0; i < utf8_n; i++) {
+                    vstr_ins_byte(rl.line, rl.cursor_pos + i, utf8_buf[i]);
+                }
+                redraw_from_cursor = true;
+                redraw_step_forward = utf8_n;
+                utf8_n = utf8_want = 0;
             }
         #endif
         } else if (32 <= c && c <= 126) {
@@ -372,7 +437,7 @@ right_arrow_key:
 #endif
                 // right arrow
                 if (rl.cursor_pos < rl.line->len) {
-                    redraw_step_forward = 1;
+                    redraw_step_forward = char_fwd();
                 }
             } else if (c == 'D') {
 #if MICROPY_REPL_EMACS_KEYS
@@ -380,7 +445,7 @@ left_arrow_key:
 #endif
                 // left arrow
                 if (rl.cursor_pos > rl.orig_line_len) {
-                    redraw_step_back = 1;
+                    redraw_step_back = char_back();
                 }
             } else if (c == 'H') {
                 // home
@@ -406,7 +471,7 @@ end_key:
 delete_key:
 #endif
                 if (rl.cursor_pos < rl.line->len) {
-                    vstr_cut_out_bytes(rl.line, rl.cursor_pos, 1);
+                    vstr_cut_out_bytes(rl.line, rl.cursor_pos, char_fwd());
                     redraw_from_cursor = true;
                 }
             } else {
@@ -454,7 +519,7 @@ redraw:
 
     // redraw command prompt, efficiently
     if (redraw_step_back > 0) {
-        mp_hal_move_cursor_back(redraw_step_back);
+        mp_hal_move_cursor_back(cells(rl.cursor_pos - redraw_step_back, rl.cursor_pos));
         rl.cursor_pos -= redraw_step_back;
     }
     if (redraw_from_cursor) {
@@ -465,7 +530,7 @@ redraw:
         // draw new chars
         mp_hal_stdout_tx_strn(rl.line->buf + rl.cursor_pos, rl.line->len - rl.cursor_pos);
         // move cursor forward if needed (already moved forward by length of line, so move it back)
-        mp_hal_move_cursor_back(rl.line->len - (rl.cursor_pos + redraw_step_forward));
+        mp_hal_move_cursor_back(cells(rl.cursor_pos + redraw_step_forward, rl.line->len));
         rl.cursor_pos += redraw_step_forward;
     } else if (redraw_step_forward > 0) {
         // draw over old chars to move cursor forwards

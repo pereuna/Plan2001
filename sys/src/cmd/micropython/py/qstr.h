@@ -80,8 +80,8 @@ typedef uint16_t qstr_len_t;
 
 typedef struct _qstr_pool_t {
     const struct _qstr_pool_t *prev;
-    size_t total_prev_len : (8 * sizeof(size_t) - 1);
-    size_t is_sorted : 1;
+    size_t total_prev_len MP_BITS(8 * sizeof(size_t) - 1);
+    size_t is_sorted MP_BITS(1);
     size_t alloc;
     size_t len;
     #if MICROPY_QSTR_BYTES_IN_HASH

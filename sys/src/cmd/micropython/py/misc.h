@@ -80,7 +80,7 @@ typedef unsigned int uint;
 // do, others only with -Werror=vla, msvc always does.
 // The (void) is needed to avoid "left operand of comma operator has no effect [-Werror=unused-value]"
 // when using this macro on the left-hand side of a comma.
-#if defined(_MSC_VER) || defined(__cplusplus)
+#if defined(_MSC_VER) || defined(__cplusplus) || defined(MP_NO_NONCONSTEXPR_ASSERT)
 #define MP_STATIC_ASSERT_NONCONSTEXPR(cond) ((void)1)
 #else
 #if __clang__

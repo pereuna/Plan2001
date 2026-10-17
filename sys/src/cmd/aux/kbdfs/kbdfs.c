@@ -1122,6 +1122,11 @@ lineproc(void *aux)
 			prevcut = cutkind;
 			cutkind = 0;
 			switch(r){
+			case 0x03:	/* ^C: interrupt, as on other systems */
+				if(nbsend(intchan, &notefd) <= 0)
+					continue;
+				l.n = l.cur = l.ccur = 0;
+				continue;
 			case Kdel:
 				if(l.n > 0 && l.cur < l.n){
 					delrange(&l, l.cur, l.cur+1, 0);

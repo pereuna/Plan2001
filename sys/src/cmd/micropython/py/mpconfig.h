@@ -861,6 +861,18 @@ typedef uint64_t mp_uint_t;
 #define MICROPY_REPL_AUTO_INDENT (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
 #endif
 
+// Whether the REPL's line editor takes UTF-8 (a character, not a byte, at
+// a time; else only printable ASCII)
+#ifndef MICROPY_REPL_UTF8
+#define MICROPY_REPL_UTF8 (0)
+#endif
+
+// Whether Enter on a line of only the auto-indent ends the statement, as
+// a blank line (else the indent stays until two such lines)
+#ifndef MICROPY_REPL_AUTO_INDENT_ENTER_ENDS
+#define MICROPY_REPL_AUTO_INDENT_ENTER_ENDS (0)
+#endif
+
 // Whether port requires event-driven REPL functions
 #ifndef MICROPY_REPL_EVENT_DRIVEN
 #define MICROPY_REPL_EVENT_DRIVEN (0)
@@ -2327,6 +2339,32 @@ typedef time_t mp_timestamp_t;
 #ifndef MP_SSIZE_MAX
 #define MP_SSIZE_MAX SSIZE_MAX
 #endif
+
+// A bit-field's width: "type name MP_BITS(n);".  A port whose compiler
+// has no bit-fields wider than an int (Plan 9's) defines it empty, for
+// plain fields.
+#ifndef MP_BITS
+#define MP_BITS(n) : (n)
+#endif
+
+// The size of mp_obj_type_t's slots: empty for a flexible array member,
+// or 11 (all of them) for a compiler that cannot initialise one
+// statically (Plan 9's).
+#ifndef MP_OBJ_TYPE_NSLOTS
+#define MP_OBJ_TYPE_NSLOTS
+#endif
+// Likewise the items of a mp_rom_obj_tuple_t: the most any has (4).
+#ifndef MP_ROM_TUPLE_NITEMS
+#define MP_ROM_TUPLE_NITEMS
+#endif
+
+// MP_QSTR_POOL_SIZED (1): the const qstr pools likewise (qstr.c).
+#ifndef MP_QSTR_POOL_SIZED
+#define MP_QSTR_POOL_SIZED (0)
+#endif
+
+// MP_NO_NONCONSTEXPR_ASSERT: the compiler cannot fold comparisons of
+// external addresses (MP_STATIC_ASSERT_NONCONSTEXPR) into constants.
 
 // Modifier for function which doesn't return
 #ifndef MP_NORETURN

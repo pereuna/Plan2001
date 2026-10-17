@@ -1342,7 +1342,9 @@ static mp_obj_t super_make_new(const mp_obj_type_t *type_in, size_t n_args, size
     }
 
     mp_obj_super_t *o = m_new_obj(mp_obj_super_t);
-    *o = (mp_obj_super_t) {{type_in}, args[0], args[1]};
+    o->base.type = type_in;
+    o->type = args[0];
+    o->obj = args[1];
     return MP_OBJ_FROM_PTR(o);
 }
 
@@ -1532,7 +1534,8 @@ static mp_obj_t static_class_method_make_new(const mp_obj_type_t *self, size_t n
     mp_arg_check_num(n_args, n_kw, 1, 1, false);
 
     mp_obj_static_class_method_t *o = m_new_obj(mp_obj_static_class_method_t);
-    *o = (mp_obj_static_class_method_t) {{self}, args[0]};
+    o->base.type = self;
+    o->fun = args[0];
     return MP_OBJ_FROM_PTR(o);
 }
 

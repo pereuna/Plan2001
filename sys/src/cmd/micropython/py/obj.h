@@ -479,10 +479,10 @@ typedef struct _mp_rom_map_elem_t {
 } mp_rom_map_elem_t;
 
 typedef struct _mp_map_t {
-    size_t all_keys_are_qstrs : 1;
-    size_t is_fixed : 1;    // if set, table is fixed/read-only and can't be modified
-    size_t is_ordered : 1;  // if set, table is an ordered array, not a hash map
-    size_t used : (8 * sizeof(size_t) - 3);
+    size_t all_keys_are_qstrs MP_BITS(1);
+    size_t is_fixed MP_BITS(1);    // if set, table is fixed/read-only and can't be modified
+    size_t is_ordered MP_BITS(1);  // if set, table is an ordered array, not a hash map
+    size_t used MP_BITS(8 * sizeof(size_t) - 3);
     size_t alloc;
     mp_map_elem_t *table;
 } mp_map_t;
@@ -713,7 +713,7 @@ struct _mp_obj_type_t {
     // A dict mapping qstrs to objects local methods/constants/etc.
     uint8_t slot_index_locals_dict;
 
-    const void *slots[];
+    const void *slots[MP_OBJ_TYPE_NSLOTS];
 };
 
 // Non-variable sized versions of mp_obj_type_t to be used as a member

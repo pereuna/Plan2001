@@ -14,8 +14,6 @@ shared/readline/readline.c
 shared/readline/readline.h
 shared/runtime/gchelper.h
 shared/runtime/gchelper_generic.c
-shared/runtime/interrupt_char.c
-shared/runtime/interrupt_char.h
 shared/runtime/pyexec.c
 shared/runtime/pyexec.h
 shared/runtime/stdout_helpers.c

@@ -33,7 +33,9 @@
 #define MP_OBJ_ARRAY_TYPECODE_FLAG_RW (0x80)
 
 // Bit size used for mp_obj_array_t.free member.
+#ifndef MP_OBJ_ARRAY_FREE_SIZE_BITS
 #define MP_OBJ_ARRAY_FREE_SIZE_BITS (8 * sizeof(size_t) - 8)
+#endif
 
 // This structure is used for all of bytearray, array.array, memoryview
 // objects.  Note that memoryview has different meaning for some fields,

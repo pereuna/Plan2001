@@ -103,7 +103,16 @@ const qstr_len_t mp_qstr_const_lengths_static[] = {
     #endif
 };
 
+#if MP_QSTR_POOL_SIZED
+// The const pools as a qstr_pool_t and its sized array, for a compiler that
+// cannot initialise a flexible array member statically (Plan 9's).
+const struct {
+    qstr_pool_t pool;
+    const char *qstrs[MP_QSTRnumber_of_static];
+} mp_qstr_const_pool_static_sized = {{
+#else
 const qstr_pool_t mp_qstr_const_pool_static = {
+#endif
     NULL,               // no previous pool
     0,                  // no previous pool
     false,              // is_sorted
@@ -113,6 +122,9 @@ const qstr_pool_t mp_qstr_const_pool_static = {
     (qstr_hash_t *)mp_qstr_const_hashes_static,
     #endif
     (qstr_len_t *)mp_qstr_const_lengths_static,
+    #if MP_QSTR_POOL_SIZED
+    },
+    #endif
     {
         #ifndef NO_QSTR
 #define QDEF0(id, hash, len, str) str,
@@ -123,6 +135,10 @@ const qstr_pool_t mp_qstr_const_pool_static = {
         #endif
     },
 };
+
+#if MP_QSTR_POOL_SIZED
+#define mp_qstr_const_pool_static (mp_qstr_const_pool_static_sized.pool)
+#endif
 
 // The next pool is the remainder of the qstrs defined in the firmware. This
 // is sorted.
@@ -148,7 +164,14 @@ const qstr_len_t mp_qstr_const_lengths[] = {
     #endif
 };
 
+#if MP_QSTR_POOL_SIZED
+const struct {
+    qstr_pool_t pool;
+    const char *qstrs[MP_QSTRnumber_of - MP_QSTRnumber_of_static];
+} mp_qstr_const_pool_sized = {{
+#else
 const qstr_pool_t mp_qstr_const_pool = {
+#endif
     &mp_qstr_const_pool_static,
     MP_QSTRnumber_of_static,
     true,               // is_sorted
@@ -158,6 +181,9 @@ const qstr_pool_t mp_qstr_const_pool = {
     (qstr_hash_t *)mp_qstr_const_hashes,
     #endif
     (qstr_len_t *)mp_qstr_const_lengths,
+    #if MP_QSTR_POOL_SIZED
+    },
+    #endif
     {
         #ifndef NO_QSTR
 #define QDEF0(id, hash, len, str)
@@ -168,6 +194,10 @@ const qstr_pool_t mp_qstr_const_pool = {
         #endif
     },
 };
+
+#if MP_QSTR_POOL_SIZED
+#define mp_qstr_const_pool (mp_qstr_const_pool_sized.pool)
+#endif
 
 // If frozen code is enabled, then there is an additional, sorted, ROM pool
 // containing additional qstrs required by the frozen code.

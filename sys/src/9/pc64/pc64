@@ -78,6 +78,10 @@ ip
 port
 	int cpuserver = 0;
 
-# no bootdir: no boot file system (bootfs.paq, paqfs, bootrc); the kernel
-# mounts the root (plan9.ini root=, port/devgefs.c) and runs its init
-# (docs/init.md)
+# no boot file system (bootfs.paq, paqfs, bootrc); the kernel mounts the
+# root (plan9.ini root=, port/devgefs.c) and runs its init (docs/init.md).
+# In the image (/boot): MicroPython, the first user program with
+# init=/boot/mp -B, root or not, and its console (docs/mpinit.md)
+bootdir
+	/$objtype/bin/micropython	mp
+	/$objtype/bin/aux/kbdfs	kbdfs
