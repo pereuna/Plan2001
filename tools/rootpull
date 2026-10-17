@@ -1,0 +1,38 @@
+#!/bin/bash
+# git pull into the installed root from Linux (docs/selfhost.md), when the
+# machine's Plan2001 has no network: the root then only builds itself
+# (mk install, the kernel).  Fast-forward only; the binaries stay as they
+# are.  Then tools/git9, so that 9front's git reads the clone.
+#   tools/rootpull DIR             the root at DIR
+#   tools/rootpull -p DEV          the root on the ext4 file system DEV
+#                                  (sudo mount), e.g. /dev/nvme0n1p5
+#   -l                             from this repo's HEAD, not origin
+#                                  (GitHub): committed work, not pushed
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+dev= l=
+while [ $# -gt 0 ]; do
+	case $1 in
+	-l) l=1; shift;;
+	-p) dev=$2; shift 2;;
+	*) break;;
+	esac
+done
+if [ -n "$dev" ]; then
+	[ $# = 0 ] || { echo "usage: tools/rootpull [-l] DIR | [-l] -p DEV" >&2; exit 2; }
+	m=$(mktemp -d)
+	sudo mount "$dev" "$m"
+	trap 'sync; sudo umount "$m"; rmdir "$m"' EXIT
+	set -- "$m"
+fi
+[ $# = 1 ] || { echo "usage: tools/rootpull [-l] DIR | [-l] -p DEV" >&2; exit 2; }
+dir=$1
+old=$(git -C "$dir" rev-parse --short HEAD)
+if [ -n "$l" ]; then
+	git -C "$dir" pull -q --ff-only --no-tags "file://$root" HEAD
+else
+	git -C "$dir" pull -q --ff-only --no-tags
+fi
+"$here/git9" "$dir"
+echo "rootpull: ${dev:-$dir}: $old -> $(git -C "$dir" log -1 --format='%h %s')"
+git -C "$dir" diff --stat "$old" HEAD | tail -1

@@ -1,0 +1,16 @@
+#!/bin/bash
+# Make a Linux git clone readable by 9front's git, which reads neither
+# packed-refs nor git's index and mounts git/fs on .git/fs: loose refs,
+# .git/INDEX9 and the directories git/init makes.  gc.auto 0 keeps Linux's
+# git from packing the refs again.
+#   tools/git9 DIR             DIR the clone's work tree
+set -e
+[ $# = 1 ] || { echo "usage: tools/git9 DIR" >&2; exit 2; }
+cd "$1"
+git config gc.auto 0
+git for-each-ref --format='%(objectname) %(refname)' | while read -r h r; do
+	mkdir -p ".git/$(dirname "$r")"; echo "$h" > ".git/$r"
+done
+rm -f .git/packed-refs
+mkdir -p .git/fs .git/objects .git/refs/heads .git/refs/remotes
+git ls-files | sed 's/^/T NOQID 0 /' > .git/INDEX9
