@@ -1969,7 +1969,7 @@ threadmain(int argc, char** argv)
 	 * help bar and the text cursor, the boot log left as it is; serial
 	 * terminals ignore it.
 	 */
-	write(1, "\033[?2001h", 9);
+	write(1, "\033[?2001h", 8);
 
 	threadpostmountsrv(&fs, sname, mntpt, MBEFORE);
 	threadexits(0);
