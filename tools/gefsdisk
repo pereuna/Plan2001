@@ -14,7 +14,7 @@
 #                             without it the machine's screen and keyboard
 #   INIT=/init                plan9.ini init= (default the kernel's:
 #                             /$objtype/init -t)
-#   INI='k=v ...'             more plan9.ini lines
+#   INI='k=v;k=v'             more plan9.ini lines, ;-separated
 #   ESPDIR=EFI/BOOT           plan9.ini and the kernel in the loader's
 #                             directory, not the ESP's root (the loader
 #                             looks there first: as in another system's
@@ -39,7 +39,7 @@ rm -f "$esp"
 	[ -n "$CONSOLE" ] && printf 'console=%s\n' "$CONSOLE"
 	printf 'user=glenda\nroot=-w PARTUUID=%s\n' "$puuid"
 	[ -n "$INIT" ] && printf 'init=%s\n' "$INIT"
-	for l in $INI; do printf '%s\n' "$l"; done
+	if [ -n "$INI" ]; then printf '%s\n' "$INI" | tr ';' '\n' | grep .; fi
 } > "$out.ini"
 mformat -C -i "$esp" -T 131072 -h 64 -s 32 ::
 mmd -i "$esp" ::/EFI ::/EFI/BOOT

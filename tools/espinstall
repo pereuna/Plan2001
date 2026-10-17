@@ -3,8 +3,9 @@
 # the kernel and plan9.ini in ESP/EFI/plan2001 (the loader reads
 # plan9.ini from its own directory first), and with -g a GRUB menu entry
 # for it (/etc/grub.d/42_plan2001, then update-grub).  The root is the
-# kernel's (plan9.ini root=, devext4), init=/init (tools/ext4root's).
-#   sudo tools/espinstall [-g] ESP ROOT     e.g. /boot/efi '-w UUID=22bc...'
+# kernel's gefs (plan9.ini root=, devgefs), init=/init: a gefs partition
+# (tools/selfroot -p).
+#   sudo tools/espinstall [-g] ESP ROOT     e.g. /boot/efi '-w PARTUUID=6698...'
 #   CONSOLE=0                               plan9.ini console=0 too
 #   INI='tz=EET'                            more plan9.ini lines
 # Undo: rm -r ESP/EFI/plan2001 /etc/grub.d/42_plan2001; update-grub.

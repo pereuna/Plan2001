@@ -7,9 +7,10 @@
 # loose refs and the directories git/init makes.  Only committed work
 # goes in, and only HEAD's branch (no other branches nor tags).
 #   tools/selfroot DIR             DIR made anew
-#   tools/selfroot -p DEV          onto the ext4 file system DEV (sudo; its
-#                                  contents replaced, lost+found, label and
-#                                  UUID kept), e.g. /dev/nvme0n1p5
+#   tools/selfroot -p DEV          onto the partition DEV as a gefs root
+#                                  (tools/gefsroot, the size DEV's; sudo dd:
+#                                  its contents replaced, its PARTUUID kept),
+#                                  e.g. /dev/nvme0n1p5
 #   ORIGIN=URL                     origin (default the GitHub repo)
 # The owner of the files is the user running this: etc/group names uid
 # 1000 glenda.
@@ -35,11 +36,11 @@ mkdir -p tmp usr/glenda
 echo "selfroot: $out: $(git log -1 --format='%h %s'), $(du -sm "$objtype" | cut -f1) MiB of binaries"
 
 if [ -n "$dev" ]; then
-	m=$(mktemp -d)
-	sudo mount "$dev" "$m"
-	trap 'sudo umount "$m"; rmdir "$m"' EXIT
-	sudo find "$m" -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} +
-	sudo cp -a "$out/." "$m/"
-	sync
-	echo "selfroot: $dev: $(sudo du -sm "$m" | cut -f1) MiB"
+	findmnt -S "$dev" >/dev/null && { echo "selfroot: $dev is mounted" >&2; exit 1; }
+	img=$tbuild/selfroot.gefs
+	rm -f "$img"
+	"$here/gefsroot" "$out" "$img" $(( $(sudo blockdev --getsize64 "$dev") / 1048576 ))
+	sudo dd if="$img" of="$dev" bs=4M oflag=direct conv=fsync status=none
+	rm -f "$img"
+	echo "selfroot: $dev: gefs root, PARTUUID $(lsblk -no PARTUUID "$dev")"
 fi

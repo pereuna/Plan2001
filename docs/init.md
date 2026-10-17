@@ -14,22 +14,20 @@ UEFI → loader (bootx64.efi) → kernel → init0: rootmount → juuren init
 
 ```
 bootfile=/9pc64                          (tai /EFI/plan2001/9pc64)
-root=-w UUID=22bcb0cd-...                pakollinen
+root=-w PARTUUID=6698a508-...            pakollinen
 init=/init                               oletus: /amd64/init -t (cpu: -c)
 user=glenda                              hostowner
 console=0                                sarjakonsoli (initin kbdfs:lle)
 ```
 
-`root=`: `[-w] LAITE | UUID=uuid | LABEL=nimi | PARTUUID=guid [!/hakemisto]`.
-`-w` kirjoitettavaksi (muuten vain luku). UUID:n, labelin tai PARTUUID:n
-kernel etsii `#S`:n levyiltä: koko levy ja GPT:n osiot luettuna levyn
+`root=`: `[-w] PARTUUID=guid | LAITE [!puu]`. `-w` kirjoitettavaksi
+(muuten vain luku). Juuri on kernelin gefs (`docs/gefs.md`): osio, jonka
+superlohkossa on `gefs9.00`, AHCI-, NVMe- tai virtio-levyllä. PARTUUID:n
+kernel etsii `#S`:n levyiltä, eli jokaisen levyn GPT:n luettuna sen
 `data`-tiedostosta, joten osioita ei tarvitse asettaa (ei `diskparts`ia).
-`!/hakemisto` tekee hakemistosta juuren (Plan 9 -puu Linuxin ext4:ssä).
-Juuri on ext4 (`#E`, `docs/ext4.md`) tai gefs (`docs/gefs.md`) AHCI-,
-NVMe- tai virtio-levyllä; USB-levyt (nusb) ovat käyttäjätilaa, eivät
-juureksi. gefs-osio (superlohkossa `gefs9.00`) löytyy `PARTUUID=`:lla
-tai laitteena, ja `!puu` valitsee gefs:n puun (oletus `main`):
-`root=-w PARTUUID=guid` tai `root=-w #S/sdE0/data!adm`.
+`!puu` valitsee gefs:n puun (oletus `main`): `root=-w PARTUUID=guid` tai
+`root=-w #S/sdE0/data!adm`. USB-levyt (nusb) ovat käyttäjätilaa, eivät
+juureksi. ext4 ei ole enää kernelissä (17.10.2026).
 
 Loader lukee plan9.ini:n ensin omasta hakemistostaan, sitten ESP:n
 juuresta: toisen järjestelmän ESP:ssä `EFI/plan2001/` riittää
@@ -40,18 +38,25 @@ Ilman `root=`:a tai jos juuri ei mounttaudu kernel pysähtyy:
 
 ## Mitä kernel tekee ennen initiä
 
-`init0` (`pc64/main.c`) → `rootmount` (`port/devext4.c`):
+`init0` (`pc64/main.c`) → `rootmount` (`port/devgefs.c`):
 
 1. `user=` on hostowner (`eve`, `/dev/hostowner`) ja ensimmäisen prosessin
    käyttäjä, kuten factotum -u teki.
-2. Juuri mounttautuu `#E/root`:ksi, ja se sidotaan `/`:n eteen (MBEFORE):
+2. gefs käynnistyy kernelin kproceina osiolla, ja sen 9P-putken toinen pää
+   mounttautuu (`mntattach`, käyttäjänä hostowner) `/`:n eteen (MBEFORE):
    juuren `/rc`, `/amd64` jne.; `#/` antaa vain ne liitoskohdat, joita
    juuressa ei ole (`/dev`, `/env`, `/proc`, `/srv`, ...).
-3. Ympäristöön `rootdir=#E/root` (9frontin `/lib/namespace` sitoo sen:
-   `bind -a $rootdir /`), `cputype`, `service` (terminal tai cpu),
-   `terminal` sekä plan9.ini:n muuttujat.
-4. `#E/ctl` julkaistaan `/srv/ext4.root.cmd`:nä: 9frontin `fshalt` ajaa
-   juuren alas sen kautta (`halt`).
+3. Ympäristöön `cputype`, `service` (terminal tai cpu), `terminal` sekä
+   plan9.ini:n muuttujat. `rootdir`ia ei ole: juuri on mount, ei polku.
+4. `/srv/gefs.root` on juuren 9P (eve:n; muut puut: `mount /srv/gefs.root
+   /n/adm adm`) ja `/srv/gefs.root.cmd` gefs:n konsoli, jonka kautta
+   `fshalt` ajaa juuren alas (`halt`).
+
+Tiedostopalvelin tarkistaa oikeudet attachin käyttäjän mukaan, ja juuri
+on attachattu kerran hostownerina: kaikki sen nimiavaruuden perivät
+prosessit näkevät juuren hostownerin oikeuksin (kuten 9frontin
+terminaalissa). Toisen käyttäjän attach: `mount /srv/gefs.root ...`
+(hostownerin avaama fd).
 
 `initcode` sitoo `#c` → `/dev` (perään), `#d` → `/fd`, `#e` ja `#ec` →
 `/env`, `#p` → `/proc`, `#s` → `/srv`, `#σ` → `/shr`, avaa fd:t 0, 1 ja 2
@@ -79,16 +84,15 @@ ovat initin työtä (repon `init` tekee ne):
 
 Repon `init` (laitteet, kbdfs, aikavyöhyke plan9.ini:n `tz=`:sta,
 mntgen, verkko: ipconfig, cs, dns, webfs; `ip=none` ohittaa) ja
-testijuuren `/init` (`tools/ext4root`) ovat esimerkit. Jälkimmäinen: laitteet, kbdfs,
-`ktest` jos plan9.ini:ssä on `ktest=...`, sitten `/amd64/init -t`.
+`ktest` (plan9.ini `ktest=...`) on esimerkki.
 
 ## Alasajo
 
-`fshalt` (9frontin) kirjoittaa `halt` `/srv/ext4.root.cmd`:hen: välimuisti
-levylle, levyn kirjoitusvälimuisti tyhjäksi, journal kiinni, superlohko
-puhtaaksi; juuri on sen jälkeen vain luku. Reboot (`#c/reboot`) tekee
-saman. Ilman niitä data on levyllä viimeisimmän 5 s välein tehdyn syncin
-verran, ja seuraava mount toistaa journalin.
+`fshalt` kirjoittaa `halt` `/srv/gefs.root.cmd`:hen: gefs synkkaa
+(arenaotsakkeet, superlohkot, levyn kirjoitusvälimuisti tyhjäksi) ja jää
+vain luku -tilaan. Reboot (`#c/reboot`) tekee saman. Ilman niitä data on
+levyllä viimeisimmän 5 s välein tehdyn syncin verran, ja gefs palautuu
+siihen (`docs/gefs.md`).
 
 ## Mitä poistui (bootfs.paq)
 
@@ -99,7 +103,7 @@ ne ovat historiassa (commit ennen poistoa). Kernel pieneni 5 056 448:sta
 1 933 141 tavuun (size).
 
 Lakkasivat toimimasta tällä kernelillä, kunnes ne siirtyvät `root=`:aan
-ja ext4-juureen (Monolith): Monolithin CPU-VM (`tools/vm-cpu`), pilvikuva,
+ja gefs-juureen (Monolith): Monolithin CPU-VM (`tools/vm-cpu`), pilvikuva,
 asennin (`inst/bootsetup` kirjoittaa `bootargs=local!...`), tämän repon
 `tools/wgtest.sh` ja `tools/vm-install` (cwfs-juuri bootrc:n kautta).
 Käännös-VM (`tools/vm`, `tools/build.sh`) käyttää 9frontin omaa kerneliä

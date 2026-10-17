@@ -1,5 +1,5 @@
 # The kernel tests: the root's /init runs them when plan9.ini has
-# ktest=... (docs/ext4.md)
+# ktest=... (docs/gefs.md)
 </$objtype/mkfile
 
 TARG=ktest

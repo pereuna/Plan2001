@@ -163,7 +163,7 @@ init0(void)
 			ksetenv("service", "terminal", 0);
 		setconfenv();
 		/*
-		 * The root from plan9.ini root= (devext4): its init= or
+		 * The root from plan9.ini root= (devgefs): its init= or
 		 * /amd64/init.  There is no boot file system to fall back to.
 		 */
 		if(rootmount()){

@@ -33,7 +33,6 @@ dev
 	kbd
 	
 	segment
-	ext4
 	gefs
 
 link
@@ -80,5 +79,5 @@ port
 	int cpuserver = 0;
 
 # no bootdir: no boot file system (bootfs.paq, paqfs, bootrc); the kernel
-# mounts the root (plan9.ini root=, port/devext4.c) and runs its init
+# mounts the root (plan9.ini root=, port/devgefs.c) and runs its init
 # (docs/init.md)

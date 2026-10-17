@@ -46,12 +46,12 @@ on toisen puun mounttaus.
    kernelin kproceina. `fs.c` palvelee 9P:tä kuten käyttäjätilassa,
    mutta kernelin putken kautta, ja kernel mounttaa putken toisen pään
    juureksi (`mntattach`). Boot-tiedostojärjestelmää ei tarvita
-   (`docs/init.md`): `root=` löytää gefs-osion, kuten ext4:n nyt.
+   (`docs/init.md`): `root=` löytää gefs-osion.
 2. **Kernelin olio-API.** Suora rajapinta moottoriin (oma
    työntekijä-id, `mutlk` ja epoch, kuten `fs.c`:n `sync()`). Puu
    `kernel` ja ensimmäiset kernelin pysyvät oliot.
-3. **ext4 pois kernelistä**, kun gefs-juuri toimii raudalla (silli).
-   ext4 palaa palvelimeksi (9frontin ext4srv).
+3. **ext4 pois kernelistä** (tehty 17.10.2026): ext4 on käyttäjätilan
+   palvelin (9frontin ext4srv, Monolith), ja kernelin ainoa juuri on gefs.
 4. Myöhemmin: `secrets` ja salaus. Lisäksi ehkä loader, joka lukee
    kernelin gefs:stä.
 
@@ -121,7 +121,7 @@ eroaa upstreamista (`git diff e8f98ab -- sys/src/9/gefs`):
   (`retain` tarvitsee libc:n ajat) eikä liukulukuja (`status`).
   Trace-puskuri vain `gefstrace=MiB`:llä.
 - Levyn välimuisti tyhjennetään (SCSI synchronize cache, kuten
-  devext4) jokaisen `wrwait`in jälkeen: arenaotsakkeet, superlohkot ja
+  ext4:n aikanaan) jokaisen `wrwait`in jälkeen: arenaotsakkeet, superlohkot ja
   arenoiden loput menevät levylle tässä järjestyksessä.
 - Halt pysäyttää kirjoituksen (kprocit jäävät, vain luku). Kernelin
   shutdown (reboot) haltaa sweeperin kautta (ei vielä testattu).
@@ -155,13 +155,33 @@ käyttäjätilan gefs:ää (Linuxissa ei ole gefs:ää: juuri kopioidaan
 Plan2001:ssä), `rootdir` (Monolithin `/lib/namespace`), automaattiset
 snapshotit ja rebootin shutdown-halt.
 
+**Lyhennys (korjattu 17.10.2026, kumpaankin kopioon).** Upstreamin
+`AOclear` aloitti vapautuksen uudesta pituudesta (`d.length`) eikä
+seuraavasta lohkorajasta, joten yksikään lohkoavain ei osunut: lohkoja ei
+vapautettu, ja kasvatus näytti vanhan datan (ktest `fstrunc`). Lisäksi
+viimeisen osittaisen lohkon loppu jäi ennalleen. Nyt vapautus alkaa
+seuraavasta lohkosta, ja lyhennys nollaa viimeisen lohkon lopun (uusi
+lohko samassa upsertissa).
+
+**Avoin upstream-vika: nopea nimeäminen.** ktest `fsrename` (50
+tiedostoa nimetään wstat:lla edestakaisin 20 kertaa) kadottaa nimiä:
+walk ei löydä nimeä, jonka edellinen wstat antoi. Toistuu käyttäjätilan
+gefs:llä 9frontin kernelissä, myös upstreamin uusimmalla (HEAD
+`a411fb63c`, 16.10.2026); hitaampi `mv`-silmukka ei laukaise sitä.
+Selvittämättä.
+
+**Oikeudet:** gefs tarkistaa ne attachin käyttäjän mukaan (Plan 9:n
+tapa). Juuri on attachattu hostownerina, joten `none`ksi vaihtava
+prosessi käyttää yhä hostownerin mounttia; toinen käyttäjä mounttaa
+`/srv/gefs.root`:n itse (ktest `fsperm`). devext4 katsoi `up->user`:ia.
+
 ## Testit
 
-`tools/test-gefs.sh`: kolme bootia QEMU:ssa. (1) ext4-juuri reamaa
-toisen levyn gefs-osion omalla gefs:llään ja kopioi itsensä sinne,
-(2) kernelin gefs juurena (kirjoitus, käännös, check, snapshot,
-fshalt), (3) ext4-juuri tarkistaa osion (`gefs -c`) ja lukee boot 2:n
-tiedostot takaisin. `ONLY=2` ajaa bootit 2 ja 3 edellisen ajon
-levyillä uudella kernelillä (`INI=gefsdebug=1`). `BUILD=1` kääntää
-gefs-juuressa puun, kernelin ja loaderin, ja `CRASH=N` tappaa QEMU:n N
-kertaa kesken kirjoituksen. Tulossa: snapshotista käynnistys.
+`tools/test-gefs.sh`: `tools/gefsroot` tekee juurikuvan käännös-VM:ssä ja
+`tools/gefsdisk` levyn, joka bootataan QEMU:ssa: kirjoitus, käännös,
+check, snapshot, fshalt; lopuksi `tools/gefsck` tarkistaa osion VM:ssä
+käyttäjätilan gefs:llä ja lukee bootin tiedostot takaisin. `BUILD=1`
+kääntää gefs-juuressa puun, kernelin ja loaderin, `CRASH=N` tappaa
+QEMU:n N kertaa kesken kirjoituksen ja `KTEST=all` ajaa kernelin testit
+(`sys/src/cmd/ktest`, `-u` muulle tiedostopalvelimelle). Tulossa:
+snapshotista käynnistys.

@@ -61,7 +61,6 @@ OBJ=\
 	$PORT\
 
 LIB=\
-	ext4.a$O\
 	gefs.a$O\
 	/$objtype/lib/libmemlayer.a\
 	/$objtype/lib/libmemdraw.a\
@@ -76,7 +75,6 @@ LIB=\
 ETHER=`{cd ../pc; echo devether.c ether*.c | sed 's/\.c/.'$O'/g'}
 VGA=`{cd ../pc; echo devvga.c screen.c vga*.c | sed 's/\.c/.'$O'/g'}
 SDEV=`{cd ../pc; echo sd*.c | sed 's/\.c/.'$O'/g'}
-EXT4=`{cd ../ext4; echo *.c | sed 's/\.c/.'$O'/g'}
 GEFS=`{cd ../gefs; echo *.c | sed 's/([^ ]+)\.c/g_\1.'$O'/g'}
 
 $p$CONF:	$OBJ $CONF.$O $LIB
@@ -104,18 +102,6 @@ REPCH=`{echo $PCHEADERS | sed 's/\.h//g; s/ /|/g'}
 REPCC=`{../port/mkfilelist ../pc}
 ^($REPCC)\.$O:R:	'../pc/\1.c'
 	$CC $CFLAGS -I. -. ../pc/$stem1.c
-
-# lwext4 (../ext4) for devext4: the ANSI preprocessor (#pragma once,
-# variadic macros) and its headers
-REPEXT4=`{echo $EXT4 | sed 's/\.'$O'//g; s/ /|/g'}
-^($REPEXT4)\.$O:R:	'../ext4/\1.c' ../ext4/ext4_config.h
-	$CC $CFLAGS -p -I. -I../ext4 ../ext4/$stem1.c
-
-ext4.a$O:	$EXT4
-	ar vu $target $prereq
-
-devext4.$O:	../port/devext4.c ../ext4/ext4_config.h
-	$CC $CFLAGS -p -I. -I../ext4 ../port/devext4.c
 
 # gefs (../gefs) for devgefs, as g_*: its cache.c is not port's
 GEFSH=../gefs/gefs.h ../gefs/gdat.h ../gefs/gfns.h

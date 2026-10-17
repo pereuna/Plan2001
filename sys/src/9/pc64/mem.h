@@ -30,7 +30,7 @@
 
 #define	MAXMACH		128			/* max # cpus system can run */
 
-#define KSTACK		(16*KiB)		/* Size of Proc kernel stack: devext4's lwext4 and the device below it */
+#define KSTACK		(16*KiB)		/* Size of Proc kernel stack: gefs's kprocs and the device below them */
 
 /*
  * Time

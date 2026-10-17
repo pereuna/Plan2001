@@ -938,3 +938,15 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
 - Konsoli on yksi vierittyvä loki loaderista kehotteeseen. kbdfs ei
   tyhjennä ruutua (`ESC[?2001h` tuo ohjepalkin), joten juuren mountin
   rivit näkyvät.
+
+## ext4 pois kernelistä, vanhat ajurit pois (17.10.2026, haara `ext4-out`)
+
+- Kernelin ainoa juuri on gefs (`root=[-w] PARTUUID=|LAITE[!puu]`,
+  `port/devgefs.c`). devext4 ja lwext4 poistettu; ext4 on käyttäjätilan
+  palvelin (Monolithin ext4srv, lwext4-korjaukset `docs/ext4.md`).
+- Vanhentuneet ajurit pois: legacy virtio (blk, net), PCI SDHCI, Intel
+  8254x ja 10GbE, USB 1.1. Kernel 2 630 392 → 1 953 812 tavua.
+- Juurikuvat käännös-VM:ssä (`tools/gefsroot`, `gefsdisk`, `gefsck`);
+  `test-ext4.sh`, `ext4root` ja `rootpull` poistuivat.
+- ktest gefs-juurella: löysi upstreamin lyhennysvian (korjattu) ja
+  nopean nimeämisen vian (`fsrename`, avoin; myös upstreamin HEADissa).

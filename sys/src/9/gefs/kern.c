@@ -204,7 +204,7 @@ static struct {
 
 /*
  * libc's %r is an errstr system call: in the kernel it is up->errstr,
- * put into the format as text (as ext4glue.c's werrstr)
+ * put into the format as text
  */
 static void
 vfmtr(char *buf, int nbuf, char *fmt, va_list arg)
@@ -617,8 +617,9 @@ gdirfstat(int fd)
 /*
  * The disk's volatile write cache to the medium, after each wrwait in
  * gefs's sync (the arena heads, the superblocks, the arena tails):
- * SCSI's synchronize cache through #S's raw file, as devext4's
- * flushdev.  A failure is reported once.
+ * SCSI's synchronize cache through #S's raw file (the drivers make it
+ * ATA's flush cache, NVMe's flush, virtio's).  A failure is reported
+ * once.
  */
 void
 gflushdev(void)

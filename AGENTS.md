@@ -27,7 +27,7 @@ jakelu, pilvi ja wasm32 ovat Monolithissa).
 
 ## Puu
 
-- `sys/src/9/`: kernel (`port`, `pc`, `pc64`, `arm64`, `ip`, `ext4`).
+- `sys/src/9/`: kernel (`port`, `pc`, `pc64`, `arm64`, `ip`, `gefs`).
 - `sys/src/boot/efi/`: UEFI-loader.
 - `sys/include/bootinfo.h`: Boot ABI.
 - `sys/src/lib*`, `sys/src/cmd`: kirjastot ja komennot (`sys/src/mkfile`).
@@ -51,7 +51,8 @@ tools/build.sh           # puu, kernel ja loader VM:ssä -> build/$TARGET/ (WHAT
 tools/selfroot DIR|-p DEV  # juuri: HEADin klooni + build/$TARGET/root:n binäärit
 tools/test-selfroot.sh   # juuri QEMU:ssa: verkko, git/clone, mk install, kernel, fshalt
 tools/test-qemu.sh       # kernel init0:aan asti QEMU:ssa UEFI:llä (ei root=)
-tools/test-ext4.sh       # juuri #E:llä QEMU:ssa: RW=1, CRASH=1, KTEST=all (docs/ext4.md)
+tools/test-gefs.sh       # gefs-juuri QEMU:ssa: BUILD=1, CRASH=N, KTEST=all (docs/gefs.md)
+tools/gefsroot DIR OUT   # juuripuu gefs-kuvaksi käännös-VM:ssä (gefsdisk: levy, gefsck: tarkistus)
 tools/wgtest.sh          # WireGuard (#W) Linuxin wg:tä vastaan (Monolithin CPU-VM)
 tools/rccheck            # rc-skriptien jäsennys (PLAN9: plan9portin rc)
 ```
@@ -78,7 +79,7 @@ tools/rccheck            # rc-skriptien jäsennys (PLAN9: plan9portin rc)
 - Älä käytä `pkill -f`:ää komentorivillä, joka sisältää saman
   merkkijonon (tappaa oman kuoresi).
 - rc-komento bashista (`tools/9run`): bashin `'...'` syö rc:n
-  heittomerkit (`cat '#E/ctl'` → kommentti, cat jää lukemaan). Käytä
+  heittomerkit (`cat '#c/sysname'` → kommentti, cat jää lukemaan). Käytä
   bashin `"..."`.
 - 9frontin git ei lue `packed-refs`iä eikä Linuxin indeksiä:
   `tools/selfroot` kirjoittaa irtoviitteet ja `.git/INDEX9`.

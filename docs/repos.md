@@ -24,7 +24,7 @@ historiana ja sovellustasona. Plan2001:ssä ei ole pilven työkaluja.
   `sys/src/lib*` ja `sys/src/cmd` ovat työkaluketju ja kehitystyökalut
   (`tools/9front.import`), `init` juuren init.
 - `sys/src/9/`: kernel (`port`, `pc`, `pc64`, `arm64`, `ip`,
-  `ext4`). Boot-ympäristöä (bootfs.paq, bootrc, reimage) ei ole
+  `gefs`). Boot-ympäristöä (bootfs.paq, bootrc, reimage) ei ole
   16.10.2026 jälkeen: kernel mounttaa juuren ja ajaa sen initin
   (`docs/init.md`).
 - `sys/src/boot/efi/`: UEFI-loader.
