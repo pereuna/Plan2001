@@ -25,7 +25,8 @@ bin=$tbuild/root/$objtype
 [ -x "$bin/bin/rc" ] || { echo "selfroot: no $bin/bin (tools/build.sh)" >&2; exit 1; }
 
 rm -rf "$out"
-git clone -q --no-hardlinks --single-branch --no-tags "$root" "$out"
+# file://: a pack of what HEAD needs, not a copy of our packs
+git clone -q --single-branch --no-tags "file://$root" "$out"
 cd "$out"
 git remote set-url origin "$origin"
 # 9front git: loose refs (no packed-refs), its index
