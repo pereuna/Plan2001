@@ -163,12 +163,18 @@ viimeisen osittaisen lohkon loppu jäi ennalleen. Nyt vapautus alkaa
 seuraavasta lohkosta, ja lyhennys nollaa viimeisen lohkon lopun (uusi
 lohko samassa upsertissa).
 
-**Avoin upstream-vika: nopea nimeäminen.** ktest `fsrename` (50
-tiedostoa nimetään wstat:lla edestakaisin 20 kertaa) kadottaa nimiä:
-walk ei löydä nimeä, jonka edellinen wstat antoi. Toistuu käyttäjätilan
-gefs:llä 9frontin kernelissä, myös upstreamin uusimmalla (HEAD
-`a411fb63c`, 16.10.2026); hitaampi `mv`-silmukka ei laukaise sitä.
-Selvittämättä.
+**Nimeäminen (korjattu 17.10.2026, kumpaankin kopioon).** `fswstat`
+jätti nimeämisen jälkeen välimuistin Dentin `name`n osoittamaan wstat-
+viestin merkkijonoihin (`n.name = d.name`; `cpkey` päivitti vain
+avaimen). Jos sama Dent säilyi seuraavaan nimeämiseen (esim. fid auki
+tai kernelin viivästetty clunk), seuraava viesti ylikirjoitti puskurin.
+Silloin `strcmp(d.name, de->name)` vertasi uutta nimeä itseensä, ja gefs
+kuittasi nimeämisen tekemättä sitä: ktest `fsrename` kadotti nimiä
+ajoituksesta riippuen. Nyt `de->name` osoittaa aina Dentin omaan
+avaimeen (`de->buf + 11`, kuten `getdent`issä). Sama vika on upstreamin
+HEADissa (`a411fb63c`, siellä puskuri on pinossa). ktest `fsrenopen`
+pitää tiedoston auki 100 edestakaisen nimeämisen ajan, joten Dent pysyy
+varmasti; ilman korjausta se kaatuu toisessa nimeämisessä.
 
 **Oikeudet:** gefs tarkistaa ne attachin käyttäjän mukaan (Plan 9:n
 tapa). Juuri on attachattu hostownerina, joten `none`ksi vaihtava
@@ -183,5 +189,6 @@ check, snapshot, fshalt; lopuksi `tools/gefsck` tarkistaa osion VM:ssä
 käyttäjätilan gefs:llä ja lukee bootin tiedostot takaisin. `BUILD=1`
 kääntää gefs-juuressa puun, kernelin ja loaderin, `CRASH=N` tappaa
 QEMU:n N kertaa kesken kirjoituksen ja `KTEST=all` ajaa kernelin testit
-(`sys/src/cmd/ktest`, `-u` muulle tiedostopalvelimelle). Tulossa:
+(`sys/src/cmd/ktest`, `-u` muulle tiedostopalvelimelle) bootatussa
+järjestelmässä konsolin kautta (raudalla: `ktest all` kehotteessa). Tulossa:
 snapshotista käynnistys.
