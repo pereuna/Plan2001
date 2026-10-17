@@ -11,7 +11,8 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 [ $# = 2 ] || [ $# = 3 ] || { echo "usage: tools/gefsroot DIR OUT [MIB]" >&2; exit 2; }
-dir=$1 out=$2
+dir=$(realpath "$1") out=$(realpath -m "$2")
+cd "$root"	# tools/9run's default, build/vm
 [ -x "$dir/amd64/bin/gefs" ] || { echo "gefsroot: no $dir/amd64/bin/gefs (tools/selfroot)" >&2; exit 1; }
 mb=${3:-$(( $(du -sm "$dir" | cut -f1) + 1024 ))}
 b=$root/build
