@@ -929,3 +929,12 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   snapshot, fshalt) ja `gefs -c` puhdas jälkeenpäin.
 - Löytyi upstreamista: mountin viimeinen clunk ennen synciä hävitti
   puun kirjoitukset (korjattu kernelin kopiossa).
+- Kaatumistesti löysi upstreamista toisen vian: palautus katkaisi
+  allokointilokin vain muistissa, ja ensimmäinen sync vapautti jo vapaan
+  lohkon. Korjattu kumpaankin kopioon (`docs/gefs.md`). `test-gefs.sh`
+  `BUILD=1 CRASH=3` PASS: mk install, kernel ja loader gefs-juuressa.
+- Rauta: sillin p5 on gefs-juuri (17.10.2026), boot, kirjoitus ja
+  fshalt toimivat, ja `gefs -c` oli puhdas.
+- Konsoli on yksi vierittyvä loki loaderista kehotteeseen. kbdfs ei
+  tyhjennä ruutua (`ESC[?2001h` tuo ohjepalkin), joten juuren mountin
+  rivit näkyvät.

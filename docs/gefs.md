@@ -80,7 +80,7 @@ Muoto on täsmälleen upstreamin. Käyttäjätilan gefs (`sys/src/cmd/gefs`)
 reamaa ja tarkistaa saman osion, ja testit vertaavat kernelin
 kirjoittamaa siihen.
 
-## Tila (17.10.2026): vaihe 1 toimii QEMU:ssa
+## Tila (17.10.2026): vaihe 1 toimii QEMU:ssa ja raudalla
 
 `root=-w PARTUUID=...` gefs-osiolle: kernel lataa gefs:n, käynnistää sen
 kprocit (mutaattori, lukijat, sweeper, syncer, tasks, konsoli ja 9P),
@@ -88,6 +88,11 @@ mounttaa puun `main` juureksi ja ajaa sen `/init`in. Juuressa kirjoitus,
 32 Mt:n tiedosto, ohjelman käännös (`6c`, `6l`), adm-puun `status` ja
 `ctl` (`check`, `snap`) sekä `fshalt` toimivat. Käyttäjätilan `gefs -c`
 on puhdas jälkeenpäin, ja tiedostot luetaan sillä takaisin.
+
+Raudalla (silli, NVMe, 17.10.2026): gefs-juuri p5:llä (15 GiB,
+`root=-w PARTUUID=...`), osio rakennettu QEMU:ssa ja kirjoitettu
+`dd`:llä. Boot, kirjoitus ja `fshalt` toimivat, ja osion kopio oli
+`gefs -c`:llä puhdas jälkeenpäin.
 
 ```
 /srv/gefs.root        9P (eve): mount /srv/gefs.root /n/adm adm
@@ -113,8 +118,8 @@ eroaa upstreamista (`git diff e8f98ab -- sys/src/9/gefs`):
   `STATMAX` nimien kokoiseksi. Kernelin `NERR` on 64 (gefs:n
   `Estacksz`).
 - Ei 9P-authia (kernelin putki), ei automaattisia snapshotteja
-  (`retain` tarvitsee libc:n ajat), ei trace-puskuria, ei
-  liukulukuja (`status`).
+  (`retain` tarvitsee libc:n ajat) eikä liukulukuja (`status`).
+  Trace-puskuri vain `gefstrace=MiB`:llä.
 - Levyn välimuisti tyhjennetään (SCSI synchronize cache, kuten
   devext4) jokaisen `wrwait`in jälkeen: arenaotsakkeet, superlohkot ja
   arenoiden loput menevät levylle tässä järjestyksessä.
@@ -148,7 +153,7 @@ gefs:n trace-puskurin, jonka assert tulostaa lohkon osalta.
 Avoinna: arm64-kernelin konfiguraatio, gefs:n luonti ilman
 käyttäjätilan gefs:ää (Linuxissa ei ole gefs:ää: juuri kopioidaan
 Plan2001:ssä), `rootdir` (Monolithin `/lib/namespace`), automaattiset
-snapshotit, rebootin shutdown-halt ja rauta.
+snapshotit ja rebootin shutdown-halt.
 
 ## Testit
 

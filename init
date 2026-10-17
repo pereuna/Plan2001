@@ -22,7 +22,11 @@ a=()
 if(! ~ $#console 0)
 	a=/dev/eia^$console(1)
 aux/kbdfs -q -s cons $a
-echo init: / on `{cat '#E/ctl'}
+# the root: gefs (its 9P posted by the kernel) or ext4 (#E)
+if(test -e '#s/gefs.root')
+	echo init: / on gefs
+if not
+	echo init: / on `{cat '#E/ctl'}
 
 # /n and /mnt: a directory for each name used (/mnt/web: webfs)
 mntgen -s slashn /n
