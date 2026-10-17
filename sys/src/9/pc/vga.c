@@ -27,7 +27,7 @@ enum {
  * terminals ignore), the line editor's help bar and the text cursor.
  * A small ANSI subset - ESC[nC, ESC[nD, ESC[K, ESC[H, ESC[2J (ESC[..m is
  * ignored) - is what kbdfs's line editor uses; serial consoles understand
- * the same bytes natively.
+ * the same bytes natively.  \b moves left as on them, erasing nothing.
  */
 static Point curpos;
 static Rectangle window;	/* the current column's rectangle */
@@ -408,13 +408,8 @@ vgascreenputc(VGAscr* scr, char* buf, Rectangle *flushr)
 		break;
 
 	case '\b':
-		if(xp <= xbuf)
-			break;
-		xp--;
-		r = Rect(*xp, curpos.y, curpos.x, curpos.y+h);
-		memimagedraw(scr->gscreen, r, back, r.min, nil, ZP, S);
-		combinerect(flushr, r);
-		curpos.x = *xp;
+		/* as a terminal's: one cell left, nothing erased (ESC[D) */
+		curleft();
 		break;
 
 	case '\0':

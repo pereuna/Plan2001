@@ -93,8 +93,9 @@ cd /sys/src/boot/efi && mk bootx64.efi
 ## /init
 
 Repon `/init` (docs/init.md): laitteet, kbdfs konsoliksi, mntgen (`/n`,
-`/mnt`), verkko, jos on `ether0` (`ip/ipconfig` DHCP:llä tai plan9.ini
-`ip=...`, ndb/cs, ndb/dns -r, webfs; `ip=none` ohittaa), `ktest=...`,
+`/mnt`), verkko, jos plan9.ini pyytää ja on `ether0` (`ip=dhcp`:llä
+DHCP, `ip=...`:llä ipconfigin argumentit; ndb/cs, ndb/dns -r, webfs),
+`kbmap=`, `ktest=...`,
 sitten rc (`$home/lib/profile`, jos on).
 
 ## Seuraavaksi
