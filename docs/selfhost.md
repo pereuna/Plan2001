@@ -78,6 +78,10 @@ cd /sys/src/boot/efi && mk bootx64.efi
   binäärit `build/amd64/root`:sta, `/tmp` ja `/usr/glenda`.
 - `tools/selfroot -p /dev/nvme0n1p5`: sama osiolle (sudo); vanha sisältö
   pois, `lost+found`, label ja UUID säilyvät.
+- `tools/rootpull -p /dev/nvme0n1p5`: `git pull --ff-only` juureen
+  Linuxista, kun Plan2001:llä ei ole verkkoa (silli); `-l` tämän repon
+  HEADista (commitoitu, ei pushattu). Juuri kääntää sitten itsensä.
+  `tools/git9` pitää kloonin 9frontin gitille luettavana.
 - `tools/test-selfroot.sh`: juuri ext4-levynä QEMU:ssa virtio-verkolla
   (QEMU:n user-verkko): DHCP, DNS, `hget https://...`, `git/clone`
   GitHubista, `mk install` omilla työkaluilla, kernel ja loader, `fshalt`
