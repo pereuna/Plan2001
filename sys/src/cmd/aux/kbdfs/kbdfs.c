@@ -1964,12 +1964,12 @@ threadmain(int argc, char** argv)
 	user = getuser();
 
 	/*
-	 * Plan2001: we are the start of interactive use.  ESC[2J makes the
-	 * kernel console (sys/src/9/pc/vga.c) clear itself and switch from the
-	 * multi-column boot log to a full-width scrolling console with a help
-	 * bar; serial terminals just clear.
+	 * Plan2001: we are the start of interactive use.  ESC[?2001h makes
+	 * the kernel console (sys/src/9/pc/vga.c) show the line editor's
+	 * help bar and the text cursor, the boot log left as it is; serial
+	 * terminals ignore it.
 	 */
-	write(1, "\033[2J", 4);
+	write(1, "\033[?2001h", 9);
 
 	threadpostmountsrv(&fs, sname, mntpt, MBEFORE);
 	threadexits(0);

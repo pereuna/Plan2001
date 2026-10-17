@@ -16,28 +16,23 @@ static Memimage *conscol;
 static Memimage *back;
 
 enum {
-	Ncol	= 3,		/* the boot log is kept in columns, not scrolled
-				 * away, so more of it stays on screen at once -
-				 * see vgascroll() */
 	Maxrows	= 256,		/* text rows tracked for line wrapping */
 	Maxesc	= 512,
 };
 
 /*
- * Two console modes.  Boot log: Ncol columns, never scrolled.  Interactive:
- * one full-width column that really scrolls, entered by the first ESC[2J
- * (aux/kbdfs sends one when it starts, ie when the boot-time prompts begin),
- * with a help bar in the top strip.  Interactive mode understands a small
- * ANSI subset - ESC[nC, ESC[nD, ESC[K, ESC[H, ESC[2J (ESC[..m is ignored) -
- * which is what kbdfs's line editor uses; serial consoles understand the
- * same bytes natively.
+ * One full-width console that scrolls, from the loader's log on, as
+ * Linux's and the BSDs': nothing is cleared at boot.  The top strip is
+ * the boot markers' and, once aux/kbdfs starts (ESC[?2001h, which serial
+ * terminals ignore), the line editor's help bar and the text cursor.
+ * A small ANSI subset - ESC[nC, ESC[nD, ESC[K, ESC[H, ESC[2J (ESC[..m is
+ * ignored) - is what kbdfs's line editor uses; serial consoles understand
+ * the same bytes natively.
  */
 static Point curpos;
 static Rectangle window;	/* the current column's rectangle */
 static Rectangle fullwin;	/* the whole console area, across all columns */
-static int curcol;
-static int ncol = Ncol;
-static int interactive;
+static int interactive;	/* kbdfs runs: the help bar and the text cursor */
 static int cellw;		/* width of one character cell, for the column gutters */
 static int fonth;		/* font height */
 static int pendwrap;		/* just wrapped: cursor is at the start of an empty continuation row */
@@ -62,18 +57,14 @@ vgaimageinit(ulong)
 	back = memwhite;
 }
 
-/* the rectangle for column c (0..ncol-1) of fullwin */
+/* the text area: fullwin, a blank cell at the left edge */
 static Rectangle
-colrect(int c)
+textrect(void)
 {
-	int w;
 	Rectangle r;
 
-	w = Dx(fullwin)/ncol;
-	r.min.x = fullwin.min.x + c*w + cellw;	/* blank cell at the left edge of every column */
-	r.max.x = c == ncol-1? fullwin.max.x: fullwin.min.x + (c+1)*w;
-	r.min.y = fullwin.min.y;
-	r.max.y = fullwin.max.y;
+	r = fullwin;
+	r.min.x += cellw;
 	return r;
 }
 
@@ -100,11 +91,8 @@ markrow(int soft, int endx)
 }
 
 /*
- * The console's bottom is reached.  Boot log: move on to the next column
- * instead of scrolling this one away, so earlier output stays visible;
- * only once all ncol columns are full does this wrap back to column 0,
- * clearing the whole console area.  Interactive: really scroll, 8 rows at
- * a time, and leave the cursor at the start of the row after the last one.
+ * The console's bottom is reached: scroll, 8 rows at a time, and leave
+ * the cursor at the start of the row after the last one.
  */
 static void
 vgascroll(VGAscr* scr, Rectangle *flushr)
@@ -113,47 +101,30 @@ vgascroll(VGAscr* scr, Rectangle *flushr)
 	Rectangle r;
 	Point p;
 
-	if(interactive){
-		o = 8*fonth;
-		if(o >= Dy(window))
-			o = fonth;
-		r = Rpt(window.min, Pt(window.max.x, window.max.y-o));
-		p = Pt(window.min.x, window.min.y+o);
-		memimagedraw(scr->gscreen, r, scr->gscreen, p, nil, p, S);
-		r = Rpt(Pt(window.min.x, window.max.y-o), window.max);
-		memimagedraw(scr->gscreen, r, back, ZP, nil, ZP, S);
-		curpos.y = window.max.y - o;
-		n = o/fonth;
-		for(i = 0; i < Maxrows; i++){
-			softrow[i] = i+n < Maxrows? softrow[i+n]: 0;
-			rowend[i] = i+n < Maxrows? rowend[i+n]: 0;
-		}
-		combinerect(flushr, fullwin);
-		return;
+	o = 8*fonth;
+	if(o >= Dy(window))
+		o = fonth;
+	r = Rpt(window.min, Pt(window.max.x, window.max.y-o));
+	p = Pt(window.min.x, window.min.y+o);
+	memimagedraw(scr->gscreen, r, scr->gscreen, p, nil, p, S);
+	r = Rpt(Pt(window.min.x, window.max.y-o), window.max);
+	memimagedraw(scr->gscreen, r, back, ZP, nil, ZP, S);
+	curpos.y = window.max.y - o;
+	n = o/fonth;
+	for(i = 0; i < Maxrows; i++){
+		softrow[i] = i+n < Maxrows? softrow[i+n]: 0;
+		rowend[i] = i+n < Maxrows? rowend[i+n]: 0;
 	}
-	if(++curcol >= ncol){
-		curcol = 0;
-		memimagedraw(scr->gscreen, fullwin, back, ZP, nil, ZP, S);
-		combinerect(flushr, fullwin);	/* the whole area was actually
-						 * redrawn; a plain column
-						 * switch below redraws nothing
-						 * itself, so only the new
-						 * column's rect (added by the
-						 * caller) needs to flush */
-	}
-	window = colrect(curcol);
-	curpos = window.min;
+	combinerect(flushr, fullwin);
 }
 
 /* move to the start of the next row, scrolling / changing column if at the bottom */
 static void
 nextrow(VGAscr *scr, Rectangle *flushr)
 {
-	if(curpos.y+fonth >= window.max.y){
+	if(curpos.y+fonth >= window.max.y)
 		vgascroll(scr, flushr);
-		if(!interactive)
-			combinerect(flushr, window);
-	} else
+	else
 		curpos.y += fonth;
 	curpos.x = window.min.x;
 	markrow(0, 0);
@@ -230,23 +201,30 @@ eraseeol(VGAscr *scr, Rectangle *flushr)
 	}
 }
 
+/* the height of the top strip: the boot markers, or a text row if higher */
+static int
+barheight(void)
+{
+	int mh;
+
+	mh = bootmarkheight();
+	return mh > fonth? mh: fonth;
+}
+
 /*
- * ESC[2J: clear the console and switch to interactive mode - one
- * full-width scrolling column below a help bar in the top strip (markers
- * stay at its left end).
+ * ESC[?2001h, kbdfs's start: the help bar in the top strip (the markers
+ * stay at its left end) and the text cursor.  The text stays.
  */
 static void
-interactivemode(VGAscr *scr, Rectangle *flushr)
+helpbar(VGAscr *scr, Rectangle *flushr)
 {
-	int mh, barh, textx, i;
+	int mh, barh, textx;
 	Rectangle r;
 
 	mh = bootmarkheight();
-	barh = mh > fonth? mh: fonth;
+	barh = barheight();
 	textx = 100;			/* right of the marker squares */
-
 	interactive = 1;
-	ncol = 1;
 
 	r = scr->gscreen->r;
 	r.min.y = mh;
@@ -255,24 +233,19 @@ interactivemode(VGAscr *scr, Rectangle *flushr)
 	r = Rect(textx, scr->gscreen->r.min.y, scr->gscreen->r.max.x, barh);
 	memimagedraw(scr->gscreen, r, memblack, ZP, memopaque, ZP, S);
 	memimagestring(scr->gscreen, Pt(textx, (barh-fonth)/2), memwhite, ZP, scr->memdefont, helptext);
+	combinerect(flushr, Rect(scr->gscreen->r.min.x, 0, scr->gscreen->r.max.x, barh));
+}
 
-	r = scr->gscreen->r;
-	r.min.y = barh;
-	memimagedraw(scr->gscreen, r, back, ZP, memopaque, ZP, S);
-
-	fullwin = scr->gscreen->clipr;
-	fullwin.min.y = barh;
-	i = Dy(fullwin)/fonth - 1;	/* whole rows, last one left blank: see vgascreenwin() */
-	fullwin.max.y = fullwin.min.y + i*fonth;
-	fullwin.max.x -= cellw;
-
-	curcol = 0;
-	window = colrect(0);
+/* ESC[2J: clear the text area, the cursor to its top */
+static void
+clearscreen(VGAscr *scr, Rectangle *flushr)
+{
+	memimagedraw(scr->gscreen, fullwin, back, ZP, memopaque, ZP, S);
 	curpos = window.min;
 	xp = xbuf;
 	pendwrap = 0;
 	memset(softrow, 0, sizeof softrow);
-	combinerect(flushr, scr->gscreen->r);
+	combinerect(flushr, fullwin);
 }
 
 /*
@@ -328,7 +301,11 @@ escfeed(VGAscr *scr, int c, Rectangle *flushr)
 		break;
 	case 'J':
 		if(eschave && escn == 2)
-			interactivemode(scr, flushr);
+			clearscreen(scr, flushr);
+		break;
+	case 'h':
+		if(eschave && escn == 2001)
+			helpbar(scr, flushr);
 		break;
 	}
 	return 1;
@@ -458,11 +435,10 @@ vgascreenputc(VGAscr* scr, char* buf, Rectangle *flushr)
 		curpos.x += w;
 		pendwrap = 0;
 		/*
-		 * Interactive mode wraps as soon as the row is full, not on the
-		 * next character, so the cursor position is never ambiguous
+		 * Wrap as soon as the row is full, not on the next character, so the cursor position is never ambiguous
 		 * between the end of a row and the start of the next.
 		 */
-		if(interactive && curpos.x >= window.max.x-w)
+		if(curpos.x >= window.max.x-w)
 			wrapline(scr, flushr);
 	}
 }
@@ -536,7 +512,6 @@ vgascreenwin(VGAscr* scr)
 	cell = memsubfontwidth(scr->memdefont, " ");
 	cellw = cell.x;
 	fonth = h;
-	ncol = Ncol;
 	interactive = 0;
 	curvis = 0;
 	if(cursave == nil)
@@ -548,7 +523,7 @@ vgascreenwin(VGAscr* scr)
 	memimagedraw(scr->gscreen, r, back, ZP, memopaque, ZP, S);
 
 	fullwin = scr->gscreen->clipr;
-	fullwin.min.y += mh;
+	fullwin.min.y = barheight();	/* the strip for the markers and the help bar */
 
 	/*
 	 * Whole text rows only, and one of them left blank at the bottom: the
@@ -561,8 +536,7 @@ vgascreenwin(VGAscr* scr)
 	fullwin.max.y = fullwin.min.y + rows*h;
 	fullwin.max.x -= cellw;
 
-	curcol = 0;
-	window = colrect(curcol);
+	window = textrect();
 	curpos = window.min;
 
 	flushmemscreen(scr->gscreen->r);
