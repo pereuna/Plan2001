@@ -166,3 +166,27 @@ Fix (Plan2001 9947779; its earlier history is in pereuna/Plan2001-history): send
 
 	e = qcmd(&ws, ctlr, 0, 0x00, ctlr->nsid[u->subno], nil, 0);
 	checkstatus(wcmd(&ws, e), "flush");
+
+### cc: a static initializer of a flexible array member changes the struct
+
+`/sys/src/cmd/cc/dcl.c:492` (init1, TARRAY). A flexible array member
+(`T a[];`, width 0) initialized in a static declaration gets
+`t->width = mw+w` set on the member's type, which is the struct's own
+member: the struct type is changed for every later use. The next
+static initializer of the same struct type with more elements stops
+at the new width ("more initializers than structure"); one with fewer
+or the same compiles, but the symbol's size is still the struct's
+without the array, so the linker refuses the data past it
+("initialize bounds"), or with only one such initializer the array
+silently runs past the symbol.
+
+Repeat:
+
+	struct S { int n; int a[]; };
+	struct S x = { 1, { 1, 2 } };
+	struct S y = { 2, { 1, 2, 3 } };	/* more initializers than structure: y */
+
+Found porting MicroPython (its type objects and qstr pools are such
+structs). Not fixed in Plan2001 yet: the port sizes the arrays instead.
+The fix is for init1 to work on a copy of the member type and to give
+the symbol a copy of the struct type widened by the array.

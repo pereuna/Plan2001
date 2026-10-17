@@ -670,6 +670,13 @@ arith(Node *n, int f)
 	j = TXXX;
 	if(t2 != T)
 		j = t2->etype;
+	if(debug['u']) {
+		/* ANSI C's integer promotions: int holds all of these */
+		if(i >= TCHAR && i < TINT)
+			i = TINT;
+		if(j >= TCHAR && j < TINT)
+			j = TINT;
+	}
 	k = tab[i][j];
 	if(k == TIND) {
 		if(i == TIND)
