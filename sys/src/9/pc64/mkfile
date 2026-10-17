@@ -137,12 +137,12 @@ $VGA mouse.$O:			screen.h /sys/include/memdraw.h
 mp.$O:				mp.h apbootstrap.i
 apic.$O squidboy.$O archacpi.$O:	mp.h
 
-$SDEV pmmc.$O:			../port/sd.h
+$SDEV:			../port/sd.h
 sdiahci.$O:			ahci.h
 sdvirtio10.$O:			../port/virtio10.h
 main.$O:			rebootcode.i
 
-devusb.$O usbuhci.$O usbohci.$O usbehci.$O usbehcipc.$O usbxhci.$O: ../port/usb.h
+devusb.$O usbehci.$O usbehcipc.$O usbxhci.$O: ../port/usb.h
 usbehci.$O usbehcipc.$O:	usbehci.h
 
 trap.$O main.$O:		/sys/include/tos.h
@@ -150,7 +150,6 @@ trap.$O main.$O:		/sys/include/tos.h
 ether8169.$O:			../port/ethermii.h
 ether82563.$O:			../port/ethermii.h
 etheri225.$O:			../port/ethermii.h
-etherigbe.$O:			../port/ethermii.h
 
 
 ethervirtio10.$O:		../port/virtio10.h

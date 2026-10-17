@@ -85,8 +85,8 @@ boot() {
 	"$qemu" -name plan2001-gefs -nodefaults "${qemuargs[@]}" -m "${MEM:-2048}" -smp "${SMP:-2}" \
 		-drive if=pflash,format=raw,readonly=on,file="$fwcode" \
 		-drive if=pflash,format=raw,file="$vm/vars.fd" \
-		-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci,drive=d0,bootindex=0 \
-		-drive file="$gdisk",format=raw,if=none,id=d1 -device virtio-blk-pci,drive=d1 \
+		-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci-non-transitional,drive=d0,bootindex=0 \
+		-drive file="$gdisk",format=raw,if=none,id=d1 -device virtio-blk-pci-non-transitional,drive=d1 \
 		-nic none -display none \
 		-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 		2>"$vm/qemu.log" &

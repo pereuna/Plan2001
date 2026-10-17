@@ -34,8 +34,8 @@ cp "$fwvars" "$vm/vars.fd"
 "$qemu" -name plan2001-selfroot -nodefaults "${qemuargs[@]}" -m "${MEM:-4096}" -smp "${SMP:-4}" \
 	-drive if=pflash,format=raw,readonly=on,file="$fwcode" \
 	-drive if=pflash,format=raw,file="$vm/vars.fd" \
-	-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci,drive=d0,bootindex=0 \
-	-nic user,model=virtio-net-pci -display none \
+	-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci-non-transitional,drive=d0,bootindex=0 \
+	-nic user,model=virtio-net-pci-non-transitional -display none \
 	-chardev socket,id=ser,path="$vm/serial.sock",server=on,wait=off -serial chardev:ser \
 	2>"$vm/qemu.log" &
 q=$!

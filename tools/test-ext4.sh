@@ -66,7 +66,7 @@ boot() {
 	cp "$fwvars" "$b/test-vars.fd"
 	case ${DISK:-ahci} in
 	ahci)	dev=(-drive file="$disk",format=raw,if=none,id=d0 -device ide-hd,drive=d0,bootindex=0) ;;
-	virtio)	dev=(-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci,drive=d0,bootindex=0) ;;
+	virtio)	dev=(-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci-non-transitional,drive=d0,bootindex=0) ;;
 	nvme)	dev=(-drive file="$disk",format=raw,if=none,id=d0 -device nvme,serial=plan2001,drive=d0,bootindex=0) ;;
 	usb)	dev=(-device qemu-xhci,id=xhci -drive file="$disk",format=raw,if=none,id=d0
 		     -device usb-storage,bus=xhci.0,drive=d0,bootindex=0) ;;
