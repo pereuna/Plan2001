@@ -1,0 +1,38 @@
+#!/bin/bash
+# Adds MicroPython's files that tools/micropython.import names to
+# sys/src/cmd/micropython, from a checkout of its release (MICROPYTHON,
+# default ~/plan9mp/micropython; tools/micropython.import names the commit).
+# A file the repo already has is Plan2001's own and stays as it is: this
+# only adds.
+#   tools/importmp        then git add -A and commit, naming the release
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+src=${MICROPYTHON:-$HOME/plan9mp/micropython}
+dst=$root/sys/src/cmd/micropython
+want=$(sed -n 's/.*commit \([0-9a-f]\{40\}\).*/\1/p' "$here/micropython.import" | sed 1q)
+have=$(git -C "$src" rev-parse HEAD)
+[ "$have" = "$want" ] || { echo "importmp: $src is at $have, not $want" >&2; exit 1; }
+[ -z "$(git -C "$src" status --porcelain)" ] || { echo "importmp: $src has local changes" >&2; exit 1; }
+paths=() skip=()
+while read -r l; do
+	l=${l%%#*}; l=${l%"${l##*[![:space:]]}"}
+	case $l in
+	'') ;;
+	!*) skip+=("${l#!}") ;;
+	*) paths+=("$l") ;;
+	esac
+done < "$here/micropython.import"
+n=0
+for p in "${paths[@]}"; do
+	while read -r f; do
+		f=${f#"$src"/}
+		for s in "${skip[@]}"; do
+			case $f in "$s"|"$s"/*) continue 2 ;; esac
+		done
+		[ -e "$dst/$f" ] && continue
+		mkdir -p "$dst/$(dirname "$f")"
+		cp "$src/$f" "$dst/$f"; chmod 664 "$dst/$f"
+		n=$((n+1))
+	done < <(find "$src/$p" -type f)
+done
+echo "importmp: $n files added to sys/src/cmd/micropython"
