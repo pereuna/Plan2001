@@ -22,7 +22,9 @@ Muutokset tähän mennessä: UEFI-boot-polku ilman kiinteitä osoitteita,
 BootInfo, boot-merkit framebufferiin, konsoli (`vga.c`, `kbdfs`:n
 rivieditori), virtio-levy, WireGuard (`devwg`, `docs/wireguard.md`) ja
 ext4-juuri kernelissä (`#E`, `docs/ext4.md`): kernel mounttaa juuren ja
-ajaa sen initin ilman boot-tiedostojärjestelmää (`docs/init.md`). Tila:
+ajaa sen initin ilman boot-tiedostojärjestelmää (`docs/init.md`). gefs on
+kernelin pysyvä tallennin (`docs/gefs.md`): ensimmäisenä gefs-juuri
+kernelin kproceina, ja ext4 palaa myöhemmin palvelimeksi. Tila:
 `docs/status.md`.
 
 Terminaalit ja sovellukset ovat verkkokoneita ja käyttäjätasoa: ne

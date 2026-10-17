@@ -785,6 +785,13 @@ scandisks(char *want, char *dev, int ndev, vlong *off, vlong *size)
 	return found;
 }
 
+/* scandisks for gefs's root (devgefs.c): PARTUUID= */
+int
+rootdisk(char *want, char *dev, int ndev, vlong *off, vlong *size)
+{
+	return scandisks(want, dev, ndev, off, size);
+}
+
 /* the owners' names, from the root's etc/group (name:x:id:...), as ext4srv */
 static void
 loadusers(Ext *fs)
@@ -842,6 +849,7 @@ fsfree(Ext *fs)
 	free(fs);
 }
 
+int gefsroot(char*, int);
 static void syncproc(void*);
 static void unpost(char*);
 static char *rawfile(char*);
@@ -1369,6 +1377,11 @@ rootmount(void)
 	if(waserror()){
 		print("root=%s: %s\n", s, up->errstr);
 		return 0;
+	}
+	/* a gefs partition: its tree before / (devgefs.c) */
+	if(gefsroot(strncmp(s, "-w ", 3) == 0 ? s+3 : s, strncmp(s, "-w ", 3) == 0)){
+		poperror();
+		return 1;
 	}
 	ctlwrite(cmd, strlen(cmd));
 	c0 = namec("#E/root", Abind, 0, 0);

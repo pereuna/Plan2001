@@ -24,6 +24,7 @@ LIBS=\
 	libmemlayer\
 	libaml\
 	libfis\
+	libavl\
 
 CMDS=cmd
 

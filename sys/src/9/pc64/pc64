@@ -34,6 +34,7 @@ dev
 	
 	segment
 	ext4
+	gefs
 
 link
 	cputemp		pci

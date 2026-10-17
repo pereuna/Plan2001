@@ -25,8 +25,11 @@ console=0                                sarjakonsoli (initin kbdfs:lle)
 kernel etsii `#S`:n levyiltä: koko levy ja GPT:n osiot luettuna levyn
 `data`-tiedostosta, joten osioita ei tarvitse asettaa (ei `diskparts`ia).
 `!/hakemisto` tekee hakemistosta juuren (Plan 9 -puu Linuxin ext4:ssä).
-Juuri on ext4 (`#E`, `docs/ext4.md`) AHCI-, NVMe- tai virtio-levyllä;
-USB-levyt (nusb) ovat käyttäjätilaa, eivät juureksi.
+Juuri on ext4 (`#E`, `docs/ext4.md`) tai gefs (`docs/gefs.md`) AHCI-,
+NVMe- tai virtio-levyllä; USB-levyt (nusb) ovat käyttäjätilaa, eivät
+juureksi. gefs-osio (superlohkossa `gefs9.00`) löytyy `PARTUUID=`:lla
+tai laitteena, ja `!puu` valitsee gefs:n puun (oletus `main`):
+`root=-w PARTUUID=guid` tai `root=-w #S/sdE0/data!adm`.
 
 Loader lukee plan9.ini:n ensin omasta hakemistostaan, sitten ESP:n
 juuresta: toisen järjestelmän ESP:ssä `EFI/plan2001/` riittää

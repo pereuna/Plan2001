@@ -1,6 +1,7 @@
 #!/bin/rc
 # fshalt [-r [kernel]] - sync (flush) and halt the ext4 file systems (#E:
-#	/srv/ext4*cmd, the root's too) and optionally reboot
+#	/srv/ext4*cmd, the root's too) and gefs (/srv/gefs*cmd) and optionally
+#	reboot
 rfork en
 reboot=no
 bootf=()
@@ -24,7 +25,7 @@ builtin cd /
 bind -c '#s' /srv
 bind '#p' /proc
 
-e=`{ls /srv/ext4*cmd >[2]/dev/null}
+e=`{ls /srv/ext4*cmd /srv/gefs*cmd >[2]/dev/null}
 s=`{awk '/^sd./ {print substr($1,3,1)}' '#S/sdctl' >[2]/dev/null}
 
 # halting (binaries we run can't be on the fs we're halting)
