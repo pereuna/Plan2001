@@ -948,5 +948,6 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   8254x ja 10GbE, USB 1.1. Kernel 2 630 392 → 1 953 812 tavua.
 - Juurikuvat käännös-VM:ssä (`tools/gefsroot`, `gefsdisk`, `gefsck`);
   `test-ext4.sh`, `ext4root` ja `rootpull` poistuivat.
-- ktest gefs-juurella: löysi upstreamin lyhennysvian (korjattu) ja
-  nopean nimeämisen vian (`fsrename`, avoin; myös upstreamin HEADissa).
+- ktest gefs-juurella: löysi upstreamin lyhennysvian ja nimeämisvian
+  (Dentin nimi osoitti wstat-viestin puskuriin; myös upstreamin
+  HEADissa), molemmat korjattu. ktest 30/30.

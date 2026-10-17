@@ -397,6 +397,43 @@ fsrename(void)
 	rmtree(path("ren"));
 }
 
+/*
+ * renames of a file held open: its dent (the file server's) stays
+ * cached across them, so a stale name in it shows (gefs answered such
+ * a rename done without doing it)
+ */
+void
+fsrenopen(void)
+{
+	Dir nd;
+	int fd, k;
+	char *a, *b, *f, *t;
+
+	mkdirp(path("renopen"));
+	a = strdup(path("renopen/a"));
+	b = strdup(path("renopen/b"));
+	writefile(a, 7, 5000);
+	if((fd = open(a, OREAD)) < 0)
+		fail("open: %r");
+	for(k = 0; k < 100; k++){
+		f = k%2 ? b : a;
+		t = k%2 ? a : b;
+		nulldir(&nd);
+		nd.name = strrchr(t, '/')+1;
+		if(dirwstat(f, &nd) < 0)
+			fail("rename %d: %r", k);
+		if(access(t, AEXIST) < 0)
+			fail("rename %d done, but %s: %r", k, t);
+		if(access(f, AEXIST) == 0)
+			fail("rename %d done, but %s still there", k, f);
+	}
+	close(fd);
+	checkfile(a, 7, 5000);
+	rmtree(path("renopen"));
+	free(a);
+	free(b);
+}
+
 void
 concw(int k)
 {
@@ -1285,6 +1322,7 @@ Test tests[] = {
 	"fsmany",	"fs",	fsmany,
 	"fsdeep",	"fs",	fsdeep,
 	"fsrename",	"fs",	fsrename,
+	"fsrenopen",	"fs",	fsrenopen,
 	"fsconc",	"fs",	fsconc,
 	"fssparse",	"fs",	fssparse,
 	"fsappend",	"fs",	fsappend,

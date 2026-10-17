@@ -1678,6 +1678,14 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 	de->Xdir = n;
 	if(rename)
 		cpkey(de, &k, de->buf, sizeof(de->buf));
+	/*
+	 * Plan2001: the name in the dent's own key, as getdent has it, not
+	 * n.name: after a rename that points into this message's stat
+	 * strings, gone (or the next wstat's) by the next rename of the
+	 * cached dent, which then compared the new name with itself and
+	 * answered the rename done without doing it
+	 */
+	de->name = de->buf + 11;
 
 	r.type = Rwstat;
 	respond(m, &r);
