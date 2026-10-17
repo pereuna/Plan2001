@@ -126,7 +126,7 @@ eroaa upstreamista (`git diff e8f98ab -- sys/src/9/gefs`):
 - Halt pysäyttää kirjoituksen (kprocit jäävät, vain luku). Kernelin
   shutdown (reboot) haltaa sweeperin kautta (ei vielä testattu).
 
-Upstreamin vikoja, jotka löytyivät (korjattu vain kernelin kopiossa):
+Upstreamin vikoja, jotka löytyivät (kaikki kootaan 9frontille `docs/bugs_to_9front.md`:hen; korjattu vain kernelin kopiossa):
 - Mountin viimeisen fidin sulkeminen (`clunkmount`) pudotti puun
   listasta ennen synciä, joten sen kirjoitukset viimeisen syncin
   jälkeen katosivat (unmount ja halt alle 5 s:ssa: koko kopio pois).
