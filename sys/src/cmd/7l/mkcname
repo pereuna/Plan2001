@@ -1,0 +1,13 @@
+# cnam.c: the operand classes' names, from the C_ enum of l.h
+{
+	echo 'char	*cnames[] ='
+	echo '{'
+	sed -n '/^	C_/{
+		s/^	C_NCLASS/&,/
+		s/[ 	]*=.*,/,/
+		s/^	C_/	"/
+		s/,.*$/",/
+		p
+	}' l.h
+	echo '};'
+} >cnam.c

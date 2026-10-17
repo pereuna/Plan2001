@@ -1,0 +1,51 @@
+</$objtype/mkfile
+
+LIB=/$objtype/lib/libc.a
+
+OFILES=\
+	runenorm.$O\
+	runetotype.$O\
+	runeistype.$O\
+	runebreak.$O\
+
+CLEANFILES=$OFILES
+
+HFILES=/sys/include/libc.h
+
+</sys/src/cmd/mksyslib
+
+DATA=\
+	runenormdata\
+	runetotypedata\
+	runeistypedata\
+	runebreakdata\
+
+runenorm.$O: runenormdata
+runetotype.$O: runetotypedata
+runeistype.$O: runeistypedata
+runebreak.$O: runebreakdata
+
+UCD=\
+	/lib/ucd/CompositionExclusions.txt\
+	/lib/ucd/DerivedNormalizationProps.txt\
+	/lib/ucd/GraphemeBreakProperty.txt\
+	/lib/ucd/UnicodeData.txt\
+	/lib/ucd/WordBreakProperty.txt\
+	/lib/ucd/emoji-data.txt\
+
+# the tables are in the tree: mk ucd makes them again from Unicode's
+# data (9front's /lib/ucd, not Plan2001's), not a checkout's dates
+$DATA:
+	@{
+		eval `{grep '^[A-Z]' /$cputype/mkfile}
+		$CC $CFLAGS -o mkrunetype.$O mkrunetype.c
+		$LD $LDFLAGS -o $O.mkrunetype mkrunetype.$O
+		./$O.mkrunetype
+	}
+
+ucd:V:	$UCD
+	rm -f $DATA
+	mk $DATA
+
+nuke:V:
+	rm -f $CLEANFILES $DATA [$OS].mkrunetype mkrunetype.[$OS]

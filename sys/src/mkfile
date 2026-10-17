@@ -1,0 +1,49 @@
+</$objtype/mkfile
+
+# Plan2001's tree: the libraries first (the kernel's, the toolchain's and
+# the commands'), then the commands; the kernel and the loader separately
+# (mk kernels).  What is here: tools/9front.import, docs/selfhost.md.
+LIBS=\
+	libc\
+	libbio\
+	libstdio\
+	libString\
+	libregexp\
+	libmach\
+	libmp\
+	libsec\
+	libflate\
+	libauthsrv\
+	libauth\
+	libndb\
+	libip\
+	libthread\
+	lib9p\
+	libdraw\
+	libmemdraw\
+	libmemlayer\
+	libaml\
+	libfis\
+
+CMDS=cmd
+
+none:VQ:
+	echo mk all, install, clean, nuke, kernels, or libs
+
+all install clean nuke:VQ:
+	date
+	for (i in $LIBS $CMDS) @{
+		cd $i
+		mk $target
+	}
+	date
+
+kernels:V:
+	@{cd 9/pc64 && mk}
+	@{cd boot/efi && mk bootx64.efi}
+
+libs:V:
+	for (i in $LIBS) @{
+		cd $i
+		mk install
+	}

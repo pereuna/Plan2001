@@ -1,0 +1,514 @@
+#include <u.h>
+#include <a.out.h>
+#include "fns.h"
+#include "mem.h"
+
+#define ROUNDUP(x, n)	(((x) + (n)-1) & ~((uintptr)(n)-1))
+
+char hex[] = "0123456789abcdef";
+
+void
+tracehex(char *label, uvlong value)
+{
+	char buf[96], *p;
+	int n;
+
+	p = buf;
+	n = strlen(label);
+	memmove(p, label, n);
+	p += n;
+	p = hexfmt(p, 0, value);
+	*p++ = '\n';
+	*p = '\0';
+	print(buf);
+}
+
+/*
+ * Capture buffer for print()'s own text: the BootInfo blob's log section,
+ * set up by efimain() (efi.c) before anything is printed.  Text past
+ * logcap is not captured, only shown.
+ */
+char *logbuf;
+int logcap;
+int logused;
+
+void
+print(char *s)
+{
+	while(*s != 0){
+		if(logbuf != nil && logused < logcap)
+			logbuf[logused++] = *s;
+		if(*s == '\n')
+			putc('\r');
+		putc(*s++);
+	}
+}
+
+int
+readn(void *f, void *data, int len)
+{
+	uchar *p, *e;
+
+	p = data;
+	e = p + len;
+	while(p < e){
+		if((len = read(f, p, e - p)) <= 0)
+			break;
+		p += len;
+	}
+
+	return p - (uchar*)data;
+}
+
+void
+memmove(void *dst, void *src, int n)
+{
+	uchar *d = dst;
+	uchar *s = src;
+
+	if(d < s){
+		while(n-- > 0)
+			*d++ = *s++;
+	} else if(d > s){
+		s += n;
+		d += n;
+		while(n-- > 0)
+			*--d = *--s;
+	}
+}
+
+int
+memcmp(void *src, void *dst, int n)
+{
+	uchar *d = dst;
+	uchar *s = src;
+	int r = 0;
+
+	while(n-- > 0){
+		r = *d++ - *s++;
+		if(r != 0)
+			break;
+	}
+
+	return r;
+}
+
+int
+strlen(char *s)
+{
+	char *p = s;
+
+	while(*p != '\0')
+		p++;
+
+	return p - s;
+}
+
+char*
+strchr(char *s, int c)
+{
+	for(; *s != 0; s++)
+		if(*s == c)
+			return s;
+
+	return nil;
+}
+
+void
+memset(void *dst, int v, int n)
+{
+	uchar *d = dst;
+
+	while(n > 0){
+		*d++ = v;
+		n--;
+	}
+}
+
+/*
+ * Reads one line into buf, at most max bytes including the terminating nul.
+ * Returns the line length, 0 on eof/no more input, -1 if the line does not
+ * fit (nothing is written past buf+max in that case).  max<=0 always
+ * returns -1 without touching *buf.
+ */
+static int
+readline(void *f, char *buf, int max)
+{
+	static char white[] = "\t ";
+	char *p, *e;
+
+	e = buf + max - 1;	/* leave room for the nul */
+	p = buf;
+	do{
+		if(f == nil)
+			putc('>');
+		for(;;){
+			if(p >= e)
+				return -1;
+			if(f == nil){
+				while((*p = getc()) == 0)
+					;
+				if(p == buf && (*p == '\b' || strchr(white, *p) != nil))
+					continue;
+				putc(*p);
+				if(*p == '\r')
+					putc('\n');
+				else if(*p == '\b'){
+					p--;
+					putc(' ');
+					putc('\b');
+					continue;
+				}
+			}else if(read(f, p, 1) <= 0)
+				return 0;
+			if(strchr("\r\n", *p) != nil)
+				break;
+			if(p == buf && strchr(white, *p) != nil)
+				continue;	/* whitespace on start of line */
+			p++;
+		}
+		while(p > buf && strchr(white, p[-1]))
+			p--;
+	}while(p == buf);
+	*p = 0;
+
+	return p - buf;
+}
+
+static int
+timeout(int ms)
+{
+	while(ms > 0){
+		if(getc() != 0)
+			return 1;
+		usleep(100000);
+		ms -= 100;
+	}
+	return 0;
+}
+
+/* the plan9.ini text: the BootInfo blob's config section (efi.c) */
+#define CONF	confaddr
+#define	CONFLEN	(8*1024)	/* efi.c's ConfCap */
+#define	CONFEND	(CONF+CONFLEN)
+
+static char *confend;
+
+/* bytes of plan9.ini text in CONF, with its terminating NUL */
+int
+conflen(void)
+{
+	return confend - CONF + 1;
+}
+
+char*
+findconf(char *s)
+{
+	char *p, *e;
+	int n = strlen(s);
+	for(p = CONF; p < confend; p = e+1){
+		for(e = p; e < confend && *e != '\n'; e++){
+			if(*e == '\0')
+				return nil;
+		}
+		if(e - p >= n && memcmp(p, s, n) == 0)
+			return p;
+	}
+	return nil;
+}
+
+/* buf is max bytes; too long a value is treated as not found, not truncated */
+static char*
+getconf(char *s, char *buf, int max)
+{
+	char *p, *e;
+
+	if((p = findconf(s)) == nil)
+		return nil;
+	p += strlen(s);
+	for(e = p; *e != '\n'; e++)
+		;
+	if(e - p >= max)
+		return nil;
+	memmove(buf, p, e - p);
+	buf[e - p] = '\0';
+	return buf;
+}
+
+static int
+delconf(char *s)
+{
+	char *p, *e;
+
+	if((p = findconf(s)) == nil)
+		return 0;
+	for(e = p; *e != '\n'; e++)
+		;
+	e++;
+	memmove(p, e, confend - e);
+	confend -= e - p;
+	*confend = '\0';
+	return 1;
+}
+
+char*
+configure(void *f, char *path)
+{
+	char *line, *kern, *s, *p;
+	int inblock, nowait, n;
+	static int once = 1;
+
+	if(once){
+		once = 0;
+Clear:
+		print("[P2 L12] clear configuration and collect UEFI data\n");
+		confend = CONF;
+		memset(confend, 0, CONFLEN);
+		eficonfig();
+	}
+	nowait = 1;
+	inblock = 0;
+Loop:
+	for(;;){
+		line = confend+1;
+		n = readline(f, line, CONFEND - line);
+		if(n == 0)
+			break;
+		if(n < 0){
+			print("plan9.ini: line too long, ignoring the rest\n");
+			break;
+		}
+		if(*line == 0 || strchr("#;=", *line) != nil)
+			continue;
+		if(*line == '['){
+			inblock = memcmp("[common]", line, 8) != 0;
+			continue;
+		}
+		if(memcmp("boot", line, 5) == 0){
+			nowait=1;
+			break;
+		}
+		if(memcmp("wait", line, 5) == 0){
+			nowait=0;
+			continue;
+		}
+		if(memcmp("show", line, 5) == 0){
+			print(CONF);
+			continue;
+		}
+		if(memcmp("clear", line, 5) == 0){
+			if(line[5] == '\0'){
+				print("ok\n");
+				goto Clear;
+			} else if(line[5] == ' ' && delconf(line+6))
+				print("ok\n");
+			continue;
+		}
+		if(inblock != 0 || (p = strchr(line, '=')) == nil)
+			continue;
+		*p++ = 0;
+		delconf(line);
+		s = confend;
+		memmove(confend, line, n = strlen(line)); confend += n;
+		*confend++ = '=';
+		memmove(confend, p, n = strlen(p)); confend += n;
+		*confend++ = '\n';
+		*confend = 0;
+		print(s);
+	}
+	kern = getconf("bootfile=", path, MAXPATH);
+
+	if(f != nil){
+		print("[P2 L12] plan9.ini read complete\n");
+		close(f);
+		f = nil;
+
+		if(kern != nil && (nowait==0 || timeout(1000)))
+			goto Loop;
+	}
+
+	if(kern == nil){
+		print("no bootfile\n");
+		goto Loop;
+	}
+	while((p = strchr(kern, '!')) != nil)
+		kern = p+1;
+
+	return kern;
+}
+
+static char*
+numfmt(char *s, ulong b, ulong i, ulong a)
+{
+	char *r;
+
+	if(i == 0){
+		ulong v = a;
+		while(v != 0){
+			v /= b;
+			i++;
+		}
+		if(i == 0)
+			i = 1;
+	}
+
+	s += i;
+	r = s;
+	while(i > 0){
+		*--s = hex[a % b];
+		a /= b;
+		i--;
+	}
+	return r;
+}
+
+char*
+hexfmt(char *s, int i, uvlong a)
+{
+	if(i > 8 || i == 0 && (a>>32) != 0){
+		s = numfmt(s, 16, i ? i-8 : 0, a>>32);
+		i = 8;
+	}
+	return numfmt(s, 16, i, a);
+}
+
+char*
+decfmt(char *s, int i, ulong a)
+{
+	return numfmt(s, 10, i, a);
+}
+
+static ulong
+beswal(ulong l)
+{
+	uchar *p = (uchar*)&l;
+	return (p[0]<<24) | (p[1]<<16) | (p[2]<<8) | p[3];
+}
+
+static uvlong
+beswall(uvlong l)
+{
+	uchar *p = (uchar*)&l;
+	return ((uvlong)p[0]<<56) | ((uvlong)p[1]<<48) | ((uvlong)p[2]<<40) | ((uvlong)p[3]<<32) | ((uvlong)p[4]<<24) | ((uvlong)p[5]<<16) | ((uvlong)p[6]<<8) | (uvlong)p[7];
+}
+
+char*
+bootkern(void *f)
+{
+	uchar *e, *d, *t;
+	uvlong entry;
+	ulong n, ktext, elen, dround;
+	char *errmsg, *why;
+	Exec ex;
+
+	/*
+	 * elen != 0 from the efialloc() below on marks the kernel's memory
+	 * range as claimed; every failure path from there on goes through
+	 * Error, which frees it again.  Without that a retry (efimain's
+	 * loop, eg after a transient read error) would find the same range
+	 * already allocated and fail immediately instead of trying again.
+	 */
+	e = nil;
+	elen = 0;
+	errmsg = "i/o error";
+
+	if(readn(f, &ex, sizeof(ex)) != sizeof(ex))
+		return "bad header";
+	print("[P2 L14] kernel header read\n");
+
+	entry = beswal(ex.entry);
+	switch(beswal(ex.magic)){
+	case S_MAGIC:
+	case R_MAGIC:
+		if(readn(f, &entry, 8) != 8)
+			goto Error;
+		entry = beswall(entry);
+		break;
+	case I_MAGIC:
+		break;
+	default:
+		return "bad magic";
+	}
+	e = (uchar*)(uintptr)archentry(entry);	/* where the ISA's kernel goes, eg archx64.c */
+	tracehex("[P2 L15] kernel entry physical=0x", (uvlong)e);
+
+	/*
+	 * Firmware marks free memory no-execute; claim the kernel's range as
+	 * loader code so the firmware's page tables let it run.
+	 */
+	ktext = beswal(ex.text);
+	dround = archdataround();	/* where the ISA's linker starts data after text */
+	elen = PGROUND(ROUNDUP((uintptr)e + ktext, dround) + beswal(ex.data)) + PGROUND(beswal(ex.bss)) - (uintptr)e;
+	tracehex("[P2 L16] kernel text bytes=0x", ktext);
+	tracehex("[P2 L16] kernel data bytes=0x", beswal(ex.data));
+	tracehex("[P2 L16] kernel bss bytes=0x", beswal(ex.bss));
+	tracehex("[P2 L16] kernel allocation bytes=0x", elen);
+	if(efialloc((uvlong)e, elen) != 0){
+		elen = 0;
+		return "cannot claim the kernel's memory range";
+	}
+	print("[P2 L17] kernel memory claimed executable\n");
+	if((why = archcheck()) != nil){
+		errmsg = why;
+		goto Error;
+	}
+	print("[P2 L18] entry state checked\n");
+
+	t = e;
+	n = beswal(ex.text);
+	print("[P2 L19] load kernel text\n");
+	if(readn(f, t, n) != n)
+		goto Error;
+	t += n;
+	d = (uchar*)ROUNDUP((uintptr)t, dround);
+	memset(t, 0, d - t);
+	n = beswal(ex.data);
+	print("[P2 L20] load kernel data\n");
+	if(readn(f, d, n) != n)
+		goto Error;
+	d += n;
+	t = (uchar*)PGROUND((uintptr)d);
+	t += PGROUND(beswal(ex.bss));
+	memset(d, 0, t - d);
+	print("[P2 L21] kernel loaded and bss cleared\n");
+
+	close(f);
+	print("[P2 L22] kernel file closed\n");
+
+	/* stop device */
+	print("[P2 L23] stop boot device\n");
+	if(stop) (*stop)();
+	print("[P2 L23] boot device stopped\n");
+
+	print("[P2 L24] framebuffer markers: top-left 1=EBS start 2=EBS done 3=jump, then the kernel's\n");
+	print("[P2 L24] boot\n");
+	fbmark(1);
+
+	/* the file is closed already, so there is nothing to return to */
+	n = bootexit();
+	if(n != 0){
+		if(n == -1)
+			print("[P2 L25] FATAL: GetMemoryMap failed\n");
+		else if(n == -2)
+			print("[P2 L25] FATAL: ExitBootServices failed after retries\n");
+		else
+			print("[P2 L25] FATAL: memory-map buffer missing\n");
+		for(;;)
+			;
+	}
+	fbmark(2);
+
+	/*
+	 * No print() from here on: ConOut is gone.  The kernel gets the
+	 * BootInfo blob where it is, its address in RDI (Plan2001 Boot ABI
+	 * v1, sys/include/bootinfo.h) - nothing is copied to any fixed
+	 * address.
+	 */
+	fbmark(3);
+	archjump(e, bootinfofinish());
+
+Error:
+	if(elen != 0)
+		efifree((uvlong)e, elen);
+	return errmsg;
+}

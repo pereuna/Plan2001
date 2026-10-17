@@ -1,0 +1,53 @@
+#!/amd64/bin/rc
+# Plan2001's init: the kernel mounted this root and runs this
+# (docs/init.md, docs/selfhost.md).  The devices, the line editor on the
+# console (console=N: the serial port), the time zone, the mount points,
+# the network if there is an interface (ip/ipconfig, cs, dns, webfs:
+# ip=none skips it), the kernel tests if plan9.ini has ktest=...
+# (ktest's arguments), then rc.
+rfork e
+/$cputype/bin/bind /$cputype/bin /bin
+bind -a /rc/bin /bin
+path=(/bin .)
+objtype=$cputype
+# plan9.ini tz=EET: /adm/timezone/EET (default GMT)
+if(~ $#tz 0 || ! test -r /adm/timezone/$tz)
+	tz=GMT
+cat /adm/timezone/$tz >/env/timezone
+if(~ $#sysname 0)
+	sysname=plan2001
+for(i in ¤ ¶ P S f æ t b m)
+	bind -qa '#'^$i /dev
+a=()
+if(! ~ $#console 0)
+	a=/dev/eia^$console(1)
+aux/kbdfs -q -s cons $a
+echo init: / on `{cat '#E/ctl'}
+
+# /n and /mnt: a directory for each name used (/mnt/web: webfs)
+mntgen -s slashn /n
+mntgen -s slashmnt /mnt
+mkdir -p /tmp /usr/$user
+
+# the network: the interfaces, then DHCP on the first ethernet
+bind -a '#l' /net
+bind -a '#I' /net
+bind -a '#a' /net
+if(! ~ $ip none && test -e /net/ether0){
+	ip/ipconfig $ip
+	ndb/cs
+	ndb/dns -r
+	webfs
+	echo init: net `{grep -h 'ip=' /net/ndb | sed 1q}
+}
+
+if(! ~ $#ktest 0)
+	ktest `{echo $ktest}
+
+home=/usr/$user
+cd $home
+prompt=($sysname^'% ' '	')
+fn $sysname% { $* }
+if(test -r $home/lib/profile)
+	exec rc -l -i </dev/cons >/dev/cons >[2=1]
+exec rc -i </dev/cons >/dev/cons >[2=1]

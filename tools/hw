@@ -1,0 +1,33 @@
+#!/bin/bash
+# A real machine booted from the Plan2001 medium, driven over the network
+# like the VM: on it, type 'remote' at term%; it shows its address and a
+# key.  Then here:
+#   tools/hw connect IP KEY     start the relay (build/hw)
+#   tools/hw stop | status
+# and use tools/9run -d build/hw as with the VM (commands, --dialog, logs:
+# build/hw/serial.log).
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+d=$root/build/hw
+running() { [ -f "$d/relay.pid" ] && kill -0 "$(cat "$d/relay.pid")" 2>/dev/null; }
+case $1 in
+connect)
+	[ $# = 3 ] || { echo "usage: tools/hw connect IP KEY" >&2; exit 2; }
+	running && { echo "hw: already connected (tools/hw stop first)" >&2; exit 1; }
+	mkdir -p "$d"
+	echo "tcp $2 17010 $3" >"$d/target"
+	log=serial-$(date +%Y%m%d-%H%M%S).log
+	ln -sfn "$log" "$d/serial.log"; : >"$d/$log"
+	rm -f "$d/serial.in"; mkfifo "$d/serial.in"
+	setsid python3 "$here/9run" --relay "$d" </dev/null >"$d/relay.err" 2>&1 &
+	echo $! >"$d/relay.pid"
+	sleep 2
+	running || { cat "$d/relay.err" >&2; exit 1; }
+	echo "hw: connected to $2 (tools/9run -d build/hw ...)" ;;
+stop)
+	running && kill "$(cat "$d/relay.pid")" 2>/dev/null || true
+	rm -f "$d/relay.pid" "$d/serial.in" ;;
+status)
+	running && echo "connected ($(cut -d' ' -f2 "$d/target"))" || echo "not connected" ;;
+*)	echo "usage: tools/hw connect IP KEY | stop | status" >&2; exit 2 ;;
+esac

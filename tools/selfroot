@@ -1,0 +1,50 @@
+#!/bin/bash
+# The self-hosting root (docs/selfhost.md): this repo as a Plan 9 root, a
+# git clone of HEAD whose origin is GitHub, plus the binaries tools/build.sh
+# built (build/$TARGET/root/$objtype/{bin,lib}), so that the root can
+# git/pull and build itself.  9front's git reads neither git's index nor
+# packed refs, and mounts git/fs on .git/fs: the clone gets .git/INDEX9,
+# loose refs and the directories git/init makes.  Only committed work
+# goes in, and only HEAD's branch (no other branches nor tags).
+#   tools/selfroot DIR             DIR made anew
+#   tools/selfroot -p DEV          onto the ext4 file system DEV (sudo; its
+#                                  contents replaced, lost+found, label and
+#                                  UUID kept), e.g. /dev/nvme0n1p5
+#   ORIGIN=URL                     origin (default the GitHub repo)
+# The owner of the files is the user running this: etc/group names uid
+# 1000 glenda.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+origin=${ORIGIN:-https://github.com/pereuna/Plan2001.git}
+dev=
+[ "$1" = -p ] && { dev=$2; shift 2; set -- "$root/build/selfroot"; }
+[ $# = 1 ] || { echo "usage: tools/selfroot DIR | -p DEV" >&2; exit 2; }
+out=$1
+bin=$tbuild/root/$objtype
+[ -x "$bin/bin/rc" ] || { echo "selfroot: no $bin/bin (tools/build.sh)" >&2; exit 1; }
+
+rm -rf "$out"
+git clone -q --no-hardlinks --single-branch --no-tags "$root" "$out"
+cd "$out"
+git remote set-url origin "$origin"
+# 9front git: loose refs (no packed-refs), its index
+git for-each-ref --format='%(objectname) %(refname)' | while read -r h r; do
+	mkdir -p ".git/$(dirname "$r")"; echo "$h" > ".git/$r"
+done
+rm -f .git/packed-refs
+mkdir -p .git/fs .git/objects .git/refs/heads .git/refs/remotes
+git ls-files | sed 's/^/T NOQID 0 /' > .git/INDEX9
+cp -a "$bin/." "$objtype/"
+mkdir -p tmp usr/glenda
+echo "selfroot: $out: $(git log -1 --format='%h %s'), $(du -sm "$objtype" | cut -f1) MiB of binaries"
+
+if [ -n "$dev" ]; then
+	m=$(mktemp -d)
+	sudo mount "$dev" "$m"
+	trap 'sudo umount "$m"; rmdir "$m"' EXIT
+	sudo find "$m" -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} +
+	sudo cp -a "$out/." "$m/"
+	sync
+	echo "selfroot: $dev: $(sudo du -sm "$m" | cut -f1) MiB"
+fi

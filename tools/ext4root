@@ -1,0 +1,201 @@
+#!/bin/bash
+# An ext4 root file system for devext4 (#E, sys/src/9/port/devext4.c):
+# 9front's own binaries and rc library from the VM's release ISO
+# (tools/9front.release, in the cache since tools/vm-setup), with modes
+# (the ISO's are lost: 775 for programs and directories, 664 otherwise),
+# etc/group for the owners' names, the test files of /plan2001test and a
+# glenda profile that checks them on the serial console (tools/test-ext4.sh)
+# and then gives an rc, and /init for a kernel that mounts the root itself
+# (plan9.ini root=, init=/init): the devices, this repo's kbdfs (from
+# tools/build.sh, else 9front's) on the console, then /$objtype/init.
+# Not a distribution: that is Monolith's.
+#   tools/ext4root            -> build/$TARGET/root.ext4, root.uuid,
+#                                root.dir (the root in it, "" or /SUBDIR)
+#   SUBDIR=a/b                the tree in that directory, and a decoy
+#                             /plan2001test at the top (the root is then
+#                             ext4!UUID=...!/a/b: absolute links stay in it)
+#   TREE=DIR                  also the tree as it is, in DIR (for copying
+#                             into a Linux file system)
+#   BLOCKSIZE=4096            mkfs.ext4 -b (default: its own, 1024 for a
+#                             small image)
+# mkfs.ext4 (e2fsprogs) and 7z (7zip) from the host; no root needed.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+. "$here/9front.release"
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+iso=$cache/$ISO
+mkfs=$(command -v mkfs.ext4 || echo /sbin/mkfs.ext4)
+[ -r "$iso" ] || { echo "ext4root: no $iso (tools/vm-setup)" >&2; exit 1; }
+[ -x "$mkfs" ] || { echo "ext4root: no mkfs.ext4 (e2fsprogs)" >&2; exit 1; }
+command -v 7z >/dev/null || { echo "ext4root: no 7z (7zip)" >&2; exit 1; }
+
+top=$root/build/ext4root
+st=$top${SUBDIR:+/$SUBDIR}
+rm -rf "$top"; mkdir -p "$st"
+7z x -y -o"$st" "$iso" $objtype/bin $objtype/init rc lib adm cfg usr mnt n tmp sys/lib/kbmap sys/lib/rc >/dev/null
+find "$st" -type d -exec chmod 775 {} +
+find "$st" -type f -exec chmod 664 {} +
+find "$st/$objtype/bin" "$st/rc/bin" -type f -exec chmod 775 {} +
+chmod 775 "$st/$objtype/init"
+mkdir -p "$st/etc" "$st/plan2001test"
+printf 'sys:x:0:\nglenda:x:%d:glenda\n' "$(id -u)" > "$st/etc/group"
+[ -s "$tbuild/kbdfs" ] && install -m 775 "$tbuild/kbdfs" "$st/$objtype/bin/aux/kbdfs"
+[ -s "$tbuild/ktest" ] && install -m 775 "$tbuild/ktest" "$st/$objtype/bin/ktest"
+cat > "$st/init" <<EOF
+#!/$objtype/bin/rc
+# tools/ext4root: what the boot environment did before init, with no boot
+# file system: the devices, the line editor on the console (console=N: the
+# serial port), the kernel tests if plan9.ini has ktest=... (ktest's
+# arguments), then the root's init
+/$objtype/bin/bind /$objtype/bin /bin
+bind -a /rc/bin /bin
+for(i in ¤ ¶ P S f æ t b m)
+	bind -qa '#'^\$i /dev
+a=()
+if(! ~ \$#console 0)
+	a=/dev/eia^\$console(1)
+aux/kbdfs -q -s cons \$a
+echo init: /init on \`{cat '#E/ctl'}
+if(! ~ \$#ktest 0)
+	ktest \`{echo \$ktest}
+exec /$objtype/init -t </dev/cons >/dev/cons >[2=1]
+EOF
+chmod 775 "$st/init"
+
+# the test files: a big file, a directory with an htree index, links
+t=$st/plan2001test
+python3 -I -c 'import random,sys; random.seed(2001); sys.stdout.buffer.write(random.randbytes(12*1024*1024+1234))' > "$t/big"
+mkdir "$t/many"
+for i in $(seq -w 0 599); do echo f$i > "$t/many/f$i"; done
+ln -s big "$t/linkbig"
+ln -s /plan2001test/big "$t/absbig"
+ln -s linkbig "$t/chain"
+ln -s many "$t/manylink"
+ln -s ../plan2001test/many/f042 "$t/updown"
+ln -s nowhere "$t/dangling"
+long=$(printf 'l%.0s' $(seq 200))
+echo long > "$t/$long"
+rcsum=$(md5sum < "$st/$objtype/bin/rc" | cut -d' ' -f1)
+bigsum=$(md5sum < "$t/big" | cut -d' ' -f1)
+bigsize=$(stat -c %s "$t/big")
+padsum=$( (head -c 99 /dev/zero; printf x) | md5sum | cut -d' ' -f1)
+# what md5sum prints for each of them, in the order of the profile's loop
+binsum=$(cd "$st" && find $objtype/bin -type f | LC_ALL=C sort | while read -r f; do
+	printf '%s\t/%s\n' "$(md5sum < "$f" | cut -d' ' -f1)" "$f"; done | md5sum | cut -d' ' -f1)
+
+cat > "$st/usr/glenda/lib/profile" <<EOF
+# tools/ext4root: devext4's checks, then an rc
+fn check {
+	if(~ \$2 \$3)
+		echo EXT4OK \$1
+	if not
+		echo EXT4FAIL \$1: \$2 '!=' \$3
+}
+t=/plan2001test
+echo EXT4ROOT profile, user \$user
+cat '#E/ctl'
+check root \`{ls -d /\$cputype/bin /rc/lib/rcmain | wc -l} 2
+check rc \`{md5sum </$objtype/bin/rc} $rcsum
+check big \`{md5sum <\$t/big} $bigsum
+check bigsize \`{ls -l \$t/big | awk '{print \$6}'} $bigsize
+check linkbig \`{md5sum <\$t/linkbig} $bigsum
+check absbig \`{md5sum <\$t/absbig} $bigsum
+check chain \`{md5sum <\$t/chain} $bigsum
+check many \`{ls \$t/many | wc -l} 600
+check manyread \`{cat \$t/many/f* | wc -l} 600
+check manylink \`{cat \$t/manylink/f123} f123
+check updown \`{cat \$t/updown} f042
+check dotdot \`{cat \$t/many/../many/f005} f005
+check dangling \`{if(test -e \$t/dangling) echo yes; if not echo no} no
+check long \`{cat \$t/$long} long
+check owner \`{ls -l \$t/big | awk '{print \$4}'} glenda
+written=no
+if(grep -s ' rw ' '#E/ctl')
+	written=yes
+check readonly \`{touch \$t/new >[2]/dev/null; if(test -e \$t/new) echo yes; if not echo no} \$written
+check exec \`{/$objtype/bin/echo exec} exec
+# a read-only root: termrc's test for one (syscall create) does not see it
+if(~ \$written no)
+	ramfs
+check binsums \`{{for(f in \`{du -a /$objtype/bin | awk '{print \$2}' | sort}) if(test -f \$f) md5sum \$f} | md5sum} $binsum
+@{for(i in 1 2 3 4 5 6) {md5sum <\$t/big >/tmp/ext4par\$i &}; wait}
+check parallel \`{cat /tmp/ext4par* | sort -u} $bigsum
+# mount -w (tools/test-ext4.sh RW=1): writing, checked by e2fsck afterwards
+if(grep -s ' rw ' '#E/ctl'){
+	w=\$t/w
+	# what the last boot wrote (tools/test-ext4.sh RW: the second boot)
+	if(test -e \$w/b)
+		check persist \`{cat \$w/b} again
+	rm -rf \$w
+	mkdir \$w
+	check wmkdir \`{if(test -d \$w) echo ok} ok
+	cp \$t/big \$w/big2
+	check wcopy \`{md5sum <\$w/big2} $bigsum
+	echo hello >\$w/a
+	check wcreate \`{cat \$w/a} hello
+	echo world >>\$w/a
+	check wappend \`{wc -l <\$w/a} 2
+	echo again >\$w/a
+	check wtrunc \`{cat \$w/a} again
+	mv \$w/a \$w/b
+	check wrename \`{cat \$w/b; if(test -e \$w/a) echo still} again
+	mkdir \$w/d
+	for(i in \`{seq 1 300}) echo \$i >\$w/d/f\$i
+	check wmany \`{ls \$w/d | wc -l} 300
+	check wmanyread \`{cat \$w/d/f150} 150
+	rm \$w/d/f1*
+	check wrm \`{ls \$w/d | wc -l} 189
+	check wrmfull \`{if(rm \$w/d >[2]/dev/null) echo removed; if not echo kept} kept
+	mkdir \$w/e
+	mv \$w/e \$w/e2
+	check wmvdir \`{if(test -d \$w/e2 && ! test -e \$w/e) echo ok} ok
+	rm \$w/e2
+	check wrmdir \`{if(test -e \$w/e2) echo still; if not echo gone} gone
+	echo -n x | dd -of \$w/pad -oseek 99 -bs 1 >[2]/dev/null
+	check wpad \`{md5sum <\$w/pad} $padsum
+	check wexec \`{cp /$objtype/bin/echo \$w/echo2 && \$w/echo2 ran} ran
+	check wsync \`{if(echo sync >'#E/ctl') echo ok} ok
+	# plan9.ini ext4crash=1 (tools/test-ext4.sh CRASH): writing when QEMU is killed
+	if(~ \$ext4crash 1){
+		echo EXT4CRASH-GO
+		for(i in \`{seq 1 3000}){
+			echo \$i >\$w/c\$i
+			if(~ \$i *00)
+				cp \$t/big \$w/cbig\$i
+			if(~ \$i *50)
+				rm -f \$w/c^\`{seq \`{echo \$i - 40 | hoc} \`{echo \$i - 10 | hoc}}
+		}
+	}
+}
+# plan9.ini ktestprofile=... (tools/test-ext4.sh KTESTAT=profile): the
+# kernel tests in init's name space, as typed at term%
+if(! ~ \$#ktestprofile 0)
+	ktest \`{echo \$ktestprofile}
+echo EXT4ROOT-DONE
+# plan9.ini ext4halt=1 (tools/test-ext4.sh RW): 9front's fshalt, which
+# halts the root through /srv/ext4.root.cmd
+if(~ \$ext4halt 1)
+	fshalt
+prompt=('term% ' '	')
+fn term%{ \$* }
+rc -i
+EOF
+
+if [ -n "$SUBDIR" ]; then
+	mkdir -p "$top/plan2001test"
+	echo decoy > "$top/plan2001test/big"
+fi
+if [ -n "$TREE" ]; then
+	rm -rf "$TREE"; mkdir -p "$TREE"
+	cp -a "$st/." "$TREE/"
+fi
+
+used=$(du -sm "$top" | cut -f1)
+size=$((used + used/2 + 64))
+uuid=$(python3 -I -c 'import uuid; print(uuid.uuid4())')
+rm -f "$tbuild/root.ext4"; mkdir -p "$tbuild"
+"$mkfs" -q -F -t ext4 ${BLOCKSIZE:+-b $BLOCKSIZE} -L plan2001 -U "$uuid" -E root_owner=0:0 -d "$top" "$tbuild/root.ext4" "${size}M"
+echo "$uuid" > "$tbuild/root.uuid"
+echo "${SUBDIR:+/$SUBDIR}" > "$tbuild/root.dir"
+echo "ext4root: $tbuild/root.ext4 ${size} MiB, uuid $uuid"

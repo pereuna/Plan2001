@@ -1,0 +1,9 @@
+# The kernel tests: the root's /init runs them when plan9.ini has
+# ktest=... (docs/ext4.md)
+</$objtype/mkfile
+
+TARG=ktest
+OFILES=ktest.$O
+BIN=/$objtype/bin
+
+</sys/src/cmd/mkone

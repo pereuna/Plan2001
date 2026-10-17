@@ -1,0 +1,41 @@
+#!/bin/rc
+
+file=/sys/src/libc/9syscall/sys.h
+
+cat <<'!'
+#include "/sys/src/libc/9syscall/sys.h"
+
+typedef uintptr Syscall(va_list);
+
+!
+
+sed 's/#define[ 	]*([A-Z0-9_][A-Z0-9_]*).*/SYS\1/; s/SYSSYSR1/SYSR1/' $file |
+	tr A-Z a-z |
+	sed 's/.*/Syscall &;/'
+
+cat <<'!'
+Syscall	sysdeath;
+
+Syscall *systab[]={
+!
+awk '/^#define/ { n = $2; f = "sys" tolower(n)
+	if(n == "SYSR1") f = "sysr1"; if(f ~ /^sys_x[0-9]*$/) f = "sysdeath"
+	t = "\t"; if(length(n) < 6) t = "\t\t"
+	printf "\t[%s]%s%s,\n", n, t, f }' $file
+
+cat <<'!'
+};
+
+char *sysctab[]={
+!
+
+awk '/^#define/ { n = $2; c = substr(n, 1, 1) tolower(substr(n, 2)); sub(/_$/, "", c)
+	if(n == "SYSR1") c = "Running"; if(n == "RENDEZVOUS") c = "Rendez"
+	t = "\t"; if(length(n) < 6) t = "\t\t"
+	printf "\t[%s]%s\"%s\",\n", n, t, c }' $file
+
+cat <<'!'
+};
+
+int nsyscall = (sizeof systab/sizeof systab[0]);
+!

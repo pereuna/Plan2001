@@ -1,0 +1,21 @@
+# The kernels: pc64 (AMD64) and arm64 (planned: tools/targets/arm64)
+ARCH=\
+	pc64\
+
+all:V:
+	for(i in $ARCH)@{
+		cd $i
+		mk
+	}
+
+install:V:
+	for(i in $ARCH) @{
+		cd $i
+		mk install
+	}
+
+clean:V:
+	for(i in $ARCH) @{
+		cd $i
+		mk clean
+	}

@@ -1,0 +1,43 @@
+Copyright © 2021 Plan 9 Foundation
+Portions Copyright © 2001-2008 Russ Cox
+Portions Copyright © 2008-2009 Google Inc.
+Portions Copyright © 2026 Petteri Reunamo (Plan2001 additions and modifications)
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+===================================================================
+
+Plan2001 is a from-scratch modernization of 9front's (a Plan 9 from Bell
+Labs fork, https://9front.org/) x86-64 UEFI boot path. It is built by
+taking 9front's own source tree as a base (fetched fresh from a live
+9front installation at build time, see README.md) and overlaying a small
+set of rewritten/new files (see sys/ in this repository).
+
+This software is derived from Plan 9, originally copyright Lucent
+Technologies and distributed under the Lucent Public License, Version
+1.02. Lucent was bought by Alcatel (Alcatel-Lucent), which was bought by
+Nokia. On March 23, 2021, Nokia announced the transfer of the Plan 9
+copyrights to the Plan 9 Foundation, which in turn relicensed Plan 9
+under the MIT license, reproduced above. 9front's own additions and
+changes on top of Plan 9 are likewise provided under the MIT license.
+
+Plan2001's own additions and modifications (the files under sys/ in this
+repository, and everything under tools/ and docs/) are provided under
+the same MIT license, by Petteri Reunamo.

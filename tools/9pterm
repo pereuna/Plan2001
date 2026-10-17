@@ -1,0 +1,14 @@
+#!/bin/bash
+# 9pterm for these tools: Monolith's native drawterm as a text terminal
+# (its docs/9pterm.md), the way to a Plan2001 CPU server from Linux.
+# Monolith is its own repo: $MONOLITH, default ~/Src/monolith; its
+# monolith/tools/build makes 9pterm when there is none.  NINEPTERM names
+# another binary.
+#   tools/9pterm ARGS...      9pterm's own arguments
+m=${MONOLITH:-$HOME/Src/monolith}
+t=${NINEPTERM:-$m/monolith/build/9pterm/9pterm}
+if [ ! -x "$t" ]; then
+	[ -z "$NINEPTERM" ] && [ -x "$m/monolith/tools/build" ] || { echo "9pterm: no $t (Monolith: MONOLITH=DIR, or NINEPTERM=FILE)" >&2; exit 2; }
+	"$m/monolith/tools/build" 9pterm >&2 || exit 2
+fi
+exec "$t" "$@"

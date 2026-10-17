@@ -1,0 +1,22 @@
+#!/bin/bash
+# The repo's Plan 9 tree (the repo is a Plan 9 root: sys/, rc/, lib/,
+# $objtype/, init), without the host's side (tools/, docs/, README,
+# LICENSE, AGENTS.md): what tools/build.sh hands the build VM.  The files git has or
+# would add (new ones too, not the ignored).
+#   tools/overlay DIR          DIR made anew
+#   tools/overlay -k DIR       only the kernel's tree and what Monolith
+#                              lays over 9front with it: sys/src/9,
+#                              sys/src/boot, sys/include/bootinfo.h,
+#                              kbdfs (the line editor), hjfs's auth.c
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+k=; [ "$1" = -k ] && { k=1; shift; }
+[ $# = 1 ] || { echo "usage: tools/overlay [-k] DIR" >&2; exit 2; }
+out=$1
+rm -rf "$out"; mkdir -p "$out"
+cd "$root"
+git ls-files -z --cached --others --exclude-standard |
+	if [ -n "$k" ]; then grep -zE '^(sys/src/9/[^/]+/|sys/src/boot/|sys/include/bootinfo\.h$|sys/src/cmd/aux/kbdfs/|sys/src/cmd/hjfs/)'
+	else grep -zvE '^(tools/|docs/|\.claude/|README\.md$|LICENSE$|AGENTS\.md$|\.gitignore$)'; fi |
+	while IFS= read -r -d '' f; do [ -e "$f" ] && printf '%s\0' "$f"; done |
+	tar cf - --null -T - | tar xf - -C "$out"

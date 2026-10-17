@@ -1,0 +1,162 @@
+#!/bin/rc
+# Runs ON the 9front VM (tools/build.sh starts it with tools/9run).
+# Builds the repo's tree with the VM's compilers as the bootstrap: the
+# repo's headers, sources and mk definitions replace the VM's, and what
+# the build installs goes to its own /$objtype tree in front of the VM's,
+# so the libraries, compilers, mk and rc the tree has made build the rest.
+# Sources come in as a tar stream on /dev/sdE1 (the repo's tree from
+# tools/overlay, this script and the target, tools/targets/$TARGET as
+# /tmp/target), results go out the same way on /dev/sdE2 (see tools/vm).
+#   what=all     the tree (mk install in /sys/src), then the kernel and
+#                the loader with it: out root/$objtype/{bin,lib}
+#   what=kernel  the kernel, the loader, kbdfs and ktest with the VM's
+#                libraries and tools (quick)
+#   what=loader  the loader alone (a target whose kernel is not ready)
+#   passes=2     what=all twice: the second pass builds the tree with
+#                the first one's tools and compares their binaries
+rfork en
+. /tmp/target
+d=/usr/glenda/plan2001build
+rm -rf $d
+mkdir -p $d/src $d/out
+@{cd $d/src && tar xf /dev/sdE1/data}
+s=$d/src
+out=$d/out
+if(~ $#passes 0)
+	passes=1
+
+# the logs go out with a failure too
+fn fail {
+	echo $1 BUILD FAILED
+	@{cd $out && tar c *.log} >/dev/sdE2/data
+	exit $1
+}
+
+# hjfs: 9front's with this repo's auth.c, for Monolith's installer
+# (build/$TARGET/hjfs); from the VM's own source, before the repo's
+# replaces it
+fn buildhjfs {
+	echo '### hjfs: the VM''s with sys/src/cmd/hjfs/auth.c (Monolith''s)'
+	mkdir -p $d/hjfs
+	dircp /sys/src/cmd/hjfs $d/hjfs
+	cp $s/sys/src/cmd/hjfs/auth.c $d/hjfs
+	@{cd $d/hjfs && mk >$d/hjfs.log >[2=1]}
+	st=$status
+	cp $d/hjfs.log $out/hjfs.log
+	o=`{ls -t $d/hjfs/?.out >[2]/dev/null}
+	if(! ~ $st '' || ~ $#o 0){
+		tail -20 $d/hjfs.log
+		fail hjfs
+	}
+	cp $o(1) $out/hjfs
+}
+
+# the repo's tree instead of the VM's
+fn bindtree {
+	bind $s/sys/include /sys/include
+	bind $s/sys/src /sys/src
+	for(a in amd64 arm64){
+		bind $s/$a/include /$a/include
+		bind $s/$a/mkfile /$a/mkfile
+	}
+	bind -b $s/sys/lib /sys/lib
+	bind $s/rc/lib/rcmain /rc/lib/rcmain
+}
+
+# mk in a directory, the log to $out; a failed target anywhere fails
+fn mklog {
+	dir=$1
+	log=$2
+	shift 2
+	@{cd $dir && time mk $* >$out/$log.log >[2=1]}
+	e='^mk: .*(exit status|know how|cannot)|^[^ ]+\.[chsy]:[0-9]+ |undefined'
+	if(grep -s $e $out/$log.log){
+		grep $e $out/$log.log | sed 40q
+		fail $log
+	}
+}
+
+fn kernel {
+	echo '### kernel '^$kconf
+	mklog /sys/src/9/$kdir kernel 'CONF='^$kconf
+	test -f /sys/src/9/$kdir/$kernel || fail kernel
+	size /sys/src/9/$kdir/$kernel
+	md5sum /sys/src/9/$kdir/$kernel
+	cp /sys/src/9/$kdir/$kernel $out/$kernel
+}
+
+fn loader {
+	echo '### loader '^$loader
+	mklog /sys/src/boot/efi loader $loader
+	test -f /sys/src/boot/efi/$loader || fail loader
+	md5sum /sys/src/boot/efi/$loader
+	cp /sys/src/boot/efi/$loader $out/$loader
+}
+
+# the tree, installed into $r/$objtype: a copy of the VM's /$objtype/bin
+# (the bootstrap's tools, until the tree's replace them) and an empty lib
+# in place of the VM's, and afterwards out what the build did not make
+fn tree {
+	r=$1
+	mkdir -p $r/$objtype/bin $r/$objtype/lib
+	dircp /$objtype/bin $r/$objtype/bin
+	bind -c $r/$objtype/bin /$objtype/bin
+	bind -c $r/$objtype/lib /$objtype/lib
+	touch $d/start
+	sleep 2
+	echo '### tree: mk install in /sys/src ('^$r^')'
+	l=install
+	if(~ $#2 1)
+		l=install$2
+	mklog /sys/src $l install
+	t=`{walk -e m $d/start}
+	walk -f -e mp $r/$objtype | awk '$1 < '^$t^' {print $2}' | xargs rm
+	for(x in `{walk -d $r/$objtype | sort -r})
+		rm $x >[2]/dev/null
+	for(f in mk rc 6c 6l 7c git/fs ip/ipconfig ndb/dns webfs aux/kbdfs ktest)
+		test -x $r/$objtype/bin/$f || fail tree:$f
+	echo tree: `{du -s $r/$objtype | awk '{print $1}'} KiB, `{walk -f $r/$objtype/bin | wc -l} programs in $r/$objtype
+}
+
+if(~ $what loader){
+	bindtree
+	loader
+}
+if not if(~ $what kernel){
+	buildhjfs
+	bindtree
+	for(c in aux/kbdfs ktest){
+		mklog /sys/src/cmd/$c `{basename $c} install 'BIN='^$out
+	}
+	kernel
+	loader
+}
+if not {
+	buildhjfs
+	bindtree
+	tree $out/root
+	kernel
+	loader
+	cp $out/root/$objtype/bin/aux/kbdfs $out/root/$objtype/bin/ktest $out
+	if(~ $passes 2){
+		echo '### second pass: the tree with its own tools'
+		@{cd /sys/src && mk clean >/dev/null >[2=1]}
+		@{cd /sys/src/9/$kdir && mk clean >/dev/null >[2=1]}
+		@{
+			rfork n
+			tree $d/pass2 2
+		}
+		# the libraries' archives hold dates; the programs should not differ
+		n=0
+		for(f in `{cd $out/root/$objtype/bin && walk -f}){
+			if(! cmp -s $out/root/$objtype/bin/$f $d/pass2/$objtype/bin/$f){
+				echo pass2 differs: $f
+				n=`{echo $n + 1 | hoc}
+			}
+		}
+		echo pass2: $n programs differ
+	}
+}
+
+@{cd $out && tar c .} >/dev/sdE2/data
+echo BUILD-DONE

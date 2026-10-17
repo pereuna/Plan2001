@@ -1,0 +1,66 @@
+#!/bin/bash
+# Adds 9front's files that tools/9front.import names to the repo, from the
+# release ISO the build VM is installed from (tools/9front.release, in the
+# cache since tools/vm-setup), and the headers of sys/include that the
+# repo's sources include.  A file the repo already has is Plan2001's own
+# and stays as it is: this only adds.  Modes (the ISO has none): 775 for
+# rc/bin and #! scripts, 664 otherwise, as git keeps them (755/644).
+#   tools/import9front        then git add -A and commit, naming the release
+# 7z (7zip) from the host.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/9front.release"
+cache=${PLAN2001_CACHE:-$HOME/.cache/plan2001}
+iso=$cache/$ISO
+[ -r "$iso" ] || { echo "import9front: no $iso (tools/vm-setup)" >&2; exit 1; }
+command -v 7z >/dev/null || { echo "import9front: no 7z (7zip)" >&2; exit 1; }
+
+t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+want=() skip=()
+while read -r l; do
+	l=${l%%#*}; l=${l%"${l##*[![:space:]]}"}
+	case $l in
+	'') ;;
+	!*) skip+=("${l#!}") ;;
+	*) want+=("$l") ;;
+	esac
+done < "$here/9front.import"
+7z x -y -o"$t/iso" "$iso" "${want[@]}" sys/include >/dev/null
+
+# add one file from the ISO, unless the repo has it or it is skipped
+add() {
+	local f=$1 s
+	for s in "${skip[@]}"; do
+		case $f in "$s"|"$s"/*) return ;; esac
+	done
+	[ -e "$root/$f" ] && return
+	mkdir -p "$root/$(dirname "$f")"
+	cp "$t/iso/$f" "$root/$f"
+	case $f in
+	rc/bin/*) chmod 775 "$root/$f" ;;
+	*) if head -c2 "$root/$f" | grep -q '^#!'; then chmod 775 "$root/$f"; else chmod 664 "$root/$f"; fi ;;
+	esac
+	n=$((n+1))
+}
+n=0
+for w in "${want[@]}"; do
+	[ -e "$t/iso/$w" ] || { echo "import9front: not in $ISO: $w" >&2; exit 1; }
+	while read -r f; do add "${f#$t/iso/}"; done < <(find "$t/iso/$w" -type f)
+done
+
+# the headers the sources include (<x.h> and /sys/include/x.h), until no
+# new one turns up: a header can include others
+while :; do
+	m=$n
+	for h in $(grep -rhoE '#[[:space:]]*include[[:space:]]*<[^>]+>|/sys/include/[A-Za-z0-9_./]+\.h' "$root/sys/src" "$root/sys/include" 2>/dev/null |
+		sed -E 's/.*<([^>]+)>/\1/; s,^/sys/include/,,' | sort -u); do
+		[ -f "$t/iso/sys/include/$h" ] && add "sys/include/$h"
+	done
+	[ $n = $m ] && break
+done
+# and none that nothing includes (the closure above, from an older list)
+for h in $(cd "$root/sys/include" && find . -name '*.h' | sed 's,^\./,,'); do
+	[ -f "$t/iso/sys/include/$h" ] || continue
+	grep -rqE "<$h>|/sys/include/$h" "$root/sys/src" "$root/sys/include" || { rm "$root/sys/include/$h"; echo "import9front: not included: sys/include/$h"; }
+done
+echo "import9front: $n files from $NAME"

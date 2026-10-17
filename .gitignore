@@ -1,0 +1,30 @@
+build/
+images/
+9front-x64-boot.tar.gz
+9front-x64-boot-MANIFEST.md
+__pycache__/
+# a root built in place (tools/selfroot, docs/selfhost.md): binaries,
+# objects and generated files
+/amd64/bin/
+/amd64/lib/
+/arm64/bin/
+/arm64/lib/
+/tmp/
+/usr/
+*.[67]
+*.a[67]
+[67].*
+![67].c
+![67].out.h
+y.tab.[ch]
+*.tab.h
+/sys/src/cmd/mpc.c
+/sys/src/9/pc64/9pc64
+/sys/src/9/pc64/pc64.c
+/sys/src/9/pc64/*.root.s
+/sys/src/9/pc64/*.rootc.c
+/sys/src/9/pc64/errstr.h
+/sys/src/9/pc64/init.h
+/sys/src/9/pc64/reboot.h
+/sys/src/boot/efi/*.efi
+/sys/src/boot/efi/*.out

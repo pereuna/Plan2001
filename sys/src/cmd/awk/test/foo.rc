@@ -1,0 +1,200 @@
+
+awk '
+/(/' <foo.glop >/dev/null >[2]foo
+grep 'parsing error' foo >/dev/null || echo 'BAD: T.errmsg: parsing error' >[1=2]
+
+awk '
+BEGIN { nextfile }' <foo.glop >/dev/null >[2]foo
+grep 'illegal break, continue, next or nextfile from BEGIN' foo >/dev/null || echo 'BAD: T.errmsg: illegal break, continue, next or nextfile from BEGIN' >[1=2]
+
+awk '
+function foo() { nextfile }' <foo.glop >/dev/null >[2]foo
+grep 'nextfile is illegal inside a function' foo >/dev/null || echo 'BAD: T.errmsg: nextfile is illegal inside a function' >[1=2]
+
+awk '
+function f(i,j,i) { return i }' <foo.glop >/dev/null >[2]foo
+grep 'duplicate argument' foo >/dev/null || echo 'BAD: T.errmsg: duplicate argument' >[1=2]
+
+awk '
+/[\' <foo.glop >/dev/null >[2]foo
+grep 'No closing ] for class' foo >/dev/null || echo 'BAD: T.errmsg: No closing ] for class' >[1=2]
+
+awk '
+BEGIN { s = "[x"; if (1 ~ s) print "foo"}' <foo.glop >/dev/null >[2]foo
+grep 'No closing ] for class' foo >/dev/null || echo 'BAD: T.errmsg: No closing ] for class' >[1=2]
+
+awk '
+/((.)/' <foo.glop >/dev/null >[2]foo
+grep 'no matching parenthesis' foo >/dev/null || echo 'BAD: T.errmsg: no matching parenthesis' >[1=2]
+
+awk '
+BEGIN { print 1/0 }' <foo.glop >/dev/null >[2]foo
+grep 'division by zero' foo >/dev/null || echo 'BAD: T.errmsg: division by zero' >[1=2]
+
+awk '
+BEGIN { x = 1; print x /= 0 }' <foo.glop >/dev/null >[2]foo
+grep 'division by zero in /=' foo >/dev/null || echo 'BAD: T.errmsg: division by zero in /=' >[1=2]
+
+awk '
+BEGIN { x = 1; print x %= 0 }' <foo.glop >/dev/null >[2]foo
+grep 'division by zero in %=' foo >/dev/null || echo 'BAD: T.errmsg: division by zero in %=' >[1=2]
+
+awk '
+BEGIN { print 1%0 }' <foo.glop >/dev/null >[2]foo
+grep 'division by zero in mod' foo >/dev/null || echo 'BAD: T.errmsg: division by zero in mod' >[1=2]
+
+awk '
+BEGIN { x[1] = 0; split("a b c", y, x) }' <foo.glop >/dev/null >[2]foo
+grep 'can''t read value.* array name.' foo >/dev/null || echo 'BAD: T.errmsg: can''t read value.* array name.' >[1=2]
+
+awk '
+function f(){}; {split($0, x, f)}' <foo.glop >/dev/null >[2]foo
+grep 'can''t read value.* function' foo >/dev/null || echo 'BAD: T.errmsg: can''t read value.* function' >[1=2]
+
+awk '
+function f(){}; {f = split($0, x)}' <foo.glop >/dev/null >[2]foo
+grep 'can''t assign.* a function' foo >/dev/null || echo 'BAD: T.errmsg: can''t assign.* a function' >[1=2]
+
+awk '
+{x = split($0, x)}' <foo.glop >/dev/null >[2]foo
+grep 'can''t assign to x; it.s an array name.' foo >/dev/null || echo 'BAD: T.errmsg: can''t assign to x; it.s an array name.' >[1=2]
+
+awk '
+function f(){}; {split($0, f)}' <foo.glop >/dev/null >[2]foo
+grep 'is a function, not an array' foo >/dev/null || echo 'BAD: T.errmsg: is a function, not an array' >[1=2]
+
+awk '
+BEGIN { f(f) }
+function f() { print "x" }' <foo.glop >/dev/null >[2]foo
+grep 'function f called with 1 args, uses only 0' foo >/dev/null || echo 'BAD: T.errmsg: function f called with 1 args, uses only 0' >[1=2]
+
+awk '
+{ split($0, x) }; function x() {}' <foo.glop >/dev/null >[2]foo
+grep 'x is an array, not a function' foo >/dev/null || echo 'BAD: T.errmsg: x is an array, not a function' >[1=2]
+
+awk '
+function x() { function g() {} }' <foo.glop >/dev/null >[2]foo
+grep 'illegal nested function' foo >/dev/null || echo 'BAD: T.errmsg: illegal nested function' >[1=2]
+
+awk '
+{ return }' <foo.glop >/dev/null >[2]foo
+grep 'return not in function' foo >/dev/null || echo 'BAD: T.errmsg: return not in function' >[1=2]
+
+awk '
+{ break }' <foo.glop >/dev/null >[2]foo
+grep 'break illegal outside' foo >/dev/null || echo 'BAD: T.errmsg: break illegal outside' >[1=2]
+
+awk '
+{ continue }' <foo.glop >/dev/null >[2]foo
+grep 'continue illegal outside' foo >/dev/null || echo 'BAD: T.errmsg: continue illegal outside' >[1=2]
+
+awk '
+{ print "abc
+}' <foo.glop >/dev/null >[2]foo
+grep 'non-terminated string' foo >/dev/null || echo 'BAD: T.errmsg: non-terminated string' >[1=2]
+
+awk '
+BEGIN { f() }
+function f() { next }' <foo.glop >/dev/null >[2]foo
+grep 'next is illegal inside a function' foo >/dev/null || echo 'BAD: T.errmsg: next is illegal inside a function' >[1=2]
+
+awk '
+BEGIN { printf("%s") }' <foo.glop >/dev/null >[2]foo
+grep 'not enough args in printf\(%s\)' foo >/dev/null || echo 'BAD: T.errmsg: not enough args in printf\(%s\)' >[1=2]
+
+awk '
+BEGIN { printf("%z", "foo")}' <foo.glop >/dev/null >[2]foo
+grep 'weird printf conversion' foo >/dev/null || echo 'BAD: T.errmsg: weird printf conversion' >[1=2]
+
+awk '
+function f(a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,
+	c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,
+	e1,e2,e3,e4,e5,e6,e7,e8,e9,e10,f1,f2,f3,f4,f5,f6,f7,f8,f9,f10) {}
+BEGIN { f(123) }' <foo.glop >/dev/null >[2]foo
+grep 'function f has .* arguments, limit .*' foo >/dev/null || echo 'BAD: T.errmsg: function f has .* arguments, limit .*' >[1=2]
+
+awk '
+])}' <foo.glop >/dev/null >[2]foo
+grep 'bailing out' foo >/dev/null || echo 'BAD: T.errmsg: bailing out' >[1=2]
+
+awk '
+{ print }}' <foo.glop >/dev/null >[2]foo
+grep 'bailing out' foo >/dev/null || echo 'BAD: T.errmsg: bailing out' >[1=2]
+
+awk '
+{ print }}}' <foo.glop >/dev/null >[2]foo
+grep 'bailing out' foo >/dev/null || echo 'BAD: T.errmsg: bailing out' >[1=2]
+
+awk '
+]' <foo.glop >/dev/null >[2]foo
+grep 'bailing out' foo >/dev/null || echo 'BAD: T.errmsg: bailing out' >[1=2]
+
+awk '
+[' <foo.glop >/dev/null >[2]foo
+grep 'bailing out' foo >/dev/null || echo 'BAD: T.errmsg: bailing out' >[1=2]
+
+awk '
+a & b' <foo.glop >/dev/null >[2]foo
+grep 'bailing out' foo >/dev/null || echo 'BAD: T.errmsg: bailing out' >[1=2]
+
+awk '
+{ x = 1) }' <foo.glop >/dev/null >[2]foo
+grep 'extra \)' foo >/dev/null || echo 'BAD: T.errmsg: extra \)' >[1=2]
+
+awk '
+{ print ))}' <foo.glop >/dev/null >[2]foo
+grep 'illegal statement' foo >/dev/null || echo 'BAD: T.errmsg: illegal statement' >[1=2]
+
+awk '
+{{ print }' <foo.glop >/dev/null >[2]foo
+grep 'illegal statement' foo >/dev/null || echo 'BAD: T.errmsg: illegal statement' >[1=2]
+
+awk '
+{{{ print }' <foo.glop >/dev/null >[2]foo
+grep 'illegal statement' foo >/dev/null || echo 'BAD: T.errmsg: illegal statement' >[1=2]
+
+awk '
+BEGIN { next }' <foo.glop >/dev/null >[2]foo
+grep 'illegal .*next.* from BEGIN' foo >/dev/null || echo 'BAD: T.errmsg: illegal .*next.* from BEGIN' >[1=2]
+
+awk '
+END {	next; print NR }' <foo.glop >/dev/null >[2]foo
+grep 'illegal .*next.* from END' foo >/dev/null || echo 'BAD: T.errmsg: illegal .*next.* from END' >[1=2]
+
+awk '
+BEGIN { print "abc" >"./nonexistentdir/foo" }' <foo.glop >/dev/null >[2]foo
+grep 'can''t open file ./nonexistentdir/foo' foo >/dev/null || echo 'BAD: T.errmsg: can''t open file ./nonexistentdir/foo' >[1=2]
+
+awk '
+function f() { print 1 }
+function f() { print 2 }' <foo.glop >/dev/null >[2]foo
+grep 'you can''t define function f more than once' foo >/dev/null || echo 'BAD: T.errmsg: you can''t define function f more than once' >[1=2]
+
+awk '
+function mp(){ cnt++;}
+BEGIN {	mp(xx) }' <foo.glop >/dev/null >[2]foo
+grep 'function mp called with 1 args, uses only 0' foo >/dev/null || echo 'BAD: T.errmsg: function mp called with 1 args, uses only 0' >[1=2]
+
+awk '
+BEGIN { index("abc", /a/) }' <foo.glop >/dev/null >[2]foo
+grep 'index.*doesn.t permit regular expressions' foo >/dev/null || echo 'BAD: T.errmsg: index.*doesn.t permit regular expressions' >[1=2]
+
+awk '
+BEGIN { print log(-1) }' <foo.glop >/dev/null >[2]foo
+grep 'log argument out of domain' foo >/dev/null || echo 'BAD: T.errmsg: log argument out of domain' >[1=2]
+
+awk '
+BEGIN {print exp(1000)}' <foo.glop >/dev/null >[2]foo
+grep 'exp result out of range' foo >/dev/null || echo 'BAD: T.errmsg: exp result out of range' >[1=2]
+
+awk '
+BEGIN { print >foo }' <foo.glop >/dev/null >[2]foo
+grep 'null file name in print or getline' foo >/dev/null || echo 'BAD: T.errmsg: null file name in print or getline' >[1=2]
+
+awk '
+BEGIN { length("abc", "def") }' <foo.glop >/dev/null >[2]foo
+grep 'function has too many arguments' foo >/dev/null || echo 'BAD: T.errmsg: function has too many arguments' >[1=2]
+
+awk '
+BEGIN { foo() }' <foo.glop >/dev/null >[2]foo
+grep 'calling undefined function foo' foo >/dev/null || echo 'BAD: T.errmsg: calling undefined function foo' >[1=2]

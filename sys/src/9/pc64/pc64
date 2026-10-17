@@ -1,0 +1,93 @@
+# pc64 - amd64 pc terminal with local disk
+dev
+	root
+	cons
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+	ether		netif
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	sd
+
+	uart
+	usb
+	kbd
+	
+	segment
+	ext4
+
+link
+	cputemp		pci
+	ether8169	pci ethermii
+	ether82563	pci ethermii
+	ether82598	pci
+	etherx550	pci
+	etheri225	pci ethermii
+	etherigbe	pci ethermii
+	etheriwl	pci wifi
+	ethersink
+	ethervirtio	pci
+	ethervirtio10	pci virtio10pc
+	ethermedium
+	loopbackmedium
+	usbuhci		pci
+	usbohci		pci
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+	pmmc		pci
+
+misc
+	pci		pcipc
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio	pci sdscsi
+	sdvirtio10	pci sdscsi virtio10pc
+	sdmmc		pci pmmc
+	sdnvme		pci
+	sdloop
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# no bootdir: no boot file system (bootfs.paq, paqfs, bootrc); the kernel
+# mounts the root (plan9.ini root=, port/devext4.c) and runs its init
+# (docs/init.md)

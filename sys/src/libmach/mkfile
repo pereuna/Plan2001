@@ -1,0 +1,28 @@
+</$objtype/mkfile
+
+# Plan2001: amd64 (6, the x86 disassembler in 8db.c) and arm64 (7) only
+LIB=/$objtype/lib/libmach.a
+OFILES=\
+	executable.$O\
+	map.$O\
+	obj.$O\
+	swap.$O\
+	sym.$O\
+	access.$O\
+	machdata.$O\
+	setmach.$O\
+	6.$O\
+	7.$O\
+	7db.$O\
+	8db.$O\
+	6obj.$O\
+	7obj.$O\
+
+HFILES=/sys/include/mach.h elf.h obj.h
+
+</sys/src/cmd/mksyslib
+
+CFLAGS=$CFLAGS -I/sys/src/cmd
+
+6obj.$O: /sys/src/cmd/6c/6.out.h
+7obj.$O: /sys/src/cmd/7c/7.out.h

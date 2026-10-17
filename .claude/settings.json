@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ping *)",
+      "Bash(lsblk)",
+      "Bash(lsblk *)",
+      "Bash(tools/vm status)",
+      "mcp__claude_ai_Claude_Docs__guide",
+      "mcp__claude-code-remote__read_documentation"
+    ]
+  }
+}

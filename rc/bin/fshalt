@@ -1,0 +1,77 @@
+#!/bin/rc
+# fshalt [-r [kernel]] - sync (flush) and halt the ext4 file systems (#E:
+#	/srv/ext4*cmd, the root's too) and optionally reboot
+rfork en
+reboot=no
+bootf=()
+if(~ $1 -r){
+	reboot=yes
+	shift
+}
+if not if(! ~ $#* 0 && ! ~ $#* 1){
+	echo usage: $0 '[-r bootkern]' >[1=2]
+	exit usage
+}
+
+if(~ $reboot yes && ~ $#* 1){
+	bootf=$1
+	if(! ~ $bootf /*)
+		bootf=`{builtin pwd}^/$bootf
+}
+
+path=(/bin)
+builtin cd /
+bind -c '#s' /srv
+bind '#p' /proc
+
+e=`{ls /srv/ext4*cmd >[2]/dev/null}
+s=`{awk '/^sd./ {print substr($1,3,1)}' '#S/sdctl' >[2]/dev/null}
+
+# halting (binaries we run can't be on the fs we're halting)
+ramfs
+builtin cd /tmp
+cp /bin/echo /tmp
+mkdir /tmp/lib
+cp /rc/lib/rcmain /tmp/lib
+cp /bin/ns /tmp
+cp /bin/rc /tmp
+cp /bin/sed /tmp
+cp /bin/sleep /tmp
+cp /bin/test /tmp
+if(~ $#bootf 1){
+	if(! cp $bootf /tmp/bootf)
+		exit 'failed to copy kernel'
+	bootf=/bin/bootf
+}
+
+bind /tmp /rc
+bind /tmp /bin
+
+# put this in a shell function so this rc script doesn't get read
+# when it's no longer accessible
+fn x {
+	echo
+	echo -n halting...
+	for(i in $e)
+		echo halt >>$i
+	for(i in $e){
+		echo -n $i...
+		while(test -e $i)
+			sleep 1
+	}
+	echo
+	echo done halting
+
+	# turn off disk drives
+	for(i in $s)
+		echo config spec $i switch off >>'#S/sdctl' >[2]/dev/null
+
+	if(~ $reboot yes){
+		echo rebooting...
+		echo reboot $bootf >'#c/reboot'
+	}
+	if not
+		echo 'It''s now safe to turn off your computer'
+}
+
+x

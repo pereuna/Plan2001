@@ -1,0 +1,51 @@
+#!/bin/bash
+# Plan2001 in another system's ESP, chainloaded by its GRUB: the loader,
+# the kernel and plan9.ini in ESP/EFI/plan2001 (the loader reads
+# plan9.ini from its own directory first), and with -g a GRUB menu entry
+# for it (/etc/grub.d/42_plan2001, then update-grub).  The root is the
+# kernel's (plan9.ini root=, devext4), init=/init (tools/ext4root's).
+#   sudo tools/espinstall [-g] ESP ROOT     e.g. /boot/efi '-w UUID=22bc...'
+#   CONSOLE=0                               plan9.ini console=0 too
+#   INI='tz=EET'                            more plan9.ini lines
+# Undo: rm -r ESP/EFI/plan2001 /etc/grub.d/42_plan2001; update-grub.
+set -e
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/target.sh"
+grub=
+[ "$1" = -g ] && { grub=1; shift; }
+[ $# = 2 ] || { echo "usage: tools/espinstall [-g] ESP ROOT" >&2; exit 2; }
+esp=$1 rootspec=$2
+for f in "$tbuild/$kernel" "$tbuild/$loader"; do
+	[ -s "$f" ] || { echo "espinstall: no $f (tools/build.sh)" >&2; exit 1; }
+done
+mountpoint -q "$esp" || { echo "espinstall: $esp is not mounted" >&2; exit 1; }
+d=$esp/EFI/plan2001
+mkdir -p "$d"
+cp "$tbuild/$loader" "$d/$espname"
+cp "$tbuild/$kernel" "$d/$kernel"
+{
+	printf 'bootfile=/EFI/plan2001/%s\n' "$kernel"
+	[ -n "$CONSOLE" ] && printf 'console=%s\n' "$CONSOLE"
+	printf 'user=glenda\nroot=%s\ninit=/init\n' "$rootspec"
+	if [ -n "$INI" ]; then printf '%s\n' "$INI"; fi
+} > "$d/plan9.ini"
+sync
+echo "espinstall: $d: $(ls "$d" | tr '\n' ' ')"
+[ -z "$grub" ] && exit 0
+uuid=$(findmnt -no UUID "$esp")
+cat > /etc/grub.d/42_plan2001 <<EOF
+#!/bin/sh
+# Plan2001 (tools/espinstall in the Plan2001 repo): its UEFI loader in
+# the ESP, chainloaded
+cat <<'EOT'
+menuentry 'Plan2001' {
+	insmod part_gpt
+	insmod fat
+	insmod chain
+	search --no-floppy --fs-uuid --set=root $uuid
+	chainloader /EFI/plan2001/$espname
+}
+EOT
+EOF
+chmod 755 /etc/grub.d/42_plan2001
+update-grub

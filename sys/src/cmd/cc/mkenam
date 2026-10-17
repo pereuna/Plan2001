@@ -1,0 +1,12 @@
+# enam.c: the instruction names, from the A... enum of $T.out.h
+{
+	echo 'char*	anames[] ='
+	echo '{'
+	sed -n '/^	A/{
+		s/^	A/	"/
+		s/ .*$//
+		s/,*$/",/
+		p
+	}' ../$T^c/$T^.out.h
+	echo '};'
+} >enam.c

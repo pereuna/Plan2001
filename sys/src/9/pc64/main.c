@@ -1,0 +1,416 @@
+#include	"u.h"
+#include	"tos.h"
+#include	"../port/lib.h"
+#include	"mem.h"
+#include	"dat.h"
+#include	"fns.h"
+#include	"io.h"
+#include	"../port/pci.h"
+#include	"ureg.h"
+#include	"pool.h"
+#include	"rebootcode.i"
+
+Conf conf;
+int idle_spin;
+
+extern void (*i8237alloc)(void);
+extern void bootscreeninit(void);
+
+void
+confinit(void)
+{
+	char *p;
+	int i, userpcnt;
+	ulong kpages;
+
+	if(p = getconf("service")){
+		if(strcmp(p, "cpu") == 0)
+			cpuserver = 1;
+		else if(strcmp(p,"terminal") == 0)
+			cpuserver = 0;
+	}
+
+	if(p = getconf("*kernelpercent"))
+		userpcnt = 100 - strtol(p, 0, 0);
+	else
+		userpcnt = 0;
+
+	conf.npage = 0;
+	for(i=0; i<nelem(conf.mem); i++)
+		conf.npage += conf.mem[i].npage;
+
+	conf.nproc = 100 + ((conf.npage*BY2PG)/MB)*5;
+	if(cpuserver)
+		conf.nproc *= 3;
+	if(conf.nproc > 4000)
+		conf.nproc = 4000;
+	conf.nimage = 200;
+	conf.nswap = conf.nproc*80;
+	conf.nswppo = 4096;
+
+	if(cpuserver) {
+		if(userpcnt < 10)
+			userpcnt = 70;
+		kpages = conf.npage - (conf.npage*userpcnt)/100;
+		conf.nimage = conf.nproc;
+	} else {
+		if(userpcnt < 10) {
+			if(conf.npage*BY2PG < 16*MB)
+				userpcnt = 50;
+			else
+				userpcnt = 60;
+		}
+		kpages = conf.npage - (conf.npage*userpcnt)/100;
+
+		/*
+		 * Make sure terminals with low memory get at least
+		 * 4MB on the first Image chunk allocation.
+		 */
+		if(conf.npage*BY2PG < 16*MB)
+			imagmem->minarena = 4*MB;
+	}
+
+	/*
+	 * can't go past the end of virtual memory.
+	 */
+	if(kpages > ((uintptr)-KZERO)/BY2PG)
+		kpages = ((uintptr)-KZERO)/BY2PG;
+
+	conf.upages = conf.npage - kpages;
+	conf.ialloc = (kpages/2)*BY2PG;
+
+	/*
+	 * Guess how much is taken by the large permanent
+	 * datastructures. Mntcache and Mntrpc are not accounted for.
+	 */
+	kpages *= BY2PG;
+	kpages -= conf.nproc*sizeof(Proc*)
+		+ conf.nimage*sizeof(Image)
+		+ conf.nswap
+		+ conf.nswppo*sizeof(Page*);
+	mainmem->maxsize = kpages;
+
+	/*
+	 * the dynamic allocation will balance the load properly,
+	 * hopefully. be careful with 32-bit overflow.
+	 */
+	imagmem->maxsize = kpages - (kpages/10);
+	if(p = getconf("*imagemaxmb")){
+		imagmem->maxsize = strtol(p, nil, 0)*MB;
+		if(imagmem->maxsize > mainmem->maxsize)
+			imagmem->maxsize = mainmem->maxsize;
+	}
+}
+
+void
+machinit(void)
+{
+	int machno;
+	Segdesc *gdt;
+	uintptr *pml4;
+
+	machno = m->machno;
+	pml4 = m->pml4;
+	gdt = m->gdt;
+	memset(m, 0, sizeof(Mach));
+	m->machno = machno;
+	m->pml4 = pml4;
+	m->gdt = gdt;
+	m->perf.period = 1;
+
+	/*
+	 * For polled uart output at boot, need
+	 * a default delay constant. 100000 should
+	 * be enough for a while. Cpuidentify will
+	 * calculate the real value later.
+	 */
+	m->loopconst = 100000;
+}
+
+void
+mach0init(void)
+{
+	conf.nmach = 1;
+
+	MACHP(0) = (Mach*)CPU0MACH;
+
+	m->machno = 0;
+	m->pml4 = (u64int*)CPU0PML4;
+	m->gdt = (Segdesc*)CPU0GDT;
+
+	machinit();
+
+	active.machs[0] = 1;
+	active.exiting = 0;
+}
+
+void
+init0(void)
+{
+	char buf[2*KNAMELEN], **sp, *av[16], *p, *s;
+	int ac, i, n;
+
+	chandevinit();
+
+	ac = 0;
+	if(!waserror()){
+		snprint(buf, sizeof(buf), "%s %s", arch->id, conffile);
+		ksetenv("terminal", buf, 0);
+		ksetenv("cputype", "amd64", 0);
+		if(cpuserver)
+			ksetenv("service", "cpu", 0);
+		else
+			ksetenv("service", "terminal", 0);
+		setconfenv();
+		/*
+		 * The root from plan9.ini root= (devext4): its init= or
+		 * /amd64/init.  There is no boot file system to fall back to.
+		 */
+		if(rootmount()){
+			if((s = getconf("init")) != nil){
+				p = nil;
+				kstrdup(&p, s);
+				ac = tokenize(p, av, nelem(av)-1);
+			}
+			if(ac == 0){
+				av[ac++] = "/amd64/init";
+				av[ac++] = cpuserver ? "-c" : "-t";
+			}
+		}
+		poperror();
+	}
+	if(ac == 0)
+		panic("no root file system: plan9.ini root=[-w ]UUID=... (docs/init.md)");
+	kproc("alarm", alarmkproc, 0);
+
+	/*
+	 * argv for initcode (init9.c's _main(argv0): startboot(argv0,
+	 * &argv0)): the strings, then the vector after a return pc and
+	 * argv0's slot, which _main overwrites with RARG (touser's sp)
+	 */
+	p = (char*)(USTKTOP - sizeof(Tos) - 8);
+	for(i = ac-1; i >= 0; i--){
+		n = strlen(av[i])+1;
+		p -= n;
+		memmove(p, av[i], n);
+		av[i] = p;
+	}
+	sp = (char**)((uintptr)p & ~(BY2WD-1)) - (ac+1) - 2;
+	sp[0] = nil;
+	sp[1] = nil;
+	for(i = 0; i < ac; i++)
+		sp[2+i] = av[i];
+	sp[2+ac] = nil;
+
+	splhi();
+	fpukexit(nil);
+	touser(sp);
+}
+
+void
+main(void)
+{
+	bootmark(BMMain);
+	bootinfoinit();
+	mach0init();
+	bootargsinit();
+	trapinit0();
+	ioinit();
+	i8250console();
+	quotefmtinstall();
+	print("\nPlan 9\n");
+	cpuidentify();
+	meminit0();
+	archinit();
+	if(arch->clockinit)
+		arch->clockinit();
+	meminit();
+	ramdiskinit();
+	confinit();
+	xinit();
+	trapinit();
+	mathinit();
+	if(i8237alloc != nil)
+		i8237alloc();
+	bootfbinit();
+	bootmark(BMMem);
+	pcicfginit();
+	bootscreeninit();
+	printinit();
+	cpuidprint();
+	mmuinit();
+	if(arch->intrinit)
+		arch->intrinit();
+	bootinforandinit();
+	timersinit();
+	if(arch->clockenable)
+		arch->clockenable();
+	bootinfoclock();
+	procinit0();
+	initseg();
+	links();
+	chandevreset();
+	bootmark(BMDevs);
+	preallocpages();
+	pageinit();
+	userinit();
+	bootmark(BMUser);
+	schedinit();
+}
+
+static void
+rebootjump(uintptr entry, uintptr code, ulong size)
+{
+	void (*f)(uintptr, uintptr, ulong);
+	uintptr *pte;
+
+	arch->introff();
+
+	/*
+	 * This allows the reboot code to turn off the page mapping
+	 */
+	*mmuwalk(m->pml4, 0, 3, 0) = *mmuwalk(m->pml4, KZERO, 3, 0);
+	*mmuwalk(m->pml4, 0, 2, 0) = *mmuwalk(m->pml4, KZERO, 2, 0);
+
+	if((pte = mmuwalk(m->pml4, REBOOTADDR, 1, 0)) != nil)
+		*pte &= ~PTENOEXEC;
+	if((pte = mmuwalk(m->pml4, REBOOTADDR, 0, 0)) != nil)
+		*pte &= ~PTENOEXEC;
+
+	mmuflushtlb(PADDR(m->pml4));
+
+	/* setup reboot trampoline function */
+	f = (void*)REBOOTADDR;
+	memmove(f, rebootcode, sizeof(rebootcode));
+
+	/* off we go - never to return */
+	coherence();
+	(*f)(entry, code, size);
+
+	for(;;);
+}
+
+void
+exit(int)
+{
+	cpushutdown();
+	splhi();
+
+	if(m->machno)
+		rebootjump(0, 0, 0);
+
+	/* clear secrets */
+	zeroprivatepages();
+	poolreset(secrmem);
+
+	arch->reset();
+}
+
+void
+reboot(void *entry, void *code, ulong size)
+{
+	/*
+	 * rebootjump() below (and rebootcode.s) hand the new kernel off in
+	 * 32-bit protected mode, with paging and EFER.LME off.  This
+	 * kernel's only entry, _efi64 (pc64/l.s), needs long mode with the
+	 * firmware's page tables still active - a mismatch since the 32-bit
+	 * entry path was removed (see docs/status.md).  Refuse here, before
+	 * the shutdown below starts undoing device and CPU state that
+	 * cannot be undone, rather than run it all and then jump into a
+	 * state that is certain to crash or hang with no way back.  Once
+	 * rebootcode.s is rewritten for a 64-bit handoff this can go.
+	 */
+	panic("reboot: no 64-bit kexec handoff yet, refusing to load a new kernel");
+
+	/*
+	 * the boot processor is cpu0.  execute this function on it
+	 * so that the new kernel has the same cpu0.  this only matters
+	 * because the hardware has a notion of which processor was the
+	 * boot processor and we look at it at start up.
+	 */
+	while(m->machno != 0){
+		procwired(up, 0);
+		sched();
+	}
+	cpushutdown();
+	delay(1000);
+	splhi();
+
+	/* turn off buffered serial console */
+	serialoq = nil;
+
+	/* shutdown devices */
+	chandevshutdown();
+
+	/* clear secrets */
+	zeroprivatepages();
+	poolreset(secrmem);
+
+	/* disable pci devices */
+	pcireset();
+
+	rebootjump((uintptr)entry & (ulong)~0xF0000000UL, PADDR(code), size);
+}
+
+void
+procsetup(Proc *p)
+{
+	fpuprocsetup(p);
+
+	/* clear debug registers */
+	memset(p->dr, 0, sizeof(p->dr));
+	if(m->dr7 != 0){
+		m->dr7 = 0;
+		putdr7(0);
+	}
+}
+
+void
+procfork(Proc *p)
+{
+	fpuprocfork(p);
+}
+
+void
+procrestore(Proc *p)
+{
+	if(p->dr[7] != 0){
+		m->dr7 = p->dr[7];
+		putdr(p->dr);
+	}
+
+	fpuprocrestore(p);
+}
+
+void
+procsave(Proc *p)
+{
+	if(m->dr7 != 0){
+		m->dr7 = 0;
+		putdr7(0);
+	}
+	if(p->state == Moribund)
+		p->dr[7] = 0;
+
+	fpuprocsave(p);
+
+	/*
+	 * While this processor is in the scheduler, the process could run
+	 * on another processor and exit, returning the page tables to
+	 * the free list where they could be reallocated and overwritten.
+	 * When this processor eventually has to get an entry from the
+	 * trashed page tables it will crash.
+	 *
+	 * If there's only one processor, this can't happen.
+	 * You might think it would be a win not to do this in that case,
+	 * especially on VMware, but it turns out not to matter.
+	 */
+	mmuflushtlb(PADDR(m->pml4));
+}
+
+int
+pcibiosinit(int *, int *)
+{
+	return -1;
+}
+

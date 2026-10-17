@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Drive the 9front VM through its serial console (COM1, console=0).
+
+  9run [-d DIR] [-t SEC] 'rc command'   run it, print its output, exit 0 if
+                                       $status was empty, else 1 (status on
+                                       stderr); 124 on timeout
+  9run [-d DIR] [-t SEC] --script FILE  run an rc script (FILE, '-' = stdin)
+                                       without typing it as command lines:
+                                       it goes over as a here document
+                                       (rc does not read quotes in one),
+                                       then rc runs it; as above for status
+  9run [-d DIR] [-t SEC] [-s LINE] --dialog FILE
+                                       answer prompts from FILE ('-' = stdin),
+                                       after typing LINE if given
+
+  9run --relay DIR                     (tools/vm starts this, one per VM;
+                                       tools/hw for a machine on the network)
+
+DIR (default build/vm) is where tools/vm keeps the VM.  The relay is the
+only client of QEMU's serial socket, for the VM's whole life: it appends
+everything the guest prints to DIR/serial.log (the whole session) and
+types what is written to the FIFO DIR/serial.in.  Everything else reads
+the log and writes the FIFO.  Found by trial (see docs/status.md):
+  - input goes in small paced chunks, or the guest's UART drops characters
+  - clients that come and go on QEMU's socket lose input right after
+    connecting, stall the guest's output while connected and not reading,
+    and see characters doubled in QEMU's own logfile - hence one relay
+If DIR/target says 'tcp HOST PORT KEY', the relay talks to a real machine
+instead: the Plan2001 medium's remote (Monolith's plan2001/usr/glenda/lib/profile), a shell on
+a TCP connection that wants KEY first.  No line discipline there, so the
+relay turns typed returns into newlines, and no UART to pace for.
+
+A dialog file has one rule per line: REGEX<TAB>ANSWER, blank lines and
+#-comments ignored.  Rules are tried in order against the output since the
+last answer, once it has been quiet for QUIET seconds; the first match wins.
+REGEX prefixed with '!now ' is tried on every new chunk instead (for the
+loader, which waits only one second); '!once ' makes a rule fire only
+once.  ANSWER: text to type (\\n separates lines, each sent with a return;
+'' is a bare return; \\1..\\9 are the rule's groups), or !done (stop,
+exit 0) or !fail (exit 1).
+Output that is quiet, ends in a prompt ('...]: ', '...] ', '>>> ') and
+matches no rule is an unexpected question: exit 1.  A prompt already on the
+screen when the dialog starts counts too.
+
+Every failure - a non-empty status, a timeout, an unexpected prompt, a
+question asked again and again - is appended to DIR/9run.log with the
+command and the console's last lines, so that it gets fixed in the tool or
+the script once, not typed around again.
+"""
+import os, re, select, socket, sys, time, uuid
+
+CHUNK, CHUNK_DELAY = 4, 0.02
+QUIET = 1.5
+LINE_DELAY = 0.3
+LOOP = 3
+PROMPT = re.compile(r'(\]:? *|>>> )\Z')
+ANSI = re.compile(r'\x1b\[[0-9;?=]*[A-Za-z]')
+
+
+def relay(d):
+	tcp = None
+	t = os.path.join(d, 'target')
+	if os.path.exists(t):
+		f = open(t).read().split()
+		if len(f) == 4 and f[0] == 'tcp':
+			tcp = f[1:]
+	if tcp:
+		s = socket.create_connection((tcp[0], int(tcp[1])), timeout=10)
+		s.settimeout(None)
+		s.sendall(tcp[2].encode() + b'\n')
+	else:
+		s = socket.socket(socket.AF_UNIX)
+		for _ in range(100):
+			try:
+				s.connect(os.path.join(d, 'serial.sock'))
+				break
+			except OSError:
+				time.sleep(0.1)
+	fifo = os.path.join(d, 'serial.in')
+	fin = os.open(fifo, os.O_RDWR)		# RDWR: never sees EOF
+	log = open(os.path.join(d, 'serial.log'), 'ab', buffering=0)
+	while True:
+		r, _, _ = select.select([s, fin], [], [])
+		if s in r:
+			x = s.recv(65536)
+			if not x:
+				return
+			log.write(x)
+		if fin in r:
+			b = os.read(fin, 4096)
+			if tcp:
+				s.sendall(b.replace(b'\r', b'\n'))
+				continue
+			for i in range(0, len(b), CHUNK):
+				s.sendall(b[i:i+CHUNK])
+				time.sleep(CHUNK_DELAY)
+
+
+class Serial:
+	def __init__(self, d):
+		self.d = d
+		self.log = open(os.path.join(d, 'serial.log'), 'rb')
+		self.log.seek(0, 2)
+		# what is on the console's last line now: a prompt already asked
+		n = self.log.tell()
+		self.log.seek(max(0, n - 512))
+		tail = ANSI.sub('', self.log.read().decode('latin1').replace('\r', ''))
+		self.tail = '' if tail.endswith('\n') else tail.rsplit('\n', 1)[-1]
+		self.fifo = os.open(os.path.join(d, 'serial.in'), os.O_WRONLY)
+		self.what = ''
+
+	def fail(self, why, buf=''):
+		"""A failure, to stderr and to DIR/9run.log."""
+		print('9run: ' + why, file=sys.stderr)
+		last = '\n'.join(buf.rstrip('\n').split('\n')[-6:])
+		with open(os.path.join(self.d, '9run.log'), 'a') as f:
+			f.write('%s %s\n  what: %s\n  console: %r\n' % (time.strftime('%F %T'), why, self.what[:300], last[-400:]))
+
+	def send(self, line):
+		"""Type line and a return."""
+		os.write(self.fifo, line.encode() + b'\r')
+
+	def read(self):
+		"""New guest output since the last call ('' if none yet)."""
+		x = self.log.read()
+		if not x:
+			time.sleep(0.05)
+			return ''
+		return ANSI.sub('', x.decode('latin1').replace('\r', ''))
+
+
+LINEMAX = 200	# the console's line (Plan2001's kbdfs: 255 runes) less the status line's
+
+def long(ser, cmd):
+	"""a command longer than the console's line: into a file a piece at a
+	time, each typed after rc's prompt (each an rc string, ' doubled), the
+	file run (rc) - the same command"""
+	f = '/tmp/9run.' + uuid.uuid4().hex[:8]
+	pieces, p = [], ''
+	for c in cmd:	# each piece quoted at most 150 characters, whatever its quotes
+		if len(p.replace("'", "''")) + (2 if c == "'" else 1) > 150:
+			pieces.append(p)
+			p = ''
+		p += c
+	pieces.append(p)
+	first = True
+	for p in pieces:
+		ser.send("echo -n '" + p.replace("'", "''") + "' " + ('>' if first else '>>') + f)
+		first = False
+		buf, end = '', time.time() + 5
+		while time.time() < end:
+			buf += ser.read()
+			if buf.endswith('\t'):
+				break
+	ser.send('echo >>' + f)	# its last line ended: rc wants a newline before EOF
+	buf, end = '', time.time() + 5
+	while time.time() < end:
+		buf += ser.read()
+		if buf.endswith('\t'):
+			break
+	return 'rc ' + f + '; s=$status; rm -f ' + f + '; status=$s'
+
+def run(ser, cmd, timeout):
+	if len(cmd) > LINEMAX:
+		cmd = long(ser, cmd)
+	tag = uuid.uuid4().hex[:12]
+	# rc joins __END_^tag^__ into __END_tag__; the echoed input line keeps the
+	# carets, so only the real output matches
+	ser.send(cmd + '; echo __END_^' + tag + '^__ $status')
+	end, buf = time.time() + timeout, ''
+	marker = re.compile(r'__END_' + tag + r'__ ?(.*)\n')
+	while time.time() < end:
+		buf += ser.read()
+		m = marker.search(buf)
+		if m:
+			out = buf[:m.start()]
+			out = out.split('\n', 1)[1] if '__END_^' in out.split('\n', 1)[0] else out
+			sys.stdout.write(out)
+			if m.group(1).strip():
+				ser.fail('status ' + m.group(1).strip(), out)
+				return 1
+			return 0
+	sys.stdout.write(buf)
+	ser.fail('timeout after %ds' % timeout, buf)
+	return 124
+
+
+def script(ser, text, timeout):
+	"""text (an rc script) to a file on the console as a here document,
+	then run: only the two fixed lines are rc's to read."""
+	mark = '9RUNEOF' + uuid.uuid4().hex[:8].upper()
+	if any(l.strip() == mark for l in text.splitlines()):
+		ser.fail('script contains its own end mark')
+		return 1
+	# each line only after rc's prompt for the next (a tab): the console's
+	# line editor drops what comes while it redraws
+	def typed(line):
+		ser.send(line)
+		buf, end = '', time.time() + 5
+		while time.time() < end:
+			buf += ser.read()
+			if buf.endswith('\t'):
+				return True
+		ser.fail('no prompt after a script line: %r' % line, buf)
+		return False
+	if not typed("cat >/tmp/9run.rc <<'" + mark + "'"):
+		return 1
+	for line in text.rstrip('\n').split('\n'):
+		if not typed(line):
+			ser.send(mark)
+			return 1
+	ser.send(mark)
+	time.sleep(0.5)
+	# parsed whole first, as the body of a function that is only defined:
+	# a syntax error runs none of it (9front's rc has no -n)
+	return run(ser, "{echo 'fn __9runcheck {'; cat /tmp/9run.rc; echo '}'} >/tmp/9run.chk && rc /tmp/9run.chk && rc /tmp/9run.rc", timeout)
+
+
+def dialog(ser, rules, timeout):
+	end, buf, last = time.time() + timeout, ser.tail, time.time() - QUIET - 1
+	seen = {}
+	while time.time() < end:
+		x = ser.read()
+		if x:
+			sys.stdout.write(x)
+			sys.stdout.flush()
+			buf += x
+			last = time.time()
+		quiet = time.time() - last > QUIET
+		if not x and not quiet:
+			continue
+		for r in rules:
+			now, once, rx, ans = r
+			if now == bool(x) and rx.search(buf):
+				if once:
+					rules.remove(r)
+				break
+		else:
+			if quiet and buf and PROMPT.search(buf):
+				ser.fail('unexpected prompt: %r' % buf[-200:], buf)
+				return 1
+			continue
+		if ans == '!done':
+			return 0
+		# the same question over and over: the answer is not taking
+		key = buf.rstrip('\n').rsplit('\n', 1)[-1]
+		seen[key] = seen.get(key, 0) + 1
+		if seen[key] > LOOP:
+			ser.fail('asked %d times: %r' % (seen[key], key), buf)
+			return 1
+		if ans == '!fail':
+			ser.fail('failure matched: %s' % rx.pattern, buf)
+			return 1
+		m = rx.search(buf)
+		for i, line in enumerate(ans.split('\\n')):
+			if i:
+				time.sleep(LINE_DELAY)
+			ser.send(re.sub(r'\\([1-9])', lambda g: m.group(int(g.group(1))) or '', line))
+		buf, last = '', time.time()
+	ser.fail('dialog timeout after %ds' % timeout, buf)
+	return 124
+
+
+def parse(text):
+	rules = []
+	for line in text.splitlines():
+		if not line.strip() or line.startswith('#'):
+			continue
+		rx, ans = line.split('\t', 1)
+		ans = '' if ans == "''" else ans
+		once = rx.startswith('!once ')
+		rx = rx[6:] if once else rx
+		now = rx.startswith('!now ')
+		rx = rx[5:] if now else rx + r'\Z'
+		rules.append((now, once, re.compile(rx), ans))
+	return rules
+
+
+def main(a):
+	if a[:1] == ['--relay'] and len(a) == 2:
+		return relay(a[1])
+	d, timeout, dlg, first, scr = 'build/vm', 300 * float(os.environ.get('VM_TIMEOUT_SCALE', '1')), None, None, None
+	while a and a[0].startswith('-') and a[0] != '-':
+		o = a.pop(0)
+		if o == '-d': d = a.pop(0)
+		elif o == '-t': timeout = float(a.pop(0)) * float(os.environ.get('VM_TIMEOUT_SCALE', '1'))	# an emulated VM (tools/vm: VM_ACCEL=tcg)
+		elif o == '-s': first = a.pop(0)
+		elif o == '--dialog': dlg = a.pop(0)
+		elif o == '--script': scr = a.pop(0)
+		else: sys.exit(__doc__)
+	ser = Serial(d)
+	if scr is not None:
+		if a or dlg is not None:
+			sys.exit(__doc__)
+		f = sys.stdin if scr == '-' else open(scr)
+		ser.what = 'script ' + scr
+		return script(ser, f.read(), timeout)
+	if (dlg is None) == (len(a) != 1):
+		sys.exit(__doc__)
+	if dlg is not None:
+		ser.what = 'dialog ' + (first or '') + ' (' + dlg + ')'
+	else:
+		ser.what = a[0]
+	if dlg is not None:
+		f = sys.stdin if dlg == '-' else open(dlg)
+		rules = parse(f.read())
+		if first is not None:
+			ser.tail = ''	# the prompt on screen is the one first answers
+			ser.send(first)
+		return dialog(ser, rules, timeout)
+	return run(ser, a[0], timeout)
+
+
+if __name__ == '__main__':
+	sys.exit(main(sys.argv[1:]))
