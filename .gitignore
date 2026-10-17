@@ -28,3 +28,4 @@ y.tab.[ch]
 /sys/src/9/pc64/reboot.h
 /sys/src/boot/efi/*.efi
 /sys/src/boot/efi/*.out
+/lost+found/

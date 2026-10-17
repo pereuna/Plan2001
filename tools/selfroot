@@ -25,16 +25,11 @@ bin=$tbuild/root/$objtype
 [ -x "$bin/bin/rc" ] || { echo "selfroot: no $bin/bin (tools/build.sh)" >&2; exit 1; }
 
 rm -rf "$out"
-git clone -q --no-hardlinks --single-branch --no-tags "$root" "$out"
+# file://: a pack of what HEAD needs, not a copy of our packs
+git clone -q --single-branch --no-tags "file://$root" "$out"
 cd "$out"
 git remote set-url origin "$origin"
-# 9front git: loose refs (no packed-refs), its index
-git for-each-ref --format='%(objectname) %(refname)' | while read -r h r; do
-	mkdir -p ".git/$(dirname "$r")"; echo "$h" > ".git/$r"
-done
-rm -f .git/packed-refs
-mkdir -p .git/fs .git/objects .git/refs/heads .git/refs/remotes
-git ls-files | sed 's/^/T NOQID 0 /' > .git/INDEX9
+"$here/git9" .
 cp -a "$bin/." "$objtype/"
 mkdir -p tmp usr/glenda
 echo "selfroot: $out: $(git log -1 --format='%h %s'), $(du -sm "$objtype" | cut -f1) MiB of binaries"
