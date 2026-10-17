@@ -262,6 +262,7 @@ sys/src/libmemdraw
 sys/src/libmemlayer
 sys/src/libaml
 sys/src/libfis
+sys/src/libavl
 
 # the compilers, assemblers and linkers: amd64 (6), arm64 (7)
 sys/src/cmd/cc
@@ -354,6 +355,10 @@ rc/bin/fshalt
 rc/bin/kill
 rc/bin/lc
 rc/bin/reboot
+
+# gefs, the format of the kernel's #G (sys/src/9/gefs, docs/gefs.md):
+# reaming, checking and the reference the tests check the kernel against
+sys/src/cmd/gefs
 
 # the kernel's debugging and profiling
 sys/src/cmd/acid
