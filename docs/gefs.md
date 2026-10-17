@@ -129,6 +129,15 @@ Upstreamin vikoja, jotka löytyivät (korjattu vain kernelin kopiossa):
 - `user.c`:n `slurp` jätti lohkon pitoon, ja `readblk`in virheviesti
   antoi `%llx`:lle Bptr-rakenteen.
 
+**Avoin vika (17.10.2026): palautus kaatumisesta.** Kun QEMU tapetaan
+kesken kirjoituksen, osio latautuu ja `check` on puhdas, mutta
+seuraavat vapautukset (`rm`, sync) törmäävät: kernelissä
+`freerange`n assert (lohko vapautetaan, vaikka se on jo vapaa), ja
+käyttäjätilan gefs:ssä samassa tilanteessa `getblk`in
+`b->bp.gen == bp.gen`. Vika on siis upstreamin gefs:ssä, ei portissa.
+`mk install`, kernelin ja loaderin käännös gefs-juuressa toimivat
+(`BUILD=1`).
+
 Avoinna: arm64-kernelin konfiguraatio, gefs:n luonti ilman
 käyttäjätilan gefs:ää (Linuxissa ei ole gefs:ää: juuri kopioidaan
 Plan2001:ssä), `rootdir` (Monolithin `/lib/namespace`), kaatumistesti

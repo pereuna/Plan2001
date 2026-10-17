@@ -11,6 +11,10 @@
 #   tools/test-gefs.sh
 #   NOROOT=1    build/selfroot as it is (else tools/selfroot makes it)
 #   GEFSMB      the gefs disk in MiB (default 4096)
+#   BUILD=1     boot 2 also builds the tree (mk install), the kernel and the
+#               loader on the gefs root (MEM=4096 SMP=4 is quicker)
+#   CRASH=N     then N boots killed (QEMU, no sync) while they write; each
+#               next one must load, check clean and keep what it synced
 #   KEEP=1      leave QEMU running after a failure (tools/9run -d build/$TARGET/gefsvm)
 #   ONLY=2      boot 2 (and 3) on the disks of an earlier run (3: boot 3), with the
 #               kernel of build/$TARGET; INI="line ..." more plan9.ini lines
@@ -128,9 +132,35 @@ run "dd -if /dev/zero -of /tmp/big -bs 65536 -count 512 >[2]/dev/null; ls -l /tm
 run "cd /sys/src/cmd && 6c -FTVw cat.c && 6l -o /tmp/6.cat cat.6 && /tmp/6.cat /usr/glenda/gefshello && rm cat.6" 120 || fail "build"
 run "mount -c /srv/gefs.root /n/adm adm && cat /n/adm/status && echo check >/n/adm/ctl && echo checked" 120 30 || fail "adm ctl"
 run "echo snap main gefstest >/n/adm/ctl && sleep 2 && cat /n/adm/status | grep gefstest" 60 || fail snap
+if [ "${BUILD:-0}" = 1 ]; then
+	run "cd /sys/src && mk install >/tmp/mk.log >[2=1]; st=\$status; tail -3 /tmp/mk.log; ~ \$st ''" 3600 || fail "mk install"
+	run "grep -s '^mk: .*(exit status|know how)|undefined' /tmp/mk.log; ! ~ \$status ''" 60 || fail "mk install: errors"
+	run "cd /sys/src/9/pc64 && mk >/tmp/k.log >[2=1]; st=\$status; tail -2 /tmp/k.log; ~ \$st ''" 1800 || fail kernel
+	run "cd /sys/src/boot/efi && mk bootx64.efi >/tmp/l.log >[2=1]; st=\$status; md5sum bootx64.efi; ~ \$st ''" 300 || fail loader
+	run "cd /sys/src/9/pc64 && md5sum 9pc64 && size 9pc64; cat /n/adm/status | sed 2q; echo check >/n/adm/ctl && echo checked" 600 || fail "check after build"
+fi
 halt
 clean | grep -q 'gefs: halted' || fail "gefs not halted"
 [ "$fails" = 0 ] || { echo "FAIL: $fails (boot 2)"; exit 1; }
+
+# crashes: QEMU killed (no sync, no halt) while files are written; each
+# next boot must load, check clean and have what was synced before
+n=${CRASH:-0}
+for r in $(seq 1 $((n > 0 ? n+1 : 0))); do
+	boot "$b/gefs-gefs.ini" || exit 1
+	run "mount -c /srv/gefs.root /n/adm adm && echo check >/n/adm/ctl && echo checked; cat /usr/glenda/synced$((r-1)) /usr/glenda/crashcount >[2]/dev/null; echo done" 600 30 || fail "crash $r: check"
+	grep -q '^checked' "$vm/out" || fail "crash $r: not checked"
+	[ $r -gt 1 ] && { grep -q "^synced $((r-1))" "$vm/out" || fail "crash $r: synced$((r-1)) lost"; }
+	[ "$fails" = 0 ] || { echo "FAIL: $fails (crash $r)"; exit 1; }
+	[ $r -gt $n ] && { halt; clean | grep -q 'gefs: halted' || fail "gefs not halted"; break; }
+	run "rm -f /tmp/crash*; echo synced $r >/usr/glenda/synced$r && echo sync >/n/adm/ctl && echo synced" 300 || fail "crash $r: sync"
+	run "{ for(i in \`{seq 1 100000}){ dd -if /dev/zero -of /tmp/crash\$i -bs 16384 -count 8; echo \$i >/usr/glenda/crashcount } } >/dev/null >[2=1] &" 30 || fail "crash $r: writer"
+	t=$((3 + RANDOM % 10))
+	sleep $t
+	echo "=== crash $r: QEMU killed after ${t}s of writing"
+	kill -9 $q; wait $q 2>/dev/null || true; q=
+done
+[ "$fails" = 0 ] || { echo "FAIL: $fails (crashes)"; exit 1; }
 fi
 
 # 3: checked and read back by the userspace gefs
