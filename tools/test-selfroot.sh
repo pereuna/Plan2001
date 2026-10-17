@@ -23,7 +23,7 @@ vm=$b/selfvm
 disk=$b/selfdisk.img
 rm -f "$b/root.gefs"
 "$here/gefsroot" "$tree" "$b/root.gefs" $(( $(du -sm "$tree" | cut -f1) + 2048 ))
-CONSOLE=0 INIT=/init "$here/gefsdisk" "$disk"
+CONSOLE=0 INIT=/init INI=ip=dhcp "$here/gefsdisk" "$disk"
 
 mkdir -p "$vm"; rm -f "$vm"/*.sock "$vm/serial.in"
 : > "$vm/serial.log"

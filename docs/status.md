@@ -967,3 +967,19 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   virtio-levynä, `root=-w #S/sdF0/data`), `gefs -c` puhdas jälkeenpäin.
 - Löytyi myös kencc:n vika joustotaulukon staattisessa alustuksessa
   (`docs/bugs_to_9front.md`); portti kiertää sen.
+
+## Konsoli: 2x fontti, \b päätteen tapaan, fi-näppäimistö, verkko pyynnöstä (17.10.2026, haara `console-fi`)
+
+- Kernelin konsolin fontti skaalataan (`pc/screen.c` consfont): defontin
+  pikselit n×n-neliöinä, plan9.ini `consscale=N` (1–4; oletus 2, jos ruutu
+  on vähintään 1600 px leveä).
+- `\b` siirtää kursoria solun vasemmalle poistamatta (`pc/vga.c`), kuten
+  päätteet ja sarjakonsoli: MicroPythonin readline piirtää rivin uudelleen
+  `\b`:llä. kbdfs ei tulosta `\b`:tä.
+- init: `kbmap=fi` (`/sys/lib/kbmap/$kbmap` → `/dev/kbmap`); verkko vain
+  plan9.ini:n `ip=`:llä (`ip=dhcp` tai ipconfigin argumentit), ettei boot
+  odota DHCP:tä turhaan. `tools/test-selfroot.sh` antaa `ip=dhcp`.
+- QEMU:ssa p5:n juuri ruudulla ja PS/2-näppäimistöllä (Monolithin ulkopuolinen
+  `~/plan9mp/tools/p5-screen.sh`, QEMU-monitorin sendkey ja screendump):
+  fi-merkit, 2x fontti, MicroPythonin REPL (Enter, nuolet, historia,
+  Backspace ja Delete keskellä riviä, ^D).

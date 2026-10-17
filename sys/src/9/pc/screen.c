@@ -71,6 +71,73 @@ setactualsize(VGAscr *scr, Rectangle r)
 	scr->gscreen->clipr = r;
 }
 
+/*
+ * The console's font: defont, each pixel of its glyphs drawn as an n×n
+ * square, n from plan9.ini consscale=N (1-4; default 2 on a screen
+ * 1600 pixels wide or more, else 1).  Made once.
+ */
+static Memsubfont*
+consfont(int width)
+{
+	static Memsubfont *scaled;
+	static int scale;
+	Memsubfont *f, *s;
+	Memimage *b, *src;
+	Fontchar *fc;
+	uchar *sp, *dp;
+	char *p;
+	int n, i, x, y, d;
+
+	f = getmemdefont();
+	if((p = getconf("consscale")) != nil)
+		n = atoi(p);
+	else
+		n = width >= 1600 ? 2 : 1;
+	if(n <= 1 || n > 4 || f->bits->depth != 1)
+		return f;
+	if(scaled != nil && scale == n)
+		return scaled;
+	src = f->bits;
+	b = allocmemimage(Rect(0, 0, n*Dx(src->r), n*Dy(src->r)), src->chan);
+	fc = malloc((f->n+1)*sizeof(Fontchar));
+	s = malloc(sizeof(Memsubfont));
+	if(b == nil || fc == nil || s == nil){
+		if(b != nil)
+			freememimage(b);
+		free(fc);
+		free(s);
+		return f;
+	}
+	for(y = 0; y < Dy(src->r); y++)
+		for(x = 0; x < Dx(src->r); x++){
+			sp = byteaddr(src, Pt(src->r.min.x+x, src->r.min.y+y));
+			i = *sp & (0x80 >> ((src->r.min.x+x) & 7));
+			for(d = 0; d < n*n; d++){
+				dp = byteaddr(b, Pt(n*x + d%n, n*y + d/n));
+				if(i)
+					*dp |= 0x80 >> ((n*x + d%n) & 7);
+				else
+					*dp &= ~(0x80 >> ((n*x + d%n) & 7));
+			}
+		}
+	for(i = 0; i <= f->n; i++){
+		fc[i] = f->info[i];
+		fc[i].x *= n;
+		fc[i].top *= n;
+		fc[i].bottom *= n;
+		fc[i].left *= n;
+		fc[i].width *= n;
+	}
+	*s = *f;
+	s->height = n*f->height;
+	s->ascent = n*f->ascent;
+	s->info = fc;
+	s->bits = b;
+	scaled = s;
+	scale = n;
+	return s;
+}
+
 static char*
 setscreensize0(VGAscr *scr, int width, int height, int depth, ulong chan, int tilt)
 {
@@ -118,7 +185,7 @@ setscreensize0(VGAscr *scr, int width, int height, int depth, ulong chan, int ti
 	scr->tilt = tilt & 3;
 
 	scr->palettedepth = 6;	/* default */
-	scr->memdefont = getmemdefont();
+	scr->memdefont = consfont(width);
 	scr->gscreen = gscreen;
 	scr->gscreendata = gscreen->data;
 

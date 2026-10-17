@@ -18,6 +18,9 @@ root=-w PARTUUID=6698a508-...            pakollinen
 init=/init                               oletus: /amd64/init -t (cpu: -c)
 user=glenda                              hostowner
 console=0                                sarjakonsoli (initin kbdfs:lle)
+kbmap=fi                                 näppäimistökartta (initin, /sys/lib/kbmap/fi)
+ip=dhcp                                  verkko (initin; ilman ip=:ä ei verkkoa)
+consscale=2                              konsolin fontti 2x (1–4; oletus 2, jos ruutu ≥ 1600 px)
 ```
 
 `root=`: `[-w] PARTUUID=guid | LAITE [!puu]`. `-w` kirjoitettavaksi
@@ -82,8 +85,9 @@ ovat initin työtä (repon `init` tekee ne):
 - nusb (USB-näppäimistö ja -levyt): 9frontin termrc ajaa `nusbrc`:n.
 - Kello: kernel asettaa sen UEFI:n RTC:stä, `#r/rtc`:tä ei tarvita.
 
-Repon `init` (laitteet, kbdfs, aikavyöhyke plan9.ini:n `tz=`:sta,
-mntgen, verkko: ipconfig, cs, dns, webfs; `ip=none` ohittaa) ja
+Repon `init` (laitteet, kbdfs ja sen näppäimistökartta plan9.ini:n
+`kbmap=`:sta (`kbmap=fi`), aikavyöhyke `tz=`:sta, mntgen, verkko vain
+`ip=`:llä: `ip=dhcp` tai ipconfigin argumentit, sitten cs, dns, webfs) ja
 `ktest` (plan9.ini `ktest=...`) on esimerkki.
 
 ## Alasajo

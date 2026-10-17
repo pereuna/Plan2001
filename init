@@ -1,10 +1,11 @@
 #!/amd64/bin/rc
 # Plan2001's init: the kernel mounted this root and runs this
 # (docs/init.md, docs/selfhost.md).  The devices, the line editor on the
-# console (console=N: the serial port), the time zone, the mount points,
-# the network if there is an interface (ip/ipconfig, cs, dns, webfs:
-# ip=none skips it), the kernel tests if plan9.ini has ktest=...
-# (ktest's arguments), then rc.
+# console (console=N: the serial port) and its keyboard map (kbmap=fi:
+# /sys/lib/kbmap/fi), the time zone, the mount points, the network if
+# plan9.ini asks for it (ip=dhcp, or ip/ipconfig's arguments; then cs,
+# dns, webfs), the kernel tests if plan9.ini has ktest=... (ktest's
+# arguments), then rc.
 rfork e
 /$cputype/bin/bind /$cputype/bin /bin
 bind -a /rc/bin /bin
@@ -22,6 +23,8 @@ a=()
 if(! ~ $#console 0)
 	a=/dev/eia^$console(1)
 aux/kbdfs -q -s cons $a
+if(! ~ $#kbmap 0 && test -r /sys/lib/kbmap/$kbmap)
+	cat /sys/lib/kbmap/$kbmap >/dev/kbmap
 # the root: the kernel's gefs (its 9P posted by the kernel, devgefs)
 if(test -e '#s/gefs.root')
 	echo init: / on gefs
@@ -31,11 +34,14 @@ mntgen -s slashn /n
 mntgen -s slashmnt /mnt
 mkdir -p /tmp /usr/$user
 
-# the network: the interfaces, then DHCP on the first ethernet
-bind -a '#l' /net
-bind -a '#I' /net
-bind -a '#a' /net
-if(! ~ $ip none && test -e /net/ether0){
+# the network: the interfaces, then ip=dhcp (DHCP on the first
+# ethernet) or ip=ADDRESSES (ip/ipconfig's arguments); none without ip=
+bind -qa '#l' /net
+bind -qa '#I' /net
+bind -qa '#a' /net
+if(! ~ $#ip 0 && ! ~ $ip none && test -e /net/ether0){
+	if(~ $ip dhcp)
+		ip=()
 	ip/ipconfig $ip
 	ndb/cs
 	ndb/dns -r
