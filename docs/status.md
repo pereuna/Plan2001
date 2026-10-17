@@ -998,6 +998,11 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   suoraan kernelistä, `/boot`, kbdfs:n `/dev`, `#c/user`, tiedosto `/env`:ssä,
   spawn + wait, f-string ja `%`, UTF-8, OSError, Ctrl-C, Ctrl-D (REPL alkaa
   uudelleen). `tools/build.sh` ja `test-gefs.sh` (rc-init) PASS.
+- `ROOT=1 tools/test-mpinit.sh` PASS: gefs-juuri (`tools/gefsdisk`,
+  `init=/boot/mp -B`), Pythonista rc (komento, virhestatus, 6c+6l:llä
+  käännetty cat), tiedosto juureen, `rc -i` konsolissa (cooked Pythonin
+  odottaessa, Ctrl-D palaa REPLiin), `fshalt` (gefs: halted), REPL toimii
+  juuren jälkeenkin; gefsck: puhdas ja tiedosto tallessa.
 - Löytyi: build.rc:n puukäännös ei käytä puun omia työkaluja `/bin`:n kautta:
   uudet ohjelmat sidotaan `/amd64/bin`:in päälle, mutta `/bin` on bootin
   unioni VM:n hakemistosta. micropython kutsuu siksi `/$objtype/bin/6c`:tä

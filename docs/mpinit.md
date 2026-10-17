@@ -63,17 +63,29 @@ virhetekstillä.
 
 ## Testi
 
-QEMU, ilman juurilevyä: ESP:ssä kernel ja plan9.ini
-`init=/boot/mp -B`, `console=0`, `user=glenda`. Sarjakonsolin kautta
-(`tools/test-mpinit.sh`):
+`tools/test-mpinit.sh`: QEMU, plan9.ini `init=/boot/mp -B`, `console=0`,
+`user=glenda`, sarjakonsolin kautta.
+
+Ilman juurilevyä (ESP:ssä vain kernel):
 
 1. Kehote `>>> ` tulee ilman juurta: kernelistä suoraan Pythoniin.
 2. `import plan9`: `/boot`:ssa `mp` ja `kbdfs`, `/dev`:ssä kbdfs:n
-   `cons` ja `kbmap`, `#c/sysname` luettavissa.
-3. Laskutoimitus, tiedoston kirjoitus ja luku (`/tmp` ramfs:n sijaan
-   `#e`-ympäristö: `/env/x`), lapsiprosessi `spawn` + `wait`.
-4. Ctrl-D lopettaa REPLin: boot.py käynnistää sen uudelleen (init ei kuole).
+   `cons`, `consctl` ja `kbmap`, `#c/user` luettavissa.
+3. Tiedoston kirjoitus ja luku (`/tmp` ramfs:n sijaan `#e`-ympäristö:
+   `/env/x`), lapsiprosessi `spawn` + `wait`, f-string, UTF-8, OSError.
+4. Ctrl-C keskeyttää silmukan; Ctrl-D lopettaa REPLin, joka alkaa
+   uudelleen (init ei kuole).
 
-Samaa kuvaa vasten myöhemmin: `root=` mukaan, boot.py mounttaa gefs-juuren
-ja ajaa sieltä rc:n (`spawn(['/bin/rc', '-c', ...])`), sitten ruudulla ja
-näppäimistöllä (kbmap=fi) kuten `~/plan9mp/tools/p5-screen.sh`.
+`ROOT=1`: gefs-juuri (`tools/gefsdisk`, `root=-w PARTUUID=`):
+
+1. boot.py näkee juuren ja sitoo `/amd64/bin` ja `/rc/bin` `/bin`:iin.
+2. rc Pythonista: `spawn(['/bin/rc', '-c', ...])` + `wait`, virhestatus,
+   ohjelma käännettynä (6c, 6l) ja ajettuna.
+3. Tiedosto juureen Pythonilla.
+4. `rc -i` konsolissa Pythonin odottaessa (konsoli cooked), Ctrl-D palaa
+   REPLiin.
+5. `fshalt` rc:llä: gefs pysähtyy, REPL toimii yhä (kernelin kuvasta).
+6. Lopuksi `tools/gefsck` tarkistaa osion ja lukee tiedoston.
+
+Myöhemmin: ruutu ja näppäimistö (kbmap=fi) kuten
+`~/plan9mp/tools/p5-screen.sh`, ja p5 raudalla.
