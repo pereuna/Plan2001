@@ -12,8 +12,9 @@
 #               on the gefs root (MEM=4096 SMP=4 is quicker)
 #   CRASH=N     then N boots killed (QEMU, no sync) while they write; each
 #               next one must load, check clean and keep what it synced
-#   KTEST="all"  the kernel tests (sys/src/cmd/ktest, its arguments) run by
-#               the root's /init before the prompt: every KTEST line OK
+#   KTEST="all"  the kernel tests (sys/src/cmd/ktest, its arguments) in the
+#               booted system, over the console after the other checks:
+#               every KTEST line OK (on a machine: ktest all at the prompt)
 #   INI='k=v;k=v'  more plan9.ini lines (gefsdebug=1, gefstrace=16)
 #   KEEP=1      leave QEMU running after a failure (tools/9run -d build/$TARGET/gefsvm)
 set -e
@@ -26,7 +27,6 @@ disk=$b/gefsdisk.img
 [ "${NOROOT:-0}" = 1 ] && [ -d "$tree/.git" ] || "$here/selfroot" "$tree"
 rm -f "$b/root.gefs"
 "$here/gefsroot" "$tree" "$b/root.gefs" $(( $(du -sm "$tree" | cut -f1) + 4096 ))
-[ -n "$KTEST" ] && { INI="$INI;ktest=$KTEST"; SECONDS_TO_RUN=${SECONDS_TO_RUN:-1800}; }
 CONSOLE=0 INIT=/init INI="$INI" "$here/gefsdisk" "$disk"
 
 q= relay=
@@ -80,11 +80,6 @@ halt() {
 }
 
 boot || exit 1
-if [ -n "$KTEST" ]; then
-	clean | grep -a '^KTEST'
-	clean | grep -q '^KTEST-DONE' || fail "ktest: not done"
-	clean | grep -q '^KTEST .* FAIL' && fail "ktest"
-fi
 clean | grep -q '^gefs: .*read-write' || fail "no gefs line"
 clean | grep -q '^init: / on gefs' || fail "init: not on gefs"
 run "ls /amd64/bin | wc -l; cat /dev/sysname" || fail root
@@ -99,6 +94,11 @@ if [ "${BUILD:-0}" = 1 ]; then
 	run "cd /sys/src/9/pc64 && mk >/tmp/k.log >[2=1]; st=\$status; tail -2 /tmp/k.log; ~ \$st ''" 1800 || fail kernel
 	run "cd /sys/src/boot/efi && mk bootx64.efi >/tmp/l.log >[2=1]; st=\$status; md5sum bootx64.efi; ~ \$st ''" 300 || fail loader
 	run "cd /sys/src/9/pc64 && md5sum 9pc64 && size 9pc64; cat /n/adm/status | sed 2q; echo check >/n/adm/ctl && echo checked" 600 || fail "check after build"
+fi
+if [ -n "$KTEST" ]; then
+	run "ktest $KTEST" 1800 40 || true
+	grep -q '^KTEST-DONE' "$vm/out" || fail "ktest: not done"
+	grep -q '^KTEST .* FAIL' "$vm/out" && fail "ktest"
 fi
 halt
 [ "$fails" = 0 ] || { echo "FAIL: $fails (boot)"; exit 1; }
