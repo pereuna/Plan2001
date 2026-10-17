@@ -51,6 +51,8 @@
  *	-p		use standard cpp ANSI preprocessor (not on windows)
  *	-s		print structure offsets (with -a or -aa)
  *	-t		print type trees
+ *	-u		ANSI C's integer promotions: unsigned char and short
+ *			to int (value preserving), not to unsigned int
  *	-v		verbose printing
  *	-w		print warnings
  *	-x

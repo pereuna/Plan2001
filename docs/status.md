@@ -951,3 +951,19 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
 - ktest gefs-juurella: löysi upstreamin lyhennysvian ja nimeämisvian
   (Dentin nimi osoitti wstat-viestin puskuriin; myös upstreamin
   HEADissa), molemmat korjattu. ktest 30/30.
+
+## Kääntäjä: ANSI C:n kokonaislukujen promootiot valitsimella (17.10.2026, haara `cc-value-promote`)
+
+- kencc promotoi `unsigned char`in ja `unsigned short`in `unsigned
+  int`iksi (myös `uchar - int` ja jopa `uchar + vlong` ovat etumerkittömiä),
+  ANSI C intiksi. `6c -u` (`cc/sub.c` arith): pienet tyypit ensin intiksi,
+  sitten tavalliset muunnokset. Oletus ennallaan, koska Plan 9 -koodi
+  luottaa siihen.
+- Löytyi MicroPythonin natiivista portista (`~/plan9mp/native`, ei tässä
+  repossa): `slab = ip[0] - 0x40` antoi hypyn 2^32 eteenpäin. Portti
+  kääntyy tämän repon 6c:llä (`-p -u`), ja sen testit (VM, GC,
+  muistipula, pino, poikkeukset, REPL, raw-REPL, EOF) menevät läpi
+  9front-VM:ssä ja sillin p5:n gefs-juuressa QEMU:ssa (osio itse
+  virtio-levynä, `root=-w #S/sdF0/data`), `gefs -c` puhdas jälkeenpäin.
+- Löytyi myös kencc:n vika joustotaulukon staattisessa alustuksessa
+  (`docs/bugs_to_9front.md`); portti kiertää sen.
