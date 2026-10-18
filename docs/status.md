@@ -1035,3 +1035,17 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
 - `tools/test-mpinit.sh` raw REPLillä (mpremoten protokolla, agentin
   tapa): PASS ilman juurta (29) ja `ROOT=1 NET=1` (45, gefsck ok).
   httpd.py raw REPLiin: 3587 tavua menee, 5 tulee takaisin.
+
+## MicroPythonin testien löytämät korjaukset (18.10.2026, haara `kernel-fixes`)
+
+- Löytyi MicroPythonin testiohjelmalla (haara `mp-tests`, ei vielä
+  mainissa): listen-jono 10 → 128; tcpgc vapauttaa Time_wait-keskustelut,
+  kun taulu on täynnä; AHCI-levy valmis ilman DRDY:tä, kun UEFI käynnisti
+  toiselta levyltä (boot jumittui); HPET-kalibrointi 50 ms:ssä (kello oli
+  44–1333 ppm väärin, nyt ±1 ppm).
+- 6c, cc, 6l: NaN-vertailut, `-x` ja vakio -0.0, `x*0` ja `x/0.0`
+  liukuluvuilla, C99:n heksaliukuluvut.
+- MicroPython: `%q`-varargs, `(bool)`, `\r\n` putkeen, kasvava heap,
+  muslin libm (tulokset kuin CPythonissa), `plan9.wstat`, `plan9.alarm`.
+- Avoin: kello ~3–4 s jäljessä bootin jälkeen (Boot ABI: TSC
+  lukuhetkellä); viat 9frontille docs/bugs_to_9front.md:ssä.
