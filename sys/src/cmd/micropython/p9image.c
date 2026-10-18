@@ -31,6 +31,7 @@
 
 extern const mp_obj_type_t mp_type_closure;
 extern const mp_obj_module_t mp_module___main__;
+long long nsec(void);
 
 enum {	/* values */
     V_NONE, V_FALSE, V_TRUE, V_ELLIPSIS,
@@ -1052,6 +1053,8 @@ void p9_image_restore(const byte *p, size_t len) {
     bool any;
     int round;
 
+    long long t0 = nsec();
+
     memset(&d, 0, sizeof d);
     d.p = p;
     d.end = p + len;
@@ -1089,6 +1092,7 @@ void p9_image_restore(const byte *p, size_t len) {
     if (d.p != d.end) {
         corrupt();
     }
+    p9_spacetime("restore: parsed", t0);
     /* the shells: values first, then what needs others, until done */
     for (i = 0; i < d.n; i++) {
         if (d.shell[i] == MP_OBJ_NULL && d.kind[i] < O_CLASS) {
@@ -1111,6 +1115,7 @@ void p9_image_restore(const byte *p, size_t len) {
     if (left > 0) {
         corrupt();
     }
+    p9_spacetime("restore: shells", t0);
     /* filled: all but dicts and sets, then those with plain keys, then
        the rest (a key's __hash__ may use the others) */
     for (i = 0; i < d.n; i++) {
@@ -1118,6 +1123,7 @@ void p9_image_restore(const byte *p, size_t len) {
             fill(&d, i);
         }
     }
+    p9_spacetime("restore: filled", t0);
     for (round = 0; round < 2; round++) {
         for (i = 0; i < d.n; i++) {
             if ((d.kind[i] == O_DICT || d.kind[i] == O_SET || d.kind[i] == O_FROZENSET)

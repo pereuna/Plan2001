@@ -24,3 +24,5 @@ int p9_space_commit(int force);
 void p9_space_rest(void);
 // main.c: a program's end in a Space
 int p9_space_isopen(void);
+// $spacetime: WHAT's time since T0 (nsec()) on fd 2
+void p9_spacetime(const char *what, long long t0);

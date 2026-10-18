@@ -191,6 +191,21 @@ structs). Not fixed in Plan2001 yet: the port sizes the arrays instead.
 The fix is for init1 to work on a copy of the member type and to give
 the symbol a copy of the struct type widened by the array.
 
+### cc: no designated initializer of an anonymous struct's member
+
+kencc takes a designator only for a member the aggregate names itself:
+in a union whose member is an anonymous struct (a C11 anonymous
+member, which kencc otherwise accepts: `u.next` works), `.next` in an
+initializer is "structure element not found next".
+
+Repeat:
+
+	union U { void *a[4]; struct { void *x, *y, *next; }; };
+	union U u = { .next = 0 };	/* structure element not found next */
+
+Found with MicroPython's `py/objtype.c` (its `__set_name__` list, with
+MICROPY_PY_DESCRIPTORS). Plan2001's copy assigns the member instead.
+
 ### 6c: float comparisons ignore unordered (NaN) operands
 
 `/sys/src/cmd/6c/txt.c` gopcode (OEQ ... OHI): a float comparison is

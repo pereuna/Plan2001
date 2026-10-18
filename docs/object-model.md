@@ -543,6 +543,61 @@ bootissa. `tools/test-mpinit.sh` (molemmat tilat) läpi.
 | T4.10 | `koe.txt` tuodaan `Text`-olioksi. `search('#koe.txt')` löytää sen, ja sisältö säilyy bootin yli. |
 | T4.11 | 10 000 oliota ja kolmen tagin haku: aika kirjataan. |
 
+Toteutus (18.10.2026): `sys/lib/python/graph.py` on Environmentin
+moduuli, joten sen tila tallentuu Spaceen samalla mekanismilla kuin
+muidenkin moduulien instanssit (V2). Tila koostuu tunnistelaskurista,
+`_byid`:stä, luokkien instanssijoukoista, `_descs`:stä ja `_tags`:stä.
+`link` ja `links` ovat deskriptoreita, jotka rekisteröityvät
+`__set_name__`:lla (`MICROPY_PY_DESCRIPTORS` päällä). Käänteinen puoli
+on kohdeluokan `_Inverse`-deskriptori, ja sen joukko on kohteen
+attribuutissa `_i_<nimi>`. Nimellä annettu kohdeluokka haetaan
+`sys.modules`ista ensimmäisellä käytöllä tai `Node.__getattr__`issa.
+`Node.__new__` antaa tunnisteen ja lisää olion luokkajoukkoon, joten
+aliluokan `__init__`in ei tarvitse kutsua `super`ia. `Tag` ei ole
+`Node`, eikä se siksi kuluta tunnisteita. Taittotaulu kattaa ASCII:n,
+Latin-1:n ja Latin Extended-A:n. Tiedoston tuonti on
+`graph.importfile(polku)`.
+
+Linkki toisen Spacen olioon (T4.5): V4:ssä prosessissa on vain yksi
+Space, joten toisen Spacen olioita ei ole. T4.5 tarkistaa, että muu
+kuin kohdeluokan olio antaa `TypeError`in. Sama tarkistus koskee V6:n
+viittauksia.
+
+Löytyi: kencc ei hyväksy nimettyä alustusta (`{ .next = NULL }`) unionin
+nimettömän structin jäsenelle (`py/objtype.c`:n `__set_name__`-lista).
+Kopio sijoittaa arvon alustuksen sijaan, ja vika on kirjattu
+`docs/bugs_to_9front.md`:hen.
+
+Tulokset (QEMU): `ONLY=4` (kaksi bootia, joista toinen tapettu) ja
+`PHASE=4` (V0–V4, 137 tarkistusta, gefsck puhdas) läpi.
+`tools/test-mpinit.sh` (molemmat tilat) läpi.
+
+| Mittaus | Aika |
+|---|---|
+| T4.3: 10 000 kuvan luonti ja linkitys | 3,3–3,6 s |
+| `find(project=p)` (1 osuma) | 0 ms |
+| `find(project=q)` (10 000 osumaa) | 0,56 s |
+| `find(n=5)` (läpikäynti) | 1,0–1,2 s |
+| T4.11: kolmen tagin haku 10 000 oliosta (334 osumaa) | 0,33–0,38 s |
+| Noin 30 000 olion Spacen restore | 6,6–7,0 s |
+| Saman Spacen koodaus | 2,3–3,6 s |
+| Saman Spacen kirjoitus ja sync | 0,14 s |
+
+Aikojen erittely saadaan `$spacetime`:lla (fd 2). Restoren kuoret
+vievät 0,3 s, muiden täyttö 1,9 s ja dictien ja settien täyttö 4,6 s,
+eli aika kuluu MicroPythonin omaan työhön: instanssin hajautus hakee
+`__hash__`ia luokkaketjusta, ja koodi on 6c:n optimoimatonta
+käännöstä. Gefs ja kuvan muoto eivät ole hitaita. GC:n merkintäpino
+kasvatettiin 64:stä 4096:een (`MICROPY_ALLOC_GC_STACK_SIZE`), koska
+ylivuoto käy keon läpi uudelleen. Koodaus nopeutui noin 1 s.
+
+Johtopäätös: V5:n ehto (commit yli 200 ms) täyttyy, kun graafissa on
+kymmeniä tuhansia olioita. Koko kuvan koodaus kestää sekunteja jokaisen
+REPL-lauseen ja ohjelman lopussa. Lisäksi pelkkä avaus kirjoittaa
+uuden version, koska identiteetillä hajautettujen joukkojen järjestys
+muuttuu restoressa. V5:n inkrementaalinen tallennus ratkaisee
+molemmat.
+
 ### V5. Inkrementaalinen tallennus (ehdollinen)
 
 **Aloitetaan, kun** T0.3:n ja V2:n mittausten mukaan 4 MiB:n keon
@@ -607,7 +662,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V1 | QEMU ja silli: valmis 18.10.2026 (`space`-moduuli, `mp -E`) |
 | V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
-| V4 | – |
+| V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
 | V5 | ehdollinen |
 | V6 | – |
 | V7 | – |

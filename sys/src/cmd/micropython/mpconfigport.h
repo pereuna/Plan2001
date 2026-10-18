@@ -52,8 +52,12 @@
 /* a Space's commit point: a REPL statement's end (mp -S) */
 int p9_space_commit(int force);
 #define MICROPY_BOARD_AFTER_PYTHON_EXEC(kind, flags, val, ret) p9_space_commit(0)
-/* the types a Space keeps (docs/object-model.md 5.5) */
+/* the types a Space keeps (docs/object-model.md 5.5); graph's links
+   are descriptors (5.7) */
 #define MICROPY_PY_BUILTINS_FROZENSET (1)
+#define MICROPY_PY_DESCRIPTORS (1)
+/* a Space's graph is wide: a mark stack that overflows rescans the heap */
+#define MICROPY_ALLOC_GC_STACK_SIZE (4096)
 #define MICROPY_VFS (0)
 #define MICROPY_READER_POSIX (0)
 #define MICROPY_NLR_SETJMP (1)

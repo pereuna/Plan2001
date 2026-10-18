@@ -47,6 +47,8 @@
 #   T3.4  a byte of v<N> changed: v<N-1> used, v<N> renamed bad<N>
 #   T3.5  the disk full (a 136 MiB gefs of its own): CommitError, the
 #         version before stays
+# V4 (graph: relations, the identifier, #tags; sys/lib/python/graph.py):
+#   T4.1-T4.11 as docs/object-model.md 7; T4.4 and T4.6 over a boot
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -63,7 +65,7 @@ echo "test-space: PHASE=$phase${ONLY:+ ONLY=$ONLY} CRASH=${CRASH:-3}; limits: a 
 
 st=0
 QEMU=$qemu QEMUARGS="${qemuargs[*]}" FWCODE=$fwcode FWVARS=$fwvars \
-HWPY=${HW:+$root/sys/lib/python/test/space/hw.py} \
+HWPY=${HW:+$root/sys/lib/python/test/space/hw.py} GRAPHPY=$root/sys/lib/python/graph.py \
 python3 -I - "$vm" "$disk" "$here/9run" "$phase" "${CRASH:-3}" "${ONLY:-}" <<'EOF' || st=1
 import os, re, sys, time, shutil, subprocess, hashlib
 vm, disk, run9, phase, ncrash, only = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
@@ -401,6 +403,90 @@ def v3():
         r"gone$", secs=60, name='T3.5 the small gefs halted')
     halt()
 
+def v4():
+    graphpy = open(os.environ['GRAPHPY']).read()
+    photos = ("import graph, plan9\nclass Project(graph.Node):\n    def __init__(self, name=''):\n        self.name = name\n"
+        "class Photo(graph.Node):\n    project = graph.link(Project, inverse='photos')\n"
+        "    people = graph.links('Person', inverse='photos')\n    def __init__(self, n=0):\n        self.n = n\n"
+        "class Person(graph.Node):\n    def __init__(self, name=''):\n        self.name = name\n"
+        "def ms():\n    f = plan9.open('#c/bintime')\n    b = plan9.read(f, 8)\n    plan9.close(f)\n"
+        "    return int.from_bytes(b, 'big') // 1000000\n")
+    code = ("import plan9 as p, space\n"
+        "def ms():\n    f = p.open('#c/bintime')\n    b = p.read(f, 8)\n    p.close(f)\n    return int.from_bytes(b, 'big') // 1000000\n"
+        "def run(src, sp='t4'):\n    t = ms()\n    pid = p.spawn(['/boot/mp', '-S', sp, '-c', src])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n    print('status', repr(w[1]))\n    return ms() - t\n")
+    if not boot():
+        return
+    raw(code + "try:\n    p.create('/usr/glenda/src4', p.OREAD, p.DMDIR | 0o775)\nexcept OSError:\n    pass\n"
+        "with open('/usr/glenda/src4/graph.py', 'w') as f:\n    f.write(%r)\n"
+        "with open('/usr/glenda/src4/photos.py', 'w') as f:\n    f.write(%r)\n"
+        "with open('/usr/glenda/koe.txt', 'w') as f:\n    f.write('hello koe\\n')\n"
+        "e = space.mkenv({n: space.define('/usr/glenda/src4/%%s.py' %% n) for n in ('graph', 'photos')})\n"
+        "space.create('t4', e)" % (graphpy, photos), r'\A\Z', secs=120, name='V4 sources, the Space')
+    raw("run(\"import graph, photos\\np = photos.Project('a')\\nq = photos.Project('b')\\nph = photos.Photo(1)\\n"
+        "ph.project = p\\nprint(ph in p.photos, ph.project is p)\\nph.project = q\\n"
+        "print(ph in p.photos, ph in q.photos, len(p.photos))\")",
+        r"^True True\nFalse True 0\nstatus ''$", secs=30, name='T4.1 link and its inverse')
+    raw("run(\"m = photos.Person('matti')\\nph.people.add(m)\\nprint(m in ph.people, ph in m.photos)\\n"
+        "ph.people.discard(m)\\nprint(m in ph.people, ph in m.photos)\\n"
+        "try:\\n    p.photos = 1\\nexcept AttributeError:\\n    print('ro')\\n"
+        "try:\\n    p.photos.add(ph)\\nexcept AttributeError:\\n    print('ro2')\\nph.people.add(m)\")",
+        r"^True True\nFalse False\nro\nro2\nstatus ''$", secs=30, name='T4.2 links, many to many; the inverse read only')
+    out = raw("t = run(\"ph.project = p\\nt0 = photos.ms()\\nbig = [photos.Photo(i) for i in range(10000)]\\n"
+        "for x in big:\\n    x.project = q\\nt1 = photos.ms()\\nr = graph.find(photos.Photo, project=p)\\n"
+        "t2 = photos.ms()\\nr2 = graph.find(photos.Photo, project=q)\\nt3 = photos.ms()\\n"
+        "r3 = graph.find(photos.Photo, n=5)\\nt4 = photos.ms()\\n"
+        "print(len(r), r[0] is ph, len(r2), len(r3), 'make', t1 - t0, 'find', t2 - t1, t3 - t2, 'scan', t4 - t3)\\n"
+        "del r, r2, r3\")\nprint('run', t)",
+        r"^1 True 10000 1 make \d+ find \d+ \d+ scan \d+\nstatus ''\nrun \d+$", secs=120, name='T4.3 find, 10 000 photos')
+    if out:
+        print('\tinfo: T4.3 (ms): ' + out.replace('\n', '; '), flush=True)
+    raw("run(\"d = photos.Photo(-1)\\nd.project = p\\nd.people.add(m)\\ngraph.delete(d)\\n"
+        "print(d in p.photos, d in m.photos, d in graph.find(photos.Photo), graph.byid(d._id))\\n"
+        "try:\\n    ph.project = m\\nexcept TypeError:\\n    print('TypeError')\\ndel d\")",
+        r"^False False False None\nTypeError\nstatus ''$", secs=60, name='T4.5 delete; a link to what is not its target')
+    raw("run(\"a1 = photos.Project('x')\\na2 = photos.Project('y')\\nprint(a2._id == a1._id + 1)\\n"
+        "graph.delete(a2)\\nlast = a2._id\\ndel a1, a2\")",
+        r"^True\nstatus ''$", secs=60, name='T4.6 the next identifier')
+    raw("run(\"graph._next = 102939\\nhn = graph.Text('kaviot')\\nprint(graph.line(hn))\\n"
+        "graph.tag(hn, '#kaviot #mirkku #11.12.2026 #Liisa #Hanna #Puuilo')\\n"
+        "print(graph.parse('#0102939 #kaviot #mirkku #11.12.2026 #Liisa #Hanna #Puuilo'))\\n"
+        "print(graph.parse('#0102939 #2026'))\\nprint(graph.parse(graph.line(hn)) == (hn._id, graph.tags(hn)[1:]))\\n"
+        "try:\\n    graph.parse('#102939 #x')\\nexcept ValueError:\\n    print('not an identifier')\")",
+        r"^#0102939\n\(102939, \['kaviot', 'mirkku', '11\.12\.2026', 'Liisa', 'Hanna', 'Puuilo'\]\)\n"
+        r"\(102939, \['2026'\]\)\nTrue\nnot an identifier\nstatus ''$", secs=60, name='T4.7 parse and line')
+    raw("run(\"graph.tag(ph, '#Mirkku #Kaviot #\u00c4iti')\\n"
+        "print(graph.search('#Mirkku #kaviot') == graph.search('#mirkku #KAVIOT'), ph in graph.search('#\u00e4iti'), "
+        "hn in graph.search('#mirkku #KAVIOT'), len(graph.search('#mirkku #kaviot')))\")",
+        r"^True True True 2\nstatus ''$", secs=60, name='T4.8 case folded, \u00e4 too')
+    raw("run(\"o2 = graph.Text('other')\\ngraph.tag(o2, '#0102939')\\ns = graph.search('#0102939')\\n"
+        "print(len(s), hn in s, o2 in s)\\ntry:\\n    graph.untag(hn, '#0102939')\\nexcept ValueError:\\n    print('kept')\\n"
+        "print(graph.tags(hn)[0])\\ntry:\\n    graph.search(' ')\\nexcept ValueError:\\n    print('empty')\\ndel s\")",
+        r"^2 True True\nkept\n0102939\nempty\nstatus ''$", secs=60, name='T4.9 the identifier is a tag')
+    raw("run(\"k = graph.importfile('/usr/glenda/koe.txt')\\nprint(graph.search('#koe.txt') == [k], k.text.strip())\")",
+        r"^True hello koe\nstatus ''$", secs=60, name='T4.10 koe.txt a Text')
+    out = raw("t = run(\"tg = [graph.Text(str(i)) for i in range(10000)]\\nfor i in range(10000):\\n"
+        "    graph.tag(tg[i], '#a%d #b%d #c%d' % (i % 2, i % 3, i % 5))\\nt0 = photos.ms()\\n"
+        "r = graph.search('#a0 #b0 #c0')\\nt1 = photos.ms()\\nprint(len(r), 'search', t1 - t0)\\ndel r\")\nprint('run', t)",
+        r"^334 search \d+\nstatus ''\nrun \d+$", secs=180, name='T4.11 10 000 objects, three tags')
+    if out:
+        print('\tinfo: T4.11 (ms): ' + out.replace('\n', '; '), flush=True)
+    out = raw("with open('/env/spacetime', 'w') as f:\n    f.write('1')\n"
+        "print('open', run('pass'), 'commit', run('x4 = 1'))\np.remove('/env/spacetime')",
+        r"open \d+ commit \d+$", secs=120, name='V4: open and commit times')
+    if out:
+        print('\tinfo: the Space of ~30 000 objects (ms): ' + out.replace('\n', '; '), flush=True)
+    crash()
+    if not boot():
+        return
+    raw(code, r'\A\Z', name='V4 run()')
+    raw("run(\"print(ph.project is p, ph in p.photos, m in ph.people, ph in m.photos, len(graph.find(photos.Photo, project=q)), "
+        "graph.search('#koe.txt') == [k], k.text.strip(), len(graph.search('#a0 #b0 #c0')), graph.byid(102939) is hn)\")",
+        r"^True True True True 10000 True hello koe 334 True\nstatus ''$", secs=120, name='T4.4 after the boot')
+    raw("run(\"a3 = photos.Project('z')\\nprint(a3._id > last, a3._id > hn._id)\")", r"^True True\nstatus ''$", secs=120,
+        name='T4.6 identifiers not reused after delete and boot')
+    halt()
+
 def vhw():
     """hw.py as on real hardware: written to the root, run at each boot"""
     src = open(os.environ['HWPY']).read()
@@ -427,7 +513,7 @@ def vhw():
             return
         crash()
 
-phases = [v0, v1, v2, v3]
+phases = [v0, v1, v2, v3, v4]
 if os.environ.get('HWPY'):
     phases, phase, only = [vhw], 0, ''
 

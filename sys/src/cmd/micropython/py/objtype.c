@@ -1256,7 +1256,10 @@ static mp_obj_t mp_obj_new_type(qstr name, mp_obj_t bases_tuple, mp_obj_t locals
     #if MICROPY_PY_DESCRIPTORS
     // To avoid any dynamic allocations when no __set_name__ exists,
     // the head of this list is kept on the stack (marked blank with `next = NULL`).
-    setname_list_t setname_list = { .next = NULL };
+    // (Plan2001: assigned, not initialised: kencc has no designated
+    // initialiser of an anonymous struct's member in a union)
+    setname_list_t setname_list;
+    setname_list.next = NULL;
     setname_list_t *setname_tail = &setname_list;
     #endif
 

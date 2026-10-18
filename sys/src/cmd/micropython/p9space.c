@@ -54,6 +54,21 @@ static struct {
 } sp = { 0, "", "", -1 };
 static vlong lastcommit;	/* nsec() */
 
+// $spacetime: the times of a restore and a commit on fd 2 (ms)
+void p9_spacetime(const char *what, vlong t0) {
+    static int on = -1;
+    char *e;
+
+    if (on < 0) {
+        e = getenv("spacetime");
+        on = e != NULL;
+        free(e);
+    }
+    if (on) {
+        fprint(2, "spacetime: %s %lld ms\n", what, (nsec() - t0) / 1000000);
+    }
+}
+
 // a version's file: the header, the body (p9image.c), the trailer
 //   "P2SP" format[1] N[8] env[64] body length[8] sha256[32]
 // the length and SHA-256 of all before them
@@ -620,6 +635,7 @@ static mp_obj_t space_open(mp_obj_t name_in) {
     vstr_t img;
     size_t body;
     char *e;
+    vlong t0;
 
     if (sp.isopen) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("a Space is open"));
@@ -678,7 +694,9 @@ static mp_obj_t space_open(mp_obj_t name_in) {
     } else if (strcmp(mp_obj_str_get_str(envitem(0)), env) != 0) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: its Environment is %s"), name, env);
     }
+    t0 = nsec();
     p9_image_restore((const byte *)img.buf + body, img.len - body - TRLLEN);
+    p9_spacetime("restore", t0);
     p9sha256((uchar *)img.buf + body, img.len - body - TRLLEN, sp.hash);
     vstr_clear(&img);
     strcpy(sp.name, name);
@@ -721,16 +739,21 @@ static int iswriter(void) {
 // removed.  Any failure a CommitError, the version before staying
 static void commit(void) {
     nlr_buf_t nlr;
+    vlong t0;
     vstr_t body, msg;
     mp_print_t pr;
     uchar h[32];
 
     if (nlr_push(&nlr) == 0) {
+        t0 = nsec();
         vstr_init(&body, 4096);
         p9_image_encode(&body);
         p9sha256((uchar *)body.buf, body.len, h);
+        p9_spacetime("encode", t0);
         if (memcmp(h, sp.hash, sizeof h) != 0) {
+            t0 = nsec();
             writeversion(sp.dir, sp.n + 1, mp_obj_str_get_str(envitem(0)), body.buf, body.len);
+            p9_spacetime("write", t0);
             sp.n++;
             memcpy(sp.hash, h, sizeof h);
         }
