@@ -1365,6 +1365,11 @@ mp_parse_tree_t mp_parse(mp_lexer_t *lex, mp_parse_input_kind_t input_kind) {
         } else if (lex->tok_kind == MP_TOKEN_DEDENT_MISMATCH) {
             exc = mp_obj_new_exception_msg(&mp_type_IndentationError,
                 MP_ERROR_TEXT("unindent doesn't match any outer indent level"));
+        #if MICROPY_LEXER_TAB_CHECK
+        } else if (lex->tok_kind == MP_TOKEN_TAB_MISMATCH) {
+            exc = mp_obj_new_exception_msg(&mp_type_IndentationError,
+                MP_ERROR_TEXT("inconsistent use of tabs and spaces in indentation"));
+        #endif
         #if MICROPY_PY_FSTRINGS
         } else if (lex->tok_kind == MP_TOKEN_MALFORMED_FSTRING) {
             exc = mp_obj_new_exception_msg(&mp_type_SyntaxError,

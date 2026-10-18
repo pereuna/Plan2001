@@ -136,6 +136,9 @@ static void next_char(mp_lexer_t *lex) {
         // a new line
         ++lex->line;
         lex->column = 1;
+        #if MICROPY_LEXER_TAB_CHECK
+        lex->altcolumn = 0;
+        #endif
     } else if (lex->chr0 == '\t') {
         // a tab
         lex->column = (((lex->column - 1 + TAB_SIZE) / TAB_SIZE) * TAB_SIZE) + 1;
@@ -143,6 +146,9 @@ static void next_char(mp_lexer_t *lex) {
         // a character worth one column
         ++lex->column;
     }
+    #if MICROPY_LEXER_TAB_CHECK
+    ++lex->altcolumn;
+    #endif
 
     // shift the input queue forward
     lex->chr0 = lex->chr1;
@@ -191,15 +197,25 @@ static void next_char(mp_lexer_t *lex) {
 
 static void indent_push(mp_lexer_t *lex, size_t indent) {
     if (lex->num_indent_level >= lex->alloc_indent_level) {
-        lex->indent_level = m_renew(uint16_t, lex->indent_level, lex->alloc_indent_level, lex->alloc_indent_level + MICROPY_ALLOC_LEXEL_INDENT_INC);
+        lex->indent_level = m_renew(mp_indent_t, lex->indent_level, lex->alloc_indent_level, lex->alloc_indent_level + MICROPY_ALLOC_LEXEL_INDENT_INC);
         lex->alloc_indent_level += MICROPY_ALLOC_LEXEL_INDENT_INC;
     }
     lex->indent_level[lex->num_indent_level++] = indent;
 }
 
+#if MICROPY_LEXER_TAB_CHECK
+static size_t indent_top(mp_lexer_t *lex) {
+    return lex->indent_level[lex->num_indent_level - 1] & 0xffff;
+}
+
+static size_t indent_alt_top(mp_lexer_t *lex) {
+    return lex->indent_level[lex->num_indent_level - 1] >> 16;
+}
+#else
 static size_t indent_top(mp_lexer_t *lex) {
     return lex->indent_level[lex->num_indent_level - 1];
 }
+#endif
 
 static void indent_pop(mp_lexer_t *lex) {
     lex->num_indent_level -= 1;
@@ -606,6 +622,32 @@ void mp_lexer_to_next(mp_lexer_t *lex) {
         lex->tok_kind = MP_TOKEN_NEWLINE;
 
         size_t num_spaces = lex->column - 1;
+        #if MICROPY_LEXER_TAB_CHECK
+        // the same order with a tab as 1 column, or a TabError
+        size_t alt = lex->altcolumn - 1;
+        if (num_spaces == indent_top(lex)) {
+            if (alt != indent_alt_top(lex)) {
+                lex->tok_kind = MP_TOKEN_TAB_MISMATCH;
+            }
+        } else if (num_spaces > indent_top(lex)) {
+            if (alt <= indent_alt_top(lex)) {
+                lex->tok_kind = MP_TOKEN_TAB_MISMATCH;
+            } else {
+                indent_push(lex, num_spaces | alt << 16);
+                lex->emit_dent += 1;
+            }
+        } else {
+            while (num_spaces < indent_top(lex)) {
+                indent_pop(lex);
+                lex->emit_dent -= 1;
+            }
+            if (num_spaces != indent_top(lex)) {
+                lex->tok_kind = MP_TOKEN_DEDENT_MISMATCH;
+            } else if (alt != indent_alt_top(lex)) {
+                lex->tok_kind = MP_TOKEN_TAB_MISMATCH;
+            }
+        }
+        #else
         if (num_spaces == indent_top(lex)) {
         } else if (num_spaces > indent_top(lex)) {
             indent_push(lex, num_spaces);
@@ -619,6 +661,7 @@ void mp_lexer_to_next(mp_lexer_t *lex) {
                 lex->tok_kind = MP_TOKEN_DEDENT_MISMATCH;
             }
         }
+        #endif
 
     } else if (is_end(lex)) {
         lex->tok_kind = MP_TOKEN_END;
@@ -850,11 +893,14 @@ mp_lexer_t *mp_lexer_new(qstr src_name, mp_reader_t reader) {
     lex->reader = reader;
     lex->line = 1;
     lex->column = (size_t)-2; // account for 3 dummy bytes
+    #if MICROPY_LEXER_TAB_CHECK
+    lex->altcolumn = (size_t)-2;
+    #endif
     lex->emit_dent = 0;
     lex->nested_bracket_level = 0;
     lex->alloc_indent_level = MICROPY_ALLOC_LEXER_INDENT_INIT;
     lex->num_indent_level = 1;
-    lex->indent_level = m_new(uint16_t, lex->alloc_indent_level);
+    lex->indent_level = m_new(mp_indent_t, lex->alloc_indent_level);
     vstr_init(&lex->vstr, 32);
     #if MICROPY_PY_FSTRINGS
     vstr_init(&lex->fstring_args, 0);
@@ -917,7 +963,7 @@ void mp_lexer_free(mp_lexer_t *lex) {
         #if MICROPY_PY_FSTRINGS
         vstr_clear(&lex->fstring_args);
         #endif
-        m_del(uint16_t, lex->indent_level, lex->alloc_indent_level);
+        m_del(mp_indent_t, lex->indent_level, lex->alloc_indent_level);
         m_del_obj(mp_lexer_t, lex);
     }
 }

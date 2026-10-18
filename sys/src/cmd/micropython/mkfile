@@ -31,11 +31,14 @@ PYOFILES=\
 	stream.$O unicode.$O vm.$O vstr.$O warning.$O\
 	nlr.$O\
 	nlrsetjmp.$O\
+	modjson.$O\
 
 OFILES=\
 	main.$O\
 	modplan9.$O\
+	p9file.$O\
 	p9builtin.$O\
+	p9math.$O\
 	p9console.$O\
 	p9hal.$O\
 	$PYOFILES\
@@ -57,6 +60,9 @@ CFLAGS=-p -u -D__PLAN9__ -DNDEBUG -Iinclude -I.
 
 %.$O:	py/%.c
 	$CC $CFLAGS py/$stem.c
+
+%.$O:	extmod/%.c
+	$CC $CFLAGS extmod/$stem.c
 
 %.$O:	shared/readline/%.c
 	$CC $CFLAGS shared/readline/$stem.c

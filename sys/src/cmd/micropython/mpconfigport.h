@@ -5,12 +5,29 @@
  */
 #include <stdint.h>
 #define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_CORE_FEATURES)
-/* no floats or big integers yet */
-#define MICROPY_PY_MATH (0)
+/*
+ * What a model writes expecting CPython: floats (double, libc's math;
+ * no complex), big integers, math, json, tracebacks with line numbers
+ * and errors that name the object.  No math.inf and nan: they are
+ * initialised data, and libc's are functions (float('inf') works)
+ */
+#define MICROPY_FLOAT_IMPL (MICROPY_FLOAT_IMPL_DOUBLE)
+#define MICROPY_PY_BUILTINS_COMPLEX (0)
+#define MICROPY_PY_MATH (1)
+#define MICROPY_PY_MATH_CONSTANTS (0)
+#define MICROPY_PY_MATH_ISCLOSE (1)
+#define MICROPY_PY_MATH_FACTORIAL (1)
 #define MICROPY_PY_CMATH (0)
-/* io needs a port's open(): files are the plan9 module's for now */
-#define MICROPY_PY_IO (0)
+#define MICROPY_LONGINT_IMPL (MICROPY_LONGINT_IMPL_MPZ)
+#define MICROPY_PY_JSON (1)
+#define MICROPY_ENABLE_SOURCE_LINE (1)
+#define MICROPY_ERROR_REPORTING (MICROPY_ERROR_REPORTING_DETAILED)
+/* open() and io (p9file.c); a file not closed is closed by the gc */
+#define MICROPY_PY_IO (1)
+#define MICROPY_ENABLE_FINALISER (1)
 #define MICROPY_PY_BUILTINS_STR_UNICODE (1)
+/* repr('ä') is 'ä', as in CPython */
+#define MICROPY_PY_STR_REPR_UTF8 (1)
 #define MICROPY_PY_FSTRINGS (1)
 #define MICROPY_KBD_EXCEPTION (1)
 #define MICROPY_ENABLE_COMPILER (1)
@@ -20,15 +37,22 @@
 #define MICROPY_REPL_AUTO_INDENT (1)
 #define MICROPY_REPL_AUTO_INDENT_ENTER_ENDS (1)
 #define MICROPY_REPL_UTF8 (1)
+/* tabs and spaces mixed so that the blocks are ambiguous: an error */
+#define MICROPY_LEXER_TAB_CHECK (1)
 #define MICROPY_ENABLE_EXTERNAL_IMPORT (1)
-#define MICROPY_PY_BUILTINS_OPEN (0)
 #define MICROPY_VFS (0)
 #define MICROPY_READER_POSIX (0)
 #define MICROPY_NLR_SETJMP (1)
 #define MICROPY_GCREGS_SETJMP (1)
 #define MICROPY_STACK_CHECK (1)
-/* no alloca: the Python stack has its own area */
+/*
+ * no alloca: the Python stack has its own area.  Stackless: a Python
+ * call from Python takes its frame there, not on the C stack, so the
+ * depth of recursion is the pystack's (calls through C, such as
+ * __init__ or a builtin calling back, still take the C stack)
+ */
 #define MICROPY_ENABLE_PYSTACK (1)
+#define MICROPY_STACKLESS (1)
 #define MICROPY_NO_ALLOCA (1)
 #define MICROPY_USE_INTERNAL_ERRNO (1)
 #define MICROPY_PY_GC (1)
@@ -37,12 +61,13 @@
 #define MICROPY_PY_SYS_PATH (1)
 #define MICROPY_PY_SYS_ARGV (1)
 #define MICROPY_PY_SYS_EXIT (1)
+#define MICROPY_PY_SYS_MAXSIZE (1)
 #define MICROPY_ALLOC_PARSE_CHUNK_INIT (16)
 #define MICROPY_HW_BOARD_NAME "Plan2001"
 #define MICROPY_HW_MCU_NAME "amd64"
 #define MICROPY_PY_SYS_PLATFORM "plan9"
 #define MICROPY_HEAP_SIZE (4 * 1024 * 1024)
-#define MICROPY_PYSTACK_SIZE (64 * 1024)
+#define MICROPY_PYSTACK_SIZE (1024 * 1024)
 #define MP_SSIZE_MAX INTPTR_MAX
 #define MP_ENDIANNESS_LITTLE (1)
 
@@ -60,6 +85,8 @@
 #define MP_ROM_TUPLE_NITEMS 4
 #define MP_QSTR_POOL_SIZED (1)
 #define MP_NO_NONCONSTEXPR_ASSERT
+/* 6c's bit fields are an int's at most: a float's bits by macros */
+#define MP_FLOAT_NO_BITFIELD (1)
 /* typecode and free in one int: str and bytearray share the layout */
 #define MP_OBJ_ARRAY_FREE_SIZE_BITS 24
 #define snprintf snprint

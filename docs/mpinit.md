@@ -61,10 +61,74 @@ remove, seek, bind, mount, unmount, chdir, fd2path, dirread, dup, pipe,
 spawn, exec, wait, rfork, sleep, getpid). Virhe on `OSError` Plan 9:n
 virhetekstillä.
 
+## Mallille (18.10.2026)
+
+Arvio: portti käytetään sellaisenaan, Pythonin syntaksilla ja
+semantiikalla; ei omaa murretta (esim. `{}`-lohkoja). Malli kirjoittaa
+halvimmin ja virheettömimmin sitä, mitä se on nähnyt eniten, eli
+CPythonia. Sisennys ei maksa tokeneita (välilyöntien jakso on yksi
+token), mutta aaltosulkeet ja `;` maksavat; yksi välilyönti tai tabi on
+yksi tavu tasoa kohden hitaalla yhteydellä. Konfiguraatio
+(`mpconfigport.h`) seuraa samaa:
+
+- Liukuluvut (double, libc:n math; ei complexia), isot kokonaisluvut
+  (mpz), `math`, `json`, `sys.maxsize`. 6c:n bittikentät ovat enintään
+  int:n levyisiä, joten liukuluvun bitit luetaan makroilla
+  (`MP_FLOAT_NO_BITFIELD`, `py/misc.h`; upstreamin testit samat
+  tulosteet Linuxissa kummallakin). libc:stä puuttuvat ISO C:n funktiot
+  (`copysign`, `trunc`, `nearbyint`, ...) ovat `p9math.c`:ssä. Plan 9
+  pysäyttää prosessin liukulukuvirheeseen (0/0, ylivuoto), joten `main`
+  kytkee ne pois: tulos on inf tai nan kuten C:ssä. `math.inf`:iä ja
+  `math.nan`:ia ei ole (alustettua dataa, libc:n NaN() on funktio);
+  `float('inf')` toimii.
+- `open()` ja tiedosto-oliot (`p9file.c`: io.FileIO, io.TextIOWrapper
+  fd:n päällä; `with`, rivien iterointi, `read()` loppuun asti, tilat
+  r, w, a, x, +, b; `encoding=` ym. hyväksytään, aina UTF-8) ja `io`
+  (StringIO, BytesIO). Ilman puskuria: `readline` lukee tavun kerrallaan.
+  Virhe on OSError Plan 9:n tekstillä kuten plan9-moduulissa. Sulkematon
+  tiedosto suljetaan gc:ssä (`MICROPY_ENABLE_FINALISER`). Poikkeamat
+  CPythonista: tekstitilan `write` palauttaa tavut, StringIO:lla ei ole
+  `readlines`ia.
+- Traceback kertoo rivin (`MICROPY_ENABLE_SOURCE_LINE`) ja virhe kohteen
+  (`MICROPY_ERROR_REPORTING_DETAILED`): malli löytää virheensä ilman
+  ylimääräistä kierrosta. Traceback puuttui ennen kokonaan: poikkeuksen
+  `traceback_len` oli `size_t`-bittikenttä, jota 6c ei käsittele
+  (`MP_BITS` kuten `mp_map_t`:ssä).
+- `repr('ä')` on `'ä'` kuten CPythonissa, ei `'\xe4'`
+  (`MICROPY_PY_STR_REPR_UTF8`, upstreamiin makrolla).
+- Tabit ja välilyönnit: sekoitus, joka tekee lohkoista epäselviä, on
+  `IndentationError` kuten CPython 3:n TabError
+  (`MICROPY_LEXER_TAB_CHECK`, upstreamiin makrolla, oletus ennallaan):
+  sisennysten järjestys on sama tabilla 8 ja 1 saraketta. Pelkät tabit
+  tai pelkät välilyönnit (vaikka yksi tasoa kohden) käyvät.
+- Rekursio: `MICROPY_STACKLESS`, joten Pythonin kutsu Pythonista ottaa
+  kehyksensä pystackista (1 Mt), ei C-pinosta; C-pinon raja on 8 Mt
+  käyttäjän 16 Mt:stä (C:n kautta kulkevat kutsut, kuten `__init__`).
+  Syvyys on 8190 (CPythonin raja 1000). Ei Stackless Pythonin
+  taskletteja; korutiinit ovat generaattoreita.
+  STACKLESS vaatii pystackin: v1.27.0:ssa STACKLESS ilman sitä
+  (kehykset keossa) kaatuu, kun C:n kautta kutsuttu funktio nostaa
+  poikkeuksen ja moduuli palaa (`try: int('x')` ..., unix-portilla
+  toistettu).
+- Agentin protokolla on raw REPL (mpremoten): Ctrl-A, koodi, Ctrl-D;
+  takaisin `OK`, tuloste, `\x04`, virhe, `\x04`, `>`. Ei kaikua eikä
+  automaattista sisennystä, tuloste ja poikkeus erikseen; Ctrl-B palaa
+  tavalliseen REPLiin. Paste-tila (Ctrl-E) on ihmiselle.
+
+Seuraavaksi: `os`, `sys.stdout`/`stderr`, socket-tyyppinen
+`/net`-kääre ja `plan9.pyi` (tyypit mallille, ei valvontaa).
+
 ## Testi
 
 `tools/test-mpinit.sh`: QEMU, plan9.ini `init=/boot/mp -B`, `console=0`,
-`user=glenda`, sarjakonsolin kautta.
+`user=glenda`, sarjakonsolin kautta. Askeleet raw REPLissä; lopuksi
+Ctrl-B ja tavallinen REPL (Ctrl-C, Ctrl-D, `rc -i`).
+
+Kummassakin: liukuluvut, `2**100`, `round` (puolikkaat parilliseen),
+`math`, `json`, `open()` (`with`, w, a, x, rivit, binääri, `/boot/mp`
+kerralla), `io.StringIO`, tracebackin rivi ja kohde, yhden välilyönnin
+ja tabin sisennys, sekoituksen IndentationError, `g(1000)`-rekursio ja
+rekursion syvyys (RuntimeError, vähintään 1000).
 
 Ilman juurilevyä (ESP:ssä vain kernel):
 
@@ -91,8 +155,8 @@ Ilman juurilevyä (ESP:ssä vain kernel):
 VM:n porttiin 80) ja HTTP-palvelin pelkillä syscalleilla,
 `sys/lib/python/httpd.py`:
 
-1. Tiedosto kirjoitetaan konsoliin kuten käsin: paste-tila (Ctrl-E, rivit,
-   Ctrl-D).
+1. Tiedosto lähetetään raw REPLiin kerralla, kuten agentti sen tekee
+   (testi kertoo lähetetyt ja takaisin tulleet tavut).
 2. `net()`: `#l` ja `#I` `/net`:iin, `/net/ipifc/clone`:iin `bind ether
    /net/ether0` ja osoite, `/net/iproute`:en reitti (ip/ipconfigin työ).
 3. `serve()`: `/net/tcp/clone`, `announce *!80`, silmukassa `listen`;

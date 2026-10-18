@@ -65,7 +65,7 @@
 
 static inline int fp_expval(mp_float_t x) {
     mp_float_union_t fb = { x };
-    return (int)fb.p.exp - MP_FLOAT_EXP_OFFSET;
+    return (int)MP_FLOAT_EXP(fb) - MP_FLOAT_EXP_OFFSET;
 }
 
 #if MICROPY_FLOAT_IMPL == MICROPY_FLOAT_IMPL_DOUBLE

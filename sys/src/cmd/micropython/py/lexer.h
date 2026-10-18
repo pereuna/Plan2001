@@ -43,6 +43,9 @@ typedef enum _mp_token_kind_t {
 
     MP_TOKEN_INVALID,
     MP_TOKEN_DEDENT_MISMATCH,
+    #if MICROPY_LEXER_TAB_CHECK
+    MP_TOKEN_TAB_MISMATCH,
+    #endif
     MP_TOKEN_LONELY_STRING_OPEN,
     #if MICROPY_PY_FSTRINGS
     MP_TOKEN_MALFORMED_FSTRING,
@@ -157,6 +160,12 @@ typedef enum _mp_token_kind_t {
 } mp_token_kind_t;
 
 // this data structure is exposed for efficiency
+#if MICROPY_LEXER_TAB_CHECK
+typedef uint32_t mp_indent_t;   // the column, the altcolumn in the top half
+#else
+typedef uint16_t mp_indent_t;
+#endif
+
 // public members are: source_name, tok_line, tok_column, tok_kind, vstr
 typedef struct _mp_lexer_t {
     qstr source_name;           // name of source
@@ -169,13 +178,16 @@ typedef struct _mp_lexer_t {
 
     size_t line;                // current source line
     size_t column;              // current source column
+    #if MICROPY_LEXER_TAB_CHECK
+    size_t altcolumn;           // the column with a tab as 1
+    #endif
 
     mp_int_t emit_dent;             // non-zero when there are INDENT/DEDENT tokens to emit
     mp_int_t nested_bracket_level;  // >0 when there are nested brackets over multiple lines
 
     size_t alloc_indent_level;
     size_t num_indent_level;
-    uint16_t *indent_level;
+    mp_indent_t *indent_level;
 
     size_t tok_line;            // token source line
     size_t tok_column;          // token source column

@@ -113,8 +113,11 @@ int main(int argc, char **argv) {
         fprint(2, "usage: micropython [-B | -c source | file [arg...]]\n");
         exits("usage");
     }
-    // Plan2001's user stack is 16 MiB (USTKSIZE)
-    mp_cstack_init_with_top((void *)&stack_top, 256 * 1024);
+    // inf and nan as results, as in C: Plan 9 traps them by default
+    setfcr(getfcr() & ~(FPINVAL | FPZDIV | FPOVFL));
+    // Plan2001's user stack is 16 MiB (USTKSIZE): half of it for C's
+    // recursion (Python's is in the pystack, MICROPY_STACKLESS)
+    mp_cstack_init_with_top((void *)&stack_top, 8 * 1024 * 1024);
     gc_init(heap, (char *)heap + sizeof(heap));
     mp_pystack_init(pystack, (char *)pystack + sizeof(pystack));
     mp_init();

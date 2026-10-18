@@ -269,7 +269,7 @@ mp_large_float_t mp_decimal_exp(mp_large_float_t num, int dec_exp) {
     //   when the result is expected to be in mp_float_t range (e.g. during format)
     // - we don't need to care about p.exp overflow, as (5.0 ** dec_exp) will anyway
     //   force the final result toward the proper edge if needed (0.0 or inf)
-    res.p.exp += dec_exp;
+    MP_FLOAT_EXP_ADD(res, dec_exp);
     // Use positive exponents when they are more precise then negative
     if (dec_exp < 0 && dec_exp >= -MAX_EXACT_POWER_OF_5) {
         res.f /= MICROPY_FLOAT_C_FUN(pow)(5, -dec_exp);

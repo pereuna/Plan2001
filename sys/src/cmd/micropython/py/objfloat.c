@@ -77,14 +77,14 @@ const mp_obj_float_t mp_const_float_nan_obj = {{&mp_type_float}, (mp_float_t)NAN
 mp_int_t mp_float_hash(mp_float_t src) {
     mp_float_union_t u = {.f = src};
     mp_int_t val;
-    const int adj_exp = (int)u.p.exp - MP_FLOAT_EXP_BIAS;
+    const int adj_exp = (int)MP_FLOAT_EXP(u) - MP_FLOAT_EXP_BIAS;
     if (adj_exp < 0) {
         // value < 1; must be sure to handle 0.0 correctly (ie return 0)
         val = u.i;
     } else {
         // if adj_exp is max then: u.p.frc==0 indicates inf, else NaN
         // else: 1 <= value
-        mp_float_uint_t frc = u.p.frc | ((mp_float_uint_t)1 << MP_FLOAT_FRAC_BITS);
+        mp_float_uint_t frc = MP_FLOAT_FRC(u) | ((mp_float_uint_t)1 << MP_FLOAT_FRAC_BITS);
 
         if (adj_exp <= MP_FLOAT_FRAC_BITS) {
             // number may have a fraction; xor the integer part with the fractional part
@@ -99,7 +99,7 @@ mp_int_t mp_float_hash(mp_float_t src) {
         }
     }
 
-    if (u.p.sgn) {
+    if (MP_FLOAT_SGN(u)) {
         val = -(mp_uint_t)val;
     }
 

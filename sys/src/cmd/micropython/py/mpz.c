@@ -758,16 +758,16 @@ void mpz_set_from_ll(mpz_t *z, long long val, bool is_signed) {
 #if MICROPY_PY_BUILTINS_FLOAT
 void mpz_set_from_float(mpz_t *z, mp_float_t src) {
     mp_float_union_t u = {src};
-    z->neg = u.p.sgn;
-    if (u.p.exp == 0) {
+    z->neg = MP_FLOAT_SGN(u);
+    if (MP_FLOAT_EXP(u) == 0) {
         // value == 0 || value < 1
         mpz_set_from_int(z, 0);
-    } else if (u.p.exp == ((1 << MP_FLOAT_EXP_BITS) - 1)) {
+    } else if (MP_FLOAT_EXP(u) == ((1 << MP_FLOAT_EXP_BITS) - 1)) {
         // u.p.frc == 0 indicates inf, else NaN
         // should be handled by caller
         mpz_set_from_int(z, 0);
     } else {
-        const int adj_exp = (int)u.p.exp - MP_FLOAT_EXP_BIAS;
+        const int adj_exp = (int)MP_FLOAT_EXP(u) - MP_FLOAT_EXP_BIAS;
         if (adj_exp < 0) {
             // value < 1 , truncates to 0
             mpz_set_from_int(z, 0);
@@ -779,7 +779,7 @@ void mpz_set_from_float(mpz_t *z, mp_float_t src) {
             const int dig_cnt = (adj_exp + 1 + (DIG_SIZE - 1)) / DIG_SIZE;
             const unsigned int rem = adj_exp % DIG_SIZE;
             int dig_ind, shft;
-            mp_float_uint_t frc = u.p.frc | ((mp_float_uint_t)1 << MP_FLOAT_FRAC_BITS);
+            mp_float_uint_t frc = MP_FLOAT_FRC(u) | ((mp_float_uint_t)1 << MP_FLOAT_FRAC_BITS);
 
             if (adj_exp < MP_FLOAT_FRAC_BITS) {
                 shft = 0;
