@@ -238,6 +238,11 @@ static mp_obj_t mp_math_isclose(size_t n_args, const mp_obj_t *pos_args, mp_map_
     if (rel_tol < (mp_float_t)0.0 || abs_tol < (mp_float_t)0.0) {
         math_error();
     }
+    #if MICROPY_FLOAT_CC_FIXES
+    if (isnan(a) || isnan(b)) {
+        return mp_const_false;
+    }
+    #endif
     if (a == b) {
         return mp_const_true;
     }

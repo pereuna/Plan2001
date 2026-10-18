@@ -190,3 +190,33 @@ Found porting MicroPython (its type objects and qstr pools are such
 structs). Not fixed in Plan2001 yet: the port sizes the arrays instead.
 The fix is for init1 to work on a copy of the member type and to give
 the symbol a copy of the struct type widened by the array.
+
+### 6c: float comparisons ignore unordered (NaN) operands
+
+`/sys/src/cmd/6c/txt.c` gopcode (OEQ ... OHI): a float comparison is
+UCOMISS/UCOMISD followed by a single conditional jump (JEQ, JNE, or
+the unsigned JCS/JLS/JCC/JHI after cgen.c's logrel/invrel swap). For
+an unordered result UCOMISD sets ZF, PF and CF together, and no jump
+looks at PF: `x == x` is true and `x != x` false for a NaN, and
+`n < 1` is true or false depending on how boolgen ordered the
+operands. IEEE 754 (and C99 Annex F) want every relation false and
+`!=` true. A fix needs PF: for == a JPS over the JEQ; for != (and a
+complemented relation, boolgen's comrel when `true`) a JPS to the
+same target as the jump, so gopcode has to know whether the relation
+was complemented.
+
+Repeat (prints 1 0, wants 0 1):
+
+	double z = 0; double n = z/z;	/* after setfcr(getfcr() & ~FPINVAL) */
+	print("%d %d\n", n == n, n != n);
+
+### 6c: -x of a float is 0-x, so -(+0.0) is +0.0
+
+A float negation is compiled as a subtraction from zero, which gives
++0.0 for x = +0.0 (IEEE: -0.0). copysign, 1/x and printing see the
+difference (Python's -0.0, math.copysign(1, -0.0)). A fix: XOR the
+sign bit (XORPD with a constant), as other compilers do.
+
+Found by tools/mptest (MicroPython's float tests on Plan2001, 18.10.2026).
+MicroPython works around both (MICROPY_FLOAT_CC_FIXES); other C code
+in the tree does not.

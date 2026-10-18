@@ -306,6 +306,17 @@ typedef union _mp_float_union_t {
 #define MP_FLOAT_SGN(u) ((int)((u).i >> (MP_FLOAT_FRAC_BITS + MP_FLOAT_EXP_BITS)) & 1)
 #define MP_FLOAT_EXP(u) ((int)(((u).i >> MP_FLOAT_FRAC_BITS) & MP_FLOAT_EXP_MASK))
 #define MP_FLOAT_FRC(u) ((u).i & (((mp_float_uint_t)1 << MP_FLOAT_FRAC_BITS) - 1))
+// -x: the sign bit flipped where the compiler's -x would lose -0.0
+#if MICROPY_FLOAT_CC_FIXES
+static inline mp_float_t mp_float_neg(mp_float_t x) {
+    mp_float_union_t u = {x};
+    u.i ^= (mp_float_uint_t)1 << (MP_FLOAT_FRAC_BITS + MP_FLOAT_EXP_BITS);
+    return u.f;
+}
+#define MP_FLOAT_NEG(x) mp_float_neg(x)
+#else
+#define MP_FLOAT_NEG(x) (-(x))
+#endif
 // exp += n, modulo the field's width
 #define MP_FLOAT_EXP_ADD(u, n) ((u).i = ((u).i & ~(MP_FLOAT_EXP_MASK << MP_FLOAT_FRAC_BITS)) \
     | (((mp_float_uint_t)(MP_FLOAT_EXP(u) + (n)) & MP_FLOAT_EXP_MASK) << MP_FLOAT_FRAC_BITS))

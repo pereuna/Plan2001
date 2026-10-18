@@ -148,7 +148,7 @@ static mp_obj_t float_unary_op(mp_unary_op_t op, mp_obj_t o_in) {
         case MP_UNARY_OP_POSITIVE:
             return o_in;
         case MP_UNARY_OP_NEGATIVE:
-            return mp_obj_new_float(-val);
+            return mp_obj_new_float(MP_FLOAT_NEG(val));
         case MP_UNARY_OP_ABS: {
             if (signbit(val)) {
                 return mp_obj_new_float(-val);
@@ -319,6 +319,29 @@ mp_obj_t mp_obj_float_binary_op(mp_binary_op_t op, mp_float_t lhs_val, mp_obj_t 
             };
             return mp_obj_new_tuple(2, tuple);
         }
+        #if MICROPY_FLOAT_CC_FIXES
+        // unordered: every comparison false (!= is not ==, runtime.c)
+        case MP_BINARY_OP_LESS:
+        case MP_BINARY_OP_MORE:
+        case MP_BINARY_OP_EQUAL:
+        case MP_BINARY_OP_LESS_EQUAL:
+        case MP_BINARY_OP_MORE_EQUAL:
+            if (isnan(lhs_val) || isnan(rhs_val)) {
+                return mp_const_false;
+            }
+            switch (op) {
+                case MP_BINARY_OP_LESS:
+                    return mp_obj_new_bool(lhs_val < rhs_val);
+                case MP_BINARY_OP_MORE:
+                    return mp_obj_new_bool(lhs_val > rhs_val);
+                case MP_BINARY_OP_EQUAL:
+                    return mp_obj_new_bool(lhs_val == rhs_val);
+                case MP_BINARY_OP_LESS_EQUAL:
+                    return mp_obj_new_bool(lhs_val <= rhs_val);
+                default:
+                    return mp_obj_new_bool(lhs_val >= rhs_val);
+            }
+        #else
         case MP_BINARY_OP_LESS:
             return mp_obj_new_bool(lhs_val < rhs_val);
         case MP_BINARY_OP_MORE:
@@ -329,6 +352,7 @@ mp_obj_t mp_obj_float_binary_op(mp_binary_op_t op, mp_float_t lhs_val, mp_obj_t 
             return mp_obj_new_bool(lhs_val <= rhs_val);
         case MP_BINARY_OP_MORE_EQUAL:
             return mp_obj_new_bool(lhs_val >= rhs_val);
+        #endif
 
         default:
             return MP_OBJ_NULL; // op not supported

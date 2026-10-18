@@ -29,6 +29,11 @@ static const char bootpy[] = "";
 static uintptr_t heap[MICROPY_HEAP_SIZE / sizeof(uintptr_t)];
 static uintptr_t pystack[MICROPY_PYSTACK_SIZE / sizeof(uintptr_t)];
 
+// the largest area the heap grows by at a time; a failed malloc stops it
+size_t gc_get_max_new_split(void) {
+    return 256 * 1024 * 1024;
+}
+
 // SystemExit's status, or 1 for another exception (printed)
 static int failed(mp_obj_t exc) {
     mp_obj_t code;

@@ -334,7 +334,7 @@ static bool gc_try_add_heap(size_t failed_alloc) {
         return false;
     }
 
-    gc_add(new_heap, (void *)new_heap + to_alloc);
+    gc_add(new_heap, (char *)new_heap + to_alloc);
 
     return true;
 }
