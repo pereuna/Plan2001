@@ -131,6 +131,7 @@ struct	Rgn
 };
 
 EXTERN	long	breakpc;
+EXTERN	int	nanjump;	/* a float compare's branch taken for unordered (NaN) operands: 0, 1; -1 unset */
 EXTERN	long	nbreak;
 EXTERN	Case*	cases;
 EXTERN	Node	constnode;
@@ -254,6 +255,7 @@ void	gcmp(int, Node*, vlong);
 void	gmove(Node*, Node*);
 void	gins(int a, Node*, Node*);
 void	gopcode(int, Type*, Node*, Node*);
+void	fbranch(int, int);
 int	samaddr(Node*, Node*);
 void	gbranch(int);
 void	patch(Prog*, long);

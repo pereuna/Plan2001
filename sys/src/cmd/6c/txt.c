@@ -9,6 +9,7 @@ ginit(void)
 
 	thechar = '6';
 	thestring = "amd64";
+	nanjump = -1;
 	exregoffset = REGEXT;
 	exfregoffset = FREGEXT;
 	listinit();
@@ -248,6 +249,15 @@ nodconst(long v)
 {
 	constnode.vconst = v;
 	return &constnode;
+}
+
+static int
+fsignbit(double d)
+{
+	union { double d; uvlong v; } u;
+
+	u.d = d;
+	return u.v >> 63;
 }
 
 Node*
@@ -594,7 +604,8 @@ gmove(Node *f, Node *t)
 			f->op, tnames[ft], t->op, tnames[tt]);
 	if(typefd[ft] && f->op == OCONST) {
 		/* TO DO: pick up special constants, possibly preloaded */
-		if(f->fconst == 0.0){
+		/* +0.0 only: -0.0 == 0.0, but XORPD makes +0.0 */
+		if(f->fconst == 0.0 && !fsignbit(f->fconst)){
 			regalloc(&nod, t, t);
 			gins(AXORPD, &nod, &nod);
 			gmove(&nod, t);
@@ -1414,12 +1425,67 @@ gopcode(int o, Type *ty, Node *f, Node *t)
 		case OHS:	a = AJCC; break;
 		case OHI:	a = AJHI; break;
 		}
-		gins(a, Z, Z);
+		if(typefd[et] && nanjump >= 0)
+			fbranch(a, nanjump);
+		else
+			gins(a, Z, Z);
+		nanjump = -1;
 		return;
 	}
 	if(a == AGOK)
 		diag(Z, "bad in gopcode %O", o);
 	gins(a, f, t);
+}
+
+/*
+ * the branch a after UCOMISS/UCOMISD, taken for unordered operands
+ * (ZF, PF and CF set) if nan; the caller patches the last instruction
+ */
+void
+fbranch(int a, int nan)
+{
+	Prog *p1, *p2;
+	int taken;
+
+	switch(a) {
+	case AJEQ:
+	case AJCS:
+	case AJLS:
+	case AJLE:
+	case AJGE:
+		taken = 1;
+		break;
+	default:
+		taken = 0;
+		break;
+	}
+	if(taken == nan) {
+		gins(a, Z, Z);
+		return;
+	}
+	if(!nan) {
+		/* JPS over the branch */
+		gins(AJPS, Z, Z);
+		p1 = p;
+		gins(a, Z, Z);
+		patch(p1, pc);
+		return;
+	}
+	/* JPS to a JMP; ordered, the complement over it */
+	gins(AJPS, Z, Z);
+	p1 = p;
+	switch(a) {
+	case AJNE:	a = AJEQ; break;
+	case AJCC:	a = AJCS; break;
+	case AJHI:	a = AJLS; break;
+	case AJLT:	a = AJGE; break;
+	case AJGT:	a = AJLE; break;
+	}
+	gins(a, Z, Z);
+	p2 = p;
+	gbranch(OGOTO);
+	patch(p1, pc-1);
+	patch(p2, pc);
 }
 
 int

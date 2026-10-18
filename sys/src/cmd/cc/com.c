@@ -489,12 +489,17 @@ tcomo(Node *n, int f)
 			l->vconst = 0;
 			l->type = types[TINT];
 			n->op = OSUB;
+			/* a float's -x is -1*x: 0-x would make -(+0.0) +0.0 */
+			if(typefd[r->type->etype]){
+				l->vconst = -1;
+				n->op = OMUL;
+			}
 			n->right = r;
 			n->left = l;
 
 			if(tcom(l))
 				goto bad;
-			if(tcompat(n, l->type, r->type, tsub))
+			if(tcompat(n, l->type, r->type, n->op == OMUL ? tmul : tsub))
 				goto bad;
 		}
 		arith(n, 1);
@@ -1186,9 +1191,10 @@ loop:
 
 	case OMUL:
 	case OLMUL:
+		/* a float's 0*x is not 0 for x NaN, inf or negative */
 		ccom(l);
 		t = vconst(l);
-		if(t == 0 && !side(r)) {
+		if(t == 0 && !side(r) && !typefd[n->type->etype]) {
 			*n = *l;
 			break;
 		}
@@ -1198,7 +1204,7 @@ loop:
 		}
 		ccom(r);
 		t = vconst(r);
-		if(t == 0 && !side(l)) {
+		if(t == 0 && !side(l) && !typefd[n->type->etype]) {
 			*n = *r;
 			break;
 		}
@@ -1210,14 +1216,15 @@ loop:
 
 	case ODIV:
 	case OLDIV:
+		/* a float's x/0 is inf or NaN (IEEE), and 0/x not always 0 */
 		ccom(l);
-		if(vconst(l) == 0 && !side(r)) {
+		if(vconst(l) == 0 && !side(r) && !typefd[n->type->etype]) {
 			*n = *l;
 			break;
 		}
 		ccom(r);
 		t = vconst(r);
-		if(t == 0) {
+		if(t == 0 && !typefd[n->type->etype]) {
 			diag(n, "divide check");
 			*n = *r;
 			break;

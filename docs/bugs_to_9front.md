@@ -218,8 +218,23 @@ difference (Python's -0.0, math.copysign(1, -0.0)). A fix: XOR the
 sign bit (XORPD with a constant), as other compilers do.
 
 Found by tools/mptest (MicroPython's float tests on Plan2001, 18.10.2026).
-MicroPython works around both (MICROPY_FLOAT_CC_FIXES); other C code
-in the tree does not.
+Plan2001 fixes both in the compiler: boolgen tells gopcode (the global
+nanjump) whether the branch is to be taken for unordered operands, and
+fbranch adds a JPS over the branch or to it (6c/cgen.c, txt.c; peep.c
+knows JPS/JPC); cc/com.c makes a float's -x into -1*x, and scon.c folds
+-x as -1.0*x, so that a compiler built by an unfixed one folds -0.0
+right too. MicroPython keeps its workaround (MICROPY_FLOAT_CC_FIXES)
+for code built before.
+
+### 6c, cc, 6l: the constant -0.0 becomes +0.0
+
+Three places compare a float constant with 0 and so take -0.0 for
++0.0: 6c/txt.c gmove loads a constant `== 0.0` with XORPD (+0.0);
+cc/pswt.c ieeedtod, which writes a constant into the object file,
+tests `native < 0` for the sign and writes 0 for `native == 0`; 6l's
+ieeedtof (a float constant) returns 0 for any zero high word and
+calls -0.0 an overflow. `return -0.0;` in musl's atan2 (atan2(-0.5,
+inf)) gave +0.0. Plan2001 takes the sign from the bits in all three.
 
 ### sdiahci: a disk that the firmware has not used never gets ready (QEMU)
 

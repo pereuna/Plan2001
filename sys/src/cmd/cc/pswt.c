@@ -173,8 +173,11 @@ ieeedtod(Ieee *ieee, double native)
 {
 	double fr, ho, f;
 	int exp;
+	union { double d; uvlong v; } u;
 
-	if(native < 0) {
+	/* the sign from the bits: -0.0 is not < 0 */
+	u.d = native;
+	if(native < 0 || native == 0 && u.v>>63) {
 		ieeedtod(ieee, -native);
 		ieee->h |= 0x80000000L;
 		return;

@@ -38,8 +38,9 @@ evconst(Node *n)
 		return;
 
 	case ONEG:
+		/* -1*x: a compiler's -x may be 0-x, which loses -0.0 */
 		if(isf)
-			d = -l->fconst;
+			d = -1.0 * l->fconst;
 		else
 			v = -l->vconst;
 		break;

@@ -1459,8 +1459,8 @@ ieeedtof(Ieee *e)
 	int exp;
 	long v;
 
-	if(e->h == 0)
-		return 0;
+	if((e->h & 0x7fffffffL) == 0)
+		return e->h & 0x80000000L;
 	exp = (e->h>>20) & ((1L<<11)-1L);
 	exp -= (1L<<10) - 2L;
 	v = (e->h & 0xfffffL) << 3;
