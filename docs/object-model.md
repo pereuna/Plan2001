@@ -373,6 +373,14 @@ Raudalla (silli) ajetaan vaiheiden V0, V3 ja V8 testit.
 | T0.2 | `DMEXCL`-tiedoston toinen avaus epäonnistuu. Ensimmäisen sulkemisen jälkeen avaus onnistuu. Prosessin kuolema vapauttaa sen. |
 | T0.3 | Syncin kesto mitataan (pieni muutos, 1 MiB:n muutos) QEMU:ssa ja sillillä. Tulos kirjataan tähän dokumenttiin. |
 
+Tulokset (18.10.2026, QEMU/KVM, virtio-blk, `PHASE=0 CRASH=3`, 2,5 min):
+kaikki läpi. T0.1: jokainen synkattu 1 MiB:n tiedosto säilyi kolmessa
+tapossa, ja `gefsck` on puhdas. Vertailuksi 0,5 s ennen tappoa
+kirjoitetuista synkkaamattomista tiedostoista säilyi 0/3, joten sync
+todella ratkaisee pysyvyyden. T0.3: mediaani pieni 61 ms ja 1 MiB 106 ms.
+Pienen syncin 61 ms on yläraja commitin viiveelle REPL-lauseessa, ja se
+mitataan uudelleen sillillä.
+
 ### V1. Koodin identiteetti ja Environment
 
 - `mpconfigport.h`: `MICROPY_PERSISTENT_CODE_SAVE`.
@@ -497,7 +505,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 
 | Vaihe | Tila |
 |---|---|
-| V0 | – |
+| V0 | QEMU: valmis 18.10.2026 (`plan9.sync`, `plan9.DMEXCL`, `tools/test-space.sh`). Silli: ajamatta |
 | V1 | – |
 | V2 | – |
 | V3 | – |

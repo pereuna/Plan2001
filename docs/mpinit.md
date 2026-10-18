@@ -58,7 +58,8 @@ kun konfiguraatio muuttuu.
 
 `plan9`-moduuli: syscallit Pythonille (open, create, read, write, close,
 remove, seek, bind, mount, unmount, chdir, fd2path, dirread, dup, pipe,
-spawn, exec, wait, rfork, sleep, getpid, stat, wstat, alarm). Virhe on
+spawn, exec, wait, rfork, sleep, getpid, stat, wstat, sync, alarm;
+`sync` on tyhjä wstat eli fsync, docs/object-model.md). Virhe on
 `OSError` Plan 9:n virhetekstillä. `alarm(ms)`:n päättyessä estävä
 kutsu keskeytyy (`OSError: interrupted`), ja prosessi jatkaa.
 
