@@ -256,3 +256,15 @@ once gets a reset ("Fsnewcall: incall queue full"). A server that forks
 for each call (or is slow to listen again) loses connections under
 modest load: 32 clients at once to an echo server lost 2. Plan2001 has
 128.
+
+### tcp: Conversations in Time_wait are not reclaimed when the table is full
+
+`/sys/src/9/ip/tcp.c` tcpgc, which Fsprotoclone calls when every Conv
+is in use, frees only Syn_received (5 s) and Finwait2 (5 min). A Conv
+in Time_wait stays for MSL2 (10 s), so a server that closes first and
+takes more than Nchans (1024; 4096 on a cpu server) calls in 10 s
+refuses new ones ("Fsprotoclone: garbage collecting tcp Convs", the
+call reset): MicroPython's servers under tools/mptest's soak, ~200
+calls a second, lost 7 calls in the first minute. Plan2001's tcpgc
+closes the Time_wait ones too, as their timer would (Linux gives up
+time-wait sockets past tcp_max_tw_buckets the same way).
