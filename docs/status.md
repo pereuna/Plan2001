@@ -1049,3 +1049,11 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   muslin libm (tulokset kuin CPythonissa), `plan9.wstat`, `plan9.alarm`.
 - Avoin: kello ~3–4 s jäljessä bootin jälkeen (Boot ABI: TSC
   lukuhetkellä); viat 9frontille docs/bugs_to_9front.md:ssä.
+
+## Pysyvä olioympäristö V0–V5 (18.10.2026, haarat `space-v0`…`space-v5`)
+
+- Määrittely ja vaiheet: `docs/object-model.md`. V0–V3 valmiit QEMU:ssa
+  ja sillillä (`spacehw`, 0 FAIL), V4 (`graph.py`) QEMU:ssa.
+- V4:n mittaus täytti V5:n ehdon (koko kuvan commit sekunteja ~30 000
+  oliolla). V5:n tallennin, gefs:n olio-API, on suunniteltu
+  (`docs/gefs-obj.md`); koodia ei vielä ole.

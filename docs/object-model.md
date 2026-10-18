@@ -293,7 +293,8 @@ Rajapinta on sama AI:lle ja käyttöliittymälle:
 /usr/$user/lib/mod/<sha256>.mpy    sen tavukoodi (kerran käännetty)
 /usr/$user/lib/env/<sha256>        Environment (teksti)
 /usr/$user/space/<nimi>/lock       DMEXCL, kirjoittaja pitää auki
-/usr/$user/space/<nimi>/v<N>       version N kuva (N 16 numerona)
+/usr/$user/space/<nimi>/v<N>       version N kuva (N 16 numerona), V2–V4
+/usr/$user/space/<nimi>/obj        oliot (DMOBJ, docs/gefs-obj.md), V5:stä
 ```
 
 Environmentin muoto on rivit `runtime <tunniste>` ja `<nimi> <sha256>`.
@@ -609,11 +610,17 @@ commit kestää sillillä yli 200 ms, tai kun V6 tarvitsee vakaat OID:t.
   tunnistetaan vertaamalla olion koodattua tiivistettä, ja
   kirjoitusbarrierit tehdään vain, jos mittaus vaatii.
 - Tallennin on gefs:n kernelin olio-API (`docs/gefs.md` vaihe 2), jossa
-  avain on `(Space, OID)`. Sille tehdään oma suunnitteludokumentti ennen
-  koodia.
+  avain on `(Space, OID)`. Suunnitteludokumentti: `docs/gefs-obj.md`
+  (18.10.2026): avaintyyppi `Kobj store oid idx`, moottorin
+  transaktio `obj.c`:ssä (yksi `mutlk`-jakso, siis yksi sync) ja
+  käyttäjätilalle `DMOBJ`-tiedosto, jonka kirjoitus on tietuevirta
+  (put, delete, commit) ja luku avainskannaus. V5:stä alkaen
+  `space/<nimi>/obj` korvaa `v<N>`-tiedostot (6.1), ja vanhat versiot
+  ovat gefs:n snapshotteja.
 
 Testit: V2–V4 ennallaan. Lisäksi T5.1: yhden olion muutos kirjoittaa
 `O(muutos)` tavua (mitataan), ja T5.2: OID säilyy samana versioiden yli.
+T5.3–T5.5 ja ktest `objtx` ovat `docs/gefs-obj.md`:ssä.
 
 ### V6. Toisen Spacen lukeminen
 
@@ -663,7 +670,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
-| V5 | ehdollinen |
+| V5 | ehto täyttyy; gefs:n olio-API suunniteltu 18.10.2026 (`docs/gefs-obj.md`), ei koodia |
 | V6 | – |
 | V7 | – |
 | V8 | ehdollinen |
