@@ -60,6 +60,7 @@ Näitä ei voi toteuttaa järkevällä työllä, ja niitä on turha yrittää.
 | R8 | v0.1 snapshotit omana GEFS-tietuetyyppinään vs. gefs:n omat snapshotit | Spacen vanhat versiot ovat sen versiotiedostoja (6.1). Koko puun snapshotit ovat gefs:n (`/n/adm/ctl snap`). |
 | R9 | Space "pysyvä nimiavaruus" vs. Plan 9:n prosessin nimiavaruus | Plan 9:n nimiavaruus pysyy ennallaan eikä ole pysyvä. Space on Python-olioiden juuri, ei mount-taulu. |
 | R10 | `__main__`: keskustelussa REPLin muuttujat säilyvät, v0.1:ssä vain moduuli-instanssit | REPLin `__main__` on Spacen moduuli-instanssi, ja sen globaalit säilyvät. |
+| R11 | Tunniste `#0102939` vs. numerotagi `#2026` | Tagirivillä ensimmäinen tagi on aina tunniste ja loput ovat tageja. Haussa tunniste on tagi muiden joukossa, eikä sille ole omaa merkkiä (5.8). |
 
 ## 4. Ei toteuteta (nyt), ja miksi
 
@@ -72,6 +73,8 @@ Näitä ei voi toteuttaa järkevällä työllä, ja niitä on turha yrittää.
 | Usean omistajan atomiset tapahtumat (v0.1 15.4) | Laaja työ, eikä ensimmäinen käyttötapaus tarvitse sitä. | Erillinen määrittely |
 | PyPI/pip-tuonti (keskustelu 7, v0.1 8.3) | Useimmat PyPI-paketit eivät toimi MicroPythonissa, ja jakelu kuuluu Monolithiin. | Monolith |
 | Capability-oikeudet graafin yli (keskustelu 11) | Plan 9:n tiedosto-oikeudet riittävät, kun Space on käyttäjän tiedosto. | Kun Spaceja jaetaan käyttäjien kesken |
+| Tagien tekstikenttä (GUI/TUI) | Sovellus kuuluu Monolithiin. Tähän repoon tulee `graph`-API (5.8) ja sen testit. | Monolith |
+| Päivämäärätagien aikavälihaku ja kirjoitusasujen yhtenäistäminen (`#11.12.26` = `#11.12.2026`) | Ensin tavalliset tagit. | V4:n jälkeen |
 | Graafin hakemistonäkymä 9P:nä | Käyttäjätason palvelin. Repo päätetään toteutettaessa (AGENTS.md: sovellukset Monolithiin). | V4:n jälkeen |
 | Init ohjelmaoliona ilman juurimounttausta (`~/plan9mp/GEFS-MP-TAVOITE.md` vaihe 2) | Erillinen boot-hanke, ei riipu tästä. | Oma määrittely |
 | `plan2001-architecture-lab`:n 15 CPython-testiä (v0.1 21.1) | Lähdekoodi ei ole saatavilla. Vastaesimerkit 12, 13 ja 15 ovat tässä testeinä T2.2, T7.2 ja T2.9. | – |
@@ -159,6 +162,10 @@ kierrätetä, tulevat vaiheessa V5, kun tallennus muuttuu
 inkrementaaliseksi. Saman version sisällä jaettu viittaus palautuu
 samaksi olioksi, ja syklit säilyvät.
 
+Graafin `Node`n tunniste (`_id`, 5.8) on vakaa jo V4:ssä. Se on Noden
+tavallinen attribuutti, joka tallentuu muiden mukana, eikä se riipu
+V5:n OID:istä.
+
 ### 5.5 Tuetut tyypit
 
 | Tyyppi | Tallennus |
@@ -219,6 +226,63 @@ graph.find(Photo, project=p)    # käänteisjoukosta, ei läpikäyntiä
 - Linkki toisen Spacen olioon on `TypeError`.
 - Toteutus käyttää deskriptoreita (`MICROPY_PY_DESCRIPTORS`, otetaan
   käyttöön).
+
+### 5.8 Ihmisen näkymä: tunniste ja #tagit (V4)
+
+Ihminen ei tallenna tiedostoa nimellä. Olio saa tunnisteen, ja käyttäjä
+kirjoittaa sen perään omat tagit somen tapaan:
+
+```
+#0102939 #kaviot #mirkku #11.12.2026 #Liisa #Hanna #Puuilo
+```
+
+Olio löytyy myöhemmin millä tahansa näistä tageista. Tunniste on yksi
+tageista: varaosamyyjä muistaa numeron, joku toinen nimen tai päivän.
+
+- **Ihmiselle näkyvä olio on `graph.Node`.** Pelkkä `str` ei voi kantaa
+  tunnistetta, joten teksti on `graph.Text(Node)` (`.text`). Vanha
+  tiedosto (`koe.txt`) tuodaan `Text`-olioksi, ja tiedoston nimi tulee
+  sen tagiksi (`#koe.txt`).
+- **Tunniste:** Node saa luonnissa Spacen laskurista numeron (`n._id`).
+  Numeroa ei kierrätetä poistonkaan jälkeen. Tunniste näytetään tagina:
+  `#` ja vähintään 7 numeroa etunollilla (`#0102939`). Se on olion
+  ensimmäinen tagi, eikä sitä voi poistaa. Tunniste on yksilöllinen
+  Spacen sisällä. Spacejen välinen muoto (`space/#0102939`) tulee V6:ssa.
+- **Tagirivi on paikkasidonnainen:** ensimmäinen tagi on aina tunniste,
+  ja loput ovat tageja. `#0102939 #kaviot #2026` tarkoittaa tunnistetta
+  102939 sekä tageja `kaviot` ja `2026`. Uudelle oliolle järjestelmä
+  kirjoittaa ensimmäisen tagin, ja käyttäjä kirjoittaa loput.
+- **Haussa tagit ovat samanarvoisia:** `#x` osuu jokaiseen olioon, jolla
+  on tagi `x`, oli se tunniste tai käyttäjän tagi. Numeroilla, nimillä ja
+  päivämäärillä ei ole omia tyyppejä. Jos käyttäjä tagaa olion B
+  tagilla `#0102939`, haku palauttaa sekä olion 102939 että B:n.
+  GUI/TUI voi näyttää tunnisteosuman ensin.
+- **Tagin muoto:** `#` ja merkkijono seuraavaan välilyöntiin asti
+  (UTF-8). Pisteet, viivat ja numerot ovat sallittuja. Vertailu ei
+  riipu kirjainkoosta (`#Mirkku` = `#mirkku`), ja tämä koskee myös
+  å:ta, ä:tä ja ö:tä. MicroPythonin `str.lower` taittaa vain ASCII:n,
+  joten `graph`illa on oma taittotaulu (aluksi Latin-1-täydennys ja
+  Latin Extended-A). Näytössä säilyy ensimmäinen kirjoitusasu. Numerot
+  verrataan merkkijonoina: `#102939` ≠ `#0102939`.
+- **Tagi on Spacen olio** (`graph.Tag`: nimi ja taitettu avain), ja
+  olion tagit ovat `links(Tag, inverse='objects')`. Haku käyttää
+  käänteisjoukkoja (5.7) eikä käy olioita läpi.
+- **Päivämäärät** ovat tavallisia tageja (`#11.12.2026`). Aikavälihaku
+  tulee myöhemmin (luku 4).
+- **rc:** `#` aloittaa rc:ssä kommentin, joten komentorivillä tagit
+  lainataan (`'#kaviot'`). Tämä ei koske UI:ta eikä Pythonia.
+
+Rajapinta on sama AI:lle ja käyttöliittymälle:
+
+| Kutsu | Tulos |
+|---|---|
+| `graph.tag(n, '#kaviot #mirkku')` | Lisää tagit. Puuttuva `Tag` luodaan. |
+| `graph.untag(n, '#mirkku')` | Poistaa tagin. Tunnistetta ei voi poistaa (`ValueError`). |
+| `graph.tags(n)` | Tagit listana, tunniste ensin |
+| `graph.line(n)` | Tagirivi (`#0102939 #kaviot ...`) |
+| `graph.parse(rivi)` | `(tunniste, [tagit])`. Jos ensimmäinen ei ole numero tai oliota ei ole, tulee `ValueError`. Käänteinen `line`lle. |
+| `graph.search('#kaviot #mirkku')` | Oliot, joilla on kaikki tagit (AND). Tyhjä haku on `ValueError`. |
+| `graph.byid(102939)` | Node tai `None` |
 
 ## 6. Tallennus
 
@@ -357,7 +421,7 @@ Raudalla (silli) ajetaan vaiheiden V0, V3 ja V8 testit.
 
 ### V4. Graafi
 
-- `graph.py` (5.7) ja `MICROPY_PY_DESCRIPTORS`.
+- `graph.py` (5.7, 5.8) ja `MICROPY_PY_DESCRIPTORS`.
 
 | Testi | Hyväksymisehto |
 |---|---|
@@ -366,6 +430,12 @@ Raudalla (silli) ajetaan vaiheiden V0, V3 ja V8 testit.
 | T4.3 | `graph.find(Photo, project=p)` toimii, ja se pysyy nopeana 10 000 kuvalla (aika kirjataan). |
 | T4.4 | Relaatiot ja käänteisjoukot säilyvät bootin yli (T2:n mekanismi). |
 | T4.5 | `graph.delete` poistaa olion molemmilta puolilta ja luokkajoukosta. Linkki toiseen Spaceen antaa `TypeError`in. |
+| T4.6 | Uusi Node saa seuraavan tunnisteen. Tunnisteet eivät toistu poiston ja bootin jälkeen. |
+| T4.7 | `graph.parse` antaa 5.8:n esimerkkiriviltä tunnisteen ja 6 tagia. `#0102939 #2026` antaa tunnisteen ja tagin `2026`. `parse(line(n))` antaa `n`:n tunnisteen ja tagit. |
+| T4.8 | `search('#Mirkku #kaviot')` == `search('#mirkku #KAVIOT')`, ja `#Äiti` == `#äiti`. |
+| T4.9 | `search('#0102939')` palauttaa olion 102939 ja lisäksi olion, jolla on käyttäjän tagi `#0102939`. `untag` ei poista tunnistetta. |
+| T4.10 | `koe.txt` tuodaan `Text`-olioksi. `search('#koe.txt')` löytää sen, ja sisältö säilyy bootin yli. |
+| T4.11 | 10 000 oliota ja kolmen tagin haku: aika kirjataan. |
 
 ### V5. Inkrementaalinen tallennus (ehdollinen)
 
