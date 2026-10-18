@@ -44,6 +44,10 @@ extern const struct _mp_obj_module_t mp_module_plan9;
 #undef MODULE_DEF_PLAN9
 #define MODULE_DEF_PLAN9 { MP_ROM_QSTR(MP_QSTR_plan9), MP_ROM_PTR(&mp_module_plan9) },
 
+extern const struct _mp_obj_module_t mp_module_space;
+#undef MODULE_DEF_SPACE
+#define MODULE_DEF_SPACE { MP_ROM_QSTR(MP_QSTR_space), MP_ROM_PTR(&mp_module_space) },
+
 extern const struct _mp_obj_module_t mp_module_sys;
 #undef MODULE_DEF_SYS
 #define MODULE_DEF_SYS { MP_ROM_QSTR(MP_QSTR_sys), MP_ROM_PTR(&mp_module_sys) },
@@ -55,6 +59,7 @@ extern const struct _mp_obj_module_t mp_module_sys;
     MODULE_DEF_MATH \
     MODULE_DEF_MICROPYTHON \
     MODULE_DEF_PLAN9 \
+    MODULE_DEF_SPACE \
     MODULE_DEF_SYS \
     MODULE_DEF___MAIN__ \
 // MICROPY_REGISTERED_MODULES

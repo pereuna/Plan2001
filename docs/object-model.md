@@ -395,6 +395,17 @@ mitataan uudelleen sillillä.
 | T1.4 | Tuntematon nimi antaa `ImportError`in. `import a.b` antaa `ImportError: packages not supported`. |
 | T1.5 | Väärä runtime-tunniste Environmentissa: avaus hylätään selvällä virheellä. |
 
+Toteutus (18.10.2026, `p9space.c`): `space.define(polku)`,
+`space.mkenv({nimi: määritelmä})`, `space.hash(data)`, `space.runtime`
+(`mp-1.27.0-mpy6.3`), `space.useenv(env)` ja `space.env()`. `mp -E env`
+kutsuu `useenv`ia ennen ohjelmaa. Import kulkee `p9_import`in kautta
+(`mpconfigport.h`: `mp_builtin___import__`). Ilman Environmentia se on
+MicroPythonin oma. `.mpy` ladataan muistista (`mp_raw_code_load_mem`),
+ja moduulin `__file__` on sen lähde `lib/mod/<sha256>.py`. Environment
+tarkistetaan avattaessa: tekstin SHA-256 on sen nimi, muuten
+`corrupt`. Tulokset: QEMU, `PHASE=1` (V0+V1, 3 min), kaikki läpi.
+`tools/test-mpinit.sh` (molemmat tilat) läpi.
+
 ### V2. Space ja palautus (koko kuva)
 
 - `p9space.c`: koodaus, purku, commit (6.2), avaus.
@@ -506,7 +517,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | Vaihe | Tila |
 |---|---|
 | V0 | QEMU: valmis 18.10.2026 (`plan9.sync`, `plan9.DMEXCL`, `tools/test-space.sh`). Silli: ajamatta |
-| V1 | – |
+| V1 | QEMU: valmis 18.10.2026 (`space`-moduuli, `mp -E`). Silli: ajamatta |
 | V2 | – |
 | V3 | – |
 | V4 | – |

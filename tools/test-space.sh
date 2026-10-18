@@ -7,12 +7,20 @@
 # At the end tools/gefsck checks the partition in the build VM.
 #   PHASE=0     the phases' tests up to this one (docs/object-model.md 7)
 #   CRASH=3     crashes in the crash tests
+#   ONLY=n      only phase n's tests (while developing it)
 # V0 (sync and exclusive use):
 #   T0.1  a file written, plan9.sync, QEMU killed as soon as it returns:
 #         the next boot has it (CRASH times, 1 MiB each, checksummed)
 #   T0.2  DMEXCL: a second open fails, in this process and another;
 #         close or the holder's death frees it; OCEXEC: no fd after exec
 #   T0.3  plan9.sync's time: a small change and 1 MiB (median of 10)
+# V1 (a module's definition, the Environment, mp -E):
+#   T1.1  space.define: the source's SHA-256; the .mpy made once
+#   T1.2  two Environments, calc's two versions: each its own result
+#   T1.3  a calc.py in the working directory does not count (sys.path)
+#   T1.4  an unknown name, a package: ImportError; builtins work; a
+#         module loaded once; a failed top level not in sys.modules
+#   T1.5  a wrong runtime, a corrupt Environment: refused
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -25,13 +33,13 @@ done
 mkdir -p "$vm"
 disk=$b/spacedisk.img
 CONSOLE=0 INIT='/boot/mp -B' INI= "$here/gefsdisk" "$disk"
-echo "test-space: PHASE=$phase CRASH=${CRASH:-3}; limits: a boot 150 s, a step 30-120 s, all about $(( ${CRASH:-3} + 2 )) min (QEMU, KVM)"
+echo "test-space: PHASE=$phase${ONLY:+ ONLY=$ONLY} CRASH=${CRASH:-3}; limits: a boot 150 s, a step 30-120 s, all about $(( ${CRASH:-3} + 2 )) min (QEMU, KVM)"
 
 st=0
 QEMU=$qemu QEMUARGS="${qemuargs[*]}" FWCODE=$fwcode FWVARS=$fwvars \
-python3 -I - "$vm" "$disk" "$here/9run" "$phase" "${CRASH:-3}" <<'EOF' || st=1
+python3 -I - "$vm" "$disk" "$here/9run" "$phase" "${CRASH:-3}" "${ONLY:-}" <<'EOF' || st=1
 import os, re, sys, time, shutil, subprocess, hashlib
-vm, disk, run9, phase, ncrash = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+vm, disk, run9, phase, ncrash, only = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
 log = os.path.join(vm, 'serial.log')
 q = relay = None
 
@@ -179,15 +187,68 @@ def v0():
         print('\tinfo: plan9.sync median: small %s ms, 1 MiB %s ms (QEMU)' % (a[2], a[3]), flush=True)
     halt()
 
+def v1():
+    src = {
+        'calc1': 'def f(x):\n    return x * 2\n',
+        'calc2': 'def f(x):\n    return x * 3\n',
+        'user2': 'import calc\n',
+        'bad': 'x = 1 / 0\n',
+    }
+    if not boot():
+        return
+    raw('import plan9 as p, space', r'\A\Z')
+    code = "try:\n    p.create('/usr/glenda/src', p.OREAD, p.DMDIR | 0o775)\nexcept OSError:\n    pass\n"
+    for n, t in src.items():
+        code += "with open('/usr/glenda/src/%s.py', 'w') as f:\n    f.write(%r)\n" % (n, t)
+    code += "with open('/usr/glenda/calc.py', 'w') as f:\n    f.write(\"def f(x):\\n    return 'shadow'\\n\")\n"
+    # a child mp: its output, then its status
+    code += "def run(src, env=None):\n    a = ['/boot/mp'] + (['-E', env] if env else []) + ['-c', src]\n    p.spawn(a)\n    print('status', repr(p.wait()[1]))\n"
+    raw(code, r'\A\Z', name='V1 sources')
+    raw('print(space.runtime)', r'^mp-1\.27\.0-mpy6\.3$', name='space.runtime')
+    want = {n: hashlib.sha256(t.encode()).hexdigest() for n, t in src.items()}
+    out = raw("h = {n: space.define('/usr/glenda/src/%s.py' % n) for n in ('calc1', 'calc2', 'user2', 'bad')}\nprint(sorted(h.items()))",
+        re.escape(repr(sorted(want.items()))), secs=60, name="T1.1 define: the source's SHA-256")
+    # T1.1: the .mpy made once: a second define changes nothing
+    raw("m = '/usr/glenda/lib/mod/%s.mpy' % h['calc1']\nst, b = p.stat(m), open(m, 'rb').read()\n"
+        "print(space.define('/usr/glenda/src/calc1.py') == h['calc1'], p.stat(m) == st, open(m, 'rb').read() == b, len(b) > 0)\n"
+        "print(open('/usr/glenda/lib/mod/%s.py' % h['calc1']).read() == open('/usr/glenda/src/calc1.py').read())",
+        r'^True True True True\nTrue$', name='T1.1 the .mpy made once, the source kept')
+    raw("e1 = space.mkenv({'calc': h['calc1']})\ne2 = space.mkenv({'calc': h['calc2']})\n"
+        "e3 = space.mkenv({'calc': h['calc1'], 'user2': h['user2'], 'bad': h['bad']})\n"
+        "print(e1 != e2, e1 == space.mkenv({'calc': h['calc1']}), open('/usr/glenda/lib/env/' + e1).read())",
+        r'^True True runtime mp-1\.27\.0-mpy6\.3\ncalc [0-9a-f]{64}$', name='mkenv: named by its text')
+    raw("run(\"import calc; print('f', calc.f(10))\", e1)\nrun(\"import calc; print('f', calc.f(10))\", e2)",
+        r"^f 20\nstatus ''\nf 30\nstatus ''$", secs=60, name='T1.2 two Environments, two versions')
+    raw("p.chdir('/usr/glenda')\nrun(\"import calc; print('f', calc.f(10))\", e1)\nrun(\"import calc; print('f', calc.f(10))\")",
+        r"^f 20\nstatus ''\nf shadow\nstatus ''$", secs=60, name='T1.3 the working directory does not count (without -E it does)')
+    raw("run('import nope', e1)", r"ImportError: no module named 'nope' in the Environment\nstatus '.+'$", secs=30, name='T1.4 an unknown name')
+    raw("run('import a.b', e1)", r"ImportError: packages not supported\nstatus '.+'$", secs=30, name='T1.4 a package')
+    raw("run('import json, plan9, space; print(json.dumps([1]), space.env() == %r)' % e1, e1)",
+        r"^\[1\] True\nstatus ''$", secs=30, name='T1.4 builtin modules')
+    raw("run('import calc, user2; print(user2.calc is calc)', e3)", r"^True\nstatus ''$", secs=30, name='T1.4 a module loaded once')
+    raw("run('import sys\\ntry:\\n    import bad\\nexcept ZeroDivisionError:\\n    print(\"bad\" in sys.modules)', e3)",
+        r"^False\nstatus ''$", secs=30, name='T1.4 a failed top level not in sys.modules')
+    raw("t = 'runtime mp-0.0.0-mpy0.0\\ncalc %s\\n' % h['calc1']\nx = space.hash(t)\n"
+        "with open('/usr/glenda/lib/env/' + x, 'w') as f:\n    f.write(t)\nrun('print(1)', x)",
+        r"runtime mp-0\.0\.0-mpy0\.0, this mp is mp-1\.27\.0-mpy6\.3\nstatus '.+'$", secs=30, name='T1.5 a wrong runtime')
+    raw("x = 'f' * 64\nwith open('/usr/glenda/lib/env/' + x, 'w') as f:\n    f.write(open('/usr/glenda/lib/env/' + e1).read())\nrun('print(1)', x)",
+        r"corrupt.*\nstatus '.+'$", secs=30, name='T1.5 a corrupt Environment')
+    raw("run('print(1)', 'x;y')", r"not an Environment\nstatus '.+'$", secs=30, name='T1.5 not an Environment')
+    halt()
+
+phases = [v0, v1]
 try:
-    if phase >= 0:
-        v0()
+    for i, f in enumerate(phases):
+        if (only == '' and i <= phase) or only == str(i):
+            f()
 finally:
     stop()
-print('PASS: space PHASE=%d' % phase if fails == 0 else 'FAIL: %d' % fails)
+print(("PASS: space PHASE=%d" % phase if not only else "PASS: space ONLY=" + only) if fails == 0 else "FAIL: %d" % fails)
 sys.exit(1 if fails else 0)
 EOF
 [ $st = 0 ] || { echo FAIL; exit 1; }
+
+[ -z "$ONLY" ] || [ "$ONLY" = 0 ] || { echo "PASS: space ONLY=$ONLY"; exit 0; }
 
 # the partition checked and read back in the build VM (userspace gefs)
 part=$b/spacepart.img

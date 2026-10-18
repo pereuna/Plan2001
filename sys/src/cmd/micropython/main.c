@@ -110,8 +110,16 @@ static int onnote(void *ureg, char *note) {
 int main(int argc, char **argv) {
     volatile uintptr_t stack_top;
     int fail = 0, i, boot = 0;
-    const char *source = NULL, *file = NULL;
+    const char *source = NULL, *file = NULL, *env = NULL;
+    char useenv[128];
 
+    // -E ENV: import from the Environment ENV alone (p9space.c)
+    if (argc >= 3 && strcmp(argv[1], "-E") == 0) {
+        env = argv[2];
+        argv[2] = argv[0];
+        argv += 2;
+        argc -= 2;
+    }
     if (argc == 2 && strcmp(argv[1], "-B") == 0) {
         boot = 1;
     } else if (argc == 3 && strcmp(argv[1], "-c") == 0) {
@@ -119,7 +127,7 @@ int main(int argc, char **argv) {
     } else if (argc >= 2 && argv[1][0] != '-') {
         file = argv[1];
     } else if (argc != 1) {
-        fprint(2, "usage: micropython [-B | -c source | file [arg...]]\n");
+        fprint(2, "usage: micropython [-E env] [-B | -c source | file [arg...]]\n");
         exits("usage");
     }
     // inf and nan as results, as in C: Plan 9 traps them by default
@@ -130,8 +138,22 @@ int main(int argc, char **argv) {
     gc_init(heap, (char *)heap + sizeof(heap));
     mp_pystack_init(pystack, (char *)pystack + sizeof(pystack));
     mp_init();
-    mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR_));
-    mp_obj_list_append(mp_sys_path, mp_obj_new_str("/sys/lib/python", 15));
+    if (env == NULL) {
+        mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR_));
+        mp_obj_list_append(mp_sys_path, mp_obj_new_str("/sys/lib/python", 15));
+    } else {
+        // the name goes into Python's source: an Environment's is hex
+        if (strlen(env) > 64 || env[strspn(env, "0123456789abcdef")] != 0) {
+            fprint(2, "micropython: -E %s: not an Environment\n", env);
+            exits("usage");
+        }
+        snprint(useenv, sizeof useenv, "import space\nspace.useenv('%s')", env);
+        if (execstr(useenv, MP_QSTR__lt_command_gt_) != 0) {
+            mp_deinit();
+            p9_console_exit(1);
+            return 1;
+        }
+    }
     for (i = file != NULL ? 1 : argc; i < argc; i++) {
         mp_obj_list_append(mp_sys_argv, mp_obj_new_str(argv[i], strlen(argv[i])));
     }

@@ -41,6 +41,14 @@
 /* tabs and spaces mixed so that the blocks are ambiguous: an error */
 #define MICROPY_LEXER_TAB_CHECK (1)
 #define MICROPY_ENABLE_EXTERNAL_IMPORT (1)
+/*
+ * the persistent object environment (p9space.c, docs/object-model.md):
+ * a module's .mpy made once and loaded from memory; import through
+ * p9_import (an Environment's modules, or MicroPython's own)
+ */
+#define MICROPY_PERSISTENT_CODE_LOAD (1)
+#define MICROPY_PERSISTENT_CODE_SAVE (1)
+#define mp_builtin___import__ p9_import
 #define MICROPY_VFS (0)
 #define MICROPY_READER_POSIX (0)
 #define MICROPY_NLR_SETJMP (1)
@@ -88,7 +96,7 @@
 #define PACKED
 #define MP_BITS(n)
 #define MP_OBJ_TYPE_NSLOTS 11
-#define MP_ROM_TUPLE_NITEMS 4
+#define MP_ROM_TUPLE_NITEMS 5	/* sys.implementation with _mpy */
 #define MP_QSTR_POOL_SIZED (1)
 #define MP_NO_NONCONSTEXPR_ASSERT
 /* 6c: NaN compares as equal, -x of +0.0 is +0.0 (docs/bugs_to_9front.md) */
