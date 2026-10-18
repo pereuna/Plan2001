@@ -294,7 +294,7 @@ Rajapinta on sama AI:lle ja käyttöliittymälle:
 /usr/$user/lib/env/<sha256>        Environment (teksti)
 /usr/$user/space/<nimi>/lock       DMEXCL, kirjoittaja pitää auki
 /usr/$user/space/<nimi>/v<N>       version N kuva (N 16 numerona), V2–V4
-/usr/$user/space/<nimi>/obj        oliot (DMOBJ, docs/gefs-obj.md), V5:stä
+/usr/$user/space/<nimi>/obj        oliot ja versiot (DMOBJ, docs/gefs-obj.md), V5:stä
 ```
 
 Environmentin muoto on rivit `runtime <tunniste>` ja `<nimi> <sha256>`.
@@ -331,6 +331,15 @@ siirretään nimelle `bad<N>`.
 Toisen prosessin lukija (V6) voi nähdä `v<N+1>`:n ennen vaiheen 4
 syncin paluuta. Silloin kaatuminen voi poistaa version, jonka lukija jo
 näki. Lukija, jolle tämä ei käy, tekee itse syncin.
+
+**V5:stä alkaen** (`docs/gefs-obj.md`, luku 2) commit `N+1` kirjoittaa
+vain muuttuneet oliot ja hautakivet versiolla `N+1` storeen `obj`, joka
+voi tapahtua useassa erässä ja syncissä. Sen jälkeen otsake (`N+1`,
+juuret) kirjoitetaan yhtenä gefs-viestinä, ja lopuksi tehdään sync.
+Versiot `> N` ovat näkymättömiä ennen otsaketta, joten lukija ja
+kaatuminen näkevät aina kokonaisen version. Virheen jälkeen ne
+poistetaan. Säilytettävät versiot ovat `K…N` (3), ja vanha versio
+avataan `space.open(nimi, version=v)`.
 
 ### 6.3 Toteutuksen paikat
 
@@ -606,26 +615,34 @@ commit kestää sillillä yli 200 ms, tai kun V6 tarvitsee vakaat OID:t.
 
 - Vakaat OID:t: MicroPythonin oliossa ei ole vapaata kenttää, joten
   tarvitaan sivutaulu osoite → OID, jonka GC:n sweep siivoaa.
-- Commitissa kirjoitetaan vain muuttuneet oliot. Ensin muutos
-  tunnistetaan vertaamalla olion koodattua tiivistettä, ja
-  kirjoitusbarrierit tehdään vain, jos mittaus vaatii.
+- Commitissa koodataan ja kirjoitetaan vain muuttuneet oliot
+  (kirjoitusbarrierit, `docs/gefs-obj.md` luku 4).
 - Tallennin on gefs:n kernelin olio-API (`docs/gefs.md` vaihe 2), jossa
-  avain on `(Space, OID)`. Suunnitteludokumentti: `docs/gefs-obj.md`
-  (18.10.2026): avaintyyppi `Kobj store oid idx`, moottorin
-  transaktio `obj.c`:ssä (yksi `mutlk`-jakso, siis yksi sync) ja
-  käyttäjätilalle `DMOBJ`-tiedosto, jonka kirjoitus on tietuevirta
-  (put, delete, commit) ja luku avainskannaus. V5:stä alkaen
-  `space/<nimi>/obj` korvaa `v<N>`-tiedostot (6.1), ja vanhat versiot
-  ovat gefs:n snapshotteja.
+  avain on `(Space, OID, versio)`. Suunnitteludokumentti:
+  `docs/gefs-obj.md` (18.10.2026): avaintyyppi `Kobj store oid ~ver
+  idx`, moottori `obj.c`:ssä ja käyttäjätilalle `DMOBJ`-tiedosto, jonka
+  kirjoitus on tietuevirta (put, delete, otsake, commit) ja luku virta,
+  jonka kursori on fidissä. V5:stä alkaen `space/<nimi>/obj` korvaa
+  `v<N>`-tiedostot (6.1), ja vanhat versiot ovat storen versioita
+  (6.2).
 
-Testit: V2–V4 ennallaan. Lisäksi T5.1: yhden olion muutos kirjoittaa
-`O(muutos)` tavua (mitataan), ja T5.2: OID säilyy samana versioiden yli.
-T5.3–T5.5 ja ktest `objtx` ovat `docs/gefs-obj.md`:ssä.
+Katselmoinnin (18.10.2026) jälkeen: tiivistevertailu ei yksin riitä,
+koska koodaus kävisi yhä koko graafin läpi. Muutokset seurataan
+GC-lohkon `dirty`-bitillä, jonka kirjoitusbarrierit asettavat, ja
+`$spacecheck` vertaa testeissä täyteen koodaukseen. gefs:n upsertit
+eivät ole transaktioita, joten atomisuus tulee storen versioista ja
+otsakkeen julkaisusta (6.2).
+
+Testit: V2–V4 ennallaan (`$spacecheck` päällä). Lisäksi T5.1: yhden
+olion muutos koodaa ja kirjoittaa `O(muutos)` tavua (mitataan), ja
+T5.2: OID säilyy samana versioiden yli. T5.3–T5.11 ja ktest `objtx`
+ovat `docs/gefs-obj.md`:ssä.
 
 ### V6. Toisen Spacen lukeminen
 
-- `space.view(nimi)` lataa toisen Spacen viimeisimmän `v<N>`:n erilliseksi
-  olioverkoksi. Oliot ovat tavallisia, mutta niitä ei commitoida:
+- `space.view(nimi)` lataa toisen Spacen viimeisimmän julkaistun version
+  (V5:stä alkaen storen otsakkeen `N`, `docs/gefs-obj.md` luku 2)
+  erilliseksi olioverkoksi. Oliot ovat tavallisia, mutta niitä ei commitoida:
   tällaisen olion sijoittaminen omaan Spaceen on `CommitError: foreign
   object`.
 
@@ -644,7 +661,9 @@ T5.3–T5.5 ja ktest `objtx` ovat `docs/gefs-obj.md`:ssä.
   `__migrate__(self, vanha)` kutsutaan jokaiselle instanssille. Jos
   metodi puuttuu, päivitys hylätään.
 - Päivitys on yksi commit. Vanha versio säilyy päivityksen jälkeen
-  palautuspisteenä (`v<N>`), kunnes seuraava päivitys tehdään.
+  palautuspisteenä (storen julkaistu versio, `space.open(nimi,
+  version=v)`), kunnes seuraava päivitys tehdään; säilytysväli `K…N`
+  ei siivoa sitä ennen sitä.
 
 | Testi | Hyväksymisehto |
 |---|---|
@@ -670,7 +689,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
-| V5 | ehto täyttyy; gefs:n olio-API suunniteltu 18.10.2026 (`docs/gefs-obj.md`), ei koodia |
+| V5 | ehto täyttyy; gefs:n olio-API suunniteltu ja katselmoitu 18.10.2026 (`docs/gefs-obj.md`: versioidut avaimet, muutosten seuranta), ei koodia |
 | V6 | – |
 | V7 | – |
 | V8 | ehdollinen |
