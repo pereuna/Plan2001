@@ -87,5 +87,22 @@ Ilman juurilevyä (ESP:ssä vain kernel):
 5. `fshalt` rc:llä: gefs pysähtyy, REPL toimii yhä (kernelin kuvasta).
 6. Lopuksi `tools/gefsck` tarkistaa osion ja lukee tiedoston.
 
+`NET=1` (kummassakin): verkko (QEMU:n user-verkko, isännän vapaa portti
+VM:n porttiin 80) ja HTTP-palvelin pelkillä syscalleilla,
+`sys/lib/python/httpd.py`:
+
+1. Tiedosto kirjoitetaan konsoliin kuten käsin: paste-tila (Ctrl-E, rivit,
+   Ctrl-D).
+2. `net()`: `#l` ja `#I` `/net`:iin, `/net/ipifc/clone`:iin `bind ether
+   /net/ether0` ja osoite, `/net/iproute`:en reitti (ip/ipconfigin työ).
+3. `serve()`: `/net/tcp/clone`, `announce *!80`, silmukassa `listen`;
+   jokainen yhteys omassa prosessissaan (`rfork(RFPROC|RFFDG|RFNOWAIT)`
+   kopioi tulkin), joten selaimen tyhjä ennakkoyhteys ei estä muita.
+4. Isännältä HTTP:llä `/`, `/boot`, `/env/cputype`, virhe 500, tyhjä
+   yhteys auki toisen pyynnön ajan, 20 pyyntöä; lokirivit eri pid:istä.
+5. Ctrl-C pysäyttää palvelimen, REPL on yhä prosessi 1.
+
+Juurella sama `import httpd` (`sys.path`: `/sys/lib/python`).
+
 Myöhemmin: ruutu ja näppäimistö (kbmap=fi) kuten
 `~/plan9mp/tools/p5-screen.sh`, ja p5 raudalla.

@@ -1003,6 +1003,12 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   käännetty cat), tiedosto juureen, `rc -i` konsolissa (cooked Pythonin
   odottaessa, Ctrl-D palaa REPLiin), `fshalt` (gefs: halted), REPL toimii
   juuren jälkeenkin; gefsck: puhdas ja tiedosto tallessa.
+- HTTP-palvelin Pythonilla ja syscalleilla (`sys/lib/python/httpd.py`):
+  verkko ilman ipconfigia (`#l`, `#I`, ipifc, iproute), `/net/tcp`:n
+  announce ja listen, yhteys per prosessi `rfork`illa. `NET=1
+  tools/test-mpinit.sh` PASS ilman juurta ja `ROOT=1`:llä; selaimella
+  kokeiltu. MicroPythonin `print` kirjoittaa palat erikseen, joten
+  rinnakkaisten prosessien lokirivi kirjoitetaan yhdellä writellä.
 - Löytyi: build.rc:n puukäännös ei käytä puun omia työkaluja `/bin`:n kautta:
   uudet ohjelmat sidotaan `/amd64/bin`:in päälle, mutta `/bin` on bootin
   unioni VM:n hakemistosta. micropython kutsuu siksi `/$objtype/bin/6c`:tä
