@@ -383,6 +383,17 @@ Plan2001-valinnalla ja `spacehw`. Linuxissa jälkeenpäin: `sudo dd
 if=/dev/nvme0n1p5 of=build/p5.img bs=4M conv=sparse` ja `tools/gefsck
 build/p5.img /usr/glenda/spacehw/log`.
 
+**Tulos raudalla (silli, Dell Latitude 7480, NVMe, 18.10.2026):** 0 FAIL.
+Kaikki V0–V3:n testit menivät läpi kolmen käsin tehdyn virrankatkaisun
+yli, ja p5:n `gefs -c` oli puhdas jälkeenpäin. `plan9.sync`in mediaani
+oli pienellä muutoksella 3 ms ja 1 MiB:n muutoksella 4 ms (QEMU:ssa
+59 ja 106 ms). T3.1/T3.6:ssa `n` kasvoi 41 → 82 → 113. T3.2:ssa
+`a == b` oli tosi jokaisen katkaisun jälkeen (71, 137, 198). T3.3:ssa
+puoliksi kirjoitettu `t2` poistui, ja käyttöön tuli `v1`. T3.5 antoi
+`OSError: file system full`, ja edellinen versio säilyi. Synkkaamaton
+tiedosto säilyi kaikissa kolmessa katkaisussa (3/3), koska käyttäjän
+reagointiaika ylittää gefs:n 5 sekunnin automaattisen syncin.
+
 ### V0. Pohja: sync ja yksinoikeus
 
 - `plan9.sync(polku)`: tyhjä wstat.
@@ -400,8 +411,9 @@ kaikki läpi. T0.1: jokainen synkattu 1 MiB:n tiedosto säilyi kolmessa
 tapossa, ja `gefsck` on puhdas. Vertailuksi 0,5 s ennen tappoa
 kirjoitetuista synkkaamattomista tiedostoista säilyi 0/3, joten sync
 todella ratkaisee pysyvyyden. T0.3: mediaani pieni 61 ms ja 1 MiB 106 ms.
-Pienen syncin 61 ms on yläraja commitin viiveelle REPL-lauseessa, ja se
-mitataan uudelleen sillillä.
+Pienen syncin 61 ms on yläraja commitin viiveelle REPL-lauseessa.
+Sillillä (NVMe) mediaani on 3 ms pienelle ja 4 ms 1 MiB:n muutokselle
+(`spacehw`, V3:n jälkeen).
 
 ### V1. Koodin identiteetti ja Environment
 
@@ -591,10 +603,10 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 
 | Vaihe | Tila |
 |---|---|
-| V0 | QEMU: valmis 18.10.2026 (`plan9.sync`, `plan9.DMEXCL`, `tools/test-space.sh`). Silli: ajamatta |
-| V1 | QEMU: valmis 18.10.2026 (`space`-moduuli, `mp -E`). Silli: ajamatta |
-| V2 | QEMU: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus). Silli: ajamatta |
-| V3 | QEMU: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.5). Silli (T3.6): ajamatta |
+| V0 | QEMU ja silli: valmis 18.10.2026 (`plan9.sync`, `plan9.DMEXCL`, `tools/test-space.sh`; sync NVMe:llä 3–4 ms) |
+| V1 | QEMU ja silli: valmis 18.10.2026 (`space`-moduuli, `mp -E`) |
+| V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
+| V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | – |
 | V5 | ehdollinen |
 | V6 | – |
