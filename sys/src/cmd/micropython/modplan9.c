@@ -46,6 +46,13 @@ static mp_obj_t p9_close(mp_obj_t fd) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(p9_close_obj, p9_close);
 
+// alarm(ms) -> the ms the one before had left; at its end the note
+// "alarm" cuts a blocked call short (OSError, interrupted); 0 cancels
+static mp_obj_t p9_alarm(mp_obj_t ms) {
+    return mp_obj_new_int(alarm(mp_obj_get_int(ms)));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(p9_alarm_obj, p9_alarm);
+
 // read(fd, n=8192) -> bytes, b'' at the end
 static mp_obj_t p9_read(size_t n, const mp_obj_t *a) {
     vstr_t v;
@@ -177,6 +184,26 @@ static mp_obj_t p9_dirread(mp_obj_t name) {
     return l;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(p9_dirread_obj, p9_dirread);
+
+// wstat(name, newname=None, length=-1, mode=-1): a new name in the same
+// directory, length or mode; the rest as it is (nulldir)
+static mp_obj_t p9_wstat(size_t n, const mp_obj_t *a) {
+    Dir d;
+
+    nulldir(&d);
+    if (n > 1 && a[1] != mp_const_none) {
+        d.name = (char *)str(a[1]);
+    }
+    if (n > 2 && mp_obj_get_int(a[2]) >= 0) {
+        d.length = mp_obj_get_int(a[2]);
+    }
+    if (n > 3 && mp_obj_get_int(a[3]) >= 0) {
+        d.mode = mp_obj_get_int(a[3]);
+    }
+    check(dirwstat((char *)str(a[0]), &d));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(p9_wstat_obj, 2, 4, p9_wstat);
 
 // dup(old, new=-1) -> fd
 static mp_obj_t p9_dup(size_t n, const mp_obj_t *a) {
@@ -331,6 +358,8 @@ static const mp_rom_map_elem_t plan9_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_chdir), MP_ROM_PTR(&p9_chdir_obj) },
     { MP_ROM_QSTR(MP_QSTR_fd2path), MP_ROM_PTR(&p9_fd2path_obj) },
     { MP_ROM_QSTR(MP_QSTR_stat), MP_ROM_PTR(&p9_stat_obj) },
+    { MP_ROM_QSTR(MP_QSTR_alarm), MP_ROM_PTR(&p9_alarm_obj) },
+    { MP_ROM_QSTR(MP_QSTR_wstat), MP_ROM_PTR(&p9_wstat_obj) },
     { MP_ROM_QSTR(MP_QSTR_dirread), MP_ROM_PTR(&p9_dirread_obj) },
     { MP_ROM_QSTR(MP_QSTR_dup), MP_ROM_PTR(&p9_dup_obj) },
     { MP_ROM_QSTR(MP_QSTR_pipe), MP_ROM_PTR(&p9_pipe_obj) },

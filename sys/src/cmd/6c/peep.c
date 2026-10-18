@@ -843,6 +843,8 @@ copyu(Prog *p, Adr *v, Adr *s)
 	case AJLT:
 	case AJCC:
 	case AJCS:
+	case AJPS:
+	case AJPC:
 
 	case AADJSP:
 	case AWAIT:

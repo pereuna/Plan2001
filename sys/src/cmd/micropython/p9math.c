@@ -1,4 +1,4 @@
-/* ISO C's math that Plan 9's libc lacks (include/math.h), for doubles. */
+/* ISO C's math that neither Plan 9's libc nor lib/libm_dbl has (include/math.h). */
 #include "p9compat.h"
 #include <math.h>
 
@@ -16,37 +16,6 @@ double copysign(double x, double y) {
     s.x = y;
     w.hi = (w.hi & 0x7fffffff) | (s.hi & 0x80000000);
     return w.x;
-}
-
-// toward zero; the sign of zero kept
-double trunc(double x) {
-    double i;
-
-    if (isNaN(x) || isInf(x, 0)) {
-        return x;
-    }
-    modf(x, &i);
-    return copysign(i, x);
-}
-
-// the nearest integer, halves to even (the default rounding mode)
-double nearbyint(double x) {
-    double i, f;
-
-    if (isNaN(x) || isInf(x, 0)) {
-        return x;
-    }
-    f = modf(x, &i);
-    if (f >= 0.5 || f <= -0.5) {
-        if (f == 0.5 || f == -0.5) {
-            if (fmod(i, 2) != 0) {
-                i += f > 0 ? 1 : -1;
-            }
-        } else {
-            i += f > 0 ? 1 : -1;
-        }
-    }
-    return copysign(i, x);
 }
 
 double nan(const char *s) {

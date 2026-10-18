@@ -3141,6 +3141,15 @@ tcpgc(Proto *tcp)
 				n++;
 			}
 			break;
+		case Time_wait:
+			/*
+			 * every Conv in use: a new call is worth more than
+			 * an old one's late segments (as Linux past
+			 * tcp_max_tw_buckets): closed as at its timer's end
+			 */
+			localclose(c, nil);
+			n++;
+			break;
 		}
 		qunlock(c);
 	}

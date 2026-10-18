@@ -1,7 +1,8 @@
 # What Plan2001 takes from MicroPython (github.com/micropython/micropython,
 # tag v1.27.0, commit 78ff170de9e32c79db6e64d3e33d2bd60002bdcd), for
 # tools/importmp, into sys/src/cmd/micropython: the interpreter's core, the
-# REPL's line editor and runner, json, two headers the core includes.  The port
+# REPL's line editor and runner, json, two headers the core includes, the
+# double-precision libm (musl's: Plan 9's libm is less exact than CPython's).  The port
 # around them is Plan2001's own (docs/mpinit.md).
 #   PATH        a file or a whole directory, from MicroPython's root
 #   !PATH       not that (inside a directory above)
@@ -18,3 +19,5 @@ shared/runtime/gchelper_generic.c
 shared/runtime/pyexec.c
 shared/runtime/pyexec.h
 shared/runtime/stdout_helpers.c
+lib/libm_dbl
+!lib/libm_dbl/thumb_vfp_sqrt.c

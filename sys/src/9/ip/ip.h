@@ -39,7 +39,7 @@ enum
 {
 	Addrlen=	64,
 	Maxproto=	20,
-	Maxincall=	10,
+	Maxincall=	128,		/* calls waiting for a listen: a server under load */
 	Nchans=		1024,
 	MAClen=		8,		/* longest mac address */
 

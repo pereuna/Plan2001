@@ -531,7 +531,11 @@ int mp_vprintf(const mp_print_t *print, const char *fmt, va_list args) {
                 break;
             }
             case 'q': {
+                #if MICROPY_QSTR_VARG_UINT
+                qstr qst = va_arg(args, unsigned int);
+                #else
                 qstr qst = va_arg(args, qstr);
+                #endif
                 size_t len;
                 const char *str = (const char *)qstr_data(qst, &len);
                 if (prec >= 0 && (size_t)prec < len) {

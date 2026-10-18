@@ -1631,7 +1631,7 @@ bool mpz_as_bytes(const mpz_t *z, bool big_endian, bool as_signed, size_t len, b
     if (as_signed && olen == 0 && len > 0) {
         // If output exhausted then ensure there was enough space for the sign bit
         byte most_sig = big_endian ? buf[0] : buf[len - 1];
-        ok = ok && (bool)(most_sig & 0x80) == (bool)z->neg;
+        ok = ok && !!(most_sig & 0x80) == !!z->neg;
     } else {
         // fill remainder of buf with zero/sign extension of the integer
         memset(big_endian ? buf : b, z->neg ? 0xff : 0x00, olen);

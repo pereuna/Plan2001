@@ -1225,6 +1225,8 @@ boolgen(Node *n, int true, Node *nn)
 		o = ONE;
 		if(true)
 			o = OEQ;
+		/* the branch is taken when n's truth is not true; a NaN is true */
+		nanjump = !true;
 		/* bad, 13 is address of external that becomes constant */
 		if(n->addable >= INDEXED && n->addable != 13) {
 			if(typefd[n->type->etype]) {
@@ -1324,6 +1326,8 @@ boolgen(Node *n, int true, Node *nn)
 	case OLO:
 	case OLS:
 		o = n->op;
+		/* unordered, only != holds; the branch is taken when it is not true */
+		nanjump = (o == ONE) != true;
 		if(true)
 			o = comrel[relindex(o)];
 		if(l->complex >= FNX && r->complex >= FNX) {
@@ -1379,6 +1383,7 @@ boolgen(Node *n, int true, Node *nn)
 		regfree(&nod);
 
 	com:
+		nanjump = -1;
 		if(nn != Z) {
 			p1 = p;
 			gmove(nodconst(1L), nn);

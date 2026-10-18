@@ -1082,7 +1082,7 @@ static mp_obj_t checked_fun_call(mp_obj_t self_in, size_t n_args, size_t n_kw, c
             mp_raise_TypeError(MP_ERROR_TEXT("argument has wrong type"));
             #else
             mp_raise_msg_varg(&mp_type_TypeError,
-                MP_ERROR_TEXT("argument should be a '%q' not a '%q'"), self->type->name, arg0_type->name);
+                MP_ERROR_TEXT("argument should be a '%q' not a '%q'"), (qstr)self->type->name, (qstr)arg0_type->name);
             #endif
         }
     }
@@ -1232,7 +1232,7 @@ void mp_load_method(mp_obj_t base, qstr attr, mp_obj_t *dest) {
         if (mp_obj_is_type(base, &mp_type_type)) {
             mp_raise_msg_varg(&mp_type_AttributeError,
                 MP_ERROR_TEXT("type object '%q' has no attribute '%q'"),
-                ((mp_obj_type_t *)MP_OBJ_TO_PTR(base))->name, attr);
+                (qstr)((mp_obj_type_t *)MP_OBJ_TO_PTR(base))->name, attr);
         #if MICROPY_MODULE___ALL__ && MICROPY_ERROR_REPORTING >= MICROPY_ERROR_REPORTING_DETAILED
         } else if (mp_obj_is_type(base, &mp_type_module)) {
             // report errors in __all__ as done by CPython

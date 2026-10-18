@@ -33,6 +33,25 @@ PYOFILES=\
 	nlrsetjmp.$O\
 	modjson.$O\
 
+# musl's libm (lib/libm_dbl/README); sqrt is libc's SQRTSD, copysign
+# p9math.c's (copysign.c is for debugging builds)
+LIBMOFILES=\
+	acos.$O acosh.$O asin.$O asinh.$O atan2.$O atan.$O atanh.$O\
+	ceil.$O __cos.$O cos.$O cosh.$O erf.$O\
+	expm1.$O __expo2.$O floor.$O fmod.$O __fpclassify.$O frexp.$O\
+	ldexp.$O lgamma.$O log10.$O log1p.$O modf.$O\
+	nearbyint.$O __rem_pio2.$O __rem_pio2_large.$O rint.$O\
+	round.$O scalbn.$O __signbit.$O __sin.$O sin.$O sinh.$O\
+	__tan.$O tan.$O tanh.$O tgamma.$O trunc.$O\
+
+# exp, log and pow newer: lib/musl/README; musl_ in front, since
+# lib/libm_dbl has the same names
+MUSLOFILES=\
+	musl_exp.$O musl_exp_data.$O musl_log.$O musl_log_data.$O\
+	musl_pow.$O musl_pow_data.$O\
+	musl___math_oflow.$O musl___math_uflow.$O musl___math_xflow.$O\
+	musl___math_invalid.$O musl___math_divzero.$O\
+
 OFILES=\
 	main.$O\
 	modplan9.$O\
@@ -46,6 +65,8 @@ OFILES=\
 	pyexec.$O\
 	stdout_helpers.$O\
 	gchelper_generic.$O\
+	$LIBMOFILES\
+	$MUSLOFILES\
 
 HFILES=mpconfigport.h mphalport.h genhdr/qstrdefs.generated.h
 CLEANFILES=boot.h
@@ -63,6 +84,12 @@ CFLAGS=-p -u -D__PLAN9__ -DNDEBUG -Iinclude -I.
 
 %.$O:	extmod/%.c
 	$CC $CFLAGS extmod/$stem.c
+
+musl_%.$O:	lib/musl/%.c
+	$CC $CFLAGS -Ilib/musl -o $target lib/musl/$stem.c
+
+%.$O:	lib/libm_dbl/%.c
+	$CC $CFLAGS -Ilib/libm_dbl lib/libm_dbl/$stem.c
 
 %.$O:	shared/readline/%.c
 	$CC $CFLAGS shared/readline/$stem.c

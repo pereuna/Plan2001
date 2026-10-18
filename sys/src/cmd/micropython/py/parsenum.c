@@ -451,7 +451,7 @@ parse_start:;
 
     // negate value if needed
     if (dec_neg) {
-        dec_val = -dec_val;
+        dec_val = MP_FLOAT_NEG(dec_val);
     }
 
     // check we parsed something

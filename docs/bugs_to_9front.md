@@ -190,3 +190,96 @@ Found porting MicroPython (its type objects and qstr pools are such
 structs). Not fixed in Plan2001 yet: the port sizes the arrays instead.
 The fix is for init1 to work on a copy of the member type and to give
 the symbol a copy of the struct type widened by the array.
+
+### 6c: float comparisons ignore unordered (NaN) operands
+
+`/sys/src/cmd/6c/txt.c` gopcode (OEQ ... OHI): a float comparison is
+UCOMISS/UCOMISD followed by a single conditional jump (JEQ, JNE, or
+the unsigned JCS/JLS/JCC/JHI after cgen.c's logrel/invrel swap). For
+an unordered result UCOMISD sets ZF, PF and CF together, and no jump
+looks at PF: `x == x` is true and `x != x` false for a NaN, and
+`n < 1` is true or false depending on how boolgen ordered the
+operands. IEEE 754 (and C99 Annex F) want every relation false and
+`!=` true. A fix needs PF: for == a JPS over the JEQ; for != (and a
+complemented relation, boolgen's comrel when `true`) a JPS to the
+same target as the jump, so gopcode has to know whether the relation
+was complemented.
+
+Repeat (prints 1 0, wants 0 1):
+
+	double z = 0; double n = z/z;	/* after setfcr(getfcr() & ~FPINVAL) */
+	print("%d %d\n", n == n, n != n);
+
+### 6c: -x of a float is 0-x, so -(+0.0) is +0.0
+
+A float negation is compiled as a subtraction from zero, which gives
++0.0 for x = +0.0 (IEEE: -0.0). copysign, 1/x and printing see the
+difference (Python's -0.0, math.copysign(1, -0.0)). A fix: XOR the
+sign bit (XORPD with a constant), as other compilers do.
+
+Found by tools/mptest (MicroPython's float tests on Plan2001, 18.10.2026).
+Plan2001 fixes both in the compiler: boolgen tells gopcode (the global
+nanjump) whether the branch is to be taken for unordered operands, and
+fbranch adds a JPS over the branch or to it (6c/cgen.c, txt.c; peep.c
+knows JPS/JPC); cc/com.c makes a float's -x into -1*x, and scon.c folds
+-x as -1.0*x, so that a compiler built by an unfixed one folds -0.0
+right too. MicroPython keeps its workaround (MICROPY_FLOAT_CC_FIXES)
+for code built before.
+
+### 6c, cc, 6l: the constant -0.0 becomes +0.0
+
+Three places compare a float constant with 0 and so take -0.0 for
++0.0: 6c/txt.c gmove loads a constant `== 0.0` with XORPD (+0.0);
+cc/pswt.c ieeedtod, which writes a constant into the object file,
+tests `native < 0` for the sign and writes 0 for `native == 0`; 6l's
+ieeedtof (a float constant) returns 0 for any zero high word and
+calls -0.0 an overflow. `return -0.0;` in musl's atan2 (atan2(-0.5,
+inf)) gave +0.0. Plan2001 takes the sign from the bits in all three.
+
+### sdiahci: a disk that the firmware has not used never gets ready (QEMU)
+
+`/sys/src/9/pc/sdiahci.c` checkdrive, state Dnew with the phy up: it
+waits for DRDY in the task file of an ATA signature. QEMU's AHCI disk
+reports 0x30 after its reset (error 1, the reset's diagnostic code,
+and no DRDY) until a command comes. When UEFI booted from the AHCI
+disk, the firmware had sent commands and it worked; booted from another
+disk (virtio), every AHCI disk went from "slow reset" to portreset over
+and over, and iaonline, which waits while waitready says reset, never
+returned: the boot hung where the kernel first read #S. Plan2001 takes
+error 1 with BSY clear as ready too. (An HBA reset at attach did not
+help: the disks report the same after it.)
+
+### ip: Maxincall 10
+
+`/sys/src/9/ip/ip.h`: ten calls waiting for a listen; the eleventh at
+once gets a reset ("Fsnewcall: incall queue full"). A server that forks
+for each call (or is slow to listen again) loses connections under
+modest load: 32 clients at once to an echo server lost 2. Plan2001 has
+128.
+
+### tcp: Conversations in Time_wait are not reclaimed when the table is full
+
+`/sys/src/9/ip/tcp.c` tcpgc, which Fsprotoclone calls when every Conv
+is in use, frees only Syn_received (5 s) and Finwait2 (5 min). A Conv
+in Time_wait stays for MSL2 (10 s), so a server that closes first and
+takes more than Nchans (1024; 4096 on a cpu server) calls in 10 s
+refuses new ones ("Fsprotoclone: garbage collecting tcp Convs", the
+call reset): MicroPython's servers under tools/mptest's soak, ~200
+calls a second, lost 7 calls in the first minute. Plan2001's tcpgc
+closes the Time_wait ones too, as their timer would (Linux gives up
+time-wait sockets past tcp_max_tw_buckets the same way).
+
+### hpet: the TSC calibrated over 10 ms against an HPET read that is an exit in a VM
+
+`/sys/src/9/pc/hpet.c` hpetcpufreq measures the TSC against the HPET
+over delayloop's calibration window (y >= hpet.freq/HZ, 10 ms), with an
+HPET read at each end that a hypervisor emulates (microseconds). The
+result, m->cyclefreq, is the clock's frequency (todinit's fastticks):
+under QEMU/KVM it was 2493 MHz on one boot and 2496 MHz on another
+(the TSC 2496.3), the clock 1333 ppm (115 s a day) fast on the first,
+44 ppm on the second; nothing corrects it without timesync. Plan2001
+measures the TSC frequency apart, over 50 ms, each HPET read between two
+TSC reads and taken at their middle: three boots drifted +0.0, -1.0 and
++0.8 ppm (SNTP from MicroPython against the host, tools/mptest). The
+i8253 path (no HPET) has the same short window.
+

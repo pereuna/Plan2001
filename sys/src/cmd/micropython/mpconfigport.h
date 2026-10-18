@@ -29,6 +29,7 @@
 /* repr('ä') is 'ä', as in CPython */
 #define MICROPY_PY_STR_REPR_UTF8 (1)
 #define MICROPY_PY_FSTRINGS (1)
+#define MICROPY_PY_ARRAY_SLICE_ASSIGN (1)
 #define MICROPY_KBD_EXCEPTION (1)
 #define MICROPY_ENABLE_COMPILER (1)
 #define MICROPY_ENABLE_GC (1)
@@ -66,7 +67,12 @@
 #define MICROPY_HW_BOARD_NAME "Plan2001"
 #define MICROPY_HW_MCU_NAME "amd64"
 #define MICROPY_PY_SYS_PLATFORM "plan9"
+/* print's \n as it is, into a pipe or a file too: Plan 9's console needs no \r */
+#define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn(str, len)
 #define MICROPY_HEAP_SIZE (4 * 1024 * 1024)
+/* the heap grows from malloc when it runs out (main.c) */
+#define MICROPY_GC_SPLIT_HEAP (1)
+#define MICROPY_GC_SPLIT_HEAP_AUTO (1)
 #define MICROPY_PYSTACK_SIZE (1024 * 1024)
 #define MP_SSIZE_MAX INTPTR_MAX
 #define MP_ENDIANNESS_LITTLE (1)
@@ -85,6 +91,11 @@
 #define MP_ROM_TUPLE_NITEMS 4
 #define MP_QSTR_POOL_SIZED (1)
 #define MP_NO_NONCONSTEXPR_ASSERT
+/* 6c: NaN compares as equal, -x of +0.0 is +0.0 (docs/bugs_to_9front.md) */
+#define MICROPY_FLOAT_CC_FIXES (1)
+/* repr: EXACT needs a long double wider than double, which 6c has not */
+#define MICROPY_FLOAT_FORMAT_IMPL (MICROPY_FLOAT_FORMAT_IMPL_APPROX)
+#define MICROPY_QSTR_VARG_UINT (1)
 /* 6c's bit fields are an int's at most: a float's bits by macros */
 #define MP_FLOAT_NO_BITFIELD (1)
 /* typecode and free in one int: str and bytearray share the layout */

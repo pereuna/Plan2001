@@ -825,6 +825,8 @@ tnum:
 				vv = vv*16 + c + 10 - 'A';
 				continue;
 			}
+			if(c == '.' || c == 'p' || c == 'P')
+				goto casehexf;
 			if(cp == symb+2)
 				yyerror("malformed hex constant");
 			goto ncu;
@@ -923,6 +925,82 @@ nret:
 		warn(Z, "truncated constant: %T %s", types[t], symb);
 	}
 	return c;
+
+casehexf:
+	/*
+	 * C99's hex float, 0xh.hhhp[+-]d: the digits past 60 bits only
+	 * as a sticky bit, so that the conversion rounds once
+	 */
+	{
+		uvlong m;
+		int d, e, x, neg, sticky;
+
+		m = vv;
+		e = 0;
+		sticky = 0;
+		if(c == '.')
+			for(;;) {
+				if(cp >= &symb[NSYMB-1])
+					goto toolong;
+				*cp++ = c;
+				c = GETC();
+				if(isdigit(c))
+					d = c - '0';
+				else if(c >= 'a' && c <= 'f')
+					d = c + 10 - 'a';
+				else if(c >= 'A' && c <= 'F')
+					d = c + 10 - 'A';
+				else
+					break;
+				if(m < 1ULL<<56) {
+					m = m*16 + d;
+					e -= 4;
+				} else if(d)
+					sticky = 1;
+			}
+		if(c != 'p' && c != 'P') {
+			yyerror("malformed hex fp constant");
+			goto caseout;
+		}
+		*cp++ = c;
+		c = GETC();
+		neg = 0;
+		if(c == '+' || c == '-') {
+			neg = c == '-';
+			*cp++ = c;
+			c = GETC();
+		}
+		if(!isdigit(c))
+			yyerror("malformed hex fp constant exponent");
+		x = 0;
+		while(isdigit(c)) {
+			if(cp >= &symb[NSYMB-1])
+				goto toolong;
+			*cp++ = c;
+			if(x < 100000)
+				x = x*10 + c - '0';
+			c = GETC();
+		}
+		e += neg ? -x : x;
+		if(sticky)
+			m |= 1;
+		if(c == 'L' || c == 'l')
+			c = GETC();
+		else if(c == 'F' || c == 'f') {
+			c = GETC();
+			c1 |= Numflt;
+		}
+		*cp = 0;
+		peekc = c;
+		yylval.dval = ldexp((double)(vlong)m, e);
+		if(isInf(yylval.dval, 1)) {
+			yyerror("overflow in float constant");
+			yylval.dval = 0;
+		}
+		if(c1 & Numflt)
+			return LFCONST;
+		return LDCONST;
+	}
 
 casedot:
 	for(;;) {
