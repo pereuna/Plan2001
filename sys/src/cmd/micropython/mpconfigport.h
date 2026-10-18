@@ -93,6 +93,9 @@
 #define MP_NO_NONCONSTEXPR_ASSERT
 /* 6c: NaN compares as equal, -x of +0.0 is +0.0 (docs/bugs_to_9front.md) */
 #define MICROPY_FLOAT_CC_FIXES (1)
+/* repr: EXACT needs a long double wider than double, which 6c has not */
+#define MICROPY_FLOAT_FORMAT_IMPL (MICROPY_FLOAT_FORMAT_IMPL_APPROX)
+#define MICROPY_QSTR_VARG_UINT (1)
 /* 6c's bit fields are an int's at most: a float's bits by macros */
 #define MP_FLOAT_NO_BITFIELD (1)
 /* typecode and free in one int: str and bytearray share the layout */

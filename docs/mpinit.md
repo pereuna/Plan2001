@@ -58,8 +58,8 @@ kun konfiguraatio muuttuu.
 
 `plan9`-moduuli: syscallit Pythonille (open, create, read, write, close,
 remove, seek, bind, mount, unmount, chdir, fd2path, dirread, dup, pipe,
-spawn, exec, wait, rfork, sleep, getpid). Virhe on `OSError` Plan 9:n
-virhetekstillä.
+spawn, exec, wait, rfork, sleep, getpid, stat, wstat). Virhe on
+`OSError` Plan 9:n virhetekstillä.
 
 ## Mallille (18.10.2026)
 

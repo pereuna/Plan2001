@@ -875,6 +875,13 @@ typedef uint64_t mp_uint_t;
 #define MICROPY_FLOAT_CC_FIXES (0)
 #endif
 
+// Whether %q reads its argument as an unsigned int: callers pass a qstr
+// (size_t) or a narrower qstr_short_t or byte, which a compiler may
+// leave with garbage above 32 bits in its varargs slot (Plan 9's 6c)
+#ifndef MICROPY_QSTR_VARG_UINT
+#define MICROPY_QSTR_VARG_UINT (0)
+#endif
+
 // Whether a str's repr shows characters from U+00A0 up as they are, as
 // CPython's (else as \x, \u and \U escapes)
 #ifndef MICROPY_PY_STR_REPR_UTF8
