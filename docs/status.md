@@ -1050,7 +1050,7 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
 - Avoin: kello ~3–4 s jäljessä bootin jälkeen (Boot ABI: TSC
   lukuhetkellä); viat 9frontille docs/bugs_to_9front.md:ssä.
 
-## Pysyvä olioympäristö V0–V5 (18.10.2026, haarat `space-v0`…`space-v5`)
+## Pysyvä olioympäristö V0–V6 (18.10.2026, haarat `space-v0`…`space-v6`)
 
 - Määrittely ja vaiheet: `docs/object-model.md`. V0–V3 valmiit QEMU:ssa
   ja sillillä (`spacehw`, 0 FAIL), V4 (`graph.py`) QEMU:ssa.
@@ -1060,3 +1060,7 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   (barrierit, OID-taulu). Commit ~30 000 oliolla 34–67 ms; V2–V5:n
   testit läpi `$spacecheck`illa. Avoimet: avaus ~8,3 s (dictien
   täyttö), levy täynnä -testit (käyttäjätilan gefs ilman `DMOBJ`:ta).
+- V6 valmis QEMU:ssa: `space.view(nimi tai polku, version=)` lukee
+  toisen Spacen julkaistun version omaksi maailmakseen (omat moduulit,
+  oma `__main__`). Sen oliot ovat vieraita, eikä commit ota niitä.
+  Oikeudet ovat gefs:n (`none` omalla mountillaan).

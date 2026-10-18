@@ -640,17 +640,55 @@ ovat `docs/gefs-obj.md`:ssä.
 
 ### V6. Toisen Spacen lukeminen
 
-- `space.view(nimi)` lataa toisen Spacen viimeisimmän julkaistun version
-  (V5:stä alkaen storen otsakkeen `N`, `docs/gefs-obj.md` luku 2)
-  erilliseksi olioverkoksi. Oliot ovat tavallisia, mutta niitä ei commitoida:
-  tällaisen olion sijoittaminen omaan Spaceen on `CommitError: foreign
-  object`.
+`v = space.view(nimi tai polku, version=None)` lataa toisen Spacen
+julkaistun version (storen otsakkeen `N`, `docs/gefs-obj.md` luku 2;
+`version=v` säilytetyn vanhan) erilliseksi olioverkoksi. Lukija ei ota
+lukkoa eikä commitoi. Kirjoittaja voi commitoida samaan aikaan, ja
+gefs:n versiot takaavat, että näkymä on yksi kokonainen versio.
+
+- **Nimi tai polku:** `nimi` on oma Space (`/usr/$user/space/nimi`).
+  Polku (`/`-merkki) on Spacen hakemisto, esim.
+  `/usr/toinen/space/nimi` tai toisen käyttäjän mountista. Environment ja
+  `.mpy`:t luetaan hakemiston `../../lib`:stä (`lib/env`, `lib/mod`),
+  eli Spacen omistajan kirjastosta. Oikeudet ovat gefs:n: lukija
+  tarvitsee lukuoikeuden storeen ja kirjastoon. V2–V4:n Space ilman
+  storea hylätään (siirtymä tehdään kirjoittajan ensimmäisessä
+  avauksessa).
+- **Oma maailma:** näkymällä on omat moduulinsa. Ne ladataan Spacen
+  Environmentista ajamatta ylätasoa ja ilman `sys.modules`ia. Lisäksi
+  sillä on oma `__main__`-sanakirja. Luokat, funktiot ja instanssit
+  ovat näkymän omia. Siksi `isinstance(v.x, omamoduuli.Luokka)` on
+  epätosi, vaikka Environment olisi sama. Näkymän moduulin funktio
+  käyttää näkymän moduulin globaaleja. Funktion sisällä ajonaikana
+  tehty `import` antaa kuitenkin omat moduulit (rajoitus).
+- **Käyttö:** `v.x` on näkymän `__main__`in nimi. `v.globals` on sen
+  sanakirja, `v.modules` sanakirja nimi → näkymän moduuli, ja
+  `v.version`, `v.name` ja `v.env` kertovat versiosta. Esim.
+  `g = v.modules['graph']; g.search('#mirkku')`.
+- **Vanha versio:** `version=v` kirjoittaa storeen valintatietueen
+  (`'v'`, `docs/gefs-obj.md` 3.2), joten se vaatii kirjoitusoikeuden.
+  Uusimman version lukuun riittää lukuoikeus.
+- **Kertakuva:** näkymä ei päivity. Uusi versio luetaan uudella
+  `space.view`llä.
+- **Vieras olio:** näkymän oliot merkitään OID-tauluun vieraiksi (ei
+  OID:tä). Barrier ei merkitse niitä likaisiksi, eikä GC:n vapautus
+  tee niistä hautakiveä. Jos oma commit kohtaa vieraan olion, tulee
+  `CommitError: foreign object at <polku>`, eikä mitään kirjoiteta.
+  Oman Spacen avaus (`space.open`) säilyttää vieraat merkinnät.
+  Näkymän olioita saa muuttaa RAMissa, mutta muutokset eivät tallennu
+  minnekään. Kopion voi tehdä itse (esim. `int`, `str` ja `tuple`
+  kopioituvat arvoina, jos niissä ei ole vieraita olioita).
+- **Kustannus:** avaus on koko version restore (V5:ssä noin 8 s
+  30 000 oliolla QEMU:ssa, `docs/gefs-obj.md` luku 7).
 
 | Testi | Hyväksymisehto |
 |---|---|
-| T6.1 | Lukija näkee ehjän version, vaikka kirjoittaja commitoi samaan aikaan (100 committia lukemisen aikana). |
-| T6.2 | Gefs-oikeudet: toisen käyttäjän Space ilman lukuoikeutta antaa virheen. |
-| T6.3 | Vierasta oliota ei voi tallentaa omaan Spaceen. |
+| T6.1 | Lukija ottaa 100 committia tekevästä Spacesta näkymiä koko ajan: jokaisessa `a == b` (kirjoittaja pitää ne yhtä suurina `space.atomic`illa), ja versiot kasvavat. |
+| T6.2 | Oikeudet: `none` (oma gefs-mountti) saa näkymän, kun store ja kirjasto ovat muiden luettavissa. Kun store on `0660`, tulee virhe. |
+| T6.3 | Vieras olio omaan Spaceen: `CommitError: foreign object`, ja edellinen versio säilyy. Vieraasta oliosta johdettu arvo (`int`, `str`) tallentuu. |
+| T6.4 | Näkymän luokat ja funktiot toimivat: `graph.py`:n Space näkymänä (`search`, `find`, linkit). `isinstance` näkymän omaan luokkaan on tosi ja omaan luokkaan epätosi. |
+| T6.5 | `version=v` antaa säilytetyn vanhan version, ja liian vanha hylätään. Lukko ei estä näkymää kirjoittajan ollessa auki. |
+| T6.6 | `$spacecheck`: näkymän ottaminen ja käyttö ei muuta oman Spacen commitia (ei vieraita merkintöjä likaisina). Katettu: `$spacecheck` on päällä kaikissa V6:n ajoissa. |
 
 ### V7. Koodin päivitys ja migraatio
 
@@ -690,6 +728,6 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
 | V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. Avoimet: avaus ~8,3 s, T3.5/T5.9, T5.2, T5.4, T5.11 (`docs/gefs-obj.md` 7) |
-| V6 | – |
+| V6 | QEMU: valmis 18.10.2026 (`space.view`: oma moduulimaailma, vieraat oliot OID-taulussa; T6.1–T6.6, T6.1: 316 näkymää 100 versiosta, 0 ristiriitaa) |
 | V7 | – |
 | V8 | ehdollinen |

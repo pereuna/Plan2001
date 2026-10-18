@@ -21,6 +21,8 @@
  * versions are the Space's (V2-V4's v<N> taken in at the first open).
  *   /usr/$user/space/<name>/obj       DMOBJ: the objects, OID 1 the roots;
  *                                     the header's user part env[64] next[8]
+ * V6: space.view: another Space's version read into a world of its
+ * own, its objects foreign (docs/object-model.md V6).
  */
 #include <string.h>
 #include "py/runtime.h"
@@ -304,21 +306,18 @@ static mp_obj_t space_mkenv(mp_obj_t names) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(space_mkenv_obj, space_mkenv);
 
-// useenv(env): import from this Environment from now on (mp -E); its
-// runtime must be this mp's, its text its name's
-static mp_obj_t space_useenv(mp_obj_t env_in) {
-    const char *env = mp_obj_str_get_str(env_in);
-    char path[256], hex[65], *p, *e, *sp;
-    mp_obj_t d, items[2];
+// the Environment ENV in the library LIB (/usr/$user/lib, or a view's
+// Space's owner's): {import name: definition}; its runtime must be
+// this mp's, its text its name's
+static mp_obj_t readenv(const char *lib, const char *env) {
+    char path[300], hex[65], *p, *e, *sp;
+    mp_obj_t d;
     vstr_t t;
 
-    if (MP_STATE_VM(p9_space_env) != MP_OBJ_NULL) {
-        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("an Environment is in use"));
-    }
     if (!ishex(env)) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("not an Environment: '%s'"), env);
     }
-    libpath(path, sizeof path, "env", env);
+    snprint(path, sizeof path, "%s/env/%s", lib, env);
     if (readall(path, &t) < 0) {
         raise_err();
     }
@@ -342,8 +341,20 @@ static mp_obj_t space_useenv(mp_obj_t env_in) {
         }
         mp_obj_dict_store(d, mp_obj_new_str(p, sp - p), mp_obj_new_str(sp + 1, e - sp - 1));
     }
+    return d;
+}
+
+// useenv(env): import from this Environment from now on (mp -E)
+static mp_obj_t space_useenv(mp_obj_t env_in) {
+    char lib[256];
+    mp_obj_t items[2];
+
+    if (MP_STATE_VM(p9_space_env) != MP_OBJ_NULL) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("an Environment is in use"));
+    }
+    libpath(lib, sizeof lib, "", "");
+    items[1] = readenv(lib, mp_obj_str_get_str(env_in));
     items[0] = env_in;
-    items[1] = d;
     MP_STATE_VM(p9_space_env) = mp_obj_new_tuple(2, items);
     return mp_const_none;
 }
@@ -370,32 +381,38 @@ static void execmodule(mp_module_context_t *context, mp_proto_fun_t proto_fun) {
     nlr_pop_jump_callback(true);
 }
 
-// the Environment's module NAME: a new module (in sys.modules) with
-// its .mpy loaded, not run
-static p9_space_mod_t *loadmod(qstr name) {
+// module NAME's .mpy (ENVMAP's definition, in LIB/mod) loaded into
+// MOD, not run
+static void loadmpy(mp_obj_t envmap, const char *lib, qstr name, mp_obj_t mod, mp_compiled_module_t *cm) {
     mp_map_elem_t *el;
-    mp_obj_t mod;
-    mp_compiled_module_t cm;
-    char path[256], file[80];
+    char path[300];
     vstr_t v;
 
-    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(envitem(1)))->map,
+    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(envmap))->map,
         mp_obj_new_str(qstr_str(name), qstr_len(name)), MP_MAP_LOOKUP);
     if (el == NULL) {
         mp_raise_msg_varg(&mp_type_ImportError, MP_ERROR_TEXT("no module named '%q' in the Environment"), name);
     }
-    snprint(file, sizeof file, "%s.mpy", mp_obj_str_get_str(el->value));
-    libpath(path, sizeof path, "mod", file);
+    snprint(path, sizeof path, "%s/mod/%s.mpy", lib, mp_obj_str_get_str(el->value));
     if (readall(path, &v) < 0) {
         raise_err();
     }
-    mod = mp_obj_new_module(name);
-    memset(&cm, 0, sizeof cm);
-    cm.context = MP_OBJ_TO_PTR(mod);
-    mp_raw_code_load_mem((const byte *)v.buf, v.len, &cm);
+    memset(cm, 0, sizeof *cm);
+    cm->context = MP_OBJ_TO_PTR(mod);
+    mp_raw_code_load_mem((const byte *)v.buf, v.len, cm);
     path[strlen(path) - 3] = 0;
     strcat(path, "py");
     mp_store_attr(mod, MP_QSTR___file__, MP_OBJ_NEW_QSTR(qstr_from_str(path)));
+}
+
+// the Environment's module NAME: a new module (in sys.modules) with
+// its .mpy loaded, not run
+static p9_space_mod_t *loadmod(qstr name) {
+    mp_compiled_module_t cm;
+    char lib[256];
+
+    libpath(lib, sizeof lib, "", "");
+    loadmpy(envitem(1), lib, name, mp_obj_new_module(name), &cm);
     addmod(name, cm.context, (mp_raw_code_t *)cm.rc);
     return &((p9_space_mod_t *)MP_STATE_VM(p9_space_mods))[nmods - 1];
 }
@@ -775,7 +792,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
         useenv(name, env);
         t0 = nsec();
         nu = sizeof user;
-        p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu);
+        p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, NULL);
         p9_spacetime("restore", t0);
         sp.n = n;
         sp.next = get64((byte *)user + 64);
@@ -816,6 +833,170 @@ static mp_obj_t space_info(void) {
     return mp_obj_new_tuple(3, t);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(space_info_obj, space_info);
+
+// V6: view(name or path, version=None): another Space's published
+// version (or a kept one) as a world of its own: its modules (loaded
+// from its Environment, not run, not in sys.modules), its __main__;
+// the objects foreign (a commit refuses them).  No lock, no commits
+typedef struct {
+    mp_obj_base_t base;
+    mp_obj_t name, env;
+    mp_obj_t main;		/* its __main__'s dict */
+    mp_obj_t modules;	/* {name: module} */
+    mp_obj_t envmap;	/* {import name: definition} */
+    vlong version;
+    p9_space_mod_t *mods;
+    size_t nmods;
+    char lib[256];		/* the Space's owner's lib */
+} view_t;
+
+static const mp_obj_type_t view_type;
+
+p9_space_mod_t *p9_view_loadmod(void *vp, qstr name) {
+    view_t *v = vp;
+    mp_module_context_t *o;
+    mp_compiled_module_t cm;
+    size_t i;
+
+    for (i = 0; i < v->nmods; i++) {
+        if (v->mods[i].name == name) {
+            return &v->mods[i];
+        }
+    }
+    o = m_new_obj(mp_module_context_t);
+    o->module.base.type = &mp_type_module;
+    o->module.globals = MP_OBJ_TO_PTR(mp_obj_new_dict(MICROPY_MODULE_DICT_SIZE));
+    mp_obj_dict_store(MP_OBJ_FROM_PTR(o->module.globals), MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(name));
+    loadmpy(v->envmap, v->lib, name, MP_OBJ_FROM_PTR(o), &cm);
+    v->mods = m_renew(p9_space_mod_t, v->mods, v->nmods, v->nmods + 1);
+    v->mods[v->nmods].name = name;
+    v->mods[v->nmods].ctx = cm.context;
+    v->mods[v->nmods].rc = (mp_raw_code_t *)cm.rc;
+    mp_obj_dict_store(v->modules, MP_OBJ_NEW_QSTR(name), MP_OBJ_FROM_PTR(o));
+    return &v->mods[v->nmods++];
+}
+
+mp_obj_t p9_view_main(void *vp) {
+    return ((view_t *)vp)->main;
+}
+
+static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
+    static const mp_arg_t allowed[] = {
+        { MP_QSTR_, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
+        { MP_QSTR_version, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+    };
+    mp_arg_val_t args[2];
+    const char *name;
+    char dir[256], path[300], env[65], user[256], *p;
+    vlong ver, t0;
+    uint64_t n;
+    size_t nu;
+    vstr_t st;
+    view_t *v;
+    int fd, i;
+
+    mp_arg_parse_all(n_args, pos, kw, MP_ARRAY_SIZE(allowed), allowed, args);
+    name = mp_obj_str_get_str(args[0].u_obj);
+    ver = args[1].u_obj != mp_const_none ? mp_obj_get_int(args[1].u_obj) : 0;
+    if (strchr(name, '/') != NULL) {
+        if (strlen(name) >= sizeof dir) {
+            mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("view: a long path"));
+        }
+        strcpy(dir, name);
+    } else {
+        checkname(name);
+        spacepath(dir, sizeof dir, name, "");
+    }
+    v = m_new_obj(view_t);
+    memset(v, 0, sizeof *v);
+    v->base.type = &view_type;
+    /* the lib: <dir>/../../lib, the Space's owner's */
+    strcpy(v->lib, dir);
+    for (i = 0; i < 2; i++) {
+        while ((p = strrchr(v->lib, '/')) != NULL && p[1] == 0 && p != v->lib) {
+            *p = 0;
+        }
+        if ((p = strrchr(v->lib, '/')) == NULL) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: not a Space's directory"), dir);
+        }
+        *p = 0;
+    }
+    strcat(v->lib, "/lib");
+    snprint(path, sizeof path, "%s/obj", dir);
+    /* a version chosen: a record written ('v'), so ORDWR */
+    if ((fd = open(path, (ver > 0 ? ORDWR : OREAD) | OCEXEC)) < 0) {
+        raise_err();
+    }
+    if (storeread(fd, ver, &st) < 0) {
+        close(fd);
+        raise_err();
+    }
+    close(fd);
+    if (st.len < 21 + 72 || st.buf[0] != 'H' || get64((byte *)st.buf + 17) >> 32 != 72) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: not a Space's store"), dir);
+    }
+    memcpy(env, st.buf + 21, 64);
+    env[64] = 0;
+    v->envmap = readenv(v->lib, env);
+    v->name = args[0].u_obj;
+    v->env = mp_obj_new_str(env, 64);
+    v->main = mp_obj_new_dict(0);
+    v->modules = mp_obj_new_dict(0);
+    t0 = nsec();
+    nu = sizeof user;
+    p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, v);
+    p9_spacetime("view", t0);
+    v->version = n;
+    vstr_clear(&st);
+    return MP_OBJ_FROM_PTR(v);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(space_view_obj, 1, space_view);
+
+// v.x: its __main__'s x; v.globals, v.modules, v.version, v.name, v.env
+static void view_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+    view_t *v = MP_OBJ_TO_PTR(self_in);
+    mp_map_elem_t *el;
+
+    if (dest[0] != MP_OBJ_NULL) {
+        return;		/* no stores: read only */
+    }
+    switch (attr) {
+    case MP_QSTR_globals:
+        dest[0] = v->main;
+        return;
+    case MP_QSTR_modules:
+        dest[0] = v->modules;
+        return;
+    case MP_QSTR_version:
+        dest[0] = mp_obj_new_int_from_ll(v->version);
+        return;
+    case MP_QSTR_name:
+        dest[0] = v->name;
+        return;
+    case MP_QSTR_env:
+        dest[0] = v->env;
+        return;
+    }
+    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(v->main))->map, MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
+    if (el != NULL) {
+        dest[0] = el->value;
+    }
+}
+
+static void view_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+    view_t *v = MP_OBJ_TO_PTR(self_in);
+
+    (void)kind;
+    mp_printf(print, "<view %s version %d>", mp_obj_str_get_str(v->name), (int)v->version);
+}
+
+static MP_DEFINE_CONST_OBJ_TYPE(
+    view_type,
+    MP_QSTR_View,
+    MP_TYPE_FLAG_NONE,
+    print, view_print,
+    attr, view_attr
+    );
 
 int p9_space_isopen(void) {
     return sp.isopen;
@@ -988,6 +1169,8 @@ static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_create), MP_ROM_PTR(&space_create_obj) },
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&space_open_obj) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&space_info_obj) },
+    { MP_ROM_QSTR(MP_QSTR_view), MP_ROM_PTR(&space_view_obj) },
+    { MP_ROM_QSTR(MP_QSTR_View), MP_ROM_PTR(&view_type) },
     { MP_ROM_QSTR(MP_QSTR_CommitError), MP_ROM_PTR(&mp_type_CommitError) },
     { MP_ROM_QSTR(MP_QSTR_atomic), MP_ROM_PTR(&atomic_type) },
 };

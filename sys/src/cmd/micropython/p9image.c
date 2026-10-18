@@ -151,6 +151,7 @@ typedef struct {
     byte dirty;	/* changed in place since (P9_DIRTY) */
     byte isnew;	/* given its OID by the commit going on */
     byte mark;	/* in the commit's (or check's) work */
+    byte foreign;	/* a view's (space.view): no OID, never committed */
 } oent_t;
 
 size_t p9_space_noid;	/* entries: the barriers on */
@@ -261,7 +262,7 @@ void p9_space_dirty(const void *p) {
     oent_t *x = oget(p);
     const void **v;
 
-    if (x == NULL || x->dirty) {
+    if (x == NULL || x->dirty || x->foreign) {
         return;
     }
     x->dirty = 1;
@@ -282,7 +283,7 @@ void p9_space_freed(const void *p) {
     if (x == NULL) {
         return;
     }
-    if (!x->isnew && (v = grown(deadv, &adead, ndead, sizeof v[0])) != NULL) {
+    if (!x->isnew && !x->foreign && (v = grown(deadv, &adead, ndead, sizeof v[0])) != NULL) {
         deadv = v;
         deadv[ndead++] = x->oid;
     }
@@ -290,10 +291,20 @@ void p9_space_freed(const void *p) {
 }
 
 void p9_image_reset(void) {
-    free(ot);
+    oent_t *old = ot;
+    size_t n = otsize, i;
+
+    /* the views' entries kept: theirs stay foreign */
     ot = NULL;
     otsize = 0;
     p9_space_noid = 0;
+    for (i = 0; i < n; i++) {
+        if (old[i].p != NULL && old[i].foreign) {
+            oadd(old[i].p, 0, 0);
+            oget(old[i].p)->foreign = 1;
+        }
+    }
+    free(old);
     ndirty = ndead = 0;
     dirtylost = 0;
     roothash = 0;
@@ -451,6 +462,17 @@ static uint64_t ref(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
     uint64_t oid;
     vstr_t v;
 
+    if (x != NULL && x->foreign) {
+        if (e->check) {
+            vstr_init(&v, 64);
+            path(e, parent, label, &v);
+            mp_printf(&mp_plat_print, "space: check: %s at %s: a foreign object\n",
+                qstr_str(mp_obj_get_type(o)->name), vstr_null_terminated_str(&v));
+            e->bad++;
+            return 0;
+        }
+        notpersistent(e, o, parent, label, "a foreign object (space.view)");
+    }
     if (x != NULL) {
         if (e->check && !x->mark) {
             x->mark = 1;
@@ -941,7 +963,7 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a)
         }
         if (dirtylost) {
             for (i = 0; i < otsize; i++) {
-                if (ot[i].p != NULL && ot[i].dirty && !ot[i].mark) {
+                if (ot[i].p != NULL && ot[i].dirty && !ot[i].foreign && !ot[i].mark) {
                     ot[i].mark = 1;
                     push(&e, MP_OBJ_FROM_PTR(ot[i].p), -1, MP_OBJ_NULL);
                 }
@@ -1061,6 +1083,7 @@ typedef struct {
     const byte **body;
     size_t n;
     int byoid;		/* the store's: a reference is an OID */
+    void *view;		/* a view's (space.view): its modules, not ours */
     uint64_t *oid;		/* index -> OID */
     size_t *mval, msize;	/* OID -> index+1 */
 } dec_t;
@@ -1147,6 +1170,9 @@ static mp_obj_t getv(dec_t *d, bool skip) {
         s = getstr(d, &n);
         if (skip) {
             return mp_const_none;
+        }
+        if (d->view != NULL) {
+            return MP_OBJ_FROM_PTR(p9_view_loadmod(d->view, qstr_from_strn(s, n))->ctx);
         }
         el = mp_map_lookup(&MP_STATE_VM(mp_loaded_modules_dict).map, MP_OBJ_NEW_QSTR(qstr_from_strn(s, n)), MP_MAP_LOOKUP);
         if (el == NULL) {
@@ -1309,7 +1335,7 @@ static bool mkshell(dec_t *d, size_t i) {
 
         getb(d);
         s = getstr(d, &n);
-        m = p9_space_loadmod(qstr_from_strn(s, n));
+        m = d->view != NULL ? p9_view_loadmod(d->view, qstr_from_strn(s, n)) : p9_space_loadmod(qstr_from_strn(s, n));
         rc = m->rc;
         for (n = getu(d), k = 0; k < n; k++) {
             size_t c = getu(d);
@@ -1516,11 +1542,17 @@ static void build(dec_t *d, long long t0) {
 }
 
 // a root's dict: the module's own (__main__'s, or the Environment's NAME)
-static mp_obj_t rootdict(const char *s, size_t n) {
-    if (qstr_from_strn(s, n) == MP_QSTR___main__) {
+static mp_obj_t rootdict(dec_t *d, const char *s, size_t n) {
+    qstr q = qstr_from_strn(s, n);
+
+    if (d->view != NULL) {
+        return q == MP_QSTR___main__ ? p9_view_main(d->view)
+            : MP_OBJ_FROM_PTR(p9_view_loadmod(d->view, q)->ctx->module.globals);
+    }
+    if (q == MP_QSTR___main__) {
         return MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main));
     }
-    return MP_OBJ_FROM_PTR(p9_space_loadmod(qstr_from_strn(s, n))->ctx->module.globals);
+    return MP_OBJ_FROM_PTR(p9_space_loadmod(q)->ctx->module.globals);
 }
 
 void p9_image_restore(const byte *p, size_t len) {
@@ -1556,7 +1588,7 @@ void p9_image_restore(const byte *p, size_t len) {
         if (i >= d.n || d.kind[i] != O_DICT) {
             corrupt();
         }
-        d.shell[i] = rootdict(s, n);
+        d.shell[i] = rootdict(&d, s, n);
     }
     if (d.p != d.end) {
         corrupt();
@@ -1599,7 +1631,7 @@ static size_t omget(dec_t *d, uint64_t oid) {
     corrupt();	/* a reference to what the store has not */
 }
 
-void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *user, size_t *nuser) {
+void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *user, size_t *nuser, void *view) {
     dec_t d;
     const byte *q, *e = p + len, *rr = NULL, **rec;
     size_t i, k, n, nroot, nr = 0, *recn;
@@ -1637,6 +1669,7 @@ void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *
     }
     d.mval = m_new0(size_t, d.msize);
     d.byoid = 1;
+    d.view = view;
     d.end = e;
     for (q = p + 21 + *nuser; q < e; q += 25 + olen) {
         oid = get64(q + 1);
@@ -1670,11 +1703,22 @@ void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *
         if (d.kind[i] != O_DICT) {
             corrupt();
         }
-        d.shell[i] = rootdict(s, n);
+        d.shell[i] = rootdict(&d, s, n);
     }
     d.end = e;
     p9_spacetime("restore: parsed", t0);
     build(&d, t0);
+    /* a view's objects: foreign, so that no commit takes them */
+    if (view != NULL) {
+        for (i = 0; i < d.n; i++) {
+            if (oget(MP_OBJ_TO_PTR(d.shell[i])) == NULL) {
+                oadd(MP_OBJ_TO_PTR(d.shell[i]), 0, 0);
+                oget(MP_OBJ_TO_PTR(d.shell[i]))->foreign = 1;
+            }
+        }
+        p9_spacetime("view: marked", t0);
+        return;
+    }
     /* the OIDs: the objects as they are in the store */
     p9_image_reset();
     for (i = 0; i < d.n; i++) {

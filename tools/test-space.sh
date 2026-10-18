@@ -58,6 +58,12 @@
 #   T5.7  a bad record amid a commit ($spacefail): N kept, then N+1
 #   T5.8  1 MiB bytes kept
 #   T5.10 open(name, v): version v kept; one older refused
+# V6 (space.view: another Space read, docs/object-model.md V6):
+#   T6.1  views amid 100 atomic commits: la[0] == lb[0] in each
+#   T6.2  none (its own mount): a view; the store 0660: refused
+#   T6.3  a foreign object in a commit: CommitError; an int of it kept
+#   T6.4  graph.py's Space as a view: search, links, its own classes
+#   T6.5  version=v; one not kept refused; the writer's lock no matter
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -548,6 +554,60 @@ def v5():
         secs=60, name='V5 after the boot')
     halt()
 
+def v6():
+    graphpy = open(os.environ['GRAPHPY']).read()
+    wpy = ("import graph\nclass P(graph.Node):\n    def __init__(self, n=0):\n        self.n = n\n"
+        "def double(x):\n    return 2 * x\n")
+    code = ("import plan9 as p, space\n"
+        "def run(src, sp='t6', args=None):\n    pid = p.spawn(['/boot/mp'] + (['-S', sp] if args is None else args) + ['-c', src])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n    print('status', repr(w[1]))\n")
+    if not boot():
+        return
+    raw(code + "try:\n    p.create('/usr/glenda/src6', p.OREAD, p.DMDIR | 0o775)\nexcept OSError:\n    pass\n"
+        "with open('/usr/glenda/src6/graph.py', 'w') as f:\n    f.write(%r)\n"
+        "with open('/usr/glenda/src6/w.py', 'w') as f:\n    f.write(%r)\n"
+        "e = space.mkenv({n: space.define('/usr/glenda/src6/%%s.py' %% n) for n in ('graph', 'w')})\n"
+        "for n in ('t6', 't6own', 't6b'):\n    space.create(n, e)" % (graphpy, wpy), r'\A\Z', secs=120, name='V6 sources, the Spaces')
+    raw("run(\"import graph, w\\nps = [w.P(i) for i in range(5)]\\nfor q in ps:\\n    graph.tag(q, '#p%d #all' % q.n)\\n"
+        "ps[1].other = ps[2]\\nx = 41\\nf = w.double\")", r"^status ''$", secs=60, name='V6 t6 made')
+    # T6.4: the view's world
+    raw("run(\"import space, w\\nv = space.view('t6')\\ng = v.modules['graph']\\nvw = v.modules['w']\\n"
+        "print(v.version, v.x, v.f(4), len(g.search('#all')), [q.n for q in g.search('#p3')], v.ps[1].other is v.ps[2], "
+        "isinstance(v.ps[0], vw.P), isinstance(v.ps[0], w.P), isinstance(v.ps[0], g.Node))\\nn = v.x + 1\\ndel v, g, vw\", 't6own')",
+        r"^2 41 8 5 \[3\] True True False True\nstatus ''$", secs=60, name='T6.4 graph.py in a view, its own classes')
+    # T6.3: a foreign object refused, an int of it kept
+    raw("run(\"import space\\nv = space.view('t6')\\nkeep = v.ps[0]\\ndel v\", 't6own')\n"
+        "run(\"print('keep' in globals(), n)\", 't6own')",
+        r"space: commit failed: CommitError: not persistent: a foreign object \(space\.view\) at __main__\.keep\n"
+        r"status '.+'\nFalse 42\nstatus ''$", secs=60, name='T6.3 a foreign object: CommitError; n = 42 kept')
+    # T6.5: versions 2-4, 2 kept; the writer at work
+    raw("run('x = 42')\nrun('x = 43')\npid = p.spawn(['/boot/mp', '-S', 't6', '-c', 'import plan9\\nplan9.sleep(4000)'])\np.sleep(1500)\n"
+        "run(\"import space\\nprint(space.view('t6').x, space.view('t6', version=3).x, space.view('t6', version=2).x)\\n"
+        "try:\\n    space.view('t6', version=1)\\nexcept OSError as e:\\n    print('refused', e)\", args=[])\n"
+        "while p.wait()[0] != pid:\n    pass",
+        r"^status ''\nstatus ''\n43 42 41\nrefused .*not kept.*\nstatus ''$", secs=60, name='T6.5 versions; the lock no matter')
+    # T6.1: views amid 100 atomic commits
+    wr = ("import plan9, space\nspace.interval = 0\nfor i in range(100):\n    with space.atomic():\n"
+        "        la[0] += 1\n        plan9.sleep(5)\n        lb[0] += 1\n    plan9.sleep(5)")
+    out = raw("run('la = [0]\\nlb = [0]', 't6b')\npid = p.spawn(['/boot/mp', '-S', 't6b', '-c', %r])\n"
+        "bad = 0\nvs = []\nwhile len(vs) < 2000:\n    p.sleep(20)\n    v = space.view('t6b')\n    if v.la[0] != v.lb[0]:\n        bad += 1\n"
+        "    vs.append(v.version)\n    done = v.la[0] >= 100\n    del v\n    if done:\n        break\n"
+        "while p.wait()[0] != pid:\n    pass\nprint('views', len(vs), 'versions', len(set(vs)), 'bad', bad, 'grew', vs == sorted(vs))" % wr,
+        r"^status ''\nviews \d+ versions \d+ bad 0 grew True$", secs=180, name='T6.1 views amid 100 commits')
+    if out:
+        print('\tinfo: T6.1: ' + out.split('\n')[-1], flush=True)
+        m = re.search(r'versions (\d+)', out)
+        check('T6.1 the views saw many versions: %s' % m.group(1), int(m.group(1)) >= 20)
+    # T6.2: none, with a mount of its own
+    none = ("import plan9 as p, space\nfd = p.open('#s/gefs.root', p.ORDWR)\nu = p.open('#c/user', p.OWRITE)\n"
+        "p.write(u, b'none')\np.close(u)\np.rfork(1)\np.mount(fd, '/usr/glenda/v6mnt', 4, 'main')\n"
+        "try:\n    print('none', space.view('/usr/glenda/v6mnt/usr/glenda/space/t6').x)\n"
+        "except OSError as e:\n    print('none refused', e)")
+    raw("try:\n    p.create('/usr/glenda/v6mnt', p.OREAD, p.DMDIR | 0o775)\nexcept OSError:\n    pass\n"
+        "run(%r, args=[])\np.spawn(['/bin/rc', '-c', 'chmod 660 /usr/glenda/space/t6/obj'])\np.wait()\nrun(%r, args=[])" % (none, none),
+        r"^none 43\nstatus ''\nnone refused .*permission.*\nstatus ''$", secs=60, name='T6.2 none: a view; 0660 refused')
+    halt()
+
 def vhw():
     """hw.py as on real hardware: written to the root, run at each boot"""
     src = open(os.environ['HWPY']).read()
@@ -574,7 +634,7 @@ def vhw():
             return
         crash()
 
-phases = [v0, v1, v2, v3, v4, v5]
+phases = [v0, v1, v2, v3, v4, v5, v6]
 if os.environ.get('HWPY'):
     phases, phase, only = [vhw], 0, ''
 
