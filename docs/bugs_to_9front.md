@@ -220,3 +220,24 @@ sign bit (XORPD with a constant), as other compilers do.
 Found by tools/mptest (MicroPython's float tests on Plan2001, 18.10.2026).
 MicroPython works around both (MICROPY_FLOAT_CC_FIXES); other C code
 in the tree does not.
+
+### sdiahci: a disk that the firmware has not used never gets ready (QEMU)
+
+`/sys/src/9/pc/sdiahci.c` checkdrive, state Dnew with the phy up: it
+waits for DRDY in the task file of an ATA signature. QEMU's AHCI disk
+reports 0x30 after its reset (error 1, the reset's diagnostic code,
+and no DRDY) until a command comes. When UEFI booted from the AHCI
+disk, the firmware had sent commands and it worked; booted from another
+disk (virtio), every AHCI disk went from "slow reset" to portreset over
+and over, and iaonline, which waits while waitready says reset, never
+returned: the boot hung where the kernel first read #S. Plan2001 takes
+error 1 with BSY clear as ready too. (An HBA reset at attach did not
+help: the disks report the same after it.)
+
+### ip: Maxincall 10
+
+`/sys/src/9/ip/ip.h`: ten calls waiting for a listen; the eleventh at
+once gets a reset ("Fsnewcall: incall queue full"). A server that forks
+for each call (or is slow to listen again) loses connections under
+modest load: 32 clients at once to an echo server lost 2. Plan2001 has
+128.

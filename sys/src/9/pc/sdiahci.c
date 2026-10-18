@@ -1126,10 +1126,16 @@ reset:
 					dnam(d), d->port->task, s, d->wait);
 				goto reset;
 			}
+			/*
+			 * a disk not ready yet, unless its reset's diagnostic
+			 * (error 1) says it is done: QEMU's has no DRDY then
+			 * until a command, which a firmware that booted from
+			 * another disk has not sent
+			 */
 			s = (uchar)d->port->task;
 			sig = d->port->sig >> 16;
 			if(s == 0x7f || s&ASbsy ||
-			    (sig != 0xeb14 && (s & ASdrdy) == 0))
+			    (sig != 0xeb14 && (s & ASdrdy) == 0 && (d->port->task>>8 & 0xff) != 1))
 				break;
 			iunlock(d);
 			newdrive(d);
