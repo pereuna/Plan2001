@@ -204,7 +204,7 @@ int main(int argc, char **argv) {
         } while (boot);
     }
     // the program's end, normal or SystemExit: a commit point
-    if (!uncaught && p9_space_commit() < 0) {
+    if (!uncaught && p9_space_commit(1) < 0) {
         fail = 1;
     }
     mp_deinit();

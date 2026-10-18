@@ -14,6 +14,8 @@
  * modules' top levels again.  One writer: the lock, DMEXCL.
  *   /usr/$user/space/<name>/lock      held open by the writer
  *   /usr/$user/space/<name>/v<N>      version N, N in 16 digits
+ * V3: a commit at a rest too (plan9.read, wait, sleep) when
+ * space.interval seconds have passed; space.atomic defers them.
  */
 #include <string.h>
 #include "py/runtime.h"
@@ -50,6 +52,7 @@ static struct {
     vlong n;
     uchar hash[32];	/* the body of version n */
 } sp = { 0, "", "", -1 };
+static vlong lastcommit;	/* nsec() */
 
 // a version's file: the header, the body (p9image.c), the trailer
 //   "P2SP" format[1] N[8] env[64] body length[8] sha256[32]
@@ -465,10 +468,11 @@ static uint64_t get64(const byte *p) {
 // removed, synced (the removal in that sync or a later one: v<N-1> and
 // v<N-2> are there either way)
 static void writeversion(const char *dir, vlong n, const char *env, const char *body, size_t len) {
-    char path[300], tname[32], vname[32];
+    char path[300], tname[32], vname[32], *slow;
     vstr_t f;
     Dir d;
     int fd;
+    size_t half;
 
     vstr_init(&f, HDRLEN + len + TRLLEN);
     vstr_add_strn(&f, "P2SP", 4);
@@ -488,7 +492,20 @@ static void writeversion(const char *dir, vlong n, const char *env, const char *
     if ((fd = create(path, OWRITE, 0664)) < 0) {
         raise_err();
     }
-    if (write(fd, f.buf, f.len) != (long)f.len) {
+    // $spaceslow ms amid the write: a crash there (tools/test-space.sh T3.3)
+    slow = getenv("spaceslow");
+    half = slow != NULL ? f.len / 2 : f.len;
+    if (write(fd, f.buf, half) != (long)half) {
+        free(slow);
+        close(fd);
+        remove(path);
+        raise_err();
+    }
+    if (slow != NULL) {
+        sleep(atoi(slow));
+        free(slow);
+    }
+    if (write(fd, f.buf + half, f.len - half) != (long)(f.len - half)) {
         close(fd);
         remove(path);
         raise_err();
@@ -669,6 +686,7 @@ static mp_obj_t space_open(mp_obj_t name_in) {
     sp.n = n;
     sp.writer = getpid();
     sp.isopen = 1;
+    lastcommit = nsec();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(space_open_obj, space_open);
@@ -691,17 +709,22 @@ int p9_space_isopen(void) {
     return sp.isopen;
 }
 
-// a commit point: the image, if changed, as version N+1; the two
-// before it kept, older removed.  In the writer only (not an rfork'd
-// child).  A failure is printed; the version before stays
-int p9_space_commit(void) {
+// commit points 3 (a rest) and space.atomic (docs/object-model.md 5.3)
+static mp_float_t interval = 1.0;
+static int atomicdepth, atomicpending;
+
+static int iswriter(void) {
+    return sp.isopen && getpid() == sp.writer;
+}
+
+// the image, if changed, as version N+1; the two before it kept, older
+// removed.  Any failure a CommitError, the version before staying
+static void commit(void) {
     nlr_buf_t nlr;
-    vstr_t body;
+    vstr_t body, msg;
+    mp_print_t pr;
     uchar h[32];
 
-    if (!sp.isopen || getpid() != sp.writer) {
-        return 0;
-    }
     if (nlr_push(&nlr) == 0) {
         vstr_init(&body, 4096);
         p9_image_encode(&body);
@@ -712,6 +735,33 @@ int p9_space_commit(void) {
             memcpy(sp.hash, h, sizeof h);
         }
         vstr_clear(&body);
+        lastcommit = nsec();
+        nlr_pop();
+        return;
+    }
+    if (mp_obj_is_subclass_fast(MP_OBJ_FROM_PTR(((mp_obj_base_t *)nlr.ret_val)->type), MP_OBJ_FROM_PTR(&mp_type_CommitError))) {
+        nlr_jump(nlr.ret_val);
+    }
+    // another (an OSError: the disk full): a CommitError saying it
+    vstr_init_print(&msg, 64, &pr);
+    mp_obj_print_helper(&pr, MP_OBJ_FROM_PTR(nlr.ret_val), PRINT_EXC);
+    mp_raise_msg_varg(&mp_type_CommitError, MP_ERROR_TEXT("%s"), vstr_null_terminated_str(&msg));
+}
+
+// a commit point 1 or 2 (FORCE: the program's end, atomic or not); in
+// the writer only, not an rfork'd child.  A failure is printed
+int p9_space_commit(int force) {
+    nlr_buf_t nlr;
+
+    if (!iswriter()) {
+        return 0;
+    }
+    if (atomicdepth > 0 && !force) {
+        atomicpending = 1;
+        return 0;
+    }
+    if (nlr_push(&nlr) == 0) {
+        commit();
         nlr_pop();
         return 0;
     }
@@ -720,6 +770,67 @@ int p9_space_commit(void) {
     mp_printf(&mp_plat_print, "\n");
     return -1;
 }
+
+// a rest (modplan9.c: before a call blocks): a commit if space.interval
+// has passed since the last; a failure raises CommitError instead of
+// blocking
+void p9_space_rest(void) {
+    if (!iswriter() || nsec() - lastcommit < (vlong)(interval * 1e9)) {
+        return;
+    }
+    if (atomicdepth > 0) {
+        atomicpending = 1;
+        return;
+    }
+    commit();
+}
+
+// with space.atomic(): the commit points within it deferred to the
+// outermost's end
+typedef struct {
+    mp_obj_base_t base;
+} atomic_t;
+static const mp_obj_type_t atomic_type;
+static const atomic_t atomic_obj = { { &atomic_type } };
+
+static mp_obj_t atomic_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+    (void)type;
+    mp_arg_check_num(n_args, n_kw, 0, 0, false);
+    return MP_OBJ_FROM_PTR(&atomic_obj);
+}
+
+static mp_obj_t atomic_enter(mp_obj_t self) {
+    atomicdepth++;
+    return self;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(atomic_enter_obj, atomic_enter);
+
+static mp_obj_t atomic_exit(size_t n, const mp_obj_t *a) {
+    (void)n;
+    (void)a;
+    if (atomicdepth > 0 && --atomicdepth == 0 && atomicpending) {
+        atomicpending = 0;
+        if (iswriter()) {
+            commit();
+        }
+    }
+    return mp_const_false;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(atomic_exit_obj, 4, 4, atomic_exit);
+
+static const mp_rom_map_elem_t atomic_locals[] = {
+    { MP_ROM_QSTR(MP_QSTR___enter__), MP_ROM_PTR(&atomic_enter_obj) },
+    { MP_ROM_QSTR(MP_QSTR___exit__), MP_ROM_PTR(&atomic_exit_obj) },
+};
+static MP_DEFINE_CONST_DICT(atomic_locals_dict, atomic_locals);
+
+static MP_DEFINE_CONST_OBJ_TYPE(
+    atomic_type,
+    MP_QSTR_atomic,
+    MP_TYPE_FLAG_NONE,
+    make_new, atomic_make_new,
+    locals_dict, &atomic_locals_dict
+    );
 
 static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_space) },
@@ -733,6 +844,7 @@ static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&space_open_obj) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&space_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_CommitError), MP_ROM_PTR(&mp_type_CommitError) },
+    { MP_ROM_QSTR(MP_QSTR_atomic), MP_ROM_PTR(&atomic_type) },
 };
 static MP_DEFINE_CONST_DICT(space_globals_dict, space_globals);
 
@@ -742,3 +854,24 @@ const mp_obj_module_t mp_module_space = {
 };
 
 MP_REGISTER_MODULE(MP_QSTR_space, mp_module_space);
+
+// space.interval: the seconds between commits at rests (>= 0)
+void space_attr(mp_obj_t self, qstr attr, mp_obj_t *dest) {
+    mp_float_t v;
+
+    (void)self;
+    if (attr != MP_QSTR_interval) {
+        return;
+    }
+    if (dest[0] == MP_OBJ_NULL) {
+        dest[0] = mp_obj_new_float(interval);
+    } else if (dest[1] != MP_OBJ_NULL) {
+        v = mp_obj_get_float(dest[1]);
+        if (!(v >= 0)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("space.interval: not >= 0"));
+        }
+        interval = v;
+        dest[0] = MP_OBJ_NULL;
+    }
+}
+MP_REGISTER_MODULE_DELEGATION(mp_module_space, space_attr);

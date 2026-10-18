@@ -8,6 +8,9 @@
 #include "py/objstr.h"
 #include "py/objtuple.h"
 
+// p9space.c: a rest before a call blocks (a Space's commit point 3)
+void p9_space_rest(void);
+
 static void raise_err(void) {
     char buf[ERRMAX];
 
@@ -58,6 +61,7 @@ static mp_obj_t p9_read(size_t n, const mp_obj_t *a) {
     vstr_t v;
     long r;
 
+    p9_space_rest();
     vstr_init_len(&v, n > 1 ? mp_obj_get_int(a[1]) : 8192);
     r = read(mp_obj_get_int(a[0]), v.buf, v.len);
     if (r < 0) {
@@ -320,6 +324,7 @@ static mp_obj_t p9_wait(void) {
     Waitmsg *w;
     mp_obj_t t[2];
 
+    p9_space_rest();
     if ((w = wait()) == nil) {
         raise_err();
     }
@@ -338,6 +343,7 @@ static mp_obj_t p9_rfork(mp_obj_t flags) {
 static MP_DEFINE_CONST_FUN_OBJ_1(p9_rfork_obj, p9_rfork);
 
 static mp_obj_t p9_sleep(mp_obj_t ms) {
+    p9_space_rest();
     sleep(mp_obj_get_int(ms));
     return mp_const_none;
 }

@@ -50,8 +50,8 @@
 #define MICROPY_PERSISTENT_CODE_SAVE (1)
 #define mp_builtin___import__ p9_import
 /* a Space's commit point: a REPL statement's end (mp -S) */
-int p9_space_commit(void);
-#define MICROPY_BOARD_AFTER_PYTHON_EXEC(kind, flags, val, ret) p9_space_commit()
+int p9_space_commit(int force);
+#define MICROPY_BOARD_AFTER_PYTHON_EXEC(kind, flags, val, ret) p9_space_commit(0)
 /* the types a Space keeps (docs/object-model.md 5.5) */
 #define MICROPY_PY_BUILTINS_FROZENSET (1)
 #define MICROPY_VFS (0)

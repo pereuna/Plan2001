@@ -17,7 +17,10 @@ p9_space_mod_t *p9_space_loadmod(qstr name);
 void p9_image_encode(vstr_t *out);
 void p9_image_restore(const byte *p, size_t n);
 
-// a commit point (mp -S): 0 done or nothing to do, -1 failed (printed)
-int p9_space_commit(void);
+// a commit point (mp -S; FORCE: the program's end, within space.atomic
+// too): 0 done or nothing to do, -1 failed (printed)
+int p9_space_commit(int force);
+// a rest, before a call blocks: a commit if due; CommitError
+void p9_space_rest(void);
 // main.c: a program's end in a Space
 int p9_space_isopen(void);

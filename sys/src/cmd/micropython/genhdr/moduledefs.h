@@ -74,7 +74,9 @@ extern const struct _mp_obj_module_t mp_module_sys;
     MODULE_DEF_STRUCT \
 // MICROPY_REGISTERED_EXTENSIBLE_MODULES
 
+extern void space_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest);
 extern void mp_module_sys_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest);
 #define MICROPY_MODULE_DELEGATIONS \
+    { MP_ROM_PTR(&mp_module_space), space_attr }, \
     { MP_ROM_PTR(&mp_module_sys), mp_module_sys_attr }, \
 // MICROPY_MODULE_DELEGATIONS

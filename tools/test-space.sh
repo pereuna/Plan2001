@@ -35,6 +35,15 @@
 #   T2.8  two Spaces, one Environment: two counters
 #   T2.9  a second mp -S: space locked; an rfork child's changes lost
 #   T2.10 a dict keyed by instances with their own __hash__
+# V3 (rests and crashes):
+#   T3.1  n += 1; plan9.sleep(100) in a loop, killed CRASH times: n
+#         grows from boot to boot
+#   T3.2  with space.atomic(): a += 1; plan9.sleep(50); b += 1, killed:
+#         always a == b
+#   T3.3  killed amid t<N+1>'s write ($spaceslow): v<N> used, t gone
+#   T3.4  a byte of v<N> changed: v<N-1> used, v<N> renamed bad<N>
+#   T3.5  the disk full (a 136 MiB gefs of its own): CommitError, the
+#         version before stays
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -324,7 +333,71 @@ def v2():
         name='three versions kept')
     halt()
 
-phases = [v0, v1, v2]
+def v3():
+    loop1 = "import plan9\nif 'n' not in globals():\n    n = 0\nwhile True:\n    n += 1\n    plan9.sleep(100)"
+    loop2 = ("import plan9, space\nspace.interval = 0.3\nif 'a' not in globals():\n    a = b = 0\n"
+        "while True:\n    with space.atomic():\n        a += 1\n        plan9.sleep(50)\n        b += 1\n    plan9.sleep(10)")
+    code = ("import plan9 as p, space\ne = space.mkenv({})\n"
+        "def run(src, sp):\n    pid = p.spawn(['/boot/mp', '-S', sp, '-c', src])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n    print('status', repr(w[1]))\n"
+        "def bg(src, sp):\n    p.spawn(['/boot/mp', '-S', sp, '-c', src])\n")
+    if not boot():
+        return
+    raw(code, r'\A\Z', secs=30, name='V3 run()')
+    raw("for n in ('t3a', 't3b', 't3c', 't3d'):\n    space.create(n, e)", r'\A\Z', secs=30, name='V3 spaces')
+    n0 = a0 = 0
+    for i in range(1, ncrash + 2):
+        if i > 1:
+            if not boot():
+                return
+            raw(code, r'\A\Z', secs=30, name='V3 run()')
+            out = raw("run(\"print('n', n)\", 't3a')", r"^n \d+\nstatus ''$", secs=30, name='T3.1 boot %d: n' % nboot)
+            n = int(out.split()[1]) if out else -1
+            check('T3.1 boot %d: n grew: %d > %d' % (nboot, n, n0), n > n0)
+            n0 = n
+            out = raw("run(\"print('ab', a, b)\", 't3b')", r"^ab \d+ \d+\nstatus ''$", secs=30, name='T3.2 boot %d: a, b' % nboot)
+            a, b = (int(x) for x in out.split()[1:3]) if out else (-1, -2)
+            check('T3.2 boot %d: a == b == %d, grew from %d' % (nboot, a, a0), a == b and a > a0)
+            a0 = a
+        if i == ncrash + 1:
+            break
+        raw("bg(%r, 't3a')\nbg(%r, 't3b')\np.sleep(3000)" % (loop1, loop2), r'\A\Z', secs=30, name='V3 loops for 3 s')
+        crash()
+    # T3.3: killed amid t<2>'s write, after the autosync (5 s) has it
+    raw("run('x = 1', 't3c')\nwith open('/env/spaceslow', 'w') as f:\n    f.write('30000')\n"
+        "bg('x = 2', 't3c')\np.sleep(8000)\nprint([d[0] for d in p.dirread('/usr/glenda/space/t3c') if d[0][0] in 'tv'])",
+        r"^status ''\n\[.*'t0000000000000002'.*\]$", secs=30, name='T3.3 t2 half written')
+    crash()
+    if not boot():
+        return
+    raw(code, r'\A\Z', secs=30, name='V3 run()')
+    raw("run('print(x)', 't3c')\nprint([d[0] for d in p.dirread('/usr/glenda/space/t3c') if d[0][0] == 't'])",
+        r"^1\nstatus ''\n\[\]$", secs=30, name='T3.3 v1 used, t gone')
+    # T3.4: v2 corrupt
+    raw("run('x = 1', 't3d')\nrun('x = 2', 't3d')\nfd = p.open('/usr/glenda/space/t3d/v0000000000000002', p.ORDWR)\n"
+        "p.seek(fd, 80, 0)\nc = p.read(fd, 1)\np.seek(fd, 80, 0)\np.write(fd, bytes([c[0] ^ 1]))\np.close(fd)\n"
+        "run('print(x)', 't3d')\nprint(sorted(d[0] for d in p.dirread('/usr/glenda/space/t3d')))",
+        r"^status ''\nstatus ''\nspace: t3d/v0000000000000002: its SHA-256: renamed bad0000000000000002\n1\nstatus ''\n"
+        r"\['bad0000000000000002', 'lock', 'v0000000000000000', 'v0000000000000001'\]$", secs=30, name='T3.4 v1 used, v2 bad')
+    # T3.5: a gefs of its own over /usr/glenda/space, filled
+    raw("p.spawn(['/bin/rc', '-c', 'cd /usr/glenda && dd -if /dev/zero -of small.img -bs 1048576 -count 136 >[2]/dev/null && "
+        "gefs -r glenda -f small.img >/tmp/ream.log >[2=1] && gefs -A -n small -f small.img >[2]/dev/null && "
+        "mount -c /srv/small /usr/glenda/space && echo mounted'])\np.wait()",
+        r"^mounted$", secs=120, name='T3.5 a small gefs')
+    raw("space.create('t3e', e)\nrun('x = 1', 't3e')\n"
+        "p.spawn(['/bin/rc', '-c', 'dd -if /dev/zero -of /usr/glenda/space/fill -bs 1048576 -count 200 >[2]/dev/null; echo filled'])\np.wait()",
+        r"^status ''\nfilled$", secs=120, name='T3.5 filled')
+    raw("run(\"import space, plan9\\nspace.interval = 0\\ny = 'z' * 1000000\\ntry:\\n    plan9.sleep(1)\\n"
+        "except space.CommitError as e:\\n    print('CE', e)\\ndel y\", 't3e')",
+        r"^CE .+\nspace: commit failed: CommitError: .+\nstatus '.+'$", secs=60, name='T3.5 CommitError at a rest and the end')
+    raw("run(\"print(x, 'y' in globals(), 'space' in globals())\", 't3e')", r"^1 False False\nstatus ''$", secs=30,
+        name='T3.5 the version before')
+    raw("p.spawn(['/bin/rc', '-c', 'unmount /usr/glenda/space; echo halt >>/srv/small.cmd; "
+        "for(i in 1 2 3 4 5 6 7 8 9 10) if(test -e /srv/small.cmd) sleep 1; rm -f /usr/glenda/small.img; echo gone'])\np.wait()",
+        r"gone$", secs=60, name='T3.5 the small gefs halted')
+    halt()
+
+phases = [v0, v1, v2, v3]
 try:
     for i, f in enumerate(phases):
         if (only == '' and i <= phase) or only == str(i):

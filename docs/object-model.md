@@ -471,6 +471,27 @@ Tulokset: QEMU `ONLY=2` (4 boottia, joista kolme tapettu, 5 min) ja
 | T3.5 | Levy täynnä (pieni gefs-osio): commit epäonnistuu `CommitError`illa, ja edellinen versio säilyy. |
 | T3.6 | Sillillä (NVMe): T3.1 ja virran katkaisu käsin kerran. Tulos kirjataan. |
 
+Toteutus (18.10.2026, `p9space.c`): `plan9.read`, `plan9.wait` ja
+`plan9.sleep` kutsuvat `p9_space_rest`iä ennen estämistä. Se tekee
+commitin, jos edellisestä on kulunut `space.interval` sekuntia
+(moduuliattribuutti, `MP_REGISTER_MODULE_DELEGATION`; oletus 1.0, ≥ 0).
+Epäonnistuminen nostaa `CommitError`in ennen estämistä, ja muut virheet
+(esim. `OSError: file system full`) kääritään siihen. `space.atomic()`
+on kontekstinhallitsija, joka siirtää lohkon sisällä osuneet REPL- ja
+lepopisteiden commitit uloimman lohkon loppuun. Ohjelman loppu tekee
+commitin myös lohkon sisällä (`SystemExit`). Testikoukku: kun
+`$spaceslow` on asetettu, `t<N>`:n kirjoitus pitää puolivälissä tauon,
+jonka pituus on sen arvo millisekunteina (T3.3). T3.5:n pieni gefs on
+userspace-gefs tiedostossa (gefs vaatii vähintään 128 MiB), ja se
+täytetään `dd`:llä. Täysi gefs siirtyy read-only-tilaan, minkä
+jälkeen myös `t`:n luonti epäonnistuu. Edellinen versio säilyy, ja
+avaus toimii.
+
+Tulokset: QEMU `ONLY=3` (5 boottia, joista neljä tapettu) ja `PHASE=3`
+(V0–V3, 116 tarkistusta, gefsck puhdas): kaikki läpi. T3.1:n `n`
+kasvoi bootista toiseen 21 → 42 → 63, ja T3.2:ssa `a == b` oli tosi joka
+bootissa. `tools/test-mpinit.sh` (molemmat tilat) läpi.
+
 ### V4. Graafi
 
 - `graph.py` (5.7, 5.8) ja `MICROPY_PY_DESCRIPTORS`.
@@ -552,7 +573,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V0 | QEMU: valmis 18.10.2026 (`plan9.sync`, `plan9.DMEXCL`, `tools/test-space.sh`). Silli: ajamatta |
 | V1 | QEMU: valmis 18.10.2026 (`space`-moduuli, `mp -E`). Silli: ajamatta |
 | V2 | QEMU: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus). Silli: ajamatta |
-| V3 | – |
+| V3 | QEMU: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.5). Silli (T3.6): ajamatta |
 | V4 | – |
 | V5 | ehdollinen |
 | V6 | – |
