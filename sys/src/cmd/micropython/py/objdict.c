@@ -366,6 +366,7 @@ static mp_obj_t dict_popitem(mp_obj_t self_in) {
     #endif
     mp_map_elem_t *next = dict_iter_next(self, &cur);
     assert(next);
+    P9_DIRTY(self);
     self->map.used--;
     mp_obj_t items[] = {next->key, next->value};
     next->key = MP_OBJ_SENTINEL; // must mark key as sentinel to indicate that it was deleted

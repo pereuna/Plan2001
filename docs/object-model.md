@@ -628,14 +628,14 @@ commit kestää sillillä yli 200 ms, tai kun V6 tarvitsee vakaat OID:t.
 
 Katselmoinnin (18.10.2026) jälkeen: tiivistevertailu ei yksin riitä,
 koska koodaus kävisi yhä koko graafin läpi. Muutokset seurataan
-GC-lohkon `dirty`-bitillä, jonka kirjoitusbarrierit asettavat, ja
+OID-taulun `dirty`-lipulla, jonka kirjoitusbarrierit asettavat, ja
 `$spacecheck` vertaa testeissä täyteen koodaukseen. gefs:n upsertit
 eivät ole transaktioita, joten atomisuus tulee storen versioista ja
 otsakkeen julkaisusta (6.2).
 
 Testit: V2–V4 ennallaan (`$spacecheck` päällä). Lisäksi T5.1: yhden
 olion muutos koodaa ja kirjoittaa `O(muutos)` tavua (mitataan), ja
-T5.2: OID säilyy samana versioiden yli. T5.3–T5.11 ja ktest `objtx`
+T5.2: OID säilyy samana versioiden yli. T5.3–T5.11 ja ktest `fsobj`
 ovat `docs/gefs-obj.md`:ssä.
 
 ### V6. Toisen Spacen lukeminen
@@ -689,7 +689,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
-| V5 | ehto täyttyy; gefs:n olio-API suunniteltu ja katselmoitu 18.10.2026 (`docs/gefs-obj.md`: versioidut avaimet, muutosten seuranta), ei koodia |
+| V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. Avoimet: avaus ~8,3 s, T3.5/T5.9, T5.2, T5.4, T5.11 (`docs/gefs-obj.md` 7) |
 | V6 | – |
 | V7 | – |
 | V8 | ehdollinen |

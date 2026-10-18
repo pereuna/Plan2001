@@ -119,6 +119,9 @@ enum {
 
 	/* configuration */
 	Kconf,	/* name[] => value[] */
+
+	/* Plan2001: object stores (the kernel's obj.c, docs/gefs-obj.md) */
+	Kobj,	/* store[8] [oid[8] ~ver[8] idx[4]] => header or chunk */
 };
 
 enum {

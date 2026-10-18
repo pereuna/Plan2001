@@ -43,12 +43,21 @@
 #         grows from boot to boot
 #   T3.2  with space.atomic(): a += 1; plan9.sleep(50); b += 1, killed:
 #         always a == b
-#   T3.3  killed amid t<N+1>'s write ($spaceslow): v<N> used, t gone
-#   T3.4  a byte of v<N> changed: v<N-1> used, v<N> renamed bad<N>
-#   T3.5  the disk full (a 136 MiB gefs of its own): CommitError, the
-#         version before stays
+#   T3.3  killed amid version N+1's write ($spaceslow): N used, then
+#         N+2 committed
+#   T3.4  (V2-V4: a version file's byte changed; the store has none)
+#   T3.5  (the disk full: skipped, the userspace gefs a small one would
+#         be has no DMOBJ; docs/gefs-obj.md 7)
 # V4 (graph: relations, the identifier, #tags; sys/lib/python/graph.py):
 #   T4.1-T4.11 as docs/object-model.md 7; T4.4 and T4.6 over a boot
+# V5 (the store, docs/gefs-obj.md 5; $spacecheck on in all phases'
+# boots, SPACECHECK=0 off):
+#   T5.1  one change of 10 000 objects: a few records written
+#   T5.5  a REPL statement's commit in ~30 000 objects (ms, < 200)
+#   T5.6  a reader of the store amid 100 commits: whole versions
+#   T5.7  a bad record amid a commit ($spacefail): N kept, then N+1
+#   T5.8  1 MiB bytes kept
+#   T5.10 open(name, v): version v kept; one older refused
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -133,7 +142,11 @@ def boot():
         return False
     start = len(text())
     typ('\x01')
-    return check('boot %d: the raw REPL' % nboot, wait(r'raw REPL; CTRL-B to exit\n>$', start, 10) is not None, text()[start:])
+    if not check('boot %d: the raw REPL' % nboot, wait(r'raw REPL; CTRL-B to exit\n>$', start, 10) is not None, text()[start:]):
+        return False
+    if os.environ.get('SPACECHECK', '1') != '0':
+        raw("with open('/env/spacecheck', 'w') as f:\n    f.write('1')", r'\A\Z', name='boot %d: $spacecheck' % nboot)
+    return True
 def crash():
     print('=== boot %d: QEMU killed' % nboot, flush=True)
     stop()
@@ -292,7 +305,7 @@ def v2():
     raw(code, r'\A\Z', name='V2 sources')
     raw("e = space.mkenv({n: space.define('/usr/glenda/src2/%s.py' % n) for n in ('counter', 'shapes', 'keyed', 'badtop')})\n"
         "space.create('t2', e)\nspace.create('t2b', e)\nprint(sorted(p.dirread('/usr/glenda/space/t2')[i][0] for i in range(2)))",
-        r"^\['lock', 'v0000000000000000'\]$", secs=60, name='space.create')
+        r"^\['lock', 'obj'\]$", secs=60, name='space.create')
     raw("space.create('t2', e)", r'\A\Z', r'space t2 exists', name='space.create: one there')
     raw("run(\"import counter; print('c', counter.increment())\")", r"^init counter\nc 1\nstatus ''$", secs=30, name='T2.1 boot 1: 1')
     raw("run(\"import shapes, keyed\\nb = shapes.Base(5)\\ns = shapes.Sub.make(7)\\nadd = shapes.adder(10)\\n"
@@ -335,8 +348,8 @@ def v2():
     raw("run(\"import plan9\\nif plan9.rfork(16 | plan9.RFFDG) == 0:\\n    child = 1\\n    raise SystemExit\\n"
         "plan9.wait()\\nprint('parent')\")\nrun(\"print(globals().get('child'))\")",
         r"^parent\nstatus ''\nNone\nstatus ''$", secs=30, name="T2.9 an rfork child's changes lost")
-    out = raw("print(sorted(x[0] for x in p.dirread('/usr/glenda/space/t2')))", r"^\['lock'(, 'v\d{16}'){3}\]$",
-        name='three versions kept')
+    raw("print(sorted(x[0] for x in p.dirread('/usr/glenda/space/t2')))", r"^\['lock', 'obj'\]$",
+        name='the store only')
     halt()
 
 def v3():
@@ -369,38 +382,19 @@ def v3():
             break
         raw("bg(%r, 't3a')\nbg(%r, 't3b')\np.sleep(3000)" % (loop1, loop2), r'\A\Z', secs=30, name='V3 loops for 3 s')
         crash()
-    # T3.3: killed amid t<2>'s write, after the autosync (5 s) has it
+    # T3.3: killed amid version 3's write, after the autosync (5 s) has it
     raw("run('x = 1', 't3c')\nwith open('/env/spaceslow', 'w') as f:\n    f.write('30000')\n"
-        "bg('x = 2', 't3c')\np.sleep(8000)\nprint([d[0] for d in p.dirread('/usr/glenda/space/t3c') if d[0][0] in 'tv'])",
-        r"^status ''\n\[.*'t0000000000000002'.*\]$", secs=30, name='T3.3 t2 half written')
+        "bg('x = 2', 't3c')\np.sleep(8000)\nprint(sorted(d[0] for d in p.dirread('/usr/glenda/space/t3c')))",
+        r"^status ''\n\['lock', 'obj'\]$", secs=30, name='T3.3 version 3 half written')
     crash()
     if not boot():
         return
     raw(code, r'\A\Z', secs=30, name='V3 run()')
-    raw("run('print(x)', 't3c')\nprint([d[0] for d in p.dirread('/usr/glenda/space/t3c') if d[0][0] == 't'])",
-        r"^1\nstatus ''\n\[\]$", secs=30, name='T3.3 v1 used, t gone')
-    # T3.4: v2 corrupt
-    raw("run('x = 1', 't3d')\nrun('x = 2', 't3d')\nfd = p.open('/usr/glenda/space/t3d/v0000000000000002', p.ORDWR)\n"
-        "p.seek(fd, 80, 0)\nc = p.read(fd, 1)\np.seek(fd, 80, 0)\np.write(fd, bytes([c[0] ^ 1]))\np.close(fd)\n"
-        "run('print(x)', 't3d')\nprint(sorted(d[0] for d in p.dirread('/usr/glenda/space/t3d')))",
-        r"^status ''\nstatus ''\nspace: t3d/v0000000000000002: its SHA-256: renamed bad0000000000000002\n1\nstatus ''\n"
-        r"\['bad0000000000000002', 'lock', 'v0000000000000000', 'v0000000000000001'\]$", secs=30, name='T3.4 v1 used, v2 bad')
-    # T3.5: a gefs of its own over /usr/glenda/space, filled
-    raw("p.spawn(['/bin/rc', '-c', 'cd /usr/glenda && dd -if /dev/zero -of small.img -bs 1048576 -count 136 >[2]/dev/null && "
-        "gefs -r glenda -f small.img >/tmp/ream.log >[2=1] && gefs -A -n small -f small.img >[2]/dev/null && "
-        "mount -c /srv/small /usr/glenda/space && echo mounted'])\np.wait()",
-        r"^mounted$", secs=120, name='T3.5 a small gefs')
-    raw("space.create('t3e', e)\nrun('x = 1', 't3e')\n"
-        "p.spawn(['/bin/rc', '-c', 'dd -if /dev/zero -of /usr/glenda/space/fill -bs 1048576 -count 200 >[2]/dev/null; echo filled'])\np.wait()",
-        r"^status ''\nfilled$", secs=120, name='T3.5 filled')
-    raw("run(\"import space, plan9\\nspace.interval = 0\\ny = 'z' * 1000000\\ntry:\\n    plan9.sleep(1)\\n"
-        "except space.CommitError as e:\\n    print('CE', e)\\ndel y\", 't3e')",
-        r"^CE .+\nspace: commit failed: CommitError: .+\nstatus '.+'$", secs=60, name='T3.5 CommitError at a rest and the end')
-    raw("run(\"print(x, 'y' in globals(), 'space' in globals())\", 't3e')", r"^1 False False\nstatus ''$", secs=30,
-        name='T3.5 the version before')
-    raw("p.spawn(['/bin/rc', '-c', 'unmount /usr/glenda/space; echo halt >>/srv/small.cmd; "
-        "for(i in 1 2 3 4 5 6 7 8 9 10) if(test -e /srv/small.cmd) sleep 1; rm -f /usr/glenda/small.img; echo gone'])\np.wait()",
-        r"gone$", secs=60, name='T3.5 the small gefs halted')
+    raw("run('print(x)', 't3c')\nrun('x = 3', 't3c')\nrun('print(x)', 't3c')",
+        r"^1\nstatus ''\nstatus ''\n3\nstatus ''$", secs=30, name='T3.3 version 2 used, then 3')
+    # T3.5: the disk full needs a small gefs of its own, and the
+    # userspace gefs has no object stores (DMOBJ): docs/gefs-obj.md 7
+    print('\tinfo: T3.5 skipped: the userspace gefs has no DMOBJ', flush=True)
     halt()
 
 def v4():
@@ -471,7 +465,7 @@ def v4():
         r"^334 search \d+\nstatus ''\nrun \d+$", secs=180, name='T4.11 10 000 objects, three tags')
     if out:
         print('\tinfo: T4.11 (ms): ' + out.replace('\n', '; '), flush=True)
-    out = raw("with open('/env/spacetime', 'w') as f:\n    f.write('1')\n"
+    out = raw("with open('/env/spacetime', 'w') as f:\n    f.write('1')\ntry:\n    p.remove('/env/spacecheck')\nexcept OSError:\n    pass\n"
         "print('open', run('pass'), 'commit', run('x4 = 1'))\np.remove('/env/spacetime')",
         r"open \d+ commit \d+$", secs=120, name='V4: open and commit times')
     if out:
@@ -485,6 +479,73 @@ def v4():
         r"^True True True True 10000 True hello koe 334 True\nstatus ''$", secs=120, name='T4.4 after the boot')
     raw("run(\"a3 = photos.Project('z')\\nprint(a3._id > last, a3._id > hn._id)\")", r"^True True\nstatus ''$", secs=120,
         name='T4.6 identifiers not reused after delete and boot')
+    halt()
+
+def v5():
+    code = ("import plan9 as p, space\n"
+        "def run(src, sp='t5', args=None):\n    pid = p.spawn(['/boot/mp'] + (['-S', sp] if args is None else args) + ['-c', src])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n    print('status', repr(w[1]))\n"
+        "def env(n, v):\n    if v is None:\n        try:\n            p.remove('/env/' + n)\n        except OSError:\n            pass\n"
+        "    else:\n        with open('/env/' + n, 'w') as f:\n            f.write(v)\n")
+    if not boot():
+        return
+    raw(code + "e = space.mkenv({})\nfor n in ('t5', 't5b', 't5c'):\n    space.create(n, e)", r'\A\Z', secs=30, name='V5 spaces')
+    # T5.10: versions 2-5; 3-5 kept
+    raw("for i in range(1, 5):\n    run('x = %d' % i)\n"
+        "run(\"import space\\nspace.open('t5', 4)\\nprint('v4', x, space.info()[1])\", args=[])\n"
+        "run(\"import space\\nspace.open('t5', 3)\\nprint('v3', x)\", args=[])\n"
+        "run(\"import space\\nspace.open('t5', 2)\", args=[])\n"
+        "run('print(x)')",
+        r"^(status ''\n){4}v4 3 4\nstatus ''\nv3 2\nstatus ''\n.*not kept.*\nstatus '.+'\n4\nstatus ''$", secs=60,
+        name='T5.10 versions 3-5 kept, 2 refused')
+    # T5.8: 1 MiB bytes
+    raw("run('y = bytes(range(256)) * 4096')\nrun('print(len(y), y == bytes(range(256)) * 4096)\\ndel y')",
+        r"^status ''\n1048576 True\nstatus ''$", secs=60, name='T5.8 1 MiB bytes kept')
+    # T5.1: one change in 10 000 objects
+    out = raw("run(\"big = [{'i': i} for i in range(10000)]\")\nenv('spacetime', '1')\n"
+        "run(\"big[5000]['i'] = -1\")\nenv('spacetime', None)\nrun(\"print(big[5000], big[4999])\")",
+        r"^status ''\n.*spacetime: commit: \d+ encoded, \d+ records, \d+ bytes \d+ ms\n.*status ''\n\{'i': -1\} \{'i': 4999\}\nstatus ''$",
+        secs=120, name='T5.1 one change of 10 000 objects')
+    m = re.search(r'commit: (\d+) encoded, (\d+) records, (\d+) bytes', out or '')
+    if m:
+        print('\tinfo: T5.1: ' + m.group(0), flush=True)
+        check('T5.1 a few objects and records: %s' % m.group(0), int(m.group(1)) < 20 and int(m.group(2)) <= 3)
+    # T5.5: ~30 000 objects, a statement's commit, no check
+    out = raw("run(\"big2 = [{'i': i} for i in range(20000)]\")\nenv('spacecheck', None)\nenv('spacetime', '1')\n"
+        "run('z = 1')\nenv('spacetime', None)\nenv('spacecheck', '1')",
+        r"^status ''\n.*spacetime: commit \d+ ms\n.*status ''$", secs=120, name='T5.5 ~30 000 objects, z = 1')
+    m = re.findall(r'spacetime: (restore|commit) (\d+) ms', out or '')
+    if m:
+        print('\tinfo: T5.5 (ms): ' + ', '.join('%s %s' % x for x in m), flush=True)
+        c = [int(x[1]) for x in m if x[0] == 'commit']
+        check('T5.5 the commit under 200 ms: %s' % c, c and c[-1] < 200)
+    # T5.6: a reader amid 100 commits
+    writer = ("import plan9, space\nspace.interval = 0\nla = [0]\nlb = [0]\nfor i in range(100):\n"
+        "    la[0] = i\n    lb[0] = i\n    plan9.sleep(10)\nprint('w done')")
+    out = raw("def rd():\n    fd = p.open('/usr/glenda/space/t5b/obj', p.OREAD)\n    c = []\n    while True:\n"
+        "        b = p.read(fd, 65536)\n        if not b:\n            break\n        c.append(b)\n    p.close(fd)\n"
+        "    b = b''.join(c)\n    g = lambda o, n: int.from_bytes(b[o:o + n], 'big')\n"
+        "    if b[0] != 72:\n        return None\n    n = g(1, 8)\n    o = 21 + g(17, 4)\n    mx = 0\n    oids = set()\n"
+        "    while o < len(b):\n        if b[o] != 111 or g(o + 9, 8) > n or g(o + 1, 8) in oids:\n            return None\n"
+        "        oids.add(g(o + 1, 8))\n        mx = max(mx, g(o + 9, 8))\n        o += 25 + g(o + 17, 8)\n"
+        "    return n if o == len(b) and mx == n else None\n"
+        "pid = p.spawn(['/boot/mp', '-S', 't5b', '-c', %r])\nseen = set()\nbad = reads = 0\nn = 0\n"
+        "while n < 100 and reads < 3000:\n    n = rd()\n    reads += 1\n    if n is None:\n        bad += 1\n        n = 0\n"
+        "    seen.add(n)\nwhile p.wait()[0] != pid:\n    pass\nprint('reads', reads, 'versions', len(seen), 'bad', bad)" % writer,
+        r"w done\n.*reads \d+ versions \d+ bad 0$", secs=120, name='T5.6 a reader amid 100 commits')
+    if out:
+        print('\tinfo: T5.6: ' + out.split('\n')[-1], flush=True)
+    # T5.7: a bad record amid a commit
+    raw("run('x = 1', 't5c')\nenv('spacefail', '1')\nrun('x = 2', 't5c')\nenv('spacefail', None)\n"
+        "run('print(x)', 't5c')\nrun('x = 3', 't5c')\nrun(\"import space\\nprint(x, space.info()[1])\", 't5c')",
+        r"^status ''\nspace: commit failed: CommitError: .+\nstatus '.+'\n1\nstatus ''\nstatus ''\n3 3\nstatus ''$", secs=60,
+        name='T5.7 a failed commit: N kept, then N+1')
+    crash()
+    if not boot():
+        return
+    raw(code, r'\A\Z', name='V5 run()')
+    raw("run(\"print(x, big[5000], len(big2))\")\nrun('print(la, lb)', 't5b')", r"^4 \{'i': -1\} 20000\nstatus ''\n\[99\] \[99\]\nstatus ''$",
+        secs=60, name='V5 after the boot')
     halt()
 
 def vhw():
@@ -513,7 +574,7 @@ def vhw():
             return
         crash()
 
-phases = [v0, v1, v2, v3, v4]
+phases = [v0, v1, v2, v3, v4, v5]
 if os.environ.get('HWPY'):
     phases, phase, only = [vhw], 0, ''
 

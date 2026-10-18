@@ -142,17 +142,185 @@ static builtin_t *builtin(const void *p) {
     return NULL;
 }
 
+/* ---- the OIDs: object -> OID, weak (the GC's frees take entries out) ---- */
+
+typedef struct {
+    const void *p;	/* NULL: empty */
+    uint64_t oid;
+    uint64_t hash;	/* of its record in the store */
+    byte dirty;	/* changed in place since (P9_DIRTY) */
+    byte isnew;	/* given its OID by the commit going on */
+    byte mark;	/* in the commit's (or check's) work */
+} oent_t;
+
+size_t p9_space_noid;	/* entries: the barriers on */
+static oent_t *ot;
+static size_t otsize;	/* a power of 2, or 0 */
+static const void **dirtyv;	/* what P9_DIRTY marked */
+static size_t ndirty, adirty;
+static uint64_t *deadv;	/* the OIDs of the objects freed */
+static size_t ndead, adead;
+static int dirtylost;	/* dirtyv not grown: see the table */
+static uint64_t roothash;	/* of the roots' record (OID 1) */
+
+static size_t ohash(const void *p) {
+    return (size_t)((((uintptr_t)p >> 3) * 0x9E3779B97F4A7C15ULL) >> 20) & (otsize - 1);
+}
+
+static oent_t *oget(const void *p) {
+    size_t h;
+
+    if (otsize == 0) {
+        return NULL;
+    }
+    for (h = ohash(p); ot[h].p != NULL; h = (h + 1) & (otsize - 1)) {
+        if (ot[h].p == p) {
+            return &ot[h];
+        }
+    }
+    return NULL;
+}
+
+static void oput(const oent_t *x) {
+    size_t h;
+
+    for (h = ohash(x->p); ot[h].p != NULL; h = (h + 1) & (otsize - 1)) {
+    }
+    ot[h] = *x;
+}
+
+// p's entry made (C's heap: the GC never sees it, so it keeps nothing)
+static void oadd(const void *p, uint64_t oid, uint64_t hash) {
+    oent_t *old, x;
+    size_t n, i;
+
+    if (2 * (p9_space_noid + 1) > otsize) {
+        old = ot;
+        n = otsize;
+        otsize = otsize ? 2 * otsize : 4096;
+        ot = calloc(otsize, sizeof ot[0]);
+        if (ot == NULL) {
+            ot = old;
+            otsize = n;
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: OID table"));
+        }
+        for (i = 0; i < n; i++) {
+            if (old[i].p != NULL) {
+                oput(&old[i]);
+            }
+        }
+        free(old);
+    }
+    memset(&x, 0, sizeof x);
+    x.p = p;
+    x.oid = oid;
+    x.hash = hash;
+    oput(&x);
+    p9_space_noid++;
+}
+
+// p's entry out, the ones after it moved back (linear probing)
+static void odel(const void *p) {
+    oent_t *x = oget(p);
+    size_t i, j, h;
+
+    if (x == NULL) {
+        return;
+    }
+    i = x - ot;
+    ot[i].p = NULL;
+    p9_space_noid--;
+    for (j = (i + 1) & (otsize - 1); ot[j].p != NULL; j = (j + 1) & (otsize - 1)) {
+        h = ohash(ot[j].p);
+        /* j's entry can fill i if its home is not in (i, j] */
+        if ((j > i && (h <= i || h > j)) || (j < i && (h <= i && h > j))) {
+            ot[i] = ot[j];
+            ot[j].p = NULL;
+            i = j;
+        }
+    }
+}
+
+static void *grown(void *v, size_t *a, size_t n, size_t sz) {
+    void *w;
+
+    if (n < *a) {
+        return v;
+    }
+    w = realloc(v, (*a ? 2 * *a : 256) * sz);
+    if (w == NULL) {
+        return NULL;
+    }
+    *a = *a ? 2 * *a : 256;
+    return w;
+}
+
+// P9_DIRTY: an object with an OID changed in place (a dict's, an
+// instance's map, a list, a set, a bytearray, a cell)
+void p9_space_dirty(const void *p) {
+    oent_t *x = oget(p);
+    const void **v;
+
+    if (x == NULL || x->dirty) {
+        return;
+    }
+    x->dirty = 1;
+    if ((v = grown(dirtyv, &adirty, ndirty, sizeof v[0])) == NULL) {
+        dirtylost = 1;	/* the commit looks through the table */
+        return;
+    }
+    dirtyv = v;
+    dirtyv[ndirty++] = p;
+}
+
+// P9_FREED: the GC freed p (in its sweep: nothing of the GC's heap
+// here); an object with an OID: a tombstone at the next commit
+void p9_space_freed(const void *p) {
+    oent_t *x = oget(p);
+    uint64_t *v;
+
+    if (x == NULL) {
+        return;
+    }
+    if (!x->isnew && (v = grown(deadv, &adead, ndead, sizeof v[0])) != NULL) {
+        deadv = v;
+        deadv[ndead++] = x->oid;
+    }
+    odel(p);
+}
+
+void p9_image_reset(void) {
+    free(ot);
+    ot = NULL;
+    otsize = 0;
+    p9_space_noid = 0;
+    ndirty = ndead = 0;
+    dirtylost = 0;
+    roothash = 0;
+}
+
+static uint64_t fnv(const char *p, size_t n) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+
+    while (n-- > 0) {
+        h = (h ^ (byte)*p++) * 0x100000001b3ULL;
+    }
+    return h;
+}
+
 /* ---- encoding ---- */
 
 typedef struct {
-    vstr_t *out;
-    mp_obj_t *obj;		/* index -> object */
+    vstr_t *out;		/* one object's record */
+    mp_obj_t *obj;		/* the work: what is encoded (the GC's heap: kept) */
     int *parent;		/* for an error's path */
     mp_obj_t *label;
+    uint64_t *hash;		/* of each one's record */
     size_t n, a;
-    mp_obj_t *tkey;		/* object -> index, open addressing */
-    size_t *tval, tsize;
     mp_obj_t mainmod;
+    uint64_t *next;		/* the next OID */
+    int check;		/* $spacecheck: no OIDs given */
+    int bad;
 } enc_t;
 
 static void putu(vstr_t *v, uint64_t u) {
@@ -168,32 +336,15 @@ static void putstr(vstr_t *v, const char *s, size_t n) {
     vstr_add_strn(v, s, n);
 }
 
-static size_t slot(enc_t *e, mp_obj_t o) {
-    size_t h = (((uintptr_t)o >> 3) * 0x9E3779B97F4A7C15ULL) & (e->tsize - 1);
+static void put64(vstr_t *v, uint64_t u) {
+    int i;
 
-    while (e->tkey[h] != MP_OBJ_NULL && e->tkey[h] != o) {
-        h = (h + 1) & (e->tsize - 1);
-    }
-    return h;
-}
-
-static void grow(enc_t *e) {
-    mp_obj_t *ok = e->tkey;
-    size_t *ov = e->tval, os = e->tsize, i, h;
-
-    e->tsize = os ? 2 * os : 1024;
-    e->tkey = m_new0(mp_obj_t, e->tsize);
-    e->tval = m_new(size_t, e->tsize);
-    for (i = 0; i < os; i++) {
-        if (ok[i] != MP_OBJ_NULL) {
-            h = slot(e, ok[i]);
-            e->tkey[h] = ok[i];
-            e->tval[h] = ov[i];
-        }
+    for (i = 56; i >= 0; i -= 8) {
+        vstr_add_byte(v, (byte)(u >> i));
     }
 }
 
-// the path to object i (and then label), for an error
+// the path to work item i (and then label), for an error
 static void path(enc_t *e, int i, mp_obj_t label, vstr_t *v) {
     if (i >= 0) {
         path(e, e->parent[i], e->label[i], v);
@@ -279,29 +430,50 @@ static int okind(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
     notpersistent(e, o, parent, label, NULL);
 }
 
-static size_t ref(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
-    size_t h;
-
-    if (2 * (e->n + 1) > e->tsize) {
-        grow(e);
-    }
-    h = slot(e, o);
-    if (e->tkey[h] == o) {
-        return e->tval[h];
-    }
-    okind(e, o, parent, label);	/* not persistent: an error now, with its path */
+// a work item: o encoded by this commit (or check)
+static void push(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
     if (e->n == e->a) {
         e->a = e->a ? 2 * e->a : 256;
         e->obj = m_renew(mp_obj_t, e->obj, e->n, e->a);
         e->parent = m_renew(int, e->parent, e->n, e->a);
         e->label = m_renew(mp_obj_t, e->label, e->n, e->a);
+        e->hash = m_renew(uint64_t, e->hash, e->n, e->a);
     }
     e->obj[e->n] = o;
     e->parent[e->n] = parent;
     e->label[e->n] = label;
-    e->tkey[h] = o;
-    e->tval[h] = e->n;
-    return e->n++;
+    e->n++;
+}
+
+// o's OID; one new given (and o encoded too) if it has none
+static uint64_t ref(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
+    oent_t *x = oget(MP_OBJ_TO_PTR(o));
+    uint64_t oid;
+    vstr_t v;
+
+    if (x != NULL) {
+        if (e->check && !x->mark) {
+            x->mark = 1;
+            push(e, o, parent, label);
+        }
+        return x->oid;
+    }
+    if (e->check) {
+        vstr_init(&v, 64);
+        path(e, parent, label, &v);
+        mp_printf(&mp_plat_print, "space: check: %s at %s: no OID (not committed)\n",
+            qstr_str(mp_obj_get_type(o)->name), vstr_null_terminated_str(&v));
+        e->bad++;
+        return 0;
+    }
+    okind(e, o, parent, label);	/* not persistent: an error now, with its path */
+    oid = (*e->next)++;
+    oadd(MP_OBJ_TO_PTR(o), oid, 0);
+    x = oget(MP_OBJ_TO_PTR(o));
+    x->isnew = 1;
+    x->mark = 1;
+    push(e, o, parent, label);	/* x not used after: push may collect */
+    return oid;
 }
 
 // the module a Space's module object is, or NULL
@@ -473,10 +645,66 @@ static void putfun(enc_t *e, size_t i, mp_obj_fun_bc_t *f) {
     }
 }
 
+// a map's or set's entries, from START to the end of V, each ending at
+// END[k]: sorted by their bytes, so that the record (and its hash) does
+// not depend on the table's order, which a restore does not keep
+typedef struct {
+    size_t at, len;
+} span_t;
+static const char *spanbuf;
+
+static int spancmp(const void *a, const void *b) {
+    const span_t *x = a, *y = b;
+    int c = memcmp(spanbuf + x->at, spanbuf + y->at, x->len < y->len ? x->len : y->len);
+
+    return c != 0 ? c : (x->len > y->len) - (x->len < y->len);
+}
+
+static void sortentries(vstr_t *v, size_t start, const size_t *end, size_t n) {
+    span_t *sp;
+    char *tmp, *q;
+    size_t k, at;
+
+    if (n < 2) {
+        return;
+    }
+    sp = malloc(n * sizeof sp[0]);
+    tmp = malloc(v->len - start);
+    if (sp == NULL || tmp == NULL) {
+        free(sp);
+        free(tmp);
+        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: sorting a map"));
+    }
+    for (at = start, k = 0; k < n; at = end[k++]) {
+        sp[k].at = at;
+        sp[k].len = end[k] - at;
+    }
+    spanbuf = v->buf;
+    qsort(sp, n, sizeof sp[0], spancmp);
+    for (q = tmp, k = 0; k < n; k++) {
+        memcpy(q, v->buf + sp[k].at, sp[k].len);
+        q += sp[k].len;
+    }
+    memcpy(v->buf + start, tmp, v->len - start);
+    free(sp);
+    free(tmp);
+}
+
+// END for N entries: C's heap (no GC amid an encoding)
+static size_t *entryends(size_t n) {
+    size_t *end = malloc((n ? n : 1) * sizeof end[0]);
+
+    if (end == NULL) {
+        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: sorting a map"));
+    }
+    return end;
+}
+
 static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
     vstr_t *v = e->out;
     mp_obj_t o = e->obj[i], *items, it, x;
-    size_t n, k;
+    size_t n, k, j, start, *end;
+    nlr_buf_t nlr;
     mp_map_t *map;
     const mp_obj_type_t *t;
     const void *p;
@@ -495,7 +723,13 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
     case O_DICT:
         map = &((mp_obj_dict_t *)MP_OBJ_TO_PTR(o))->map;
         putu(v, map->used);
-        for (k = 0; k < map->alloc; k++) {
+        end = entryends(map->used);
+        if (nlr_push(&nlr) != 0) {
+            free(end);
+            nlr_jump(nlr.ret_val);
+        }
+        start = v->len;
+        for (j = k = 0; k < map->alloc && j < map->used; k++) {
             if (mp_map_slot_is_filled(map, k)) {
                 putv(e, map->table[k].key, i, MP_OBJ_NULL);
                 /* a module's __transient__ names: None */
@@ -505,17 +739,32 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
                 } else {
                     putv(e, map->table[k].value, i, map->table[k].key);
                 }
+                end[j++] = v->len;
             }
         }
+        sortentries(v, start, end, j);
+        nlr_pop();
+        free(end);
         break;
     case O_SET:
     case O_FROZENSET:
-        putu(v, MP_OBJ_SMALL_INT_VALUE(mp_obj_len(o)));
+        n = MP_OBJ_SMALL_INT_VALUE(mp_obj_len(o));
+        putu(v, n);
+        end = entryends(n);
+        if (nlr_push(&nlr) != 0) {
+            free(end);
+            nlr_jump(nlr.ret_val);
+        }
+        start = v->len;
         it = mp_getiter(o, NULL);
         k = 0;
-        while ((x = mp_iternext(it)) != MP_OBJ_STOP_ITERATION) {
-            putv(e, x, i, MP_OBJ_NEW_SMALL_INT(k++));
+        while (k < n && (x = mp_iternext(it)) != MP_OBJ_STOP_ITERATION) {
+            putv(e, x, i, MP_OBJ_NEW_SMALL_INT(k));
+            end[k++] = v->len;
         }
+        sortentries(v, start, end, k);
+        nlr_pop();
+        free(end);
         break;
     case O_BYTEARRAY: {
         mp_buffer_info_t b;
@@ -551,12 +800,22 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
         putv(e, MP_OBJ_FROM_PTR(mp_obj_get_type(o)), i, MP_OBJ_NEW_QSTR(MP_QSTR___class__));
         map = &((mp_obj_instance_t *)MP_OBJ_TO_PTR(o))->members;
         putu(v, map->used);
-        for (k = 0; k < map->alloc; k++) {
+        end = entryends(map->used);
+        if (nlr_push(&nlr) != 0) {
+            free(end);
+            nlr_jump(nlr.ret_val);
+        }
+        start = v->len;
+        for (j = k = 0; k < map->alloc && j < map->used; k++) {
             if (mp_map_slot_is_filled(map, k)) {
                 putv(e, map->table[k].key, i, MP_OBJ_NULL);
                 putv(e, map->table[k].value, i, map->table[k].key);
+                end[j++] = v->len;
             }
         }
+        sortentries(v, start, end, j);
+        nlr_pop();
+        free(end);
         break;
     case O_FUN:
         putfun(e, i, MP_OBJ_TO_PTR(o));
@@ -585,55 +844,212 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
     }
 }
 
-void p9_image_encode(vstr_t *out) {
-    enc_t e;
-    vstr_t objs, roots;
+// the roots: __main__'s dict and the Space's modules' globals
+typedef struct {
+    mp_obj_t dict[64];
+    qstr name[64];
+    int n;
+} roots_t;
+
+static void getroots(enc_t *e, roots_t *r) {
     p9_space_mod_t *m;
     int n, k;
-    size_t i, nroot = 0;
-    mp_obj_t g, *rootdict, transient;
-    qstr *rootname;
-    mp_map_elem_t *el;
 
-    memset(&e, 0, sizeof e);
-    e.mainmod = MP_OBJ_FROM_PTR(&mp_module___main__);
+    r->n = 0;
+    r->name[r->n] = MP_QSTR___main__;
+    r->dict[r->n++] = MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main));
     m = p9_space_mods(&n);
-    rootdict = m_new(mp_obj_t, n + 1);
-    rootname = m_new(qstr, n + 1);
-    rootname[nroot] = MP_QSTR___main__;
-    rootdict[nroot++] = MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main));
-    for (k = 0; k < n; k++) {
-        if (spacemod(&e, MP_OBJ_FROM_PTR(m[k].ctx)) != MP_QSTRnull) {
-            rootname[nroot] = m[k].name;
-            rootdict[nroot++] = MP_OBJ_FROM_PTR(m[k].ctx->module.globals);
+    for (k = 0; k < n && r->n < 64; k++) {
+        if (spacemod(e, MP_OBJ_FROM_PTR(m[k].ctx)) != MP_QSTRnull) {
+            r->name[r->n] = m[k].name;
+            r->dict[r->n++] = MP_OBJ_FROM_PTR(m[k].ctx->module.globals);
         }
     }
-    /* the roots' dicts are objects 0..nroot-1 */
-    for (i = 0; i < nroot; i++) {
-        ref(&e, rootdict[i], -1, MP_OBJ_NEW_QSTR(rootname[i]));
-    }
-    vstr_init(&objs, 4096);
-    e.out = &objs;
-    for (i = 0; i < e.n; i++) {
-        transient = MP_OBJ_NULL;
-        if (i < nroot) {
-            g = rootdict[i];
-            el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(g))->map, MP_OBJ_NEW_QSTR(MP_QSTR___transient__), MP_MAP_LOOKUP);
+}
+
+// work item i's record (kind and fields) in *e->out
+static void encode(enc_t *e, roots_t *r, size_t i) {
+    mp_obj_t transient = MP_OBJ_NULL;
+    mp_map_elem_t *el;
+    int k;
+
+    for (k = 0; k < r->n; k++) {
+        if (e->obj[i] == r->dict[k]) {
+            el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(r->dict[k]))->map,
+                MP_OBJ_NEW_QSTR(MP_QSTR___transient__), MP_MAP_LOOKUP);
             if (el != NULL) {
                 transient = el->value;
             }
         }
-        putobj(&e, i, transient);
     }
-    vstr_init(&roots, 256);
-    putu(&roots, nroot);
-    for (i = 0; i < nroot; i++) {
-        putstr(&roots, qstr_str(rootname[i]), strlen(qstr_str(rootname[i])));
-        putu(&roots, i);
+    e->out->len = 0;
+    putobj(e, i, transient);
+}
+
+static void rootrec(enc_t *e, roots_t *r, vstr_t *v) {
+    oent_t *x;
+    int k;
+
+    putu(v, r->n);
+    for (k = 0; k < r->n; k++) {
+        putstr(v, qstr_str(r->name[k]), strlen(qstr_str(r->name[k])));
+        x = oget(MP_OBJ_TO_PTR(r->dict[k]));
+        putu(v, x != NULL ? x->oid : 0);
     }
-    putu(out, e.n);
-    vstr_add_strn(out, objs.buf, objs.len);
-    vstr_add_strn(out, roots.buf, roots.len);
+}
+
+static void record(vstr_t *rec, uint64_t oid, const char *p, size_t n) {
+    vstr_add_byte(rec, 'p');
+    put64(rec, oid);
+    put64(rec, n);
+    vstr_add_strn(rec, p, n);
+}
+
+int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a) {
+    nlr_buf_t nlr;
+    enc_t e;
+    roots_t r;
+    vstr_t rec, body, rv;
+    uint64_t rh, nexto;
+    size_t i, nd, nrec;
+    oent_t *x;
+    int k, ret;
+    char what[80];
+    long long t0 = nsec();
+
+    memset(&e, 0, sizeof e);
+    e.mainmod = MP_OBJ_FROM_PTR(&mp_module___main__);
+    nexto = *next;
+    e.next = next;
+    nd = 0;
+    rh = 0;
+    vstr_init(&rec, 4096);
+    vstr_init(&body, 256);
+    vstr_init(&rv, 256);
+    e.out = &body;
+    if (nlr_push(&nlr) == 0) {
+        getroots(&e, &r);
+        /* the roots always (few, and the barrier misses __main__'s
+           static dict), then what changed in place, then what is new */
+        for (k = 0; k < r.n; k++) {
+            if ((x = oget(MP_OBJ_TO_PTR(r.dict[k]))) == NULL) {
+                ref(&e, r.dict[k], -1, MP_OBJ_NEW_QSTR(r.name[k]));
+            } else if (!x->mark) {
+                x->mark = 1;
+                push(&e, r.dict[k], -1, MP_OBJ_NEW_QSTR(r.name[k]));
+            }
+        }
+        if (dirtylost) {
+            for (i = 0; i < otsize; i++) {
+                if (ot[i].p != NULL && ot[i].dirty && !ot[i].mark) {
+                    ot[i].mark = 1;
+                    push(&e, MP_OBJ_FROM_PTR(ot[i].p), -1, MP_OBJ_NULL);
+                }
+            }
+        }
+        for (i = 0; i < ndirty; i++) {
+            if ((x = oget(dirtyv[i])) != NULL && x->dirty && !x->mark) {
+                x->mark = 1;
+                push(&e, MP_OBJ_FROM_PTR(dirtyv[i]), -1, MP_OBJ_NULL);
+            }
+        }
+        nrec = 0;
+        for (i = 0; i < e.n; i++) {	/* e.n grows: the new ones */
+            encode(&e, &r, i);
+            e.hash[i] = fnv(body.buf, body.len);
+            x = oget(MP_OBJ_TO_PTR(e.obj[i]));
+            if (x->isnew || x->hash != e.hash[i]) {
+                record(&rec, x->oid, body.buf, body.len);
+                nrec++;
+            }
+        }
+        nd = ndead;
+        for (i = 0; i < nd; i++) {
+            vstr_add_byte(&rec, 'd');
+            put64(&rec, deadv[i]);
+            nrec++;
+        }
+        rootrec(&e, &r, &rv);
+        rh = fnv(rv.buf, rv.len);
+        if (rh != roothash) {
+            record(&rec, OID_ROOTS, rv.buf, rv.len);
+            nrec++;
+        }
+        snprint(what, sizeof what, "commit: %d encoded, %d records, %d bytes", (int)e.n, (int)nrec, (int)rec.len);
+        p9_spacetime(what, t0);
+        ret = nrec == 0 ? 0 : write(&rec, a) < 0 ? -1 : 1;
+        p9_spacetime("commit: written", t0);
+        nlr_pop();
+    } else {
+        ret = -2;	/* raised: rolled back, then raised again */
+    }
+    /* done: the hashes kept, the marks cleared; or all as it was */
+    for (i = 0; i < e.n; i++) {
+        if ((x = oget(MP_OBJ_TO_PTR(e.obj[i]))) != NULL) {
+            x->mark = 0;
+        }
+    }
+    if (ret >= 0) {
+        for (i = 0; i < e.n; i++) {
+            x = oget(MP_OBJ_TO_PTR(e.obj[i]));
+            x->hash = e.hash[i];
+            x->isnew = 0;
+            x->dirty = 0;
+        }
+        ndirty = 0;
+        dirtylost = 0;
+        memmove(deadv, deadv + nd, (ndead - nd) * sizeof deadv[0]);
+        ndead -= nd;
+        roothash = rh;
+    } else {
+        for (i = 0; i < e.n; i++) {
+            x = oget(MP_OBJ_TO_PTR(e.obj[i]));
+            if (x != NULL && x->isnew) {
+                odel(MP_OBJ_TO_PTR(e.obj[i]));
+            }
+        }
+        *next = nexto;	/* never used: fine either way, but as it was */
+    }
+    if (ret == -2) {
+        nlr_jump(nlr.ret_val);
+    }
+    return ret;
+}
+
+int p9_image_check(void) {
+    enc_t e;
+    roots_t r;
+    vstr_t body, v;
+    oent_t *x;
+    size_t i;
+    int k;
+
+    memset(&e, 0, sizeof e);
+    e.mainmod = MP_OBJ_FROM_PTR(&mp_module___main__);
+    e.check = 1;
+    vstr_init(&body, 256);
+    e.out = &body;
+    getroots(&e, &r);
+    for (k = 0; k < r.n; k++) {
+        ref(&e, r.dict[k], -1, MP_OBJ_NEW_QSTR(r.name[k]));
+    }
+    for (i = 0; i < e.n; i++) {
+        encode(&e, &r, i);
+        x = oget(MP_OBJ_TO_PTR(e.obj[i]));
+        if (x->hash != fnv(body.buf, body.len)) {
+            vstr_init(&v, 64);
+            path(&e, e.parent[i], e.label[i], &v);
+            mp_printf(&mp_plat_print, "space: check: %s at %s (OID %u): changed, not committed\n",
+                qstr_str(mp_obj_get_type(e.obj[i])->name), vstr_null_terminated_str(&v), (unsigned)x->oid);
+            e.bad++;
+        }
+    }
+    for (i = 0; i < e.n; i++) {
+        if ((x = oget(MP_OBJ_TO_PTR(e.obj[i]))) != NULL) {
+            x->mark = 0;
+        }
+    }
+    return e.bad;
 }
 
 /* ---- decoding ---- */
@@ -644,7 +1060,12 @@ typedef struct {
     byte *kind;
     const byte **body;
     size_t n;
+    int byoid;		/* the store's: a reference is an OID */
+    uint64_t *oid;		/* index -> OID */
+    size_t *mval, msize;	/* OID -> index+1 */
 } dec_t;
+
+static size_t omget(dec_t *d, uint64_t oid);
 
 static MP_NORETURN void corrupt(void) {
     mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: a corrupt image"));
@@ -754,7 +1175,9 @@ static mp_obj_t getv(dec_t *d, bool skip) {
         return mp_load_attr(mod, qstr_from_strn(a, m));
     case V_REF:
         u = getu(d);
-        if (u >= d->n) {
+        if (d->byoid) {
+            u = omget(d, u);
+        } else if (u >= d->n) {
             corrupt();
         }
         return skip ? mp_const_none : d->shell[u];
@@ -1044,14 +1467,66 @@ static void fill(dec_t *d, size_t i) {
     }
 }
 
-void p9_image_restore(const byte *p, size_t len) {
-    dec_t d;
-    size_t i, k, n, nroot, left;
-    const char *s;
-    mp_obj_t g;
-    mp_module_context_t *ctx;
+// the shells, then their contents (both formats)
+static void build(dec_t *d, long long t0) {
+    size_t i, left;
     bool any;
     int round;
+
+    /* the shells: values first, then what needs others, until done */
+    for (i = 0; i < d->n; i++) {
+        if (d->shell[i] == MP_OBJ_NULL && d->kind[i] < O_CLASS) {
+            mkshell(d, i);
+        }
+    }
+    do {
+        any = false;
+        left = 0;
+        for (i = 0; i < d->n; i++) {
+            if (d->shell[i] == MP_OBJ_NULL) {
+                if (mkshell(d, i)) {
+                    any = true;
+                } else {
+                    left++;
+                }
+            }
+        }
+    } while (left > 0 && any);
+    if (left > 0) {
+        corrupt();
+    }
+    p9_spacetime("restore: shells", t0);
+    /* filled: all but dicts and sets, then those with plain keys, then
+       the rest (a key's __hash__ may use the others) */
+    for (i = 0; i < d->n; i++) {
+        if (d->kind[i] != O_DICT && d->kind[i] != O_SET && d->kind[i] != O_FROZENSET) {
+            fill(d, i);
+        }
+    }
+    p9_spacetime("restore: filled", t0);
+    for (round = 0; round < 2; round++) {
+        for (i = 0; i < d->n; i++) {
+            if ((d->kind[i] == O_DICT || d->kind[i] == O_SET || d->kind[i] == O_FROZENSET)
+                && plainkeys(d, i) == (round == 0)) {
+                fill(d, i);
+            }
+        }
+    }
+    p9_spacetime("restore: dicts and sets", t0);
+}
+
+// a root's dict: the module's own (__main__'s, or the Environment's NAME)
+static mp_obj_t rootdict(const char *s, size_t n) {
+    if (qstr_from_strn(s, n) == MP_QSTR___main__) {
+        return MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main));
+    }
+    return MP_OBJ_FROM_PTR(p9_space_loadmod(qstr_from_strn(s, n))->ctx->module.globals);
+}
+
+void p9_image_restore(const byte *p, size_t len) {
+    dec_t d;
+    size_t i, k, n, nroot;
+    const char *s;
 
     long long t0 = nsec();
 
@@ -1081,55 +1556,130 @@ void p9_image_restore(const byte *p, size_t len) {
         if (i >= d.n || d.kind[i] != O_DICT) {
             corrupt();
         }
-        if (qstr_from_strn(s, n) == MP_QSTR___main__) {
-            g = MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main));
-        } else {
-            ctx = p9_space_loadmod(qstr_from_strn(s, n))->ctx;
-            g = MP_OBJ_FROM_PTR(ctx->module.globals);
-        }
-        d.shell[i] = g;
+        d.shell[i] = rootdict(s, n);
     }
     if (d.p != d.end) {
         corrupt();
     }
     p9_spacetime("restore: parsed", t0);
-    /* the shells: values first, then what needs others, until done */
-    for (i = 0; i < d.n; i++) {
-        if (d.shell[i] == MP_OBJ_NULL && d.kind[i] < O_CLASS) {
-            mkshell(&d, i);
+    build(&d, t0);
+}
+
+static uint32_t get32(const byte *p) {
+    return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3];
+}
+
+static uint64_t get64(const byte *p) {
+    return (uint64_t)get32(p) << 32 | get32(p + 4);
+}
+
+static size_t omhash(dec_t *d, uint64_t oid) {
+    return (size_t)((oid * 0x9E3779B97F4A7C15ULL) >> 20) & (d->msize - 1);
+}
+
+static void omadd(dec_t *d, uint64_t oid, size_t i) {
+    size_t h;
+
+    for (h = omhash(d, oid); d->mval[h] != 0; h = (h + 1) & (d->msize - 1)) {
+        if (d->oid[d->mval[h] - 1] == oid) {
+            corrupt();	/* twice */
         }
     }
-    do {
-        any = false;
-        left = 0;
-        for (i = 0; i < d.n; i++) {
-            if (d.shell[i] == MP_OBJ_NULL) {
-                if (mkshell(&d, i)) {
-                    any = true;
-                } else {
-                    left++;
-                }
-            }
+    d->mval[h] = i + 1;
+}
+
+static size_t omget(dec_t *d, uint64_t oid) {
+    size_t h;
+
+    for (h = omhash(d, oid); d->mval[h] != 0; h = (h + 1) & (d->msize - 1)) {
+        if (d->oid[d->mval[h] - 1] == oid) {
+            return d->mval[h] - 1;
         }
-    } while (left > 0 && any);
-    if (left > 0) {
+    }
+    corrupt();	/* a reference to what the store has not */
+}
+
+void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *user, size_t *nuser) {
+    dec_t d;
+    const byte *q, *e = p + len, *rr = NULL, **rec;
+    size_t i, k, n, nroot, nr = 0, *recn;
+    uint64_t oid, olen;
+    const char *s;
+
+    long long t0 = nsec();
+
+    if (len < 21 || p[0] != 'H') {
         corrupt();
     }
-    p9_spacetime("restore: shells", t0);
-    /* filled: all but dicts and sets, then those with plain keys, then
-       the rest (a key's __hash__ may use the others) */
+    *version = get64(p + 1);
+    n = get32(p + 17);
+    if (n > *nuser || n > len - 21) {
+        corrupt();
+    }
+    memcpy(user, p + 21, n);
+    *nuser = n;
+    q = p + 21 + n;
+    /* the objects' records: counted, then taken */
+    memset(&d, 0, sizeof d);
+    for (n = 0; q < e; n++) {
+        if (e - q < 25 || *q != 'o' || get64(q + 17) > (uint64_t)(e - q - 25)) {
+            corrupt();
+        }
+        q += 25 + get64(q + 17);
+    }
+    d.shell = m_new0(mp_obj_t, n + 1);
+    d.kind = m_new(byte, n + 1);
+    d.body = m_new(const byte *, n + 1);
+    d.oid = m_new(uint64_t, n + 1);
+    rec = m_new(const byte *, n + 1);
+    recn = m_new(size_t, n + 1);
+    for (d.msize = 16; d.msize < 2 * n + 2; d.msize *= 2) {
+    }
+    d.mval = m_new0(size_t, d.msize);
+    d.byoid = 1;
+    d.end = e;
+    for (q = p + 21 + *nuser; q < e; q += 25 + olen) {
+        oid = get64(q + 1);
+        olen = get64(q + 17);
+        if (oid == OID_ROOTS) {
+            rr = q + 25;
+            nr = olen;
+            continue;
+        }
+        if (olen < 1 || q[25] >= O_NKIND) {
+            corrupt();
+        }
+        i = d.n++;
+        d.oid[i] = oid;
+        d.kind[i] = q[25];
+        d.body[i] = q + 26;
+        rec[i] = q + 25;
+        recn[i] = olen;
+        omadd(&d, oid, i);
+    }
+    if (rr == NULL) {
+        corrupt();
+    }
+    /* the roots: their dicts are the modules' own, made first */
+    d.p = rr;
+    d.end = rr + nr;
+    nroot = getu(&d);
+    for (k = 0; k < nroot; k++) {
+        s = getstr(&d, &n);
+        i = omget(&d, getu(&d));
+        if (d.kind[i] != O_DICT) {
+            corrupt();
+        }
+        d.shell[i] = rootdict(s, n);
+    }
+    d.end = e;
+    p9_spacetime("restore: parsed", t0);
+    build(&d, t0);
+    /* the OIDs: the objects as they are in the store */
+    p9_image_reset();
     for (i = 0; i < d.n; i++) {
-        if (d.kind[i] != O_DICT && d.kind[i] != O_SET && d.kind[i] != O_FROZENSET) {
-            fill(&d, i);
-        }
+        oadd(MP_OBJ_TO_PTR(d.shell[i]), d.oid[i], fnv((const char *)rec[i], recn[i]));
     }
-    p9_spacetime("restore: filled", t0);
-    for (round = 0; round < 2; round++) {
-        for (i = 0; i < d.n; i++) {
-            if ((d.kind[i] == O_DICT || d.kind[i] == O_SET || d.kind[i] == O_FROZENSET)
-                && plainkeys(&d, i) == (round == 0)) {
-                fill(&d, i);
-            }
-        }
-    }
+    roothash = fnv((const char *)rr, nr);
+    p9_spacetime("restore: OIDs", t0);
 }

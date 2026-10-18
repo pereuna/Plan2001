@@ -13,9 +13,26 @@ p9_space_mod_t *p9_space_mods(int *n);
 // the module NAME of the Environment, loaded without running it
 p9_space_mod_t *p9_space_loadmod(qstr name);
 
-// the image's body: the Space's modules and what they reach
-void p9_image_encode(vstr_t *out);
+// a store's OIDs: 1 the roots' record (n (name OID)*), then the objects
+enum {
+    OID_ROOTS = 1,
+    OID_FIRST = 2,
+};
+
+// V2-V4's image (v<N>): restored once, its objects then given OIDs
 void p9_image_restore(const byte *p, size_t n);
+// the store (V5): its stream read (gefs-obj.md 3.2), the objects of
+// version *n restored and given their OIDs; the header's user part out
+void p9_image_restore_store(const byte *p, size_t n, uint64_t *version, char *user, size_t *nuser);
+// a commit's records: the changed objects (new OIDs from *next) and
+// the freed, given to write (0 written, -1 failed: all rolled back).
+// Returns 1 written, 0 nothing changed, -1 write's failure
+int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a);
+// $spacecheck: every object reached encoded again and compared with
+// what the store has: the number differing (printed)
+int p9_image_check(void);
+// the OIDs forgotten (a failed open)
+void p9_image_reset(void);
 
 // a commit point (mp -S; FORCE: the program's end, within space.atomic
 // too): 0 done or nothing to do, -1 failed (printed)

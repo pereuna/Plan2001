@@ -174,32 +174,49 @@ Uusia järjestelmäkutsuja ei tule. Store on gefs:n tiedosto.
 
 Tavoite on, että commitin työ on O(muutos), myös CPU:lla.
 
-- **Bittikartat GC-lohkoille**, kuten finaliser-taulu (`py/gc.c`:
-  `FTB_SET`, `BLOCK_FROM_PTR`): `dirty` ja `hasoid`. Merkintä on O(1)
-  ilman hajautusta.
-- **OID:t:** sivutaulu osoite → OID olioille, joilla on `hasoid`. Uusi
-  OID tulee otsakkeen laskurista, eikä OID:itä kierrätetä.
-- **Kirjoitusbarrierit** C-poluissa, jotka muuttavat pysyviä tyyppejä
-  (5.5): `mp_map_lookup` lisäyksellä ja poistolla (dict, instanssin
-  attribuutit, moduulin globaalit, luokan dict), `objlist.c`:n
-  muuttajat (sijoitus, append, extend, insert, pop, remove, clear, sort,
-  reverse, viipaleet), `objset.c`, `objarray.c` (bytearray, myös
-  `readinto` ja `plan9.read` puskuriin) ja solun sijoitus. Barrier
-  merkitsee `dirty`n vain, jos oliolla on `hasoid` (uusia ei tarvitse).
-- **Commit** koodaa vain likaiset oliot. Uusi olio löytyy likaisen
-  olion viitteestä: se saa OID:n ja koodataan, ja rekursio jatkuu vain
-  uusiin. Juuret tulevat otsakkeeseen.
-- **Poisto:** kun GC:n sweep vapauttaa `hasoid`-lohkon, sen OID siirtyy
-  poistolistalle, ja seuraava commit kirjoittaa hautakiven. Sivutaulun
-  rivi poistuu samalla, joten osoitteen uudelleenkäyttö ei peri OID:tä.
-  Olio, joka on yhä RAMissa mutta jota ei saavuteta juurista (esim. vain
-  `__transient__`-nimestä), jää storeen, kunnes harvoin ajettava täysi
-  merkintä (avauksessa tai mitatun välin jälkeen) poistaa sen.
+- **OID-taulu** (`p9image.c`) C-keossa GC:n ulkopuolella: avoin
+  hajautustaulu (lineaarinen haku, poisto siirtämällä), jossa osoite
+  → OID, edellisen commitin FNV-tiiviste sekä `dirty`-, `isnew`- ja
+  `mark`-liput. Viitteet ovat heikkoja, eli GC ei näe taulua. Uusi OID
+  tulee otsakkeen laskurista (`next`). OID:itä ei kierrätetä. Juuritietue
+  on OID 1, oliot alkavat 2:sta. (Suunnitelman bittikartat GC-lohkoille
+  jäivät pois: taulua tarvitaan OID:n takia joka tapauksessa, eikä
+  `hasoid`-tarkistus maksa barrierissa, kun Spacea ei ole auki:
+  `p9_space_noid`.)
+- **Kirjoitusbarrierit** `P9_DIRTY(obj)` (`mpconfigport.h`;
+  `py/mpconfig.h`:ssa tyhjä) C-poluissa, jotka muuttavat pysyviä
+  tyyppejä (5.5): `py/map.c` (`mp_map_lookup` lisäyksellä ja
+  poistolla, `mp_map_clear`, `mp_set_lookup`, `mp_set_remove_first`,
+  `mp_set_clear`: dict, set, instanssin attribuutit, moduulin
+  globaalit, luokan dict), `objdict.c` (`popitem`), `objlist.c`:n
+  muuttajat, `objarray.c` (append, extend, sijoitus ja kirjoitettava
+  puskuri: `readinto`, `plan9.read`) ja solun sijoitus (`obj.h`).
+  Barrier kirjaa olion likaiseksi vain, jos sillä on OID (uudet löytyvät
+  viitteistä). Jos likaisten lista täyttyy, commit käy taulun läpi
+  (`dirtylost`).
+- **Commit** koodaa juuret (muutama), likaiset ja niistä löytyvät uudet
+  oliot (rekursio vain uusiin). Tietue kirjoitetaan vain, jos olio on
+  uusi tai sen tiiviste muuttui. Juuritietue kirjoitetaan, jos sen
+  tiiviste muuttui. Virheessä uudet OID:t perutaan, ja likaiset jäävät
+  likaisiksi seuraavaan commitiin.
+- **Kanoninen koodaus:** dictin, setin ja instanssin attribuuttien
+  kentät koodataan tavujärjestykseen lajiteltuina. MicroPythonin
+  hajautustaulun järjestys riippuu varauksesta ja lisäyshistoriasta,
+  eikä restore säilytä sitä. Ilman lajittelua jokainen palautettu
+  dict näytti muuttuneelta (`$spacecheck` löysi tämän V2:ssa).
+- **Poisto:** GC:n sweep ja `gc_free` kutsuvat `P9_FREED`ia. OID-taulun
+  rivi poistuu, ja aiemmin kirjoitetun olion OID siirtyy poistolistalle.
+  Seuraava commit kirjoittaa sille hautakiven (`'d'`). Osoitteen
+  uudelleenkäyttö ei siis peri OID:tä. Olio, joka on yhä RAMissa mutta
+  jota ei saavuteta juurista (esim. vain `__transient__`-nimestä), jää
+  storeen (avoin, luku 7).
 - **Varmistus:** `$spacecheck` tekee jokaisessa commitissa myös täyden
   koodauksen ja vertaa. Testit ajetaan sen kanssa, joten unohtunut
   barrier näkyy testissä eikä hiljaisena tietojen menetyksenä.
-- **Avaus** palauttaa yhä koko graafin (6,6–7,0 s V4:ssä). Se mitataan
-  V5:ssä; laiska restore on erillinen päätös.
+- **Avaus** palauttaa yhä koko graafin (OID-tietueista, `build()`
+  jaettu vanhan muodon kanssa) ja täyttää OID-taulun tiivisteineen.
+- **Otsakkeen käyttäjäosa** (`'h'`, 72 tavua): Environmentin tiiviste
+  (64 heksamerkkiä) ja OID-laskuri `next[8]`.
 - **Polut:** `/usr/$user/space/<nimi>/obj` (`DMOBJ`) korvaa
   `v<N>`-tiedostot. Kuvan SHA-256:ta ei tarvita, koska gefs tarkistaa
   lohkojen tiivisteet.
@@ -225,11 +242,11 @@ Lisäksi:
 | T5.9 | Levy täynnä: commit epäonnistuu, edellinen versio säilyy, ja uusi yritys onnistuu tilan vapauduttua ja gefs:n uudelleenkäynnistyksen jälkeen. |
 | T5.10 | `space.open(nimi, version=v)` avaa säilytetyn vanhan version, ja liian vanha versio antaa virheen. |
 | T5.11 | Siirtymä: V4:n `v<N>`-Space avautuu, ja ensimmäisen commitin jälkeen `v*` on poissa. |
-| ktest `objtx` | Moottori: put, korvaus lyhyemmällä, delete, skannaus, abort, versiot ja historian siivous. |
+| ktest `fsobj` | Moottori: put, korvaus lyhyemmällä, delete, skannaus, abort, versiot ja historian siivous. |
 
 ## 6. Toteutusjärjestys
 
-1. `Kobj`, `obj.c` ja ktest `objtx`; `check.c` ja `dump.c` molemmissa
+1. `Kobj`, `obj.c` ja ktest `fsobj`; `check.c` ja `dump.c` molemmissa
    gefs-kopioissa.
 2. `DMOBJ`-tiedosto 9P:nä ja sen testit (`tools/test-space.sh`: T5.6,
    T5.7).
@@ -239,9 +256,20 @@ Lisäksi:
 
 ## 7. Avoimet
 
-- Laiska restore (avaus 6,6–7,0 s): mitataan ensin.
-- Täyden merkinnän väli (RAMissa elävät, juurista saavuttamattomat
-  oliot): mitataan.
+- Avaus: V4:n noin 30 000 olion Space avautuu QEMU:ssa noin 8,3 s:ssa.
+  Siitä dictien ja settien täyttö (`build()`) vie 5,5–6,4 s ja muu
+  restore 1,5–2,8 s. Laiska restore
+  tai nopeampi täyttö on seuraava mittauskohde.
+- RAMissa elävät, juurista saavuttamattomat oliot (esim. vain
+  `__transient__`-nimestä) jäävät storeen: täysi merkintä puuttuu.
+- Käyttäjätilan gefs (`sys/src/cmd/gefs`, 9frontin kopio) ei tunne
+  `DMOBJ`:ta, eikä kernelin gefs:stä voi olla toista instanssia. Siksi
+  T3.5 ja T5.9 (levy täynnä) jäävät ajamatta, kunnes jompikumpi
+  ratkeaa.
+- Ajamatta: T5.2 (OID:n pysyvyys, vaatii OID:n näkyviin), T5.4
+  (storen poisto ja tila), T5.11 (siirtymä `v<N>`:stä; vanhaa
+  kirjoittajaa ei enää ole, joten testi tarvitsee valmiin V4-kuvan).
+  `check.c` ei vielä tarkista `Kobj`-avaimia erikseen (gefsck on puhdas).
 - Barrierin kattavuus natiiveissa moduuleissa, joiden oliot eivät ole
   pysyviä tyyppejä (5.5): ne nostavat jo `CommitError`in.
 

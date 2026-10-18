@@ -51,6 +51,13 @@
 #define mp_builtin___import__ p9_import
 /* a Space's commit point: a REPL statement's end (mp -S) */
 int p9_space_commit(int force);
+// the Space's object store (p9image.c, docs/gefs-obj.md): an object
+// with an OID changed in place, one freed; on only when there are OIDs
+extern size_t p9_space_noid;
+void p9_space_dirty(const void *p);
+void p9_space_freed(const void *p);
+#define P9_DIRTY(p) do { if (p9_space_noid) p9_space_dirty(p); } while (0)
+#define P9_FREED(p) do { if (p9_space_noid) p9_space_freed(p); } while (0)
 #define MICROPY_BOARD_AFTER_PYTHON_EXEC(kind, flags, val, ret) p9_space_commit(0)
 /* the types a Space keeps (docs/object-model.md 5.5); graph's links
    are descriptors (5.7) */

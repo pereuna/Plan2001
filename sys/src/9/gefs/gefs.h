@@ -17,6 +17,8 @@
 #define	DMAUTH		0x08000000
 #define	DMTMP		0x04000000
 #define	QTTMP		0x04
+#define	DMOBJ		0x02000000	/* Plan2001: object stores (obj.c) */
+#define	QTOBJ		0x02
 #define	STATMAX		65535U
 
 /* libc's flags of a Fmt (libc.h), for dump.c's verbs */

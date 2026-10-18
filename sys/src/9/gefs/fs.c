@@ -416,7 +416,7 @@ rerror(Fmsg *m, char *fmt, ...)
 }
 
 
-static void
+void
 upsert(Mount *mnt, Msg *m, int nm)
 {
 	Tree *r;
@@ -847,6 +847,7 @@ clunkfid(Conn *c, Fid *fid, Amsg **ao)
 		(*ao)->dent = f->dent;
 	}
 	wunlock(f->dent);
+	objclunk(f, ao);
 }
 
 static void
@@ -858,6 +859,10 @@ freeamsg(Amsg *a)
 	case AOrclose:
 	case AOclear:
 		clunkdent(a->mnt, a->dent);
+		clunkmount(a->mnt);
+		break;
+	case AOobjabort:
+	case AOobjclear:
 		clunkmount(a->mnt);
 		break;
 	}
@@ -1492,7 +1497,7 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 	}
 	if(d.length != ~0){
 		nulldir = 0;
-		if(d.length < 0 || (de->mode & DMDIR) != 0)
+		if(d.length < 0 || (de->mode & (DMDIR|DMOBJ)) != 0)
 			error(Ewstatl);
 		if(d.length != de->length){
 			prevlen = de->length;
@@ -1526,7 +1531,9 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 		nulldir = 0;
 		if((d.mode^de->mode) & DMDIR)
 			error(Ewstatd);
-		if(d.mode & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|0777))
+		if((d.mode^de->mode) & DMOBJ)
+			error(Ewstatb);
+		if(d.mode & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|DMOBJ|0777))
 			error(Ewstatb);
 		if(d.mode != de->mode){
 			n.mode = d.mode;
@@ -1737,7 +1744,9 @@ fscreate(Fmsg *m)
 		error(e);
 	if(m->perm & (DMMOUNT|DMAUTH))
 		error(Ebotch);
-	if(m->perm & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|0777))
+	if(m->perm & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|DMOBJ|0777))
+		error(Ewstatb);
+	if((m->perm & DMOBJ) && (m->perm & (DMDIR|DMAPPEND) || m->mode & (OTRUNC|ORCLOSE)))
 		error(Ewstatb);
 	if((f = getfid(m->conn, m->fid)) == nil)
 		error(Enofid);
@@ -1785,6 +1794,8 @@ fscreate(Fmsg *m)
 		d.qid.type |= QTEXCL;
 	if(m->perm & DMTMP)
 		d.qid.type |= QTTMP;
+	if(m->perm & DMOBJ)
+		d.qid.type |= QTOBJ;
 	d.qid.path = fs->nextqid++;
 	d.qid.vers = 0;
 	d.mode = m->perm;
@@ -1888,6 +1899,13 @@ fsremove(Fmsg *m, int id, Amsg **ao)
 	t = agetp(&f->mnt->root);
 	nm = 0;
 	wlock(f);
+	if(waserror()){
+		wunlock(f);
+		putfid(f);
+		nexterror();
+	}
+	objabortfid(f);	/* Plan2001: its transaction, before the clunk */
+	poperror();
 	clunkfid(m->conn, f, ao);
 	if(agetl(&fs->rdonly))
 		error(Erdonly);
@@ -1940,7 +1958,7 @@ fsremove(Fmsg *m, int id, Amsg **ao)
 	}else{
 		*ao = emalloc(sizeof(Amsg), 1);
 		aincl(&f->mnt->ref, 1);
-		(*ao)->op = AOclear;
+		(*ao)->op = (f->dent->qid.type & QTOBJ) ? AOobjclear : AOclear;
 		(*ao)->mnt = f->mnt;
 		(*ao)->qpath = f->qpath;
 		(*ao)->off = 0;
@@ -1989,6 +2007,8 @@ fsopen(Fmsg *m, int id, Amsg **ao)
 	if((f->dent->qid.type & QTEXCL) && agetl(&f->dent->ref) != 1)
 		error(Elocked);
 	if((f->dent->qid.type & QTDIR) && (mbits & 0222) != 0)
+		error(Eperm);
+	if((f->dent->qid.type & QTOBJ) && (m->mode & (OTRUNC|ORCLOSE)))
 		error(Eperm);
 	if(m->mode & ORCLOSE){
 		if(fsaccess(f, f->dmode, f->duid, f->dgid, DMWRITE) == -1)
@@ -2280,6 +2300,8 @@ fsread(Fmsg *m)
 		readsnap(m, f, &r);
 	else if(f->dent->qid.type & QTDIR)
 		readdir(m, f, &r);
+	else if(f->dent->qid.type & QTOBJ)
+		objread(m, f, &r);
 	else if(f->dent->qid.path == Qstatus)
 		readstatus(m, f, &r);
 	else
@@ -2291,7 +2313,7 @@ fsread(Fmsg *m)
 }
 
 static void
-fswrite(Fmsg *m, int id)
+fswrite(Fmsg *m, int id, Amsg **ao)
 {
 	char sbuf[Wstatmax], kbuf[Max9p/Blksz+2][Offksz], vbuf[Max9p/Blksz+2][Ptrsz];
 	Bptr bp[Max9p/Blksz + 2];
@@ -2332,6 +2354,28 @@ fswrite(Fmsg *m, int id)
 	}
 	if(agetl(&fs->rdonly))
 		error(Erdonly);
+	if(f->dent->qid.type & QTOBJ){
+		/* Plan2001: records of an object store (obj.c) */
+		wlock(f);
+		if(waserror()){
+			wunlock(f);
+			putfid(f);
+			nexterror();
+		}
+		if(!(f->mode & DMWRITE))
+			error(Einuse);
+		if(f->dent->gone)
+			error(Ephase);
+		if(!objwrite(m, f, ao)){
+			r.type = Rwrite;
+			r.count = m->count;
+			respond(m, &r);
+		}
+		wunlock(f);
+		putfid(f);
+		poperror();
+		return;
+	}
 	wlock(f);
 	truncwait(f->dent, id);
 	wlock(f->dent);
@@ -2643,7 +2687,7 @@ runmutate(int id, void *)
 			 */
 			switch(m->type){
 			case Tcreate:	fscreate(m);		break;
-			case Twrite:	fswrite(m, id);		break;
+			case Twrite:	fswrite(m, id, &a);	break;
 			case Twstat:	fswstat(m, id, &a);	break;
 			case Tremove:	fsremove(m, id, &a);	break;
 			case Topen:	fsopen(m, id, &a);	break;
@@ -2825,6 +2869,10 @@ runsweep(int id, void*)
 		switch(am->op){
 		case AOsetcfg:
 			setconf(id, Oinsert, am->snap, am->key, am->val);
+			break;
+		case AOobjabort:
+		case AOobjclear:
+			objsweep(id, am);
 			break;
 		case AOclrcfg:
 			setconf(id, Odelete, am->snap, am->key, "");

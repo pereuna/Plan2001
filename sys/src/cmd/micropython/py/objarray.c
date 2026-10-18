@@ -386,6 +386,7 @@ static mp_obj_t array_binary_op(mp_binary_op_t op, mp_obj_t lhs_in, mp_obj_t rhs
 
 #if MICROPY_PY_BUILTINS_BYTEARRAY || MICROPY_PY_ARRAY
 static mp_obj_t array_append(mp_obj_t self_in, mp_obj_t arg) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     // self is not a memoryview, so we don't need to use (& TYPECODE_MASK)
     assert((MICROPY_PY_BUILTINS_BYTEARRAY && mp_obj_is_type(self_in, &mp_type_bytearray))
         || (MICROPY_PY_ARRAY && mp_obj_is_type(self_in, &mp_type_array)));
@@ -408,6 +409,7 @@ static mp_obj_t array_append(mp_obj_t self_in, mp_obj_t arg) {
 MP_DEFINE_CONST_FUN_OBJ_2(mp_obj_array_append_obj, array_append);
 
 static mp_obj_t array_extend(mp_obj_t self_in, mp_obj_t arg_in) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     // self is not a memoryview, so we don't need to use (& TYPECODE_MASK)
     assert((MICROPY_PY_BUILTINS_BYTEARRAY && mp_obj_is_type(self_in, &mp_type_bytearray))
         || (MICROPY_PY_ARRAY && mp_obj_is_type(self_in, &mp_type_array)));
@@ -459,6 +461,9 @@ static mp_obj_t array_subscr(mp_obj_t self_in, mp_obj_t index_in, mp_obj_t value
         return MP_OBJ_NULL; // op not supported
     } else {
         mp_obj_array_t *o = MP_OBJ_TO_PTR(self_in);
+        if (value != MP_OBJ_SENTINEL) {
+            P9_DIRTY(o);
+        }
         #if MICROPY_PY_BUILTINS_SLICE
         if (mp_obj_is_type(index_in, &mp_type_slice)) {
             mp_bound_slice_t slice;
@@ -588,6 +593,9 @@ static mp_obj_t array_subscr(mp_obj_t self_in, mp_obj_t index_in, mp_obj_t value
 
 static mp_int_t array_get_buffer(mp_obj_t o_in, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
     mp_obj_array_t *o = MP_OBJ_TO_PTR(o_in);
+    if (flags & MP_BUFFER_WRITE) {
+        P9_DIRTY(o);	/* readinto, plan9.read */
+    }
     size_t sz = mp_binary_get_size('@', o->typecode & TYPECODE_MASK, NULL);
     bufinfo->buf = o->items;
     bufinfo->len = o->len * sz;

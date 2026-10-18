@@ -1055,5 +1055,8 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
 - Määrittely ja vaiheet: `docs/object-model.md`. V0–V3 valmiit QEMU:ssa
   ja sillillä (`spacehw`, 0 FAIL), V4 (`graph.py`) QEMU:ssa.
 - V4:n mittaus täytti V5:n ehdon (koko kuvan commit sekunteja ~30 000
-  oliolla). V5:n tallennin, gefs:n olio-API, on suunniteltu
-  (`docs/gefs-obj.md`); koodia ei vielä ole.
+  oliolla). V5 valmis QEMU:ssa: gefs:n olio-API (`obj.c`, `DMOBJ`,
+  `docs/gefs-obj.md`) ja MicroPythonin inkrementaalinen commit
+  (barrierit, OID-taulu). Commit ~30 000 oliolla 34–67 ms; V2–V5:n
+  testit läpi `$spacecheck`illa. Avoimet: avaus ~8,3 s (dictien
+  täyttö), levy täynnä -testit (käyttäjätilan gefs ilman `DMOBJ`:ta).

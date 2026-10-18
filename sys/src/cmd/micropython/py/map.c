@@ -118,6 +118,7 @@ void mp_map_deinit(mp_map_t *map) {
 }
 
 void mp_map_clear(mp_map_t *map) {
+    P9_DIRTY((const byte *)map - sizeof(mp_obj_base_t));	/* a dict's, an instance's */
     if (!map->is_fixed) {
         m_del(mp_map_elem_t, map->table, map->alloc);
     }
@@ -156,6 +157,9 @@ static void mp_map_rehash(mp_map_t *map) {
 mp_map_elem_t *MICROPY_WRAP_MP_MAP_LOOKUP(mp_map_lookup)(mp_map_t * map, mp_obj_t index, mp_map_lookup_kind_t lookup_kind) {
     // If the map is a fixed array then we must only be called for a lookup
     assert(!map->is_fixed || lookup_kind == MP_MAP_LOOKUP);
+    if (lookup_kind != MP_MAP_LOOKUP) {
+        P9_DIRTY((const byte *)map - sizeof(mp_obj_base_t));	/* a dict's, an instance's */
+    }
 
     #if MICROPY_OPT_MAP_LOOKUP_CACHE
     // Try the cache for lookup or add-if-not-found.
@@ -347,6 +351,9 @@ static void mp_set_rehash(mp_set_t *set) {
 }
 
 mp_obj_t mp_set_lookup(mp_set_t *set, mp_obj_t index, mp_map_lookup_kind_t lookup_kind) {
+    if (lookup_kind != MP_MAP_LOOKUP) {
+        P9_DIRTY((const byte *)set - sizeof(mp_obj_base_t));	/* a set's */
+    }
     // Note: lookup_kind can be MP_MAP_LOOKUP_ADD_IF_NOT_FOUND_OR_REMOVE_IF_FOUND which
     // is handled by using bitwise operations.
 
@@ -420,6 +427,7 @@ mp_obj_t mp_set_lookup(mp_set_t *set, mp_obj_t index, mp_map_lookup_kind_t looku
 }
 
 mp_obj_t mp_set_remove_first(mp_set_t *set) {
+    P9_DIRTY((const byte *)set - sizeof(mp_obj_base_t));
     for (size_t pos = 0; pos < set->alloc; pos++) {
         if (mp_set_slot_is_filled(set, pos)) {
             mp_obj_t elem = set->table[pos];
@@ -438,6 +446,7 @@ mp_obj_t mp_set_remove_first(mp_set_t *set) {
 }
 
 void mp_set_clear(mp_set_t *set) {
+    P9_DIRTY((const byte *)set - sizeof(mp_obj_base_t));
     m_del(mp_obj_t, set->table, set->alloc);
     set->alloc = 0;
     set->used = 0;

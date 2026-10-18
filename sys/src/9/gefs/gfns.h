@@ -106,6 +106,12 @@ void	writectl(Fmsg*, Fid*);
 void	readstatus(Fmsg*, Fid*, Fcall*);
 
 void	btupsert(Tree*, Msg*, int);
+void	upsert(Mount*, Msg*, int);
+int	objwrite(Fmsg*, Fid*, Amsg**);
+void	objread(Fmsg*, Fid*, Fcall*);
+void	objclunk(Fid*, Amsg**);
+void	objabortfid(Fid*);
+void	objsweep(int, Amsg*);
 int	btlookup(Tree*, Key*, Kvp*, char*, int);
 void	btnewscan(Scan*, char*, int);
 void	btenter(Tree*, Scan*);

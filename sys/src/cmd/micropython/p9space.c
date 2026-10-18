@@ -16,6 +16,11 @@
  *   /usr/$user/space/<name>/v<N>      version N, N in 16 digits
  * V3: a commit at a rest too (plan9.read, wait, sleep) when
  * space.interval seconds have passed; space.atomic defers them.
+ * V5: the Space's objects in a gefs object store (docs/gefs-obj.md),
+ * each its own key by OID: a commit writes what changed, the store's
+ * versions are the Space's (V2-V4's v<N> taken in at the first open).
+ *   /usr/$user/space/<name>/obj       DMOBJ: the objects, OID 1 the roots;
+ *                                     the header's user part env[64] next[8]
  */
 #include <string.h>
 #include "py/runtime.h"
@@ -49,9 +54,11 @@ static struct {
     char dir[256];
     int lock;
     int writer;
-    vlong n;
-    uchar hash[32];	/* the body of version n */
-} sp = { 0, "", "", -1 };
+    vlong n;		/* the store's version */
+    int store;		/* obj, ORDWR */
+    uint64_t next;	/* the next OID */
+    int migrate;	/* v<N> taken in: removed after the first commit */
+} sp = { 0, "", "", -1, 0, 0, -1 };
 static vlong lastcommit;	/* nsec() */
 
 // $spacetime: the times of a restore and a commit on fd 2 (ms)
@@ -479,68 +486,72 @@ static uint64_t get64(const byte *p) {
     return u;
 }
 
-// version N of the Space in DIR: t<N> written, renamed v<N>, v<N-3>
-// removed, synced (the removal in that sync or a later one: v<N-1> and
-// v<N-2> are there either way)
-static void writeversion(const char *dir, vlong n, const char *env, const char *body, size_t len) {
-    char path[300], tname[32], vname[32], *slow;
-    vstr_t f;
-    Dir d;
-    int fd;
+// the store's records: the header's user part and the commit ('h',
+// 'c' 1: synced) after REC, written; $spaceslow ms amid the write (a
+// crash there: tools/test-space.sh T3.3), $spacefail a bad record
+// before the commit (T5.7).  -1 failed (errstr)
+static int storewrite(vstr_t *rec, void *a) {
+    char *slow, *fail;
     size_t half;
+    byte b[8];
 
-    vstr_init(&f, HDRLEN + len + TRLLEN);
-    vstr_add_strn(&f, "P2SP", 4);
-    vstr_add_byte(&f, FORMAT);
-    vstr_add_len(&f, 8);
-    put64((byte *)f.buf + 5, n);
-    vstr_add_strn(&f, env, 64);
-    vstr_add_strn(&f, body, len);
-    vstr_add_len(&f, 8);
-    put64((byte *)f.buf + f.len - 8, f.len - 8 + TRLLEN);
-    vstr_add_len(&f, 32);
-    p9sha256((uchar *)f.buf, f.len - 32, (uchar *)f.buf + f.len - 32);
-    snprint(tname, sizeof tname, "t%016lld", n);
-    snprint(vname, sizeof vname, "v%016lld", n);
-    snprint(path, sizeof path, "%s/%s", dir, tname);
-    remove(path);
-    if ((fd = create(path, OWRITE, 0664)) < 0) {
-        raise_err();
-    }
-    // $spaceslow ms amid the write: a crash there (tools/test-space.sh T3.3)
+    (void)a;
+    vstr_add_byte(rec, 'h');
+    vstr_add_strn(rec, "\0\0\0\x48", 4);	/* 72 */
+    vstr_add_strn(rec, mp_obj_str_get_str(envitem(0)), 64);
+    put64(b, sp.next);
+    vstr_add_strn(rec, (const char *)b, 8);
+    vstr_add_strn(rec, "c\1", 2);
     slow = getenv("spaceslow");
-    half = slow != NULL ? f.len / 2 : f.len;
-    if (write(fd, f.buf, half) != (long)half) {
+    fail = getenv("spacefail");
+    half = fail != NULL ? rec->len - 2 : slow != NULL ? rec->len / 2 : rec->len;
+    if (write(sp.store, rec->buf, half) != (long)half) {
         free(slow);
-        close(fd);
-        remove(path);
-        raise_err();
+        free(fail);
+        return -1;
     }
     if (slow != NULL) {
         sleep(atoi(slow));
         free(slow);
     }
-    if (write(fd, f.buf + half, f.len - half) != (long)(f.len - half)) {
-        close(fd);
-        remove(path);
-        raise_err();
+    if (fail != NULL) {
+        /* before the commit record: the transaction aborted */
+        free(fail);
+        if (write(sp.store, "x", 1) != 1) {
+            return -1;
+        }
     }
-    close(fd);
-    vstr_clear(&f);
-    nulldir(&d);
-    d.name = vname;
-    if (dirwstat(path, &d) < 0) {
-        remove(path);
-        raise_err();
+    if (write(sp.store, rec->buf + half, rec->len - half) != (long)(rec->len - half)) {
+        return -1;
     }
-    if (n >= 3) {
-        snprint(path, sizeof path, "%s/v%016lld", dir, n - 3);
-        remove(path);
+    return 0;
+}
+
+// the store's stream (gefs-obj.md 3.2) of version VER (0: the newest)
+static int storeread(int fd, vlong ver, vstr_t *v) {
+    byte b[9];
+    vlong off;
+    long n;
+
+    if (ver > 0) {
+        b[0] = 'v';
+        put64(b + 1, ver);
+        if (write(fd, b, 9) != 9) {
+            return -1;
+        }
     }
-    snprint(path, sizeof path, "%s/%s", dir, vname);
-    nulldir(&d);
-    if (dirwstat(path, &d) < 0) {
-        raise_err();
+    vstr_init(v, 65536);
+    for (off = 0;; off += n) {
+        if (v->alloc - v->len < 32768) {
+            vstr_hint_size(v, v->alloc);
+        }
+        if ((n = pread(fd, v->buf + v->len, 32768, off)) < 0) {
+            return -1;
+        }
+        if (n == 0) {
+            return 0;
+        }
+        v->len += n;
     }
 }
 
@@ -584,7 +595,8 @@ static mp_obj_t space_create(mp_obj_t name_in, mp_obj_t env_in) {
     const char *name = mp_obj_str_get_str(name_in), *env = mp_obj_str_get_str(env_in);
     char path[256];
     int fd;
-    byte empty[2] = { 0, 0 };	/* no objects, no roots */
+    byte empty[2] = { 0, 0 }, b[8];	/* no roots */
+    vstr_t rec;
 
     checkname(name);
     if (!ishex(env)) {
@@ -611,8 +623,29 @@ static mp_obj_t space_create(mp_obj_t name_in, mp_obj_t env_in) {
         raise_err();
     }
     close(fd);
-    spacepath(path, sizeof path, name, "");
-    writeversion(path, 0, env, (const char *)empty, sizeof empty);
+    /* the store, its version 1: no roots */
+    spacepath(path, sizeof path, name, "obj");
+    if ((fd = create(path, ORDWR, DMOBJ | 0664)) < 0) {
+        raise_err();
+    }
+    vstr_init(&rec, 128);
+    vstr_add_byte(&rec, 'p');
+    put64(b, OID_ROOTS);
+    vstr_add_strn(&rec, (const char *)b, 8);
+    put64(b, sizeof empty - 1);
+    vstr_add_strn(&rec, (const char *)b, 8);
+    vstr_add_byte(&rec, 0);
+    vstr_add_byte(&rec, 'h');
+    vstr_add_strn(&rec, "\0\0\0\x48", 4);
+    vstr_add_strn(&rec, env, 64);
+    put64(b, OID_FIRST);
+    vstr_add_strn(&rec, (const char *)b, 8);
+    vstr_add_strn(&rec, "c\1", 2);
+    if (write(fd, rec.buf, rec.len) != (long)rec.len) {
+        close(fd);
+        raise_err();
+    }
+    close(fd);
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(space_create_obj, space_create);
@@ -623,11 +656,20 @@ static int vcmp(const void *a, const void *b) {
     return x < y ? 1 : x > y ? -1 : 0;
 }
 
-// open(name): this process the Space's writer (mp -S): its newest
-// valid version restored, its Environment in use
-static mp_obj_t space_open(mp_obj_t name_in) {
-    const char *name = mp_obj_str_get_str(name_in), *why;
-    char dir[256], path[300], env[65], bad[32];
+// the Environment of a Space (named in its store or version)
+static void useenv(const char *name, const char *env) {
+    if (MP_STATE_VM(p9_space_env) == MP_OBJ_NULL) {
+        space_useenv(mp_obj_new_str(env, 64));
+    } else if (strcmp(mp_obj_str_get_str(envitem(0)), env) != 0) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: its Environment is %s"), name, env);
+    }
+}
+
+// V2-V4's Space in DIR: its newest valid v<N> restored (t*, older
+// versions and broken ones as then), its Environment out
+static void openversions(const char *dir, const char *name, char *env) {
+    char path[300], bad[32];
+    const char *why;
     Dir *d, rn;
     long nent, i;
     int fd, nv;
@@ -637,21 +679,11 @@ static mp_obj_t space_open(mp_obj_t name_in) {
     char *e;
     vlong t0;
 
-    if (sp.isopen) {
-        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("a Space is open"));
-    }
-    checkname(name);
-    spacepath(dir, sizeof dir, name, "");
     if ((fd = open(dir, OREAD)) < 0) {
-        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("no space %s"), name);
+        raise_err();
     }
     nent = dirreadall(fd, &d);
     close(fd);
-    snprint(path, sizeof path, "%s/lock", dir);
-    if ((sp.lock = open(path, ORDWR | OCEXEC)) < 0) {
-        free(d);
-        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space %s locked"), name);
-    }
     v = m_new(vlong, nent > 0 ? nent : 1);
     nv = 0;
     for (i = 0; i < nent; i++) {
@@ -681,33 +713,95 @@ static mp_obj_t space_open(mp_obj_t name_in) {
     if (i == nv) {
         mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space %s: no valid version"), name);
     }
-    n = v[i];
-    // older than the two before it: left by a crash
-    for (i++; i < nv; i++) {
-        if (v[i] < n - 2) {
-            snprint(path, sizeof path, "%s/v%016lld", dir, v[i]);
-            remove(path);
-        }
-    }
-    if (MP_STATE_VM(p9_space_env) == MP_OBJ_NULL) {
-        space_useenv(mp_obj_new_str(env, 64));
-    } else if (strcmp(mp_obj_str_get_str(envitem(0)), env) != 0) {
-        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: its Environment is %s"), name, env);
-    }
+    useenv(name, env);
     t0 = nsec();
     p9_image_restore((const byte *)img.buf + body, img.len - body - TRLLEN);
     p9_spacetime("restore", t0);
-    p9sha256((uchar *)img.buf + body, img.len - body - TRLLEN, sp.hash);
     vstr_clear(&img);
+}
+
+// open(name[, version]): this process the Space's writer (mp -S): its
+// newest version restored, its Environment in use.  An older version
+// kept (version=v) is opened to be read: no commits
+static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
+    const char *name = mp_obj_str_get_str(args[0]);
+    char dir[256], path[300], env[65], user[256];
+    vlong ver, t0;
+    uint64_t n;
+    size_t nu;
+    vstr_t st;
+    int fd;
+    nlr_buf_t nlr;
+
+    if (sp.isopen) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("a Space is open"));
+    }
+    checkname(name);
+    ver = n_args > 1 && args[1] != mp_const_none ? mp_obj_get_int(args[1]) : 0;
+    spacepath(dir, sizeof dir, name, "");
+    if (access(dir, AEXIST) < 0) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("no space %s"), name);
+    }
+    snprint(path, sizeof path, "%s/lock", dir);
+    if ((sp.lock = open(path, ORDWR | OCEXEC)) < 0) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space %s locked"), name);
+    }
+    if (nlr_push(&nlr) != 0) {
+        close(sp.lock);
+        sp.lock = -1;
+        if (sp.store >= 0) {
+            close(sp.store);
+            sp.store = -1;
+        }
+        p9_image_reset();
+        nlr_jump(nlr.ret_val);
+    }
+    snprint(path, sizeof path, "%s/obj", dir);
+    sp.migrate = 0;
+    if ((fd = open(path, ORDWR | OCEXEC)) >= 0) {
+        sp.store = fd;
+        if (storeread(fd, ver, &st) < 0) {
+            raise_err();
+        }
+        /* the header: N K len env[64] next[8] */
+        if (st.len < 21 + 72 || st.buf[0] != 'H' || get64((byte *)st.buf + 17) >> 32 != 72) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: not a Space's store"), name);
+        }
+        memcpy(env, st.buf + 21, 64);
+        env[64] = 0;
+        if (!ishex(env)) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: its Environment"), name);
+        }
+        useenv(name, env);
+        t0 = nsec();
+        nu = sizeof user;
+        p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu);
+        p9_spacetime("restore", t0);
+        sp.n = n;
+        sp.next = get64((byte *)user + 64);
+        vstr_clear(&st);
+    } else {
+        /* V2-V4's: taken into a store at the first commit */
+        if (ver > 0) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: no store"), name);
+        }
+        openversions(dir, name, env);
+        if ((sp.store = create(path, ORDWR | OCEXEC, DMOBJ | 0664)) < 0) {
+            raise_err();
+        }
+        sp.n = 0;
+        sp.next = OID_FIRST;
+        sp.migrate = 1;
+    }
+    nlr_pop();
     strcpy(sp.name, name);
     strcpy(sp.dir, dir);
-    sp.n = n;
-    sp.writer = getpid();
+    sp.writer = ver > 0 ? -1 : getpid();
     sp.isopen = 1;
     lastcommit = nsec();
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(space_open_obj, space_open);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(space_open_obj, 1, 2, space_open);
 
 // info() -> (name, version, Environment) of the open Space, or None
 static mp_obj_t space_info(void) {
@@ -735,30 +829,58 @@ static int iswriter(void) {
     return sp.isopen && getpid() == sp.writer;
 }
 
-// the image, if changed, as version N+1; the two before it kept, older
-// removed.  Any failure a CommitError, the version before staying
+// the V2-V4 files of a Space taken into its store
+static void rmversions(void) {
+    char path[300];
+    Dir *d;
+    long nent, i;
+    int fd;
+
+    if ((fd = open(sp.dir, OREAD)) < 0) {
+        return;
+    }
+    nent = dirreadall(fd, &d);
+    close(fd);
+    for (i = 0; i < nent; i++) {
+        if (d[i].name[0] == 'v' || d[i].name[0] == 't' || strncmp(d[i].name, "bad", 3) == 0) {
+            snprint(path, sizeof path, "%s/%s", sp.dir, d[i].name);
+            remove(path);
+        }
+    }
+    free(d);
+}
+
+// what changed since, as the store's version N+1 (the two before it
+// kept).  Any failure a CommitError, the version before staying
 static void commit(void) {
     nlr_buf_t nlr;
     vlong t0;
-    vstr_t body, msg;
+    vstr_t msg;
     mp_print_t pr;
-    uchar h[32];
+    char *chk;
+    int r;
 
     if (nlr_push(&nlr) == 0) {
         t0 = nsec();
-        vstr_init(&body, 4096);
-        p9_image_encode(&body);
-        p9sha256((uchar *)body.buf, body.len, h);
-        p9_spacetime("encode", t0);
-        if (memcmp(h, sp.hash, sizeof h) != 0) {
-            t0 = nsec();
-            writeversion(sp.dir, sp.n + 1, mp_obj_str_get_str(envitem(0)), body.buf, body.len);
-            p9_spacetime("write", t0);
-            sp.n++;
-            memcpy(sp.hash, h, sizeof h);
+        r = p9_image_commit(&sp.next, storewrite, NULL);
+        p9_spacetime("commit", t0);
+        if (r < 0) {
+            raise_err();
         }
-        vstr_clear(&body);
+        if (r > 0) {
+            sp.n++;
+            if (sp.migrate) {
+                rmversions();
+                sp.migrate = 0;
+            }
+        }
         lastcommit = nsec();
+        if ((chk = getenv("spacecheck")) != NULL) {
+            free(chk);
+            if ((r = p9_image_check()) > 0) {
+                mp_raise_msg_varg(&mp_type_CommitError, MP_ERROR_TEXT("space: check: %d objects differ"), r);
+            }
+        }
         nlr_pop();
         return;
     }
