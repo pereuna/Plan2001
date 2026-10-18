@@ -52,6 +52,29 @@ hpetprobe(uvlong pa)
 	return 0;
 }
 
+/*
+ * the TSC against the HPET over 50 ms, each HPET read between two TSC
+ * reads and taken at their middle: a read is microseconds in a VM (an
+ * exit), and over the 10 ms of delayloop's measure below that made the
+ * clock (todinit's fastticks) up to 0.13% fast or slow, a boot's own
+ */
+static uvlong
+hpettscfreq(void)
+{
+	u32int x, y;
+	uvlong a0, a1, b0, b1;
+
+	cycles(&a0);
+	x = hpet.mmio[Ctrlo];
+	cycles(&a1);
+	do {
+		cycles(&b0);
+		y = hpet.mmio[Ctrlo] - x;
+		cycles(&b1);
+	} while(y < hpet.freq/20);
+	return ((b0+b1)/2 - (a0+a1)/2) * hpet.freq / y;
+}
+
 static uvlong
 hpetcpufreq(void)
 {
@@ -69,11 +92,12 @@ hpetcpufreq(void)
 		if(y >= hpet.freq/HZ || loops >= 1000000)
 			break;
 	}
+	if(m->havetsc && b > a)
+		m->cyclefreq = hpettscfreq();
 	iunlock(&hpet);
 
 	if(m->havetsc && b > a){
 		b -= a;
-		m->cyclefreq = b * hpet.freq / y;
 		m->delaylcycles = (b + loops-1) / loops;
 		return m->cyclefreq;
 	}

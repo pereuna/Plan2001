@@ -268,3 +268,18 @@ call reset): MicroPython's servers under tools/mptest's soak, ~200
 calls a second, lost 7 calls in the first minute. Plan2001's tcpgc
 closes the Time_wait ones too, as their timer would (Linux gives up
 time-wait sockets past tcp_max_tw_buckets the same way).
+
+### hpet: the TSC calibrated over 10 ms against an HPET read that is an exit in a VM
+
+`/sys/src/9/pc/hpet.c` hpetcpufreq measures the TSC against the HPET
+over delayloop's calibration window (y >= hpet.freq/HZ, 10 ms), with an
+HPET read at each end that a hypervisor emulates (microseconds). The
+result, m->cyclefreq, is the clock's frequency (todinit's fastticks):
+under QEMU/KVM it was 2493 MHz on one boot and 2496 MHz on another
+(the TSC 2496.3), the clock 1333 ppm (115 s a day) fast on the first,
+44 ppm on the second; nothing corrects it without timesync. Plan2001
+measures the TSC frequency apart, over 50 ms, each HPET read between two
+TSC reads and taken at their middle: three boots drifted +0.0, -1.0 and
++0.8 ppm (SNTP from MicroPython against the host, tools/mptest). The
+i8253 path (no HPET) has the same short window.
+
