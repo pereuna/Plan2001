@@ -2,9 +2,12 @@
 # MicroPython as the first user program (docs/mpinit.md) in QEMU: the
 # kernel (tools/build.sh; /boot/mp and /boot/kbdfs in its image) with
 # plan9.ini init=/boot/mp -B, console=0.  Over the serial console
-# (tools/9run's relay) Python's REPL: the plan9 module (/boot, kbdfs's
-# /dev, #c/user, a file in /env, spawn + wait), Ctrl-C as
-# KeyboardInterrupt, Ctrl-D starting the REPL again.
+# (tools/9run's relay) Python's raw REPL, an agent's protocol (Ctrl-A;
+# code and Ctrl-D, back OK, the output, \x04, the error, \x04, >): the
+# plan9 module (/boot, kbdfs's /dev, #c/user, a file in /env, spawn +
+# wait), floats, big integers, math, json, a traceback's line, tabs and
+# spaces, deep recursion (stackless); then the REPL itself (Ctrl-B):
+# Ctrl-C as KeyboardInterrupt, Ctrl-D starting the REPL again.
 #   tools/test-mpinit.sh    no root disk: an ESP with the kernel
 #   ROOT=1      the gefs root too (tools/gefsdisk, root=-w PARTUUID=; the
 #               image build/$TARGET/root.gefs, made if missing): rc from
@@ -12,8 +15,8 @@
 #               console), a file written on the root, fshalt, then
 #               tools/gefsck checks the partition and reads the file back
 #   NET=1       a network too (QEMU's user net, a free host port to the
-#               guest's 80): sys/lib/python/httpd.py typed in (paste
-#               mode), net() and serve(), then the pages over HTTP from
+#               guest's 80): sys/lib/python/httpd.py sent in the raw
+#               REPL, net() and serve(), then the pages over HTTP from
 #               here, an idle connection not blocking the others, Ctrl-C
 #   KEEP=1      leave QEMU running (console: tools/9run -d build/$TARGET/mpvm)
 set -e
@@ -108,23 +111,53 @@ if mode == 'root':
     check('the kernel mounted gefs', re.search(r'^gefs: .*read-write', t, re.M) is not None, t)
 if m is None:
     sys.exit(1)
-# a step: a line typed (\r) or a control character, the regex its output
-# must match up to the prompt (None: none awaited), the prompt, seconds
-steps = [
-    ('import plan9 as p', r''),
+# raw REPL steps: the code (sent with \x04), the regexes its output and
+# its error must match (err None: no error), seconds
+common = [
+    ('import plan9 as p', r'\A\Z'),
     ("print(sorted(d[0] for d in p.dirread('/boot')))", r"\['kbdfs', 'mp'\]"),
     ("print([n in [d[0] for d in p.dirread('/dev')] for n in ('cons', 'consctl', 'kbmap')])", r'\[True, True, True\]'),
     ("f = p.open('#c/user'); print(p.read(f)); p.close(f)", r"b'glenda'"),
+    # what a model writes expecting CPython
+    ("import math\nprint(7/2, 2**100, float('inf'), 1e308*10, round(2.5), round(3.5), int(-2.7), math.trunc(-2.7))",
+        r'^3\.5 1267650600228229401496703205376 inf inf 2 4 -2 -2$'),
+    ("print(math.sqrt(2), math.floor(-2.5), math.isclose(0.1+0.2, 0.3), math.factorial(25), f'{math.pi:.3f}')",
+        r'^1\.41421356237309\d* -3 True 15511210043330985984000000 3\.142$'),
+    ("import json\nprint(json.dumps({'a': [1, 2.5, None, True]}), json.loads('{\"x\": [1, 2]}')['x'][1])",
+        r'^\{"a": \[1, 2\.5, null, true\]\} 2$'),
+    # open() and file objects as CPython's (write in text mode counts
+    # bytes, not characters)
+    ("with open('/env/mpfile', 'w') as f:\n    f.write('one\\ntwo\\n')\nwith open('/env/mpfile', 'a') as f:\n    print(f.write('three ä\\n'))\nwith open('/env/mpfile') as f:\n    print([l.strip() for l in f])",
+        r"^[89]\n\['one', 'two', 'three ä'\]$"),
+    ("print(open('/env/mpfile', 'rb').read()[:4], len(open('/boot/mp', 'rb').read()) == p.stat('/boot/mp')[2] > 100000)",
+        r"^b'one\\n' True$"),
+    ("import io\np.remove('/env/mpfile')\nprint(open('/env/mpfile', 'x').fileno() > 2, repr(io.StringIO('ä\\nb').readline()))\nopen('/env/mpfile', 'x')",
+        r"^True 'ä\\n'$", r'OSError: .*(exists|exclusive)'),
+    ("open('/nonexistent')", r'\A\Z', r"OSError: .*does not exist"),
+    # the traceback names the line and the object
+    ("def f(x):\n    return x.nope\nf(1)", r'\A\Z',
+        r'File "<stdin>", line 2, in f\n.*AttributeError: \'int\' object has no attribute \'nope\''),
+    # one space or a tab a level; mixed so that the blocks are ambiguous: an error
+    ("for i in range(3):\n if i:\n  print(i)\nif 1:\n\tif 1:\n\t\tprint('tab')", r'^1\n2\ntab$'),
+    ("exec('if 1:\\n\\tx = 1\\n        y = 2\\n')", r'\A\Z', r'IndentationError: inconsistent use of tabs and spaces'),
+    # recursion in the pystack (stackless): CPython's 1000 and far deeper
+    ("def g(n):\n    return 0 if n == 0 else 1 + g(n - 1)\nprint(g(1000))", r'^1000$'),
+    ("def d(n):\n    try:\n        return d(n + 1)\n    except RuntimeError:\n        return n\nprint('depth', d(0))", r'^depth \d{4,}$'),
 ]
-common, steps = steps, []
+steps = []
 if mode == 'noroot':
     steps += [
-        ("f = p.create('/env/mptest', p.OWRITE, 0o664); p.write(f, 'hello'); p.close(f)", r''),
+        ("f = p.create('/env/mptest', p.OWRITE, 0o664); p.write(f, 'hello'); p.close(f)", r'\A\Z'),
         ("f = p.open('/env/mptest'); print(p.read(f)); p.close(f); p.remove('/env/mptest')", r"b'hello'"),
         ("pid = p.spawn(['/boot/mp', '-c', 'print(6*7)']); w = p.wait(); print('wait', w[0] == pid, repr(w[1]))", r"42.*wait True ''"),
         ("pid = p.spawn(['/boot/mp', '-c', 'raise ValueError']); print(p.wait()[1])", r'ValueError.*micropython'),
         ("print(f'{6*7}', '%d-%s' % (1, 'x'), 'äö'[1], len('äö'))", r'42 1-x ö 2'),
-        ("p.open('/nonexistent')", r"OSError: .*does not exist"),
+        ("p.open('/nonexistent')", r'\A\Z', r"OSError: .*does not exist"),
+    ]
+    # the REPL itself (Ctrl-B from the raw REPL): a line typed (\r) or a
+    # control character, the regex its output must match up to the
+    # prompt (None: none awaited), the prompt, seconds
+    repl = [
         ('while True: pass\r', None),
         ('\x03', r'KeyboardInterrupt'),
         ('\x04', r'MicroPython v1\.27\.0'),
@@ -137,18 +170,37 @@ else:
         ("print(p.fd2path(p.open('/')), len(p.dirread('/amd64/bin')) > 50)", r"^/ True"),
         (rc('echo rc on $cputype; ls /bin/rc /bin/fshalt'), r"rc on amd64\n/bin/fshalt\n/bin/rc\nstatus ''"),
         (rc('ls /nonexistent'), r"does not exist.*status '.+'"),
-        ("f = p.create('/usr/glenda/mproot', p.OWRITE, 0o664); p.write(f, 'from python on gefs\\n'); p.close(f)", r''),
+        ("f = p.create('/usr/glenda/mproot', p.OWRITE, 0o664); p.write(f, 'from python on gefs\\n'); p.close(f)", r'\A\Z'),
         (rc('mkdir -p /tmp && cd /sys/src/cmd && 6c -FTVw cat.c && 6l -o /tmp/6.cat cat.6 && rm cat.6 && /tmp/6.cat /usr/glenda/mproot'),
-            r"^from python on gefs\nstatus ''", '>>> $', 180),
+            r"^from python on gefs\nstatus ''", None, 180),
+    ]
+    repl = [
         # rc on the console, cooked, while Python waits; Ctrl-D ends it
         ("p.spawn(['/bin/rc', '-i']); p.wait()", r'', '% $'),
         ('echo rc -i from python', r'^rc -i from python', '% $'),
         ('\x04', r"\(\d+, ''\)"),
         ("print('back')", r'^back'),
-        (rc('fshalt'), r"done halting.*status ''", '>>> $', 240),
+        ("p.spawn(['/bin/rc', '-c', 'fshalt']); print('status', repr(p.wait()[1]))", r"done halting.*status ''", '>>> $', 240),
         # the root is gone; init and the REPL are the kernel's
         ("print(sorted(d[0] for d in p.dirread('/boot')))", r"\['kbdfs', 'mp'\]"),
     ]
+rawre = re.compile(r'OK(.*?)\x04(.*?)\x04>', re.S)
+def rawrun(steps):
+    for step in steps:
+        code, pat = step[0], step[1]
+        err = step[2] if len(step) > 2 else None
+        secs = step[3] if len(step) > 3 else 30
+        start = len(text())
+        typ(code + '\x04')
+        m = wait(rawre.pattern, start, secs)
+        name = repr(code)[:70]
+        if m is None:
+            check(name, False, text()[start:])
+            continue
+        out, e = m.group(1).strip('\n'), m.group(2)
+        ok = re.search(pat, out, re.M | re.S) is not None
+        ok = ok and (not e if err is None else re.search(err, e, re.S) is not None)
+        check(name, ok, 'output: %r\nerror: %r' % (out, e))
 def run(steps):
     for step in steps:
         line, pat = step[0], step[1]
@@ -170,22 +222,20 @@ def get(path, t=10):
         return e.code, e.read().decode()
     except OSError as e:
         return None, repr(e)
-run(common)
+start = len(text())
+typ('\x01')
+check('the raw REPL (Ctrl-A)', wait(r'raw REPL; CTRL-B to exit\n>$', start, 10) is not None, text()[start:])
+rawrun(common)
 if port:
-    # httpd.py typed in as on a console: paste mode, a line at a time
+    # httpd.py as an agent sends it: once, no echo (the bytes back counted)
+    src = open(httpd).read()
     start = len(text())
-    run([('\x05', r'paste mode', '=== $')])
-    pasted = True
-    for line in open(httpd).read().split('\n'):
-        n = len(text())
-        typ(line + '\n')
-        if wait(r'=== $', n + 1, 10) is None:
-            pasted = False
-            break
-    check('httpd.py pasted', pasted, text()[start:])
-    run([('\x04', r'\A(?!.*Error)', '>>> $'),
-         ('net()', r''),
-         ('serve()', r'httpd: /net/tcp/\d+ port 80', r'port 80\n', 15)])
+    rawrun([(src, r'\A\Z')])
+    print('\thttpd.py: %d bytes sent, %d back' % (len(src.encode()) + 1, len(text()[start:].encode())))
+    rawrun([('net()', r'\A\Z')])
+    start = len(text())
+    typ('serve()\x04')
+    check('serve()', wait(r'httpd: /net/tcp/\d+ port 80\n', start, 15) is not None, text()[start:])
     st, body = get('/')
     check('GET / ', st == 200 and 'MicroPython as init' in body and 'pid' in body, body)
     st, body = get('/boot')
@@ -203,9 +253,15 @@ if port:
     time.sleep(1)
     pids = set(re.findall(r'^httpd: 10\.0\.2\.2!\d+ GET \S+ 200 pid (\d+)', text(), re.M))
     check('each call in a process of its own', len(pids) >= 24 and '1' not in pids, repr(pids))
-    run([('\x03', r'KeyboardInterrupt'),
-         ('print(p.getpid())', r'^1$')])
-run(steps)
+    typ('\x03')
+    m = wait(rawre.pattern, start, 15)
+    check('Ctrl-C stops serve()', m is not None and 'KeyboardInterrupt' in m.group(2), text()[start:])
+    rawrun([('print(p.getpid())', r'^1$')])
+rawrun(steps)
+start = len(text())
+typ('\x02')
+check('back to the REPL (Ctrl-B)', wait(r'>>> $', start, 10) is not None, text()[start:])
+run(repl)
 if mode == 'root':
     check('gefs halted', wait(r'gefs: halted', 0, 30) is not None, text())
 print('PASS: MicroPython init' if fails == 0 else 'FAIL: %d' % fails)

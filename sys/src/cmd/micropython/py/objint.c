@@ -143,9 +143,9 @@ static mp_fp_as_int_class_t mp_classify_fp_as_int(mp_float_t val) {
 mp_obj_t mp_obj_new_int_from_float(mp_float_t val) {
     mp_float_union_t u = {val};
     // IEEE-754: if biased exponent is all 1 bits...
-    if (u.p.exp == ((1 << MP_FLOAT_EXP_BITS) - 1)) {
+    if (MP_FLOAT_EXP(u) == ((1 << MP_FLOAT_EXP_BITS) - 1)) {
         // ...then number is Inf (positive or negative) if fraction is 0, else NaN.
-        if (u.p.frc == 0) {
+        if (MP_FLOAT_FRC(u) == 0) {
             mp_raise_msg(&mp_type_OverflowError, MP_ERROR_TEXT("can't convert inf to int"));
         } else {
             mp_raise_ValueError(MP_ERROR_TEXT("can't convert NaN to int"));

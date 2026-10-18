@@ -1,13 +1,14 @@
 # What Plan2001 takes from MicroPython (github.com/micropython/micropython,
 # tag v1.27.0, commit 78ff170de9e32c79db6e64d3e33d2bd60002bdcd), for
 # tools/importmp, into sys/src/cmd/micropython: the interpreter's core, the
-# REPL's line editor and runner, two headers the core includes.  The port
+# REPL's line editor and runner, json, two headers the core includes.  The port
 # around them is Plan2001's own (docs/mpinit.md).
 #   PATH        a file or a whole directory, from MicroPython's root
 #   !PATH       not that (inside a directory above)
 # A file this repo already has is Plan2001's own and is never overwritten.
 LICENSE
 py
+extmod/modjson.c
 extmod/modplatform.h
 extmod/virtpin.h
 shared/readline/readline.c

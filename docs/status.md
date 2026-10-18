@@ -1013,3 +1013,25 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   uudet ohjelmat sidotaan `/amd64/bin`:in päälle, mutta `/bin` on bootin
   unioni VM:n hakemistosta. micropython kutsuu siksi `/$objtype/bin/6c`:tä
   (VM:n 6c ohittaa `-u`:n hiljaa ja tulkki kaatuu).
+
+## MicroPython mallille (18.10.2026, haara `mp-ai`)
+
+- Arvio (docs/mpinit.md): portti sellaisenaan, ei omaa syntaksia;
+  rajapinta CPythonin suuntaan. Liukuluvut (double), mpz, `math`,
+  `json`, `io` ja `open()` (`p9file.c`), `sys.maxsize`, tracebackin rivi
+  ja DETAILED-virheet, `repr('ä')` UTF-8:na, tabien ja välilyöntien
+  epäselvä sekoitus IndentationErroriksi (CPythonin TabError-sääntö),
+  `MICROPY_STACKLESS` (rekursiosyvyys 8190, pystack 1 Mt, C-pinon raja 8 Mt).
+- Löytyi: tracebackia ei tulostunut koskaan (6c ja `size_t`-bittikenttä
+  `objexcept.h`:ssa); liukuluvun 52-bittinen kenttä ei käänny 6c:llä
+  (`MP_FLOAT_NO_BITFIELD`); Plan 9 pysäyttää prosessin
+  liukulukuvirheeseen (setfcr pois). Upstreamissa: STACKLESS ilman
+  pystackia kaatuu C:stä nostetun poikkeuksen jälkeen.
+- Linuxissa (upstreamin unix-portti tällä py/:llä): lexer vastaa
+  CPythonia 9 sisennystapauksessa; upstreamin testit (basics, float,
+  json, micropython): 592 läpi, 110 ohitettu, 17 kaatuu puuttuviin
+  ominaisuuksiin (memoryview, viper, ...); tulosteet samat bittikentillä
+  ja makroilla.
+- `tools/test-mpinit.sh` raw REPLillä (mpremoten protokolla, agentin
+  tapa): PASS ilman juurta (29) ja `ROOT=1 NET=1` (45, gefsck ok).
+  httpd.py raw REPLiin: 3587 tavua menee, 5 tulee takaisin.

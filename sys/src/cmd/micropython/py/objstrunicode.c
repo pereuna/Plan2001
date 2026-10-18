@@ -58,6 +58,9 @@ static void uni_print_quoted(const mp_print_t *print, const byte *str_data, uint
     const byte *s = str_data, *top = str_data + str_len;
     while (s < top) {
         unichar ch;
+        #if MICROPY_PY_STR_REPR_UTF8
+        const byte *c = s;
+        #endif
         ch = utf8_get_char(s);
         s = utf8_next_char(s);
         if (ch == quote_char) {
@@ -72,6 +75,10 @@ static void uni_print_quoted(const mp_print_t *print, const byte *str_data, uint
             mp_print_str(print, "\\r");
         } else if (ch == '\t') {
             mp_print_str(print, "\\t");
+        #if MICROPY_PY_STR_REPR_UTF8
+        } else if (ch >= 0xa0) {
+            print->print_strn(print->data, (const char *)c, s - c);
+        #endif
         } else if (ch < 0x100) {
             mp_printf(print, "\\x%02x", ch);
         } else if (ch < 0x10000) {

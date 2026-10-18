@@ -282,7 +282,8 @@ typedef uint32_t mp_float_uint_t;
 
 typedef union _mp_float_union_t {
     mp_float_t f;
-    #if MP_ENDIANNESS_LITTLE
+    #if MP_FLOAT_NO_BITFIELD
+    #elif MP_ENDIANNESS_LITTLE
     struct {
         mp_float_uint_t frc : MP_FLOAT_FRAC_BITS;
         mp_float_uint_t exp : MP_FLOAT_EXP_BITS;
@@ -297,6 +298,17 @@ typedef union _mp_float_union_t {
     #endif
     mp_float_uint_t i;
 } mp_float_union_t;
+
+// The fields of a float's bits through i, as p's bit fields would be:
+// a compiler may not have bit fields wider than an int (Plan 9's), and
+// then MP_FLOAT_NO_BITFIELD leaves p out
+#define MP_FLOAT_EXP_MASK (((mp_float_uint_t)1 << MP_FLOAT_EXP_BITS) - 1)
+#define MP_FLOAT_SGN(u) ((int)((u).i >> (MP_FLOAT_FRAC_BITS + MP_FLOAT_EXP_BITS)) & 1)
+#define MP_FLOAT_EXP(u) ((int)(((u).i >> MP_FLOAT_FRAC_BITS) & MP_FLOAT_EXP_MASK))
+#define MP_FLOAT_FRC(u) ((u).i & (((mp_float_uint_t)1 << MP_FLOAT_FRAC_BITS) - 1))
+// exp += n, modulo the field's width
+#define MP_FLOAT_EXP_ADD(u, n) ((u).i = ((u).i & ~(MP_FLOAT_EXP_MASK << MP_FLOAT_FRAC_BITS)) \
+    | (((mp_float_uint_t)(MP_FLOAT_EXP(u) + (n)) & MP_FLOAT_EXP_MASK) << MP_FLOAT_FRAC_BITS))
 
 #if MICROPY_FLOAT_FORMAT_IMPL == MICROPY_FLOAT_FORMAT_IMPL_EXACT
 

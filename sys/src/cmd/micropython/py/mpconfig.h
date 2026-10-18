@@ -861,6 +861,19 @@ typedef uint64_t mp_uint_t;
 #define MICROPY_REPL_AUTO_INDENT (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
 #endif
 
+// Whether indentation that tabs and spaces make ambiguous is an
+// IndentationError, as CPython 3's TabError: the indentation has to
+// compare the same with a tab as 8 columns and as 1
+#ifndef MICROPY_LEXER_TAB_CHECK
+#define MICROPY_LEXER_TAB_CHECK (0)
+#endif
+
+// Whether a str's repr shows characters from U+00A0 up as they are, as
+// CPython's (else as \x, \u and \U escapes)
+#ifndef MICROPY_PY_STR_REPR_UTF8
+#define MICROPY_PY_STR_REPR_UTF8 (0)
+#endif
+
 // Whether the REPL's line editor takes UTF-8 (a character, not a byte, at
 // a time; else only printable ASCII)
 #ifndef MICROPY_REPL_UTF8
