@@ -362,6 +362,27 @@ Jokainen vaihe on oma haaransa ja `--no-ff`-mergensä. Vaihe on valmis,
 kun sen testit ja aiempien vaiheiden testit menevät läpi QEMU:ssa.
 Raudalla (silli) ajetaan vaiheiden V0, V3 ja V8 testit.
 
+**Testipaketti raudalle (18.10.2026): `spacehw`.**
+`/sys/lib/python/test/space/hw.py` sisältää samat V0–V3:n testit kuin
+`tools/test-space.sh` (T3.6 mukaan lukien), mutta kaatuminen on
+käsin tehty virrankatkaisu. Käynnistys konsolista kerran: `spacehw`
+(`/rc/bin/spacehw`). Skripti lisää itsensä `$home/lib/profile`en ja
+jatkaa jokaisessa bootissa tilatiedoston (`$home/spacehw/state`)
+vaiheesta. Kolme kertaa se pyytää katkaisemaan virran. Kukin katkaisu
+kattaa yhtä aikaa V0:n (T0.1), V2:n (T2.1–T2.4) ja V3:n (T3.1–T3.2,
+viimeisellä myös T3.3) kaatumisvaiheet. Jokainen tulos kirjataan
+synkattuna riviksi tiedostoon `$home/spacehw/log`. Lopuksi skripti
+poistaa koukun ja ajaa `fshalt`in. `spacehw reset` aloittaa alusta.
+Kuivaharjoitus QEMU:ssa: `HW=1 tools/test-space.sh` (QEMU tapetaan,
+kun skripti pyytää katkaisemaan virran), 0 FAIL.
+
+Sillillä: `tools/build.sh`, `tools/selfroot -p /dev/nvme0n1p5` (p5:n
+sisältö korvataan, PARTUUID säilyy) ja `sudo tools/espinstall /boot/efi
+'-w PARTUUID=…'` (kernel, jossa `/boot/mp`). Sitten boot GRUBin
+Plan2001-valinnalla ja `spacehw`. Linuxissa jälkeenpäin: `sudo dd
+if=/dev/nvme0n1p5 of=build/p5.img bs=4M conv=sparse` ja `tools/gefsck
+build/p5.img /usr/glenda/spacehw/log`.
+
 ### V0. Pohja: sync ja yksinoikeus
 
 - `plan9.sync(polku)`: tyhjä wstat.

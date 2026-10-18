@@ -8,6 +8,9 @@
 #   PHASE=0     the phases' tests up to this one (docs/object-model.md 7)
 #   CRASH=3     crashes in the crash tests
 #   ONLY=n      only phase n's tests (while developing it)
+#   HW=1        instead: /sys/lib/python/test/space/hw.py (spacehw, the
+#               tests on real hardware) as there, QEMU killed where it
+#               says to cut the power
 # V0 (sync and exclusive use):
 #   T0.1  a file written, plan9.sync, QEMU killed as soon as it returns:
 #         the next boot has it (CRASH times, 1 MiB each, checksummed)
@@ -60,6 +63,7 @@ echo "test-space: PHASE=$phase${ONLY:+ ONLY=$ONLY} CRASH=${CRASH:-3}; limits: a 
 
 st=0
 QEMU=$qemu QEMUARGS="${qemuargs[*]}" FWCODE=$fwcode FWVARS=$fwvars \
+HWPY=${HW:+$root/sys/lib/python/test/space/hw.py} \
 python3 -I - "$vm" "$disk" "$here/9run" "$phase" "${CRASH:-3}" "${ONLY:-}" <<'EOF' || st=1
 import os, re, sys, time, shutil, subprocess, hashlib
 vm, disk, run9, phase, ncrash, only = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
@@ -397,7 +401,36 @@ def v3():
         r"gone$", secs=60, name='T3.5 the small gefs halted')
     halt()
 
+def vhw():
+    """hw.py as on real hardware: written to the root, run at each boot"""
+    src = open(os.environ['HWPY']).read()
+    path = '/sys/lib/python/test/space/hw.py'
+    for i in range(10):
+        if not boot():
+            return
+        if i == 0:
+            raw("import plan9 as p\nfor d in ('/sys/lib/python', '/sys/lib/python/test', '/sys/lib/python/test/space'):\n"
+                "    try:\n        p.close(p.create(d, p.OREAD, p.DMDIR | 0o775))\n    except OSError:\n        pass\n"
+                "with open(%r, 'w') as f:\n    f.write(%r)" % (path, src), r'\A\Z', secs=120, name='hw.py written')
+        start = len(text())
+        typ("import plan9 as p\np.spawn(['/boot/mp', %r])\x04" % path)
+        m = wait(r'CUT THE POWER NOW \((\d) of (\d)\)|spacehw: done: (\d+) FAIL|Traceback', start, 600)
+        out = text()[start:]
+        print('\t' + '\n\t'.join(l for l in out.split('\n') if l.startswith(('ok ', 'FAIL', 'info', 'spacehw'))), flush=True)
+        if m is None or m.group(0) == 'Traceback':
+            check('hw.py stage %d' % i, False, out)
+            return
+        if m.group(3) is not None:
+            check('hw.py: %s FAIL' % m.group(3), m.group(3) == '0', out)
+            wait(r'done halting', start, 120)
+            stop()
+            return
+        crash()
+
 phases = [v0, v1, v2, v3]
+if os.environ.get('HWPY'):
+    phases, phase, only = [vhw], 0, ''
+
 try:
     for i, f in enumerate(phases):
         if (only == '' and i <= phase) or only == str(i):
@@ -410,6 +443,7 @@ EOF
 [ $st = 0 ] || { echo FAIL; exit 1; }
 
 [ -z "$ONLY" ] || [ "$ONLY" = 0 ] || { echo "PASS: space ONLY=$ONLY"; exit 0; }
+[ -z "$HW" ] || { echo "PASS: space HW=1"; exit 0; }
 
 # the partition checked and read back in the build VM (userspace gefs)
 part=$b/spacepart.img
