@@ -93,11 +93,15 @@ static void repl(void) {
     }
 }
 
-// a note: interrupt is KeyboardInterrupt in the running code
+// a note: interrupt is KeyboardInterrupt in the running code; alarm
+// (plan9.alarm) only cuts the blocked call short, which raises OSError
 static int onnote(void *ureg, char *note) {
     (void)ureg;
     if (strcmp(note, "interrupt") == 0) {
         mp_sched_keyboard_interrupt();
+        return 1;
+    }
+    if (strcmp(note, "alarm") == 0) {
         return 1;
     }
     return 0;
