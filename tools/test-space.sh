@@ -21,6 +21,20 @@
 #   T1.4  an unknown name, a package: ImportError; builtins work; a
 #         module loaded once; a failed top level not in sys.modules
 #   T1.5  a wrong runtime, a corrupt Environment: refused
+# V2 (a Space, mp -S: the whole image, committed, restored):
+#   T2.1  counter.increment() in three boots (killed): 1, 2, 3; a REPL
+#         statement's a = 10 kept
+#   T2.2  a module's top level runs in the first boot only
+#   T2.3  shared references and a cycle kept as they were
+#   T2.4  classes, instances, methods, a closure, defaults,
+#         staticmethod, classmethod; no class body run again
+#   T2.5  a generator: the commit fails with its type and path, the
+#         version before stays
+#   T2.6  __transient__ names None, the others kept
+#   T2.7  a failed import leaves no instance
+#   T2.8  two Spaces, one Environment: two counters
+#   T2.9  a second mp -S: space locked; an rfork child's changes lost
+#   T2.10 a dict keyed by instances with their own __hash__
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -236,7 +250,81 @@ def v1():
     raw("run('print(1)', 'x;y')", r"not an Environment\nstatus '.+'$", secs=30, name='T1.5 not an Environment')
     halt()
 
-phases = [v0, v1]
+def v2():
+    src = {
+        'counter': "print('init counter')\nn = 0\ndef increment():\n    global n\n    n += 1\n    return n\n",
+        'shapes': "print('init shapes')\nclass Base:\n    print('class body Base')\n    kind = 'base'\n"
+            "    def __init__(self, x):\n        self.x = x\n    def get(self):\n        return self.x\n"
+            "    @staticmethod\n    def twice(v):\n        return 2 * v\n"
+            "    @classmethod\n    def make(cls, v):\n        return cls(v)\n"
+            "class Sub(Base):\n    def get(self):\n        return self.x + 100\n"
+            "def adder(k):\n    def add(v):\n        return v + k\n    return add\n"
+            "def scale(v, f=3, *, off=1):\n    return v * f + off\n",
+        'keyed': "class K:\n    def __init__(self, a):\n        self.a = a\n"
+            "    def __hash__(self):\n        return hash(self.a)\n"
+            "    def __eq__(self, o):\n        return isinstance(o, K) and o.a == self.a\n",
+        'badtop': "x = 1 / 0\n",
+    }
+    if not boot():
+        return
+    raw('import plan9 as p, space', r'\A\Z')
+    code = "try:\n    p.create('/usr/glenda/src2', p.OREAD, p.DMDIR | 0o775)\nexcept OSError:\n    pass\n"
+    for n, t in src.items():
+        code += "with open('/usr/glenda/src2/%s.py', 'w') as f:\n    f.write(%r)\n" % (n, t)
+    # a child mp in a Space: its output, then its status
+    code += ("def run(src, sp='t2'):\n    pid = p.spawn(['/boot/mp', '-S', sp, '-c', src])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n    print('status', repr(w[1]))\n")
+    raw(code, r'\A\Z', name='V2 sources')
+    raw("e = space.mkenv({n: space.define('/usr/glenda/src2/%s.py' % n) for n in ('counter', 'shapes', 'keyed', 'badtop')})\n"
+        "space.create('t2', e)\nspace.create('t2b', e)\nprint(sorted(p.dirread('/usr/glenda/space/t2')[i][0] for i in range(2)))",
+        r"^\['lock', 'v0000000000000000'\]$", secs=60, name='space.create')
+    raw("space.create('t2', e)", r'\A\Z', r'space t2 exists', name='space.create: one there')
+    raw("run(\"import counter; print('c', counter.increment())\")", r"^init counter\nc 1\nstatus ''$", secs=30, name='T2.1 boot 1: 1')
+    raw("run(\"import shapes, keyed\\nb = shapes.Base(5)\\ns = shapes.Sub.make(7)\\nadd = shapes.adder(10)\\n"
+        "m = s.get\\nsc = shapes.scale\\nl = []\\nd = {'x': l, 'y': l}\\nl.append(d)\\nbig = 2 ** 100\\n"
+        "fl = 1.5\\nfs = frozenset([1, 2])\\nby = bytearray(b'ab')\\n__transient__ = ('tmp',)\\ntmp = [1]\\nkeep = 2\\n"
+        "kd = {keyed.K(1): 'one', keyed.K((2, 3)): 'two'}\\nprint('made')\")",
+        r"^init shapes\nclass body Base\nmade\nstatus ''$", secs=30, name='T2.3-4, 6, 10: the objects made')
+    raw("p.spawn(['/bin/rc', '-c', \"echo 'r = 10' | /boot/mp -S t2 >/dev/null\"]); print('status', repr(p.wait()[1]))\n"
+        "p.spawn(['/bin/rc', '-c', \"echo 'print(r)' | /boot/mp -S t2\"]); print('status', repr(p.wait()[1]))",
+        r"^status ''\n.*>>> print\(r\)\s*10\s.*status ''$", secs=30, name='T2.1 a REPL statement')
+    crash()
+    if not boot():
+        return
+    raw('import plan9 as p, space\n' + code[code.index('def run'):], r'\A\Z', name='V2 run()')
+    raw("run(\"import counter; print('c', counter.increment())\")", r"^c 2\nstatus ''$", secs=30, name='T2.1-2 boot 2: 2, no top level')
+    raw("run(\"print(b.get(), s.get(), m(), add(5), sc(2), sc(2, 4, off=0), shapes.Base.twice(4), shapes.Sub.make(1).get(), "
+        "type(s) is shapes.Sub, isinstance(s, shapes.Base), b.kind)\\n"
+        "print(d['x'] is d['y'], l[0] is d, big, fl, sorted(fs), type(fs) is frozenset, by)\\nprint(tmp, keep, r)\\n"
+        "print(kd[keyed.K(1)], kd[keyed.K((2, 3))], len(kd))\")",
+        r"^5 107 107 15 7 8 8 101 True True base\nTrue True 1267650600228229401496703205376 1\.5 \[1, 2\] True bytearray\(b'ab'\)\n"
+        r"None 2 10\none two 2\nstatus ''$", secs=30, name='T2.3-4, 6, 10: restored, no class body')
+    crash()
+    if not boot():
+        return
+    raw('import plan9 as p, space\n' + code[code.index('def run'):], r'\A\Z', name='V2 run()')
+    raw("run(\"import counter; print('c', counter.increment())\")", r"^c 3\nstatus ''$", secs=30, name='T2.1 boot 3: 3')
+    raw("run('x = (i for i in range(3))')",
+        r"space: commit failed: CommitError: not persistent: generator at __main__\.x\nstatus '.+'$", secs=30, name='T2.5 a generator')
+    raw("run(\"print('x' in globals(), counter.n)\")", r"^False 3\nstatus ''$", secs=30, name='T2.5 the version before')
+    raw("run('try:\\n    import badtop\\nexcept ZeroDivisionError:\\n    print(\"failed\")')\n"
+        "run(\"import sys; print('badtop' in sys.modules, 'badtop' in globals())\")",
+        r"^failed\nstatus ''\nFalse False\nstatus ''$", secs=30, name='T2.7 a failed import')
+    raw("run(\"import counter; print('c', counter.increment())\", 't2b')\n"
+        "run(\"import counter; print('c', counter.increment())\", 't2b')\n"
+        "run(\"print('c', counter.increment())\")",
+        r"^init counter\nc 1\nstatus ''\nc 2\nstatus ''\nc 4\nstatus ''$", secs=60, name='T2.8 two Spaces')
+    raw("sl = p.spawn(['/boot/mp', '-S', 't2', '-c', 'import plan9\\nplan9.sleep(5000)'])\np.sleep(1500)\n"
+        "run('print(1)')\nwhile p.wait()[0] != sl:\n    pass",
+        r"space t2 locked\nstatus '.+'$", secs=30, name='T2.9 a second mp -S')
+    raw("run(\"import plan9\\nif plan9.rfork(16 | plan9.RFFDG) == 0:\\n    child = 1\\n    raise SystemExit\\n"
+        "plan9.wait()\\nprint('parent')\")\nrun(\"print(globals().get('child'))\")",
+        r"^parent\nstatus ''\nNone\nstatus ''$", secs=30, name="T2.9 an rfork child's changes lost")
+    out = raw("print(sorted(x[0] for x in p.dirread('/usr/glenda/space/t2')))", r"^\['lock'(, 'v\d{16}'){3}\]$",
+        name='three versions kept')
+    halt()
+
+phases = [v0, v1, v2]
 try:
     for i, f in enumerate(phases):
         if (only == '' and i <= phase) or only == str(i):

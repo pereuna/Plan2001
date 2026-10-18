@@ -302,7 +302,7 @@ ajettavaa `mp`:tä, Space ei aukea.
 
 Kuvan muoto: otsake (`P2SP`, muodon versio, `N`, Environmentin
 tunniste), oliotaulu ja juuret, ja lopuksi pituus ja SHA-256 kaikesta
-sitä edeltävästä. Tarkka tavumuoto on `p9space.c`:ssä, ja muodon versio
+sitä edeltävästä. Tarkka tavumuoto on `p9space.c`:ssä (otsake) ja `p9image.c`:ssä (runko), ja muodon versio
 kasvaa jokaisessa muutoksessa.
 
 ### 6.2 Commit
@@ -335,7 +335,8 @@ näki. Lukija, jolle tämä ei käy, tekee itse syncin.
 
 | Mitä | Missä |
 |---|---|
-| Kuvan koodaus ja purku, commit, avaus, vahvistuspisteet | `sys/src/cmd/micropython/p9space.c` (C, koska tarvitaan `mp_obj`-sisuksia) |
+| Kuvan koodaus ja purku | `sys/src/cmd/micropython/p9image.c` (C, koska tarvitaan `mp_obj`-sisuksia) |
+| Commit, avaus, vahvistuspisteet | `sys/src/cmd/micropython/p9space.c` |
 | `space`-moduuli (`atomic`, `interval`, `define`, `mkenv`, `create`, `CommitError`) | `p9space.c` |
 | Import-koukku | `main.c`:n `mp_import_stat` ja `mp_lexer_new_from_file`, ja `.mpy`:n lataus `persistentcode.c`:llä |
 | `graph` | `sys/lib/python/graph.py` (Pythonia, deskriptorit) |
@@ -424,6 +425,38 @@ tarkistetaan avattaessa: tekstin SHA-256 on sen nimi, muuten
 | T2.8 | Kaksi Spacea samalla Environmentilla: laskurit ovat erillisiä. |
 | T2.9 | Toinen `mp -S` samaan Spaceen antaa virheen `space locked` (labin vastaesimerkki 15). `rfork`-lapsen muutokset eivät tallennu. |
 | T2.10 | `dict`, jonka avaimena on käyttäjäluokan instanssi omalla `__hash__`illa, palautuu oikein. |
+
+Toteutus (18.10.2026): `p9image.c` koodaa ja purkaa kuvan, ja
+`p9space.c` hoitaa Spacen (`space.create(nimi, env)`, `space.open`,
+`space.info()`, `space.CommitError`) ja commitin. `mp -S nimi` avaa
+Spacen ennen ohjelmaa. REPL-lauseen commit tehdään
+`MICROPY_BOARD_AFTER_PYTHON_EXEC`-koukussa, joten pyexec.c ei muutu.
+Kuvan runko koostuu oliotaulusta (lajit: tuple, list, dict, set,
+frozenset, bytearray, solu, luokka, instanssi, funktio, sulkeuma,
+static-/classmethod, sidottu metodi) ja juurista (`__main__` ja ne
+Environmentin moduulit, jotka ovat yhä `sys.modules`issa). Arvot
+(None, bool, int, mpz desimaalina, float, str, bytes, sisäänrakennettu
+nimellä, Spacen moduuli nimellä) ovat rivissä. Funktio on (moduuli,
+polku `.mpy`:n raw code -puussa, oletusarvot). Palautus rakentaa
+ensin kuoret: luokka kutsumalla `type(nimi, kannat, tyhjä dict)`,
+instanssi ilman `__init__`iä ja funktio raw codesta. Sen jälkeen se
+täyttää sisällöt; dictit ja setit täytetään viimeisinä, ja ne, joiden
+avaimet ovat viitteitä, aivan lopuksi. `MICROPY_PY_BUILTINS_FROZENSET`
+on päällä.
+
+V2:n rajat (5.5:n mukaan, ei vikoja): `__main__`issa (REPL tai `-c`)
+määritelty funktio tai luokka estää commitin (`not persistent: a
+function defined in __main__`), joten funktiot kuuluvat moduuleihin.
+`property` ja natiivikantaiset luokat eivät tallennu. Builtin-olion
+haku on lineaarinen, ja suurten kuvien nopeus mitataan V3:ssa.
+
+Sivulöytö: konsolin `\n` päättää REPL-rivin myös putkesta
+(`p9console.c`). Ennen tätä rivi jäi ajamatta, kun `/dev/consctl`ia
+ei ollut.
+
+Tulokset: QEMU `ONLY=2` (4 boottia, joista kolme tapettu, 5 min) ja
+`PHASE=2` (V0–V2, gefsck puhdas): kaikki läpi. `tools/test-mpinit.sh`
+(molemmat tilat) läpi.
 
 ### V3. Lepopisteet ja kaatuminen
 
@@ -518,7 +551,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 |---|---|
 | V0 | QEMU: valmis 18.10.2026 (`plan9.sync`, `plan9.DMEXCL`, `tools/test-space.sh`). Silli: ajamatta |
 | V1 | QEMU: valmis 18.10.2026 (`space`-moduuli, `mp -E`). Silli: ajamatta |
-| V2 | – |
+| V2 | QEMU: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus). Silli: ajamatta |
 | V3 | – |
 | V4 | – |
 | V5 | ehdollinen |

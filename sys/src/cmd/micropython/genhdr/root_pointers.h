@@ -4,3 +4,4 @@ const char *readline_hist[(8)];
 mp_obj_list_t mp_sys_argv_obj;
 mp_obj_t p9_space_env;
 mp_obj_t sys_mutable[MP_SYS_MUTABLE_NUM];
+void *p9_space_mods;

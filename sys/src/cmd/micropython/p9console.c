@@ -59,8 +59,9 @@ int p9_console_read(void) {
 
     if (ipend < npend) return (uchar)pend[ipend++];
     if ((n = rd(b)) < 0) return n;
-    if (consctl < 0) return (uchar)b[0];
+    // a line's end, from a pipe too (readline ends a line at \r)
     if (b[0] == '\n') return '\r';
+    if (consctl < 0) return (uchar)b[0];
     if (b[0] == Kdel) return pending("\x1b[3~", 4);
     if ((uchar)b[0] < Runeself) return (uchar)b[0];
     for (n = 1; n < UTFmax && !fullrune(b, n); n++)
