@@ -2,8 +2,9 @@
 
 /*
  * Plan2001: the blocks check reaches (trees, data, logs, deadlists
- * and their entries), by address: a block neither free nor reached
- * is leaked.  Meaningful after a sync, with nothing in flight.
+ * and their entries), by address.  Blocks neither free nor reached
+ * are unaccounted for, not proven leaks: live mount roots and pending
+ * frees are not fully accounted for by this diagnostic.
  */
 static uchar	*reach;
 static vlong	nreach;
@@ -386,8 +387,8 @@ countref(vlong id)
 	return nref;
 }
 
-/* Plan2001: the blocks neither free nor reached */
-static int
+/* Plan2001: diagnostic only, independent of structural integrity */
+static void
 checkleak(int fd)
 {
 	vlong addr, base, n, i;
@@ -407,15 +408,15 @@ checkleak(int fd)
 			 * next getblk of the address fails its gen assert
 			 */
 			if(n++ < 10)
-				fprint(fd, "leaked block %llx\n", addr);
+				fprint(fd, "unaccounted block %llx\n", addr);
 		}
 	}
-	fprint(fd, "leaked blocks: %lld (%lld KiB)\n", n, n*Blksz/1024);
+	fprint(fd, "unaccounted blocks: %lld (%lld KiB)\n", n, n*Blksz/1024);
 	for(j = 0; j < Nr; j++)
 		fprint(fd, "reached %s: %lld KiB\n", rname[j], nreached[j]*Blksz/1024);
 	fprint(fd, "reached leaves %lld (empty %lld, < 4 %lld) kvs %lld; pivots %lld msgs %lld clobbers %lld\n",
 		nleaf, nleaf0, nleaf1, nkv, npiv, nmsg, nclob);
-	return n == 0;
+	fprint(fd, "reachability check: diagnostic only (live roots and pending frees not fully accounted)\n");
 }
 
 int
@@ -440,6 +441,8 @@ checkfs(int fd)
 	mark(fs->sb1->bp.addr, Rlog);
 	if(waserror()){
 		fprint(fd, "error checking %s\n", errmsg());
+		fprint(fd, "structural check: not ok\n");
+		fprint(fd, "reachability check: unavailable\n");
 		free(reach);
 		reach = nil;
 		return 0;
@@ -502,14 +505,14 @@ checkfs(int fd)
 		poperror();
 	}
 	btexit(&s);
-	/* Plan2001: reported, not failed: in-flight frees look leaked */
+	/* Plan2001: reachability does not decide structural integrity */
 	checkleak(fd);
 	free(reach);
 	reach = nil;
 	poperror();
 	if(ok)
-		fprint(fd, "ok\n");
+		fprint(fd, "structural check: ok\n");
 	else
-		fprint(fd, "not ok\n");
+		fprint(fd, "structural check: not ok\n");
 	return ok;
 }

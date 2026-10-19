@@ -153,6 +153,25 @@ gefs:n trace-puskurin, jonka assert tulostaa lohkon osalta.
 `mk install`, kernelin ja loaderin käännös gefs-juuressa toimivat
 (`BUILD=1`).
 
+**Tarkistuksen tulos (19.10.2026).** Kernelin `check` tulostaa erikseen
+`structural check: ok` tai `structural check: not ok`. `/n/adm/ctl`:n
+kirjoitus palauttaa virheen rakenteellisen tarkistuksen epäonnistuessa.
+`unaccounted blocks: N (K KiB)` ja `reachability check: diagnostic only`
+ovat erillinen saavutettavuusdiagnostiikka: elävien mounttien juuria ja
+keskeneräisiä vapautuksia ei vielä huomioida kattavasti. Nolla ei todista
+vuotamattomuutta, eikä positiivinen luku yksin todista pysyvää vuotoa.
+Virheeseen keskeytyneen tarkistuksen saavutettavuustulos on `unavailable`.
+Käyttäjätilan `gefs -c`:n tulostus ei muutu.
+
+`tools/test-gefs.sh` vaatii kernelin tarkistuksen onnistuneen paluuarvon,
+molemmat tulosrivit ja valmistumismerkin. Jokaisen tarkistuksen koko
+vastaus jää `build/amd64/gefsvm/check-*.log`:iin. Check- tai sync-virhettä
+ei saa peittää myöhemmällä onnistuneella komennolla. Testin `PASS`
+tarkoittaa rakenteellisia tarkistuksia ja testattujen tietojen säilymistä;
+saavutettavuus jää diagnostiseksi. Tuloskäsittelyn regressiot ilman VM:ää:
+`PLAN9=/polku/plan9port python3 tools/test-gefs-results.py -v` (rc:n
+virheiden välityksen testit tarvitsevat plan9portin).
+
 Avoinna: arm64-kernelin konfiguraatio, gefs:n luonti ilman
 käyttäjätilan gefs:ää (Linuxissa ei ole gefs:ää: juuri kopioidaan
 Plan2001:ssä), `rootdir` (Monolithin `/lib/namespace`), automaattiset

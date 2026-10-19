@@ -1068,3 +1068,28 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   toisen Spacen julkaistun version omaksi maailmakseen (omat moduulit,
   oma `__main__`). Sen oliot ovat vieraita, eikä commit ota niitä.
   Oikeudet ovat gefs:n (`none` omalla mountillaan).
+
+## gefs-testien tulosten erottelu (19.10.2026)
+
+- Kernelin `check` erottaa rakenteellisen eheyden ja diagnostisen
+  saavutettavuuslaskennan. `unaccounted blocks` ei ole vielä varmistettu
+  vuoto; elävien mounttien juuret ja keskeneräiset vapautukset vaativat
+  erillisen selvityksen. Rakenteellinen virhe palauttaa edelleen virheen
+  `ctl`:n kirjoittajalle.
+- `test-gefs.sh` vaatii tarkistuksen tulosrivit ja valmistumismerkin,
+  säilyttää vastaukset `check-*.log`:eissa ja välittää check-, sync- sekä
+  ktest-komentojen virheet. `PASS` ei tarkoita vuotamattomuutta.
+- `tools/test-gefs-results.py`: puuttuvat tulokset, rakenteellinen virhe,
+  kuljetusvirhe sekä rc:n check/sync-virheen peittyminen; positiivinen
+  diagnostinen lohkomäärä ei yksin hylkää rakenteellista tarkistusta.
+- Noin 200 MiB:n kaatumiskohtainen lohkolaskurin kasvu on edelleen avoin;
+  tämä muutos ei muuta allokointia, palautusta tai laskennan kattavuutta.
+- Varmistus: `WHAT=kernel tools/build.sh` ja
+  `NOROOT=1 CRASH=1 KTEST=all tools/test-gefs.sh` läpi QEMU/KVM:ssä
+  (31 ktestiä, kaatumisen yli säilynyt synkattu merkkitiedosto,
+  `gefsck` ok). Juuren käyttäjätilan binäärit aiemmasta käännöksestä;
+  kernel ja loader käännetty tästä työpuusta. Tuloskäsittelyn viisi
+  regressiotestiä alitapauksineen läpi plan9portin rc:llä.
+  Saavutettavuuslaskuri oli ennen kaatumista 13 440 KiB ja sen jälkeen
+  227 152 KiB; syytä ei selvitetty tässä muutoksessa. Rauta ja koko
+  puun käännös jäivät ajamatta.
