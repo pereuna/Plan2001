@@ -1151,6 +1151,49 @@ fsobj(void)
 		ohas(&r, 1000+i, 8, i, 50*i);
 	ohas(&r, 2000, 8, 7, 100*1024);
 
+	/*
+	 * V7's recovery pin (docs/v7-upgrade.md 4.2, docs/gefs-obj.md 9):
+	 * the user part is 88 bytes, env[64] next[8] fmt 2 pad[7] pin[8],
+	 * and K never passes the pin, nor goes back below what is pruned.
+	 * Now N 8, K 6: the pin is 8.
+	 */
+	ostep = "pin";
+	oread(fd, &r, 8192);
+	if(r.n != 8)
+		fail("before the pin: N %llud, not 8", r.n);
+	memset(obuf, 0, 5+88);
+	obuf[0] = 'h'; obuf[4] = 88;
+	obuf[5+72] = 2;
+	obuf[5+87] = 8;			/* the pin, big-endian at 80..87 */
+	owrite(fd, obuf, obuf+5+88);
+	oput(fd, 1, 900, 9);
+	ocommit(fd, 0);
+	oread(fd, &r, 8192);
+	if(r.n != 9 || r.k != 7)
+		fail("pinned: N %llud K %llud, not 9 7", r.n, r.k);
+	for(i = 0; i < 3; i++){
+		oput(fd, 1, 910+i, 9);
+		ocommit(fd, 0);
+		oread(fd, &r, 8192);
+		if(r.n != 10+i || r.k != 8)
+			fail("commit %d: N %llud K %llud, not %d 8", i, r.n, r.k, 10+i);
+	}
+	owrite(fd, b, orec(b, 'v', 8, 0));
+	oread(fd, &r, 8192);
+	ohas(&r, 1000, 8, 0, 0);	/* the pinned version reads */
+	memset(obuf, 0, 5+88);
+	obuf[0] = 'h'; obuf[4] = 88;
+	obuf[5+72] = 2;			/* fmt 2, the pin 0 now */
+	owrite(fd, obuf, obuf+5+88);
+	oput(fd, 1, 920, 9);
+	ocommit(fd, 0);
+	oread(fd, &r, 8192);
+	if(r.n != 13 || r.k != 11)
+		fail("pin gone: N %llud K %llud, not 13 11", r.n, r.k);
+	owrite(fd, b, orec(b, 'v', 8, 0));
+	if(pread(fd, obuf, 8192, 0) >= 0)
+		fail("version 8 read, K is 11");
+
 	/* no truncation of a store */
 	close(fd);
 	if((fd = open(f, OWRITE|OTRUNC)) >= 0)

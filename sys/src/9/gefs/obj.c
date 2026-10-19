@@ -324,6 +324,28 @@ dropold(char *k, int nk, void *a)
 
 int	objfail;	/* the next commit's history sweep fails */
 
+/*
+ * Plan2001 V7 (docs/v7-upgrade.md 4.2): the user part's recovery pin.
+ * The header's user part is the file's, and only its writer knows it:
+ * env[64] next[8] (V5, V6), or env[64] next[8] fmt[1] pad[7] pin[8]
+ * (V7, fmt 2).  The pin is a published version that must stay readable
+ * until the next upgrade publishes another: K never passes it.
+ */
+enum {
+	Objuserfmt	= 72,	/* the format byte's offset */
+	Objuserpin	= 80,	/* the pin's */
+	Objuserfmtv7	= 2,
+	Objuserlenv7	= 88,
+};
+
+static uvlong
+objpin(Ohdr *h)
+{
+	if(h->nuser < Objuserlenv7 || h->user[Objuserfmt] != Objuserfmtv7)
+		return 0;
+	return UNPACK64(h->user+Objuserpin);
+}
+
 static Otx*
 gettx(Fid *f)
 {
@@ -459,19 +481,28 @@ commit(Mount *mnt, Otx *tx)
 
 	if(tx->ver == 0)
 		return;
+	uvlong k0, pin;
+
 	flushtx(mnt, tx);
 	gethdr(agetp(&mnt->root), tx->store, &h);
 	if(h.w != tx->ver)
 		error(Ecorrupt);
 	h.n = tx->ver;
-	if(h.n >= Objkeep && h.k < h.n - Objkeep + 1)
-		h.k = h.n - Objkeep + 1;
-	if(h.k == 0)
-		h.k = 1;
+	/* the prospective user part first: its pin decides K */
+	k0 = h.k;
 	if(tx->newuser){
 		h.nuser = tx->nuser;
 		memmove(h.user, tx->user, tx->nuser);
 	}
+	if(h.n >= Objkeep && h.k < h.n - Objkeep + 1)
+		h.k = h.n - Objkeep + 1;
+	pin = objpin(&h);
+	if(pin != 0 && pin < h.k && pin >= k0)
+		h.k = pin;	/* the recovery point stays: K <= pin <= N */
+	if(h.k < k0)
+		h.k = k0;	/* and nothing already pruned comes back */
+	if(h.k == 0)
+		h.k = 1;
 	/* published: one message */
 	puthdr(mnt, tx->store, &h);
 
