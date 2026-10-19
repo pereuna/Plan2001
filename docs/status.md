@@ -1068,3 +1068,20 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   toisen Spacen julkaistun version omaksi maailmakseen (omat moduulit,
   oma `__main__`). Sen oliot ovat vieraita, eikä commit ota niitä.
   Oikeudet ovat gefs:n (`none` omalla mountillaan).
+- 19.10.2026: `space-v6` yhdistetty `main`-haaraan. Testi
+  `ONLY=5 tools/test-space.sh` meni läpi QEMU:ssa, mukaan lukien T5.9:n täysi
+  levy ja T5.13:n kaatumisen jälkeinen poiston jatkaminen; lopun `gefsck`
+  tulos oli `ok`. V6:n omat testit ovat aiemman ajon mukaan läpi QEMU:ssa.
+  Oikean raudan `spacehw`-ajoa ei ole tehty.
+- Avoin P1: `test-gefs.sh CRASH=3` -ajossa on raportoitu noin 200 MiB
+  saavuttamattomia lohkoja kaatumista kohden. Syntyhetkeä ja sitä, esiintyykö
+  ilmiö myös `main`-haaran GEFS:ssä, ei ole vahvistettu. `gefs check` näyttää
+  lohkolaskurin diagnostisesti mutta ei muuta `ok`-tulosta (`checkleak()`-
+  paluuarvo ohitetaan); siksi `ok` ei yksin sulje tätä havaintoa pois.
+- Avoin P2: commit julkaisee uuden otsakkeen ennen vanhojen versioiden
+  siivousta. Jos siivous epäonnistuu, julkaistu versio säilyy, mutta
+  epäonnistunutta siivousta ei merkitä pysyvästi uudelleen yritettäväksi.
+  Siivous käy vain saman transaktion muuttamat OID:t; vanhoja, enää
+  lukukelvottomia avaimia voi siksi jäädä puuhun, jos kyseistä OID:tä ei
+  myöhemmin kirjoiteta. T5.12 testaa version säilymisen, ei siivouksen
+  palautumista. Korjaus ja tätä erottava testi ovat jatkotyötä.
