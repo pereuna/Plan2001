@@ -1058,8 +1058,12 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   oliolla). V5 valmis QEMU:ssa: gefs:n olio-API (`obj.c`, `DMOBJ`,
   `docs/gefs-obj.md`) ja MicroPythonin inkrementaalinen commit
   (barrierit, OID-taulu). Commit ~30 000 oliolla 34–67 ms; V2–V5:n
-  testit läpi `$spacecheck`illa. Avoimet: avaus ~8,3 s (dictien
-  täyttö), levy täynnä -testit (käyttäjätilan gefs ilman `DMOBJ`:ta).
+  testit läpi `$spacecheck`illa. Katselmoinnin (19.10.2026) jälkeen
+  myös T5.4 (poistetun storen alue lehtiin asti, `btdrain`), T5.9
+  (täysi levy ei vie read-only-tilaan, iso poisto synkkaa välillä),
+  T5.12 (abort julkaisun jälkeen) ja T5.13 (poisto jatkuu kaatumisen
+  jälkeen). Avoimet: avaus ~8,3 s (dictien täyttö), `v<N>`:n siirto
+  yli 64 MiB:n.
 - V6 valmis QEMU:ssa: `space.view(nimi tai polku, version=)` lukee
   toisen Spacen julkaistun version omaksi maailmakseen (omat moduulit,
   oma `__main__`). Sen oliot ovat vieraita, eikä commit ota niitä.

@@ -434,6 +434,22 @@ upsert(Mount *mnt, Msg *m, int nm)
 	btupsert(r, m, nm);
 }
 
+/* Plan2001: btdrain on the mount's tree, as upsert */
+int
+drain(Mount *mnt, Key *k, Kvp *next, char *buf, int nbuf)
+{
+	Tree *r;
+
+	if(!(mnt->flag & Lmut) || agetl(&fs->rdonly))
+		error(Erdonly);
+	r = agetp(&mnt->root);
+	if(r->nlbl != 1 || r->nref != 0) {
+		r = updatesnap(r, mnt->name, mnt->flag);
+		aswapp(&mnt->root, r);
+	}
+	return btdrain(r, k, next, buf, nbuf);
+}
+
 /*
  * When truncating a file, mutations need
  * to wait for the sweeper to finish; this
@@ -1889,7 +1905,7 @@ candelete(Fid *f)
 static void
 fsremove(Fmsg *m, int id, Amsg **ao)
 {
-	char *e, buf[Kvmax];
+	char *e, buf[Kvmax], pk[Kvmax];
 	Fcall r;
 	int nm;
 	Msg mb[3];
@@ -1962,6 +1978,15 @@ fsremove(Fmsg *m, int id, Amsg **ao)
 		*ao = emalloc(sizeof(Amsg), 1);
 		aincl(&f->mnt->ref, 1);
 		(*ao)->op = (f->dent->qid.type & QTOBJ) ? AOobjclear : AOclear;
+		if(f->dent->qid.type & QTOBJ){
+			/* Plan2001: pending until its keys are swept (objresume) */
+			mb[nm].op = Oinsert;
+			mb[nm].k = pk;
+			mb[nm].nk = objpending(pk, f->qpath);
+			mb[nm].v = nil;
+			mb[nm].nv = 0;
+			nm++;
+		}
 		(*ao)->mnt = f->mnt;
 		(*ao)->qpath = f->qpath;
 		(*ao)->off = 0;
@@ -2846,6 +2871,23 @@ setconf(int id, int op, char *snap, char *key, char *val)
 	poperror();
 }
 
+/* Plan2001: the arenas' free blocks */
+static vlong
+freeblks(void)
+{
+	vlong n;
+	int i;
+
+	n = 0;
+	for(i = 0; i < fs->narena; i++)
+		n += (fs->arenas[i].size - fs->arenas[i].used)/Blksz;
+	return n;
+}
+
+enum {
+	Clearsync	= 256,	/* Plan2001: blocks a clear uses between syncs */
+};
+
 void
 runsweep(int id, void*)
 {
@@ -2854,16 +2896,23 @@ runsweep(int id, void*)
 	Bptr bp, nb, *oldhd;
 	Tree *t, *n;
 	Fcall r;
-	int i, nm, ok;
-	vlong off;
+	int i, nm, ok, resumed;
+	vlong off, nfree;
 	Arena *a;
 	Amsg *am;
 	Blk *b;
 
 	if((oldhd = calloc(fs->narena, sizeof(Bptr))) == nil)
 		sysfatal("malloc log heads");
+	sweepproc = up;	/* Plan2001: the reserve (blkalloc_lk) */
+	resumed = 0;
 	while(1){
 		am = chrecv(fs->admchan);
+		/* Plan2001: the first sync (runtasks, 5 s): a crash's removals */
+		if(!resumed && am->op == AOsync && !agetl(&fs->rdonly)){
+			resumed = 1;
+			objresume(id);
+		}
 		if(waserror()){
 			if(am->m != nil)
 				rerror(am->m, errmsg());
@@ -3053,6 +3102,7 @@ Syncout:
 			}
 			fs->snap.dirty = 1;
 			nm = 0;
+			nfree = freeblks();
 			/*
 			 * Plan2001: from the block after the new end: the keys
 			 * are block offsets (the one with the end was zeroed in
@@ -3082,6 +3132,22 @@ Syncout:
 					poperror();
 					epochclean();
 					nm = 0;
+					/*
+					 * Plan2001: a sync when the clear has used
+					 * Clearsync blocks: the leaves it copies
+					 * leave their old blocks, and the data's, in
+					 * the deadlist until a sync.  A 3.9 GiB
+					 * file's clear on a full disk used the
+					 * reserve up (T5.9: read-only).
+					 */
+					if(nfree - freeblks() >= Clearsync){
+						if(debug)
+							print("DBG clear sync off %lld free %lld\n", off, freeblks());
+						sync(id);
+						nfree = freeblks();
+						if(debug)
+							print("DBG synced free %lld\n", nfree);
+					}
 				}
 			}
 			if(am->dent != nil){

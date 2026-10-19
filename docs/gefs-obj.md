@@ -262,16 +262,30 @@ Lisäksi:
   tai nopeampi täyttö on seuraava mittauskohde.
 - RAMissa elävät, juurista saavuttamattomat oliot (esim. vain
   `__transient__`-nimestä) jäävät storeen: täysi merkintä puuttuu.
-- T3.5 ja T5.9 (levy täynnä) ajetaan juuren gefs:llä: `dd` täyttää
-  juuren. Täysi levy vei gefs:n read-only-tilaan (`bugs_to_9front.md`
-  gefs 6). Nyt data ja olioiden put (`dataroom`) pysähtyvät kahteen
-  reserviin, puun päivitykset reserviin, ja sync saa käyttää reservin
-  (`syncproc`). Syncin osuus ajamatta (19.10.2026).
-- T5.4: 40 MiB:n storen luonti ja poisto jättää noin 20 MiB käyttöä
-  joka kierroksella (6 kierrosta, lineaarinen). Avaimia ei jää
-  (konsolin `show objs`: 0), ja tavallisella 40 MiB:n tiedostolla
-  käyttö palaa ennalleen. Vuoto on lohkotasolla olio-storen polussa.
-  Selvitettävänä.
+- T3.5 ja T5.9 (levy täynnä, korjattu 19.10.2026) ajetaan juuren
+  gefs:llä: `dd` täyttää juuren. Täysi levy vei gefs:n read-only-tilaan
+  (`bugs_to_9front.md` gefs 6). Nyt data ja olioiden arvot (`dataroom`
+  putissa ja jokaisessa arvoja sisältävässä erässä) pysähtyvät kahteen
+  reserviin. Puun päivitykset pysähtyvät reserviin, ja sync sekä
+  sweeper saavat käyttää reservin (`syncproc`, `sweepproc`). Tyhjä
+  arena siirtää varauksen seuraavaan arenaan (ei `Estuffed`). Ison
+  tiedoston poisto synkkaa 256 käytetyn lohkon välein, koska
+  vapautetut lohkot palaavat vasta syncissä.
+- T5.4 (korjattu 19.10.2026): 40 MiB:n storen luonti ja poisto jätti
+  noin 20 MiB käyttöä joka kierroksella. Vuotaneita lohkoja ei ollut
+  (`check`in saavutettavuuslaskenta: 19 vanhaa ennen testiä), vaan
+  puu kasvoi: poiston clobberit jäivät pivotien puskureihin, ja
+  lehdet pitivät poistetut arvot, koska aluetta ei enää kirjoiteta.
+  Nyt `objsweep` ajaa poiston jälkeen `btdrain`in alueen lehti
+  kerrallaan (avainohjattu flush lehteen asti). Kolmella kierroksella
+  puu pysyy 912 KiB:ssä ja käyttö palaa ennalleen.
+- Poisto ja kaatuminen (19.10.2026): `remove` kirjoittaa samaan
+  upserttiin pysyvän merkin `Kobj ~0 qpath`. Siivous poistaa sen
+  viimeisenä, ja sweeper jatkaa kesken jääneet poistot käynnistyksen
+  ensimmäisessä syncissä (`objresume`, T5.13).
+- Julkaisu ja abort (korjattu 19.10.2026): virhe historian siivouksessa
+  julkaisun jälkeen ei enää peru julkaistua versiota (`commit` nollaa
+  `tx->ver`in otsakkeen jälkeen, T5.12, konsolin `objfail`).
 - Storen poisto jumitti gefs:n (korjattu 19.10.2026): `objsweep` piti
   `mutlk`:ta ja epochia koko siivouksen ajan, eikä limbo päässyt
   vapauttamaan. Nyt `flushtx` päästää ne `Objyield` erän välein

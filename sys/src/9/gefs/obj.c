@@ -33,8 +33,10 @@ enum {
 	Objkeep		= 3,		/* versions kept: K..N */
 	Objtxmax	= 64*MiB,	/* a transaction's data, an object's */
 	Objtomb		= 0xffffffff,	/* len of a tombstone */
-	Objbatch	= 32,		/* messages to an upsert */
-	Objyield	= 16,		/* upserts between flushtx's yields */
+	Objbatch	= 32,		/* messages with values to an upsert */
+	Objclob		= 256,		/* clobbers to an upsert: > Bufspc */
+	Objyield	= 4,		/* upserts between flushtx's yields */
+	Objroom		= 16,		/* blocks a batch of values needs, at most */
 	Objrhdr		= 1+8+8+8,	/* 'o' oid ver len */
 };
 
@@ -83,8 +85,8 @@ struct Otx {
 	/* messages for the next upsert */
 	int	id;		/* the worker's epoch (yield), -1 none */
 	int	nflush;		/* upserts since the last yield */
-	Msg	mb[Objbatch];
-	char	kb[Objbatch][Objksz];
+	Msg	mb[Objclob];
+	char	kb[Objclob][Objksz];
 	char	vb[Objbatch][Objchunk];
 	int	nm;
 
@@ -177,8 +179,21 @@ puthdr(Mount *mnt, vlong store, Ohdr *h)
 static void
 flushtx(Mount *mnt, Otx *tx)
 {
+	int i;
+
 	if(tx->nm == 0)
 		return;
+	/*
+	 * Plan2001: values stop where data does (blkalloc's Tdat
+	 * limit, twice the reserve): the chunks are in the leaves, and
+	 * a full disk's commit took the tree's reserve (read-only, T5.9)
+	 */
+	for(i = 0; i < tx->nm; i++)
+		if(tx->mb[i].nv > 0){
+			if(!dataroom(Objroom*Blksz))
+				error(Efull);
+			break;
+		}
 	upsert(mnt, tx->mb, tx->nm);
 	tx->nm = 0;
 	if(tx->id >= 0 && ++tx->nflush >= Objyield){
@@ -196,7 +211,13 @@ addmsg(Mount *mnt, Otx *tx, int op, char *k, int nk, char *v, int nv)
 {
 	Msg *m;
 
-	if(tx->nm == Objbatch)
+	/*
+	 * Plan2001: clobbers go in batches over a pivot's buffer room,
+	 * so they reach the leaves: in a pivot's buffer they kept the
+	 * removed values in the leaves (T5.4: a removed 40 MiB store
+	 * kept ~20 MiB of the tree)
+	 */
+	if(tx->nm == Objclob || (nv > 0 && tx->nm >= Objbatch))
 		flushtx(mnt, tx);
 	m = &tx->mb[tx->nm];
 	memmove(tx->kb[tx->nm], k, nk);
@@ -205,7 +226,7 @@ addmsg(Mount *mnt, Otx *tx, int op, char *k, int nk, char *v, int nv)
 	m->op = op;
 	m->k = tx->kb[tx->nm];
 	m->nk = nk;
-	m->v = tx->vb[tx->nm];
+	m->v = nv > 0 ? tx->vb[tx->nm] : nil;	/* vb: Objbatch only */
 	m->nv = nv;
 	tx->nm++;
 }
@@ -244,7 +265,7 @@ sweep(Mount *mnt, Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), 
 				addmsg(mnt, tx, Oclobber, s->kv.k, s->kv.nk, nil, 0);
 				n++;
 			}
-			if(n == Objbatch-1 || tx->nm == Objbatch){
+			if(n == Objclob-1 || tx->nm == Objclob){
 				memmove(last, s->kv.k, s->kv.nk);
 				nlast = s->kv.nk;
 				more = 1;
@@ -300,6 +321,8 @@ dropold(char *k, int nk, void *a)
 	}
 	return v < o->keep;
 }
+
+int	objfail;	/* the next commit's history sweep fails */
 
 static Otx*
 gettx(Fid *f)
@@ -452,14 +475,31 @@ commit(Mount *mnt, Otx *tx)
 	/* published: one message */
 	puthdr(mnt, tx->store, &h);
 
-	/* then the versions none kept sees */
-	pfx[0] = Kobj;
-	PACK64(pfx+1, tx->store);
-	for(e = tx->ent; e < tx->ent+tx->nent; e++){
-		PACK64(pfx+9, e->oid);
-		o.k = h.k;
-		o.keep = 0;
-		sweep(mnt, tx, pfx, sizeof(pfx), dropold, &o);
+	/*
+	 * then the versions none kept sees.  Published, the
+	 * transaction is no more: a failure here aborts nothing
+	 * (abort1 clobbered the version just published) and is no
+	 * failure of the commit; what is left is swept at the
+	 * object's next commit
+	 */
+	tx->ver = 0;
+	if(waserror()){
+		print("gefs: store %llx: history not swept: %s\n", tx->store, errmsg());
+		tx->nm = 0;
+	}else{
+		if(objfail){	/* the console's objfail (T5.12) */
+			objfail = 0;
+			error("objfail: history sweep");
+		}
+		pfx[0] = Kobj;
+		PACK64(pfx+1, tx->store);
+		for(e = tx->ent; e < tx->ent+tx->nent; e++){
+			PACK64(pfx+9, e->oid);
+			o.k = h.k;
+			o.keep = 0;
+			sweep(mnt, tx, pfx, sizeof(pfx), dropold, &o);
+		}
+		poperror();
 	}
 	endtx(tx);
 }
@@ -781,11 +821,122 @@ objclunk(Fid *f, Amsg **ao)
 	(*ao)->otx = tx;
 }
 
+/*
+ * Plan2001: a removed store's pending mark, Kobj ~0 qpath: put by
+ * fsremove in the dirent's delete, clobbered when objsweep has swept
+ * the store's keys.  A crash between leaves the mark, and objresume
+ * sweeps on at the next start.
+ */
+int
+objpending(char *k, vlong qpath)
+{
+	k[0] = Kobj;
+	PACK64(k+1, ~0ULL);
+	PACK64(k+9, qpath);
+	return Objoidksz;
+}
+
+/* the sweeper's, once at the start: the removals a crash cut short */
+void
+objresume(int id)
+{
+	char pfx[Objhdrksz];
+	vlong *q, *nq;
+	int n, a, i;
+	Mount *mnt;
+	Amsg am;
+	Scan s;
+
+	if(waserror()){
+		fprint(2, "gefs: removals not resumed: %s\n", errmsg());
+		return;
+	}
+	mnt = getmount("main");
+	poperror();
+	q = nil;
+	n = a = 0;
+	epochstart(id);
+	if(waserror()){
+		epochend(id);
+		fprint(2, "gefs: removals not resumed: %s\n", errmsg());
+		free(q);
+		clunkmount(mnt);
+		return;
+	}
+	pfx[0] = Kobj;
+	PACK64(pfx+1, ~0ULL);
+	btnewscan(&s, pfx, sizeof(pfx));
+	btenter(agetp(&mnt->root), &s);
+	while(btnext(&s, &s.kv)){
+		if(s.kv.nk != Objoidksz)
+			continue;
+		if(n == a){
+			a = a ? 2*a : 16;
+			if((nq = realloc(q, a*sizeof(vlong))) == nil){
+				btexit(&s);
+				error(Enomem);
+			}
+			q = nq;
+		}
+		q[n++] = UNPACK64(s.kv.k+9);
+	}
+	btexit(&s);
+	epochend(id);
+	poperror();
+	for(i = 0; i < n; i++){
+		print("gefs: store %llx: its removal resumed\n", q[i]);
+		memset(&am, 0, sizeof(am));
+		am.op = AOobjclear;
+		am.mnt = mnt;
+		am.qpath = q[i];
+		if(waserror()){
+			fprint(2, "gefs: store %llx: %s\n", q[i], errmsg());
+			continue;
+		}
+		objsweep(id, &am);
+		poperror();
+	}
+	free(q);
+	clunkmount(mnt);
+}
+
+/*
+ * Plan2001: the clobbers of a removed range down to its leaves, leaf
+ * by leaf.  They waited in the pivots' buffers, and the leaves kept
+ * the removed values: the tree grew by ~20 MiB per removed 40 MiB
+ * store (T5.4).
+ */
+static void
+drainrange(Mount *mnt, Otx *tx, char *pfx, int npfx)
+{
+	char kb[Keymax], nb[Keymax+Inlmax];
+	Key k;
+	Kvp next;
+
+	memmove(kb, pfx, npfx);
+	k.k = kb;
+	k.nk = npfx;
+	while(drain(mnt, &k, &next, nb, sizeof(nb))){
+		if(next.nk < npfx || memcmp(next.k, pfx, npfx) != 0)
+			break;
+		memmove(kb, next.k, next.nk);
+		k.nk = next.nk;
+		if(tx->id >= 0 && ++tx->nflush >= Objyield){
+			tx->nflush = 0;
+			epochend(tx->id);
+			qunlock(&fs->mutlk);
+			epochclean();
+			qlock(&fs->mutlk);
+			epochstart(tx->id);
+		}
+	}
+}
+
 /* the sweeper's: a fid's transaction, or a removed store's keys */
 void
 objsweep(int id, Amsg *am)
 {
-	char pfx[Objhdrksz];
+	char pfx[Objhdrksz], pk[Objoidksz];
 	Otx *tx;
 
 	qlock(&fs->mutlk);
@@ -819,6 +970,10 @@ objsweep(int id, Amsg *am)
 		pfx[0] = Kobj;
 		PACK64(pfx+1, am->qpath);
 		sweep(am->mnt, tx, pfx, sizeof(pfx), dropall, nil);
+		/* swept: the removal's pending mark out */
+		addmsg(am->mnt, tx, Oclobber, pk, objpending(pk, am->qpath), nil, 0);
+		flushtx(am->mnt, tx);
+		drainrange(am->mnt, tx, pfx, sizeof(pfx));
 		poperror();
 		free(tx);
 	}

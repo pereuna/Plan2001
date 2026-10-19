@@ -2,6 +2,7 @@
 
 static vlong	blkalloc_lk(Arena*, int);
 Proc	*syncproc;
+Proc	*sweepproc;
 static vlong	blkalloc(int, uint, int);
 static void	blkdealloc_lk(Arena*, vlong);
 static Blk*	initblk(Blk*, vlong, vlong, int);
@@ -530,11 +531,14 @@ blkalloc_lk(Arena *a, int seq)
 		r = (Arange*)avlmin(a->free);
 	else
 		r = (Arange*)avlmax(a->free);
-	/* Plan2001: the reserve is the syncing proc's (syncproc) */
-	if(!usereserve && up != syncproc && a->size - a->used <= a->reserve)
+	/*
+	 * Plan2001: the reserve is the syncing proc's (syncproc) and
+	 * the sweeper's: its clears and syncs free a full disk
+	 */
+	if(!usereserve && up != syncproc && up != sweepproc && a->size - a->used <= a->reserve)
 		return -1;
 	if(r == nil)
-		broke(Estuffed);
+		return -1;	/* Plan2001: blkalloc tries the next arena */
 
 	/*
 	 * A bit of sleight of hand here:
@@ -568,6 +572,10 @@ blkdealloc_lk(Arena *a, vlong b)
 	freerange(a->free, b, Blksz);
 	a->used -= Blksz;
 }
+
+enum {
+	Logfloor	= 8,	/* Plan2001: blocks an arena keeps for its log */
+};
 
 static vlong
 blkalloc(int ty, uint hint, int seq)
@@ -603,6 +611,13 @@ Again:
 	 * have the reserve (an update that fails makes gefs read-only)
 	 */
 	if(ty == Tdat && !usereserve && a->size - a->used <= 2*a->reserve)
+		b = -1;
+	/*
+	 * Plan2001: the sync and the sweeper take the reserve, but leave
+	 * an arena room for its own log (logappend) and go on to the
+	 * next: a full disk's clear emptied one arena (Estuffed)
+	 */
+	else if(a->size - a->used <= Logfloor*Blksz)
 		b = -1;
 	else
 		b = blkalloc_lk(a, seq);

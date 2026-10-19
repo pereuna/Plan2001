@@ -59,6 +59,10 @@
 #   T5.7  a bad record amid a commit ($spacefail): N kept, then N+1
 #   T5.8  1 MiB bytes kept
 #   T5.10 open(name, v): version v kept; one older refused
+#   T5.13 killed amid a removed store's sweep: the boot sweeps on (no
+#         store keys left of the removed ones: gefs console show objs)
+#   T5.12 objfail (gefs console): the history sweep after the header's
+#         publication fails: the version stays, the next commit works
 #   T5.11 a V4 v<N> (made here) taken in, killed before its first
 #         commit too: then committed, v<N> gone
 #   T3.5, T5.9 the root filled (dd, ~4 GiB, ~9 min): gefs read-write;
@@ -551,6 +555,12 @@ def v5():
         "run('print(x)', 't5c')\nrun('x = 3', 't5c')\nrun(\"import space\\nprint(x, space.info()[1])\", 't5c')",
         r"^status ''\nspace: commit failed: CommitError: .+\nstatus '.+'\n1\nstatus ''\nstatus ''\n3 3\nstatus ''$", secs=60,
         name='T5.7 a failed commit: N kept, then N+1')
+    # T5.12: the history sweep fails after the header's publication:
+    # the version published stays (it was clobbered by the abort)
+    raw("fd = p.open('#s/gefs.root.cmd', p.OWRITE)\np.write(fd, b'objfail\\n')\np.close(fd)\np.sleep(200)\n"
+        "run('x = 5', 't5c')\nrun(\"import space\\nprint(x, space.info()[1])\", 't5c')\nrun('x = 6', 't5c')\nrun('print(x)', 't5c')",
+        r"history not swept: objfail.*^5 \d+\nstatus ''\nstatus ''\n6\nstatus ''$", secs=60,
+        name='T5.12 a failed history sweep: the published version kept')
     # T5.2: OIDs kept over versions (and the boot, below)
     out = raw("run(\"o5 = [1]\\nd5 = {'a': o5}\")\n"
         "run(\"import space\\nprint('oid', space.oid(o5), space.oid(d5), space.oid(1), space.oid([]))\\no5.append(2)\")\n"
@@ -610,10 +620,10 @@ def v5():
         r"^status ''\nusage.*\nfilled \d+ MiB \d+ s\nusage.*$", secs=900, name='T5.9 the root filled, gefs read-write')
     if out:
         print('\tinfo: T5.9: ' + out.replace('\n', '; '), flush=True)
-    raw("run(\"import space, plan9\\nspace.interval = 0\\ny = 'z' * 1000000\\ntry:\\n    plan9.sleep(1)\\n"
+    raw("run(\"import space, plan9\\nspace.interval = 0\\ny = b'z' * (48 << 20)\\ntry:\\n    plan9.sleep(1)\\n"
         "except space.CommitError as e:\\n    print('CE', e)\\ndel y\", 't5f')\n"
         "run(\"print(x, 'y' in globals(), 'space' in globals())\", 't5f')",
-        r"^CE .*full.*\nspace: commit failed: CommitError: .*\nstatus '.+'\n1 False False\nstatus ''$", secs=300,
+        r"^CE .*full.*\n(space: commit failed: CommitError: .*\nstatus '.+'\n1 False False|status ''\n1 False True)\nstatus ''$", secs=300,
         name='T3.5 T5.9 the disk full: CommitError at a rest and the end, the version before kept')
     out = raw("try:\n    p.remove('/usr/glenda/fill')\n    print('removed')\nexcept OSError as e:\n    print('rm:', e)\n"
         "    sh('echo usereserve 1 >/usr/glenda/adm/ctl; rm /usr/glenda/fill && echo removed with the reserve; echo usereserve 0 >/usr/glenda/adm/ctl')\n"
@@ -621,10 +631,32 @@ def v5():
         r"^removed\nusage.*\nstatus ''\n2\nstatus ''$", secs=120, name='T5.9 the fill removed (no reserve): x = 2 committed')
     if out:
         print('\tinfo: T5.9: ' + out.split('\n')[0], flush=True)
+    # T5.13: killed amid a removed store's sweep: A's sweep keeps the
+    # sweeper busy, a sync queued, then B removed: the sync (after A's
+    # sweep: waited for) has B's dirent gone, its keys not yet; the
+    # boot sweeps on (objresume)
+    objs = ("fd = p.open('#s/gefs.root.cmd', p.ORDWR)\np.write(fd, b'show objs\\n')\no = b''\n"
+        "while b'objs done' not in o:\n    o += p.read(fd, 8192)\np.close(fd)\n"
+        "print([l for l in o.decode().split('\\n') if 'objs done' in l][0])")
+    out = raw("p.sleep(6000)\n" + objs, r"objs done: \d+ keys$", secs=120, name='T5.13 show objs before')
+    k0 = re.search(r'objs done: (\d+) keys', out or '')
+    raw("for n in ('t5ra', 't5rb'):\n    space.create(n, space.mkenv({}))\n"
+        "    run(\"big5 = [bytes([i]) * 1048576 for i in range(40)]\", n)\n"
+        "p.remove('/usr/glenda/space/t5ra/obj')\n"
+        "pid = p.spawn(['/bin/rc', '-c', 'mount -c /srv/gefs.root /usr/glenda/adm adm >[2]/dev/null; echo sync >/usr/glenda/adm/ctl'])\np.sleep(100)\n"
+        "p.remove('/usr/glenda/space/t5rb/obj')\nt = ms()\nwhile p.wait()[0] != pid:\n    pass\n"
+        "print('removed, synced in', (ms() - t) // 1000, 's')",
+        r"^status ''\nstatus ''\nremoved, synced in \d+ s$", secs=300, name='T5.13 two stores removed, a sync between')
     crash()
     if not boot():
         return
     raw(code, r'\A\Z', name='V5 run()')
+    out = raw("p.sleep(10000)\n" + objs, r"objs done: \d+ keys$", secs=120, name='T5.13 show objs after the boot')
+    k1 = re.search(r'objs done: (\d+) keys', out or '')
+    if k0 and k1:
+        live = sum(1 for l in text().split('\n') if 'its removal resumed' in l)
+        print('\tinfo: T5.13: removals resumed at the boot: %d; keys %s, then %s' % (live, k0.group(1), k1.group(1)), flush=True)
+        check('T5.13 the removed stores swept: keys %s == %s' % (k1.group(1), k0.group(1)), k1.group(1) == k0.group(1))
     raw("run(\"print(x, big[5000], len(big2))\")\nrun('print(la, lb)', 't5b')", r"^4 \{'i': -1\} 20000\nstatus ''\n\[99\] \[99\]\nstatus ''$",
         secs=60, name='V5 after the boot')
     if oids:

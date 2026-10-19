@@ -154,6 +154,29 @@ prints why it went read-only.
 	else
 		b = blkalloc_lk(a, seq);
 
+That alone did not let the `rm` through. The sync and the sweeper
+need the reserve too: Plan2001 lets the syncing proc and the sweeper
+take it in blkalloc_lk. Even then, the sweeper's AOclear of a big
+file (3.9 GiB on a 4 GiB disk) ate the reserve: every leaf it rewrites
+leaves its old block in the deadlist until a sync, so nothing comes
+back while the clear runs ("emergency blocks exhausted", read-only).
+Plan2001's AOclear syncs every 16 batches while the disk is below
+twice the reserve. And blkalloc_lk calls `broke(Estuffed)` when the
+picked arena has no free range, instead of returning -1 so that
+blkalloc tries the next arena: a proc allowed past the reserve
+empties one arena and stops gefs. Plan2001 returns -1 there and has
+blkalloc keep 8 blocks per arena for the arena's own log.
+
+A related growth, not a full-disk failure: clobbers wait in the
+pivots' buffers until a buffer fills, and the leaves keep the values
+they clobber. A key range that is removed and never written again
+(a removed file's data keys) keeps its leaves, so the tree stays at
+about half the removed data's key volume. Plan2001 drains a removed
+object store's range down to its leaves (`btdrain` in tree.c, a
+key-directed flush). AOclear's Oclearb messages wait the same way,
+but a file has one key per 16 KiB block, so less is left over (a
+40 MiB file's usage came back in Plan2001's test).
+
 ### lwext4 in ext4srv
 
 `/sys/src/cmd/ext4srv` (unchanged in HEAD since 9front-11952). Found

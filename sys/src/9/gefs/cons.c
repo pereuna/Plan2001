@@ -177,6 +177,9 @@ runcons(int tid, void *pfd)
 			qlock(&fs->mutlk);
 			checkfs(fd);
 			qunlock(&fs->mutlk);
+		}else if(strcmp(f[0], "objfail") == 0){	/* Plan2001: T5.12 */
+			objfail = 1;
+			fprint(fd, "objfail set\n");
 		}else if(strcmp(f[0], "halt") == 0){
 			a = emalloc(sizeof(Amsg), 1);
 			a->op = AOhalt;
