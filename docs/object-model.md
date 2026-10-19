@@ -729,7 +729,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
-| V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. T5.2, T5.11 ja T3.5 läpi 19.10.2026. Avoimet: avaus ~8,3 s, T5.4 (vuoto), T5.9 (`docs/gefs-obj.md` 7) |
+| V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. V5:n testit läpi 19.10.2026 (T5.4, T5.9, T5.12 ja T5.13 katselmoinnin jälkeen). `spacehw` V5:n tallentimella (T3.4 ja T3.5 pois, kuten `test-space`ssa). Avoimet: avaus ~8,3 s (`docs/gefs-obj.md` 7) |
 | V6 | QEMU: valmis 18.10.2026 (`space.view`: oma moduulimaailma, vieraat oliot OID-taulussa; T6.1–T6.6, T6.1: 316 näkymää 100 versiosta, 0 ristiriitaa) |
 | V7 | – |
 | V8 | ehdollinen |

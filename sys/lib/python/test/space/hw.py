@@ -248,7 +248,7 @@ def v2_setup():
     e = space.mkenv({n: space.define(H + '/src2/%s.py' % n) for n in SRC2})
     space.create('t2', e)
     space.create('t2b', e)
-    check('space.create', sorted(d[0] for d in p.dirread(SP + '/t2')) == ['lock', 'v0000000000000000'])
+    check('space.create', sorted(d[0] for d in p.dirread(SP + '/t2')) == ['lock', 'obj'])
     try:
         space.create('t2', e)
         ok = False
@@ -293,7 +293,7 @@ def v2_after2():
         "plan9.wait()\nprint('parent')", 't2')
     check("T2.9 an rfork child's changes lost", o == ('parent\n', '') and run("print(globals().get('child'))", 't2') == ('None\n', ''))
     v = sorted(d[0] for d in p.dirread(SP + '/t2'))
-    check('three versions kept', len(v) == 4 and v[0] == 'lock', repr(v))
+    check('the versions in the store (V5)', v == ['lock', 'obj'], repr(v))
 
 # ---- V3 ----
 
@@ -325,46 +325,18 @@ def t33_before():
     bg('x = 2', 't3c')
     p.sleep(3000)
     p.remove('/env/spaceslow')
-    t = [d[0] for d in p.dirread(SP + '/t3c') if d[0][0] == 't']
-    check('T3.3 t2 half written', t == ['t0000000000000002'], repr(t))
+    t = sorted(d[0] for d in p.dirread(SP + '/t3c'))
+    check('T3.3 version 3 half written, in the store', t == ['lock', 'obj'], repr(t))
 
 def t33_after():
     expect('T3.3 v1 used', run('print(x)', 't3c'), '1\n')
     t = [d[0] for d in p.dirread(SP + '/t3c') if d[0][0] == 't']
     check('T3.3 t gone', t == [], repr(t))
 
-def t34():
-    expect('T3.4 x = 1', run('x = 1', 't3d'), '')
-    expect('T3.4 x = 2', run('x = 2', 't3d'), '')
-    fd = p.open(SP + '/t3d/v0000000000000002', p.ORDWR)
-    p.seek(fd, 80, 0)
-    c = p.read(fd, 1)
-    p.seek(fd, 80, 0)
-    p.write(fd, bytes([c[0] ^ 1]))
-    p.close(fd)
-    expect('T3.4 v1 used', run('print(x)', 't3d'),
-        'space: t3d/v0000000000000002: its SHA-256: renamed bad0000000000000002\n1\n')
-    v = sorted(d[0] for d in p.dirread(SP + '/t3d'))
-    check('T3.4 v2 renamed bad2', v == ['bad0000000000000002', 'lock', 'v0000000000000000', 'v0000000000000001'], repr(v))
-
-def t35():
-    o, s = rc('cd ' + home + ' && dd -if /dev/zero -of small.img -bs 1048576 -count 136 >[2]/dev/null && '
-        'gefs -r ' + user + ' -f small.img >/tmp/ream.log >[2=1] && gefs -A -n spacehwsmall -f small.img >[2]/dev/null && '
-        'mount -c /srv/spacehwsmall ' + SP + ' && echo mounted')
-    if not check('T3.5 a small gefs', 'mounted' in o, o):
-        return
-    try:
-        space.create('t3e', space.mkenv({}))
-        expect('T3.5 x = 1', run('x = 1', 't3e'), '')
-        rc('dd -if /dev/zero -of ' + SP + '/fill -bs 1048576 -count 200 >[2]/dev/null')
-        o, st = run("import space, plan9\nspace.interval = 0\ny = 'z' * 1000000\ntry:\n    plan9.sleep(1)\n"
-            "except space.CommitError as e:\n    print('CE', e)\ndel y", 't3e')
-        check('T3.5 CommitError at a rest and the end', o.startswith('CE ') and 'space: commit failed: CommitError: ' in o and st != '', o)
-        log('info T3.5: ' + o.split('\n')[0])
-        expect('T3.5 the version before', run("print(x, 'y' in globals(), 'space' in globals())", 't3e'), '1 False False\n')
-    finally:
-        rc('unmount ' + SP + '; echo halt >>/srv/spacehwsmall.cmd; '
-            'for(i in 1 2 3 4 5 6 7 8 9 10) if(test -e /srv/spacehwsmall.cmd) sleep 1; rm -f ' + home + '/small.img')
+# T3.4 (a version file's byte changed) and T3.5 (a small gefs filled):
+# not since V5, as in tools/test-space.sh: the versions are in the
+# store (no files), and the userspace gefs has no DMOBJ; the disk
+# full is T5.9 there.
 
 # ---- the stages ----
 
@@ -445,8 +417,6 @@ def main():
         st['fails'] = fails
         cut(st, i + 1)
     t33_after()
-    t34()
-    t35()
     n = sum(1 for d in p.dirread(H) if d[0].startswith('unsynced'))
     log('info T0.1: unsynced files kept after a power cut: %d of %d' % (n, CUTS))
     log('spacehw: done: %d FAIL' % fails)
