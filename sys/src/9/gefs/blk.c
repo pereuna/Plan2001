@@ -1,6 +1,7 @@
 #include "gefs.h"
 
 static vlong	blkalloc_lk(Arena*, int);
+Proc	*syncproc;
 static vlong	blkalloc(int, uint, int);
 static void	blkdealloc_lk(Arena*, vlong);
 static Blk*	initblk(Blk*, vlong, vlong, int);
@@ -529,7 +530,8 @@ blkalloc_lk(Arena *a, int seq)
 		r = (Arange*)avlmin(a->free);
 	else
 		r = (Arange*)avlmax(a->free);
-	if(!usereserve && a->size - a->used <= a->reserve)
+	/* Plan2001: the reserve is the syncing proc's (syncproc) */
+	if(!usereserve && up != syncproc && a->size - a->used <= a->reserve)
 		return -1;
 	if(r == nil)
 		broke(Estuffed);
@@ -595,7 +597,15 @@ Again:
 		qunlock(a);
 		nexterror();
 	}
-	b = blkalloc_lk(a, seq);
+	/*
+	 * Plan2001: data stops at twice the reserve: a full disk's
+	 * writer gets Efull, while the tree updates and syncs still
+	 * have the reserve (an update that fails makes gefs read-only)
+	 */
+	if(ty == Tdat && !usereserve && a->size - a->used <= 2*a->reserve)
+		b = -1;
+	else
+		b = blkalloc_lk(a, seq);
 	if(b == -1){
 		qunlock(a);
 		poperror();
@@ -605,6 +615,31 @@ Again:
 	qunlock(a);
 	poperror();
 	return b;
+}
+
+/*
+ * Plan2001: room for n bytes of data under blkalloc's Tdat limit.
+ * An object store's records are inline in the tree, not data
+ * blocks, so its puts ask this, or a commit would eat the reserve
+ */
+int
+dataroom(vlong n)
+{
+	vlong left;
+	Arena *a;
+	int i;
+
+	if(usereserve)
+		return 1;
+	left = 0;
+	for(i = 0; i < fs->narena; i++){
+		a = &fs->arenas[i];
+		qlock(a);
+		if(a->size - a->used > 2*a->reserve)
+			left += a->size - a->used - 2*a->reserve;
+		qunlock(a);
+	}
+	return left > n;
 }
 
 static Blk*

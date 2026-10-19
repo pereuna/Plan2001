@@ -599,7 +599,15 @@ Again:
 		qunlock(a);
 		nexterror();
 	}
-	b = blkalloc_lk(a, seq);
+	/*
+	 * Plan2001: data stops at twice the reserve: a full disk's
+	 * writer gets Efull, while the tree updates and syncs still
+	 * have the reserve (an update that fails makes gefs read-only)
+	 */
+	if(ty == Tdat && !usereserve && a->size - a->used <= 2*a->reserve)
+		b = -1;
+	else
+		b = blkalloc_lk(a, seq);
 	if(b == -1){
 		qunlock(a);
 		poperror();

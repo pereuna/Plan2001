@@ -780,6 +780,13 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
         if (storeread(fd, ver, &st) < 0) {
             raise_err();
         }
+        if (st.len == 21 && st.buf[0] == 'H' && get64((byte *)st.buf + 1) == 0) {
+            /* nothing published: a migration's first commit not made */
+            vstr_clear(&st);
+            fd = -1;
+        }
+    }
+    if (fd >= 0) {
         /* the header: N K len env[64] next[8] */
         if (st.len < 21 + 72 || st.buf[0] != 'H' || get64((byte *)st.buf + 17) >> 32 != 72) {
             mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: not a Space's store"), name);
@@ -803,7 +810,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
             mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: no store"), name);
         }
         openversions(dir, name, env);
-        if ((sp.store = create(path, ORDWR | OCEXEC, DMOBJ | 0664)) < 0) {
+        if (sp.store < 0 && (sp.store = create(path, ORDWR | OCEXEC, DMOBJ | 0664)) < 0) {
             raise_err();
         }
         sp.n = 0;
@@ -819,6 +826,18 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(space_open_obj, 1, 2, space_open);
+
+// oid(o) -> o's OID in the open Space (kept over versions and boots),
+// or None: not committed yet, a view's, or no object of the heap
+static mp_obj_t space_oid(mp_obj_t o) {
+    uint64_t oid;
+
+    if (!mp_obj_is_obj(o) || (oid = p9_image_oid(MP_OBJ_TO_PTR(o))) == 0) {
+        return mp_const_none;
+    }
+    return mp_obj_new_int_from_ull(oid);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(space_oid_obj, space_oid);
 
 // info() -> (name, version, Environment) of the open Space, or None
 static mp_obj_t space_info(void) {
@@ -1169,6 +1188,7 @@ static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_create), MP_ROM_PTR(&space_create_obj) },
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&space_open_obj) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&space_info_obj) },
+    { MP_ROM_QSTR(MP_QSTR_oid), MP_ROM_PTR(&space_oid_obj) },
     { MP_ROM_QSTR(MP_QSTR_view), MP_ROM_PTR(&space_view_obj) },
     { MP_ROM_QSTR(MP_QSTR_View), MP_ROM_PTR(&view_type) },
     { MP_ROM_QSTR(MP_QSTR_CommitError), MP_ROM_PTR(&mp_type_CommitError) },

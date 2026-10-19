@@ -131,6 +131,29 @@ the list until a sync has put it in its label:
   check. Checking every pointer (old generations too, the last child,
   the log chain) found it at once (Plan2001 30c19de, kernel copy).
 
+### gefs 6: a full disk makes gefs read-only
+
+`blk.c` blkalloc and `tree.c` btupsert. Data blocks and tree blocks
+share one limit: the arena's reserve (`a->reserve`, used only with
+`usereserve`). A writer filling the disk takes the last blocks above
+the reserve with data, and the tree update that follows gets Efull.
+btupsert's error path then sets `fs->rdonly` without a message.
+From then on every write, and the `rm` that would free the space, fails
+with "file system read only" until gefs restarts.
+
+Repeat: on a gefs with free space F, `dd -if /dev/zero -of x -bs 1048576
+-count` more than F; then `rm x`: "file system read only".
+
+Fix (Plan2001, both copies): blkalloc refuses Tdat blocks when the
+arena has `2*reserve` or less left, so a full disk's writer gets Efull
+while the tree updates and syncs still have the reserve; btupsert
+prints why it went read-only.
+
+	if(ty == Tdat && !usereserve && a->size - a->used <= 2*a->reserve)
+		b = -1;
+	else
+		b = blkalloc_lk(a, seq);
+
 ### lwext4 in ext4srv
 
 `/sys/src/cmd/ext4srv` (unchanged in HEAD since 9front-11952). Found

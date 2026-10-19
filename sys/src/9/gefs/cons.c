@@ -57,6 +57,79 @@ showtrace(int fd, char*)
 	fprint(fd, "no trace\n");
 }
 
+/* Plan2001: main's object store keys (as synced), by store */
+static void
+showobjs(int fd, int tid)
+{
+	char pfx[1];
+	vlong store, n, total;
+	Tree *t;
+	Scan s;
+
+	epochstart(tid);
+	if((t = opensnap("main", nil)) == nil){
+		fprint(fd, "open main: %r\n");
+		epochend(tid);
+		return;
+	}
+	if(waserror()){
+		closesnap(t);
+		epochend(tid);
+		fprint(fd, "objs: %s\n", errmsg());
+		return;
+	}
+	pfx[0] = Kobj;
+	btnewscan(&s, pfx, 1);
+	btenter(t, &s);
+	store = -1;
+	n = total = 0;
+	while(btnext(&s, &s.kv)){
+		if(s.kv.nk < 9)
+			continue;
+		if(UNPACK64(s.kv.k+1) != store){
+			if(n > 0)
+				fprint(fd, "store %llx: %lld keys\n", store, n);
+			store = UNPACK64(s.kv.k+1);
+			n = 0;
+		}
+		n++;
+		total++;
+	}
+	btexit(&s);
+	if(n > 0)
+		fprint(fd, "store %llx: %lld keys\n", store, n);
+	fprint(fd, "objs done: %lld keys\n", total);
+	poperror();
+	closesnap(t);
+	epochend(tid);
+}
+
+/* Plan2001: the held locks, their holders' pc and first waiter */
+static void
+showlk1(int fd, char *name, int i, QLock *l)
+{
+	if(l->locked)
+		fprint(fd, "%s[%d] held pc %#p waiter %lud\n", name, i, l->pc,
+			l->head != nil ? l->head->pid : 0);
+}
+
+static void
+showlocks(int fd)
+{
+	int i;
+
+	showlk1(fd, "mutlk", 0, &fs->mutlk);
+	showlk1(fd, "synclk", 0, &fs->synclk);
+	showlk1(fd, "mountlk", 0, &fs->mountlk);
+	showlk1(fd, "lrulk", 0, &fs->lrulk);
+	showlk1(fd, "bfreelk", 0, &fs->bfreelk);
+	for(i = 0; i < nelem(fs->blklk); i++)
+		showlk1(fd, "blklk", i, &fs->blklk[i]);
+	for(i = 0; i < fs->narena; i++)
+		showlk1(fd, "arena", i, &fs->arenas[i]);
+	fprint(fd, "locks done\n");
+}
+
 static void
 showfree(int fd)
 {
@@ -114,6 +187,10 @@ runcons(int tid, void *pfd)
 				showfid(fd);
 			else if(strcmp(f[1], "free") == 0)
 				showfree(fd);
+			else if(strcmp(f[1], "locks") == 0)
+				showlocks(fd);
+			else if(strcmp(f[1], "objs") == 0)
+				showobjs(fd, tid);
 			else if(nf <= 3 && strcmp(f[1], "trace") == 0)
 				showtrace(fd, f[2]);
 			else if(nf <= 3 && strcmp(f[1], "tree") == 0)

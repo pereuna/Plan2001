@@ -37,6 +37,8 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a)
 // $spacecheck: every object reached encoded again and compared with
 // what the store has: the number differing (printed)
 int p9_image_check(void);
+// space.oid: p's OID, 0 none (not committed yet, a view's)
+uint64_t p9_image_oid(const void *p);
 // the Space's OIDs forgotten (a failed open); the views' kept
 void p9_image_reset(void);
 

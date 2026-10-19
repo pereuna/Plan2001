@@ -82,9 +82,11 @@ sync(int id)
 	int i;
 
 	qlock(&fs->synclk);
+	syncproc = up;	/* Plan2001: a full disk's sync takes the reserve */
 	if(waserror()){
 		fprint(2, "failed to sync: %s\n", errmsg());
 		aincl(&fs->rdonly, 1);
+		syncproc = nil;
 		qunlock(&fs->synclk);
 		nexterror();
 	}
@@ -216,6 +218,7 @@ sync(int id)
 	tracem("snapdl");
 	freedl(&ddl, 0);
 	limbo(DFdlist, sdl);
+	syncproc = nil;
 	qunlock(&fs->synclk);
 	tracem("synced");
 	poperror();
@@ -1904,7 +1907,7 @@ fsremove(Fmsg *m, int id, Amsg **ao)
 		putfid(f);
 		nexterror();
 	}
-	objabortfid(f);	/* Plan2001: its transaction, before the clunk */
+	objabortfid(f, id);	/* Plan2001: its transaction, before the clunk */
 	poperror();
 	clunkfid(m->conn, f, ao);
 	if(agetl(&fs->rdonly))
@@ -2366,7 +2369,7 @@ fswrite(Fmsg *m, int id, Amsg **ao)
 			error(Einuse);
 		if(f->dent->gone)
 			error(Ephase);
-		if(!objwrite(m, f, ao)){
+		if(!objwrite(m, f, ao, id)){
 			r.type = Rwrite;
 			r.count = m->count;
 			respond(m, &r);
@@ -2915,12 +2918,15 @@ runsweep(int id, void*)
 				if(a->nlog >= 2*a->lastlogsz){
 					oldhd[i] = a->loghd;
 					epochstart(id);
+					syncproc = up;	/* Plan2001: the reserve */
 					if(waserror()){
+						syncproc = nil;
 						epochend(id);
 						qunlock(a);
 						nexterror();
 					}
 					compresslog(a);
+					syncproc = nil;
 					epochend(id);
 					poperror();
 				}

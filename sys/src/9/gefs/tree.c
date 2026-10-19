@@ -1287,6 +1287,8 @@ btupsert(Tree *t, Msg *msg, int nmsg)
 Again:
 	b = getroot(t, &height);
 	if(waserror()){
+		if(!agetl(&fs->rdonly))	/* Plan2001: why, on the console */
+			print("gefs: an update failed: %s: read-only\n", errmsg());
 		aincl(&fs->rdonly, 1);
 		dropblk(b);
 		nexterror();

@@ -160,7 +160,9 @@ Vaiheissa V2–V4 OID on olion indeksi versiokuvassa, eikä se ole vakaa
 versioiden välillä. Vakaat 64-bittiset OID:t, joita ei koskaan
 kierrätetä, tulevat vaiheessa V5, kun tallennus muuttuu
 inkrementaaliseksi. Saman version sisällä jaettu viittaus palautuu
-samaksi olioksi, ja syklit säilyvät.
+samaksi olioksi, ja syklit säilyvät. `space.oid(o)` antaa olion OID:n,
+tai `None`, jos oliota ei ole vielä commitoitu, se on näkymän olio tai
+se ei ole keon olio (pieni `int`).
 
 Graafin `Node`n tunniste (`_id`, 5.8) on vakaa jo V4:ssä. Se on Noden
 tavallinen attribuutti, joka tallentuu muiden mukana, eikä se riipu
@@ -727,7 +729,7 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V2 | QEMU ja silli: valmis 18.10.2026 (`mp -S`, kuva, commit, palautus) |
 | V3 | QEMU ja silli: valmis 18.10.2026 (lepopisteet, `space.interval`, `space.atomic`, T3.1–T3.6; `spacehw`) |
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
-| V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. Avoimet: avaus ~8,3 s, T3.5/T5.9, T5.2, T5.4, T5.11 (`docs/gefs-obj.md` 7) |
+| V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. T5.2, T5.11 ja T3.5 läpi 19.10.2026. Avoimet: avaus ~8,3 s, T5.4 (vuoto), T5.9 (`docs/gefs-obj.md` 7) |
 | V6 | QEMU: valmis 18.10.2026 (`space.view`: oma moduulimaailma, vieraat oliot OID-taulussa; T6.1–T6.6, T6.1: 316 näkymää 100 versiosta, 0 ristiriitaa) |
 | V7 | – |
 | V8 | ehdollinen |

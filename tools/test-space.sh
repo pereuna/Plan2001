@@ -4,7 +4,7 @@
 # init=/boot/mp -B, console=0, booted again and again on the same disk.
 # Each boot is driven over the serial console in Python's raw REPL (as
 # tools/test-mpinit.sh); a crash is QEMU killed (no fshalt, no sync).
-# At the end tools/gefsck checks the partition in the build VM.
+# At the end tools/gefsck checks the partition in the build VM (ONLY too).
 #   PHASE=0     the phases' tests up to this one (docs/object-model.md 7)
 #   CRASH=3     crashes in the crash tests
 #   ONLY=n      only phase n's tests (while developing it)
@@ -46,18 +46,24 @@
 #   T3.3  killed amid version N+1's write ($spaceslow): N used, then
 #         N+2 committed
 #   T3.4  (V2-V4: a version file's byte changed; the store has none)
-#   T3.5  (the disk full: skipped, the userspace gefs a small one would
-#         be has no DMOBJ; docs/gefs-obj.md 7)
+#   T3.5  (the disk full: in V5 with T5.9)
 # V4 (graph: relations, the identifier, #tags; sys/lib/python/graph.py):
 #   T4.1-T4.11 as docs/object-model.md 7; T4.4 and T4.6 over a boot
 # V5 (the store, docs/gefs-obj.md 5; $spacecheck on in all phases'
 # boots, SPACECHECK=0 off):
 #   T5.1  one change of 10 000 objects: a few records written
+#   T5.2  space.oid: kept over versions and the boot
+#   T5.4  a 40 MiB store made and removed 3 times: no growth (adm status)
 #   T5.5  a REPL statement's commit in ~30 000 objects (ms, < 200)
 #   T5.6  a reader of the store amid 100 commits: whole versions
 #   T5.7  a bad record amid a commit ($spacefail): N kept, then N+1
 #   T5.8  1 MiB bytes kept
 #   T5.10 open(name, v): version v kept; one older refused
+#   T5.11 a V4 v<N> (made here) taken in, killed before its first
+#         commit too: then committed, v<N> gone
+#   T3.5, T5.9 the root filled (dd, ~4 GiB, ~9 min): gefs read-write;
+#         CommitError (full) at a rest and the end, the version before
+#         kept; the fill removed: commits again, and after the boot
 # V6 (space.view: another Space read, docs/object-model.md V6):
 #   T6.1  views amid 100 atomic commits: la[0] == lb[0] in each
 #   T6.2  none (its own mount): a view; the store 0660: refused
@@ -128,6 +134,8 @@ def boot():
             os.remove(os.path.join(vm, f))
         except FileNotFoundError:
             pass
+    if os.path.exists(log):
+        shutil.copy(log, os.path.join(vm, 'serial%d.log' % (nboot - 1)))
     open(log, 'w').close()
     shutil.copy(os.environ['FWVARS'], os.path.join(vm, 'vars.fd'))
     q = subprocess.Popen([os.environ['QEMU'], '-name', 'plan2001-space', '-nodefaults'] +
@@ -398,9 +406,6 @@ def v3():
     raw(code, r'\A\Z', secs=30, name='V3 run()')
     raw("run('print(x)', 't3c')\nrun('x = 3', 't3c')\nrun('print(x)', 't3c')",
         r"^1\nstatus ''\nstatus ''\n3\nstatus ''$", secs=30, name='T3.3 version 2 used, then 3')
-    # T3.5: the disk full needs a small gefs of its own, and the
-    # userspace gefs has no object stores (DMOBJ): docs/gefs-obj.md 7
-    print('\tinfo: T3.5 skipped: the userspace gefs has no DMOBJ', flush=True)
     halt()
 
 def v4():
@@ -546,12 +551,87 @@ def v5():
         "run('print(x)', 't5c')\nrun('x = 3', 't5c')\nrun(\"import space\\nprint(x, space.info()[1])\", 't5c')",
         r"^status ''\nspace: commit failed: CommitError: .+\nstatus '.+'\n1\nstatus ''\nstatus ''\n3 3\nstatus ''$", secs=60,
         name='T5.7 a failed commit: N kept, then N+1')
+    # T5.2: OIDs kept over versions (and the boot, below)
+    out = raw("run(\"o5 = [1]\\nd5 = {'a': o5}\")\n"
+        "run(\"import space\\nprint('oid', space.oid(o5), space.oid(d5), space.oid(1), space.oid([]))\\no5.append(2)\")\n"
+        "run(\"import space\\nprint('oid', space.oid(o5), space.oid(d5))\")",
+        r"^status ''\noid (\d+) (\d+) None None\nstatus ''\noid \1 \2\nstatus ''$", secs=60, name='T5.2 OIDs kept over versions')
+    oids = re.search(r'oid (\d+) (\d+)', out or '')
+    # T5.4: a removed store's keys freed (the usage back; gefsck at the
+    # end); 40 MiB: a commit is at most 64 MiB (docs/gefs-obj.md 1)
+    raw("def ms():\n    f = p.open('#c/bintime')\n    b = p.read(f, 8)\n    p.close(f)\n    return int.from_bytes(b, 'big') // 1000000\n"
+        "def sh(c):\n    pid = p.spawn(['/bin/rc', '-c', c])\n    while p.wait()[0] != pid:\n        pass\n"
+        "def df():\n    sh('mount -c /srv/gefs.root /usr/glenda/adm adm >[2]/dev/null; echo sync >/usr/glenda/adm/ctl; sleep 1; "
+        "echo sync >/usr/glenda/adm/ctl; sleep 1; grep usage /usr/glenda/adm/status')\n"
+        "p.create('/usr/glenda/adm', p.OREAD, p.DMDIR | 0o775)", r'\A\Z', name='V5 sh(), df()')
+    out = raw("def used():\n    sh('mount -c /srv/gefs.root /usr/glenda/adm adm >[2]/dev/null; echo sync >/usr/glenda/adm/ctl; "
+        "grep usage /usr/glenda/adm/status >/env/dfout')\n    f = open('/env/dfout').read().split()\n"
+        "    return float(f[1][:-1]) * float(f[3][:-3]) * (1024 if f[3].endswith('GiB') else 1) / 100\n"
+        "def settled():\n    u = used()\n    for i in range(30):\n        p.sleep(2000)\n        v = used()\n"
+        "        if abs(v - u) < 1:\n            return v\n        u = v\n    return u\n"
+        "u = [settled()]\nfor k in range(3):\n    space.create('t5d', space.mkenv({}))\n"
+        "    run(\"big4 = [bytes([i]) * 1048576 for i in range(40)]\", 't5d')\n    if k == 0:\n        u.append(used())\n"
+        "    for f in ('obj', 'lock', ''):\n        p.remove('/usr/glenda/space/t5d/' + f)\n    u.append(settled())\n"
+        "print('used', ' '.join('%.1f' % x for x in u))",
+        r"^status ''\nstatus ''\nstatus ''\nused [\d. ]+$", secs=600, name='T5.4 a 40 MiB store made and removed three times')
+    m = re.search(r'used ([\d. ]+)$', out or '')
+    if m:
+        u = [float(x) for x in m.group(1).split()]
+        print('\tinfo: T5.4 used (MiB): %.1f, the store %.1f, removed %.1f %.1f %.1f' % tuple(u), flush=True)
+        check('T5.4 the store took ~40 MiB, its removals freed it: %+.1f, then %+.1f over two more'
+            % (u[1] - u[0], u[4] - u[2]), u[1] - u[0] > 36 and u[4] - u[2] < 8)
+    # T5.11: V4's v<N> taken in; a crash before the first commit
+    raw("def uv(n):\n    b = bytearray()\n    while n > 127:\n        b.append(n & 127 | 128)\n        n >>= 7\n    b.append(n)\n    return bytes(b)\n"
+        "def us(t):\n    return uv(len(t)) + t\n"
+        "def b64(n):\n    return bytes((n >> (56 - 8 * i)) & 255 for i in range(8))\n"
+        "e5 = space.mkenv({})\nspace.create('t5m', e5)\np.remove('/usr/glenda/space/t5m/obj')\n"
+        # objects: 0 __main__'s dict, 1 a list with itself, 2 a dict sharing it
+        "body = (uv(3) + bytes([2]) + uv(3) + bytes([7]) + us(b'x') + bytes([4]) + uv(84) + bytes([7]) + us(b'l') + bytes([12]) + uv(1)"
+        " + bytes([7]) + us(b'd') + bytes([12]) + uv(2)"
+        " + bytes([1]) + uv(3) + bytes([4]) + uv(2) + bytes([8]) + us(b'two') + bytes([12]) + uv(1)"
+        " + bytes([2]) + uv(1) + bytes([8]) + us(b'k') + bytes([12]) + uv(1)"
+        " + uv(1) + us(b'__main__') + uv(0))\n"
+        "img = b'P2SP' + bytes([1]) + b64(3) + e5.encode() + body\nimg += b64(len(img) + 40)\n"
+        "h = space.hash(img)\nimg += bytes(int(h[i:i + 2], 16) for i in range(0, 64, 2))\n"
+        "with open('/usr/glenda/space/t5m/v0000000000000003', 'wb') as f:\n    f.write(img)\n"
+        "pid = p.spawn(['/boot/mp', '-S', 't5m', '-c', \"import space, plan9\\nspace.interval = 100000\\n"
+        "print('opened', x, l[1], l[2] is l, d['k'] is l)\\nplan9.sleep(600000)\"])\np.sleep(3000)\n"
+        "f = p.open('/proc/%d/ctl' % pid, p.OWRITE); p.write(f, 'kill'); p.close(f)\nwhile p.wait()[0] != pid:\n    pass\n"
+        "print(sorted(d[0] for d in p.dirread('/usr/glenda/space/t5m')))\n"
+        "run(\"print(x, l[1], l[2] is l, d['k'] is l)\\nx = 43\", 't5m')\n"
+        "print(sorted(d[0] for d in p.dirread('/usr/glenda/space/t5m')))\nrun('print(x)', 't5m')",
+        r"^opened 42 two True True\n\['lock', 'obj', 'v0000000000000003'\]\n42 two True True\nstatus ''\n"
+        r"\['lock', 'obj'\]\n43\nstatus ''$", secs=60, name='T5.11 v<N> taken in, killed before its first commit too')
+    # T3.5, T5.9: the root full: a CommitError at a rest and at the end,
+    # the version before kept; the space freed: commits again
+    out = raw("space.create('t5f', space.mkenv({}))\nrun('x = 1', 't5f')\ndf()\nt = ms()\n"
+        "sh('dd -if /dev/zero -of /usr/glenda/fill -bs 1048576 -count 4096 >[2]/dev/null')\n"
+        "print('filled', p.stat('/usr/glenda/fill')[2] >> 20, 'MiB', (ms() - t) // 1000, 's')\ndf()",
+        r"^status ''\nusage.*\nfilled \d+ MiB \d+ s\nusage.*$", secs=900, name='T5.9 the root filled, gefs read-write')
+    if out:
+        print('\tinfo: T5.9: ' + out.replace('\n', '; '), flush=True)
+    raw("run(\"import space, plan9\\nspace.interval = 0\\ny = 'z' * 1000000\\ntry:\\n    plan9.sleep(1)\\n"
+        "except space.CommitError as e:\\n    print('CE', e)\\ndel y\", 't5f')\n"
+        "run(\"print(x, 'y' in globals(), 'space' in globals())\", 't5f')",
+        r"^CE .*full.*\nspace: commit failed: CommitError: .*\nstatus '.+'\n1 False False\nstatus ''$", secs=300,
+        name='T3.5 T5.9 the disk full: CommitError at a rest and the end, the version before kept')
+    out = raw("try:\n    p.remove('/usr/glenda/fill')\n    print('removed')\nexcept OSError as e:\n    print('rm:', e)\n"
+        "    sh('echo usereserve 1 >/usr/glenda/adm/ctl; rm /usr/glenda/fill && echo removed with the reserve; echo usereserve 0 >/usr/glenda/adm/ctl')\n"
+        "df()\nrun('x = 2', 't5f')\nrun('print(x)', 't5f')",
+        r"^removed\nusage.*\nstatus ''\n2\nstatus ''$", secs=120, name='T5.9 the fill removed (no reserve): x = 2 committed')
+    if out:
+        print('\tinfo: T5.9: ' + out.split('\n')[0], flush=True)
     crash()
     if not boot():
         return
     raw(code, r'\A\Z', name='V5 run()')
     raw("run(\"print(x, big[5000], len(big2))\")\nrun('print(la, lb)', 't5b')", r"^4 \{'i': -1\} 20000\nstatus ''\n\[99\] \[99\]\nstatus ''$",
         secs=60, name='V5 after the boot')
+    if oids:
+        raw("run(\"import space\\nprint('oid', space.oid(o5), space.oid(d5), o5)\")",
+            r"^oid %s %s \[1, 2\]\nstatus ''$" % oids.groups(), secs=60, name='T5.2 OIDs kept over the boot')
+    raw("run('print(x)', 't5f')\nrun('x = 3', 't5f')\nrun('print(x)', 't5f')\nrun('print(x)', 't5m')",
+        r"^2\nstatus ''\nstatus ''\n3\nstatus ''\n43\nstatus ''$", secs=60, name='T5.9 T5.11 after the boot')
     halt()
 
 def v6():
@@ -649,7 +729,6 @@ sys.exit(1 if fails else 0)
 EOF
 [ $st = 0 ] || { echo FAIL; exit 1; }
 
-[ -z "$ONLY" ] || [ "$ONLY" = 0 ] || { echo "PASS: space ONLY=$ONLY"; exit 0; }
 [ -z "$HW" ] || { echo "PASS: space HW=1"; exit 0; }
 
 # the partition checked and read back in the build VM (userspace gefs)
@@ -659,10 +738,11 @@ mib=$(( $(stat -c %s "$disk") / 1048576 - 66 ))
 dd if="$disk" of="$part" bs=1M skip=65 count=$mib conv=sparse status=none
 echo "### gefsck"
 n=${CRASH:-3}
-"$here/gefsck" "$part" /usr/glenda/synced$n > "$vm/out" 2>&1 || st=1
+v0=; [ -z "$ONLY" ] || [ "$ONLY" = 0 ] && v0=/usr/glenda/synced$n	# V0's file read back
+"$here/gefsck" "$part" $v0 > "$vm/out" 2>&1 || st=1
 sed 's/^/	/' "$vm/out" | tail -3
 grep -q '^ok' "$vm/out" || { echo "FAIL: gefsck: not ok"; st=1; }
-grep -q "^crash $n synced" "$vm/out" || { echo "FAIL: gefsck: no /usr/glenda/synced$n"; st=1; }
+[ -z "$v0" ] || grep -q "^crash $n synced" "$vm/out" || { echo "FAIL: gefsck: no /usr/glenda/synced$n"; st=1; }
 rm -f "$part"
-[ $st = 0 ] && echo "PASS: space PHASE=$phase" || echo FAIL
+[ $st = 0 ] && echo "PASS: space ${ONLY:+ONLY=$ONLY}${ONLY:-PHASE=$phase}" || echo FAIL
 exit $st

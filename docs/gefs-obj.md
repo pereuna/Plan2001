@@ -262,14 +262,23 @@ Lisäksi:
   tai nopeampi täyttö on seuraava mittauskohde.
 - RAMissa elävät, juurista saavuttamattomat oliot (esim. vain
   `__transient__`-nimestä) jäävät storeen: täysi merkintä puuttuu.
-- Käyttäjätilan gefs (`sys/src/cmd/gefs`, 9frontin kopio) ei tunne
-  `DMOBJ`:ta, eikä kernelin gefs:stä voi olla toista instanssia. Siksi
-  T3.5 ja T5.9 (levy täynnä) jäävät ajamatta, kunnes jompikumpi
-  ratkeaa.
-- Ajamatta: T5.2 (OID:n pysyvyys, vaatii OID:n näkyviin), T5.4
-  (storen poisto ja tila), T5.11 (siirtymä `v<N>`:stä; vanhaa
-  kirjoittajaa ei enää ole, joten testi tarvitsee valmiin V4-kuvan).
-  `check.c` ei vielä tarkista `Kobj`-avaimia erikseen (gefsck on puhdas).
+- T3.5 ja T5.9 (levy täynnä) ajetaan juuren gefs:llä: `dd` täyttää
+  juuren. Täysi levy vei gefs:n read-only-tilaan (`bugs_to_9front.md`
+  gefs 6). Nyt data ja olioiden put (`dataroom`) pysähtyvät kahteen
+  reserviin, puun päivitykset reserviin, ja sync saa käyttää reservin
+  (`syncproc`). Syncin osuus ajamatta (19.10.2026).
+- T5.4: 40 MiB:n storen luonti ja poisto jättää noin 20 MiB käyttöä
+  joka kierroksella (6 kierrosta, lineaarinen). Avaimia ei jää
+  (konsolin `show objs`: 0), ja tavallisella 40 MiB:n tiedostolla
+  käyttö palaa ennalleen. Vuoto on lohkotasolla olio-storen polussa.
+  Selvitettävänä.
+- Storen poisto jumitti gefs:n (korjattu 19.10.2026): `objsweep` piti
+  `mutlk`:ta ja epochia koko siivouksen ajan, eikä limbo päässyt
+  vapauttamaan. Nyt `flushtx` päästää ne `Objyield` erän välein
+  (kuten AOclear). Konsolin `show locks` näyttää pidetyt lukot.
+- Yksi commit on enintään 64 MiB (`Objtxmax`), joten iso
+  `v<N>`-Space ei siirry storeen yhdellä commitilla.
+- `check.c` ei vielä tarkista `Kobj`-avaimia erikseen (gefsck on puhdas).
 - Barrierin kattavuus natiiveissa moduuleissa, joiden oliot eivät ole
   pysyviä tyyppejä (5.5): ne nostavat jo `CommitError`in.
 

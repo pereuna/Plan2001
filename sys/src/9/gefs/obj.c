@@ -34,6 +34,7 @@ enum {
 	Objtxmax	= 64*MiB,	/* a transaction's data, an object's */
 	Objtomb		= 0xffffffff,	/* len of a tombstone */
 	Objbatch	= 32,		/* messages to an upsert */
+	Objyield	= 16,		/* upserts between flushtx's yields */
 	Objrhdr		= 1+8+8+8,	/* 'o' oid ver len */
 };
 
@@ -80,6 +81,8 @@ struct Otx {
 	int	inuser;		/* 'h' data still to come */
 
 	/* messages for the next upsert */
+	int	id;		/* the worker's epoch (yield), -1 none */
+	int	nflush;		/* upserts since the last yield */
 	Msg	mb[Objbatch];
 	char	kb[Objbatch][Objksz];
 	char	vb[Objbatch][Objchunk];
@@ -164,6 +167,13 @@ puthdr(Mount *mnt, vlong store, Ohdr *h)
 	upsert(mnt, &m, 1);
 }
 
+/*
+ * Plan2001: a long run of upserts (a store removed, an abort, the
+ * history swept) lets go of mutlk and its epoch every Objyield
+ * batches, as AOclear's batches do: the blocks it freed leave limbo.
+ * Held through it all, the Bfree pool and the cache ran out with
+ * mutlk held, and gefs stopped.  No scan may be entered here.
+ */
 static void
 flushtx(Mount *mnt, Otx *tx)
 {
@@ -171,6 +181,14 @@ flushtx(Mount *mnt, Otx *tx)
 		return;
 	upsert(mnt, tx->mb, tx->nm);
 	tx->nm = 0;
+	if(tx->id >= 0 && ++tx->nflush >= Objyield){
+		tx->nflush = 0;
+		epochend(tx->id);
+		qunlock(&fs->mutlk);
+		epochclean();
+		qlock(&fs->mutlk);
+		epochstart(tx->id);
+	}
 }
 
 static void
@@ -291,6 +309,7 @@ gettx(Fid *f)
 	if((tx = f->aux) == nil){
 		tx = emalloc(sizeof(Otx), 1);
 		tx->store = f->qpath;
+		tx->id = -1;
 		f->aux = tx;
 	}
 	return tx;
@@ -450,7 +469,7 @@ commit(Mount *mnt, Otx *tx)
  * reply waits for a sync (*ao, which answers m).
  */
 int
-objwrite(Fmsg *m, Fid *f, Amsg **ao)
+objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 {
 	char *p, *e;
 	int n, need, sync;
@@ -458,6 +477,7 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao)
 	Otx *tx;
 
 	tx = gettx(f);
+	tx->id = id;
 	mnt = f->mnt;
 	sync = 0;
 	if(waserror()){
@@ -526,6 +546,8 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao)
 			if(tx->left < 0 || tx->left > Objtxmax
 			|| tx->bytes + tx->left > Objtxmax)
 				error("object transaction too big");
+			if(!dataroom(2*tx->left + Blksz))
+				error(Efull);
 			tx->bytes += tx->left;
 			tx->idx = 0;
 			PACK32(tx->chunk, (u32int)tx->left);
@@ -782,12 +804,14 @@ objsweep(int id, Amsg *am)
 	}
 	if(am->op == AOobjabort){
 		tx = am->otx;
+		tx->id = id;
 		abort1(am->mnt, tx);
 		free(tx->abort);
 		free(tx);
 		am->otx = nil;
 	}else{
 		tx = emalloc(sizeof(Otx), 1);
+		tx->id = id;
 		if(waserror()){
 			free(tx);
 			nexterror();
@@ -805,11 +829,12 @@ objsweep(int id, Amsg *am)
 
 /* the fid's transaction out now: its store's removal, in the mutator */
 void
-objabortfid(Fid *f)
+objabortfid(Fid *f, int id)
 {
 	Otx *tx;
 
 	if(!(f->dent->qid.type & QTOBJ) || (tx = f->aux) == nil || tx->ver == 0)
 		return;
+	tx->id = id;
 	abort1(f->mnt, tx);
 }

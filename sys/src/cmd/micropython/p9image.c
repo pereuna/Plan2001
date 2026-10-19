@@ -290,6 +290,12 @@ void p9_space_freed(const void *p) {
     odel(p);
 }
 
+uint64_t p9_image_oid(const void *p) {
+    oent_t *x = oget(p);
+
+    return x == NULL || x->foreign || x->isnew ? 0 : x->oid;
+}
+
 void p9_image_reset(void) {
     oent_t *old = ot;
     size_t n = otsize, i;
