@@ -295,9 +295,12 @@ Lisäksi:
 - `check.c` ei vielä tarkista `Kobj`-avaimia erikseen (gefsck on puhdas).
 - `check`in vuotolaskuri (19.10.2026): `test-gefs.sh CRASH=3` näyttää
   vuotaneiden lohkojen kasvavan noin 200 MiB kaatumista kohden. Se on
-  suunnilleen viimeisen syncin jälkeen kirjoitettu määrä. Vertailu
-  main-haaran kerneliin ja syy (allokointiloki levyllä ennen puuta?)
-  ovat selvittämättä. gefsck ja check ovat muuten puhtaat.
+  suunnilleen viimeisen syncin jälkeen kirjoitettu määrä. Vertailu ja syy
+  on sittemmin selvitetty (`docs/gefs-crashleak.md`): syy on
+  allokointiloki, joka kirjoitetaan levylle ennen puuta, ja ilmiö esiintyy
+  myös ilman olio-API:a olleessa `main`-haarassa (mitattu 155.52 MiB), eli
+  kyse ei ole V5/V6:n regressiosta. Itse vuotoa ei ole korjattu.
+  gefsck ja check ovat muuten puhtaat.
 - Barrierin kattavuus natiiveissa moduuleissa, joiden oliot eivät ole
   pysyviä tyyppejä (5.5): ne nostavat jo `CommitError`in.
 

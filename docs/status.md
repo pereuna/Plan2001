@@ -1074,10 +1074,13 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   tulos oli `ok`. V6:n omat testit ovat aiemman ajon mukaan läpi QEMU:ssa.
   Oikean raudan `spacehw`-ajoa ei ole tehty.
 - Avoin P1: `test-gefs.sh CRASH=3` -ajossa on raportoitu noin 200 MiB
-  saavuttamattomia lohkoja kaatumista kohden. Syntyhetkeä ja sitä, esiintyykö
-  ilmiö myös `main`-haaran GEFS:ssä, ei ole vahvistettu. `gefs check` näyttää
-  lohkolaskurin diagnostisesti mutta ei muuta `ok`-tulosta (`checkleak()`-
-  paluuarvo ohitetaan); siksi `ok` ei yksin sulje tätä havaintoa pois.
+  saavuttamattomia lohkoja kaatumista kohden. Selvitys on tehty
+  (`docs/gefs-crashleak.md`): syntyhetki on kaatumishetki, ilmiö esiintyy
+  myös sen aikaisessa `main`-haaran GEFS:ssä (mitattu 155.52 MiB), eikä
+  kyse ole `space-v6`:n regressiosta. **Itse vuoto on yhä korjaamatta.**
+  `gefs check` näyttää lohkolaskurin diagnostisesti mutta ei muuta
+  `ok`-tulosta (`checkleak()`-paluuarvo ohitetaan); siksi `ok` ei yksin
+  sulje tätä havaintoa pois.
 - Avoin P2: commit julkaisee uuden otsakkeen ennen vanhojen versioiden
   siivousta. Jos siivous epäonnistuu, julkaistu versio säilyy, mutta
   epäonnistunutta siivousta ei merkitä pysyvästi uudelleen yritettäväksi.
@@ -1085,3 +1088,115 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   lukukelvottomia avaimia voi siksi jäädä puuhun, jos kyseistä OID:tä ei
   myöhemmin kirjoiteta. T5.12 testaa version säilymisen, ei siivouksen
   palautumista. Korjaus ja tätä erottava testi ovat jatkotyötä.
+
+## Kaatumisvuoto mitattu oikeasta QEMU-kaadosta (19.10.2026)
+
+- Ympäristö saatiin valmiiksi: QEMU 10.0.13, OVMF, KVM (`/dev/kvm`
+  lapere:lle udev-säännöllä, koska solmun uudelleenluonti pudotti
+  setfacl-ACL:n), `mtools`, `tools/vm-setup` → `base.qcow2`,
+  `tools/build.sh` (113 ohjelmaa, `9pc64`, `bootx64.efi`).
+- `tools/test-qemu.sh` PASS: kernel UEFI:n läpi init0:aan (aiemmin
+  ajamatta, koska QEMU puuttui).
+- `tools/gefslog` ajettiin ensimmäisen kerran oikealla kaatuneen QEMU:n
+  levyllä: siisti 0.00 MiB, juuri `kill -9`:n jälkeen **155.52 MiB**
+  (9953 lohkoa, 8 areenaa), palautuksen jälkeen taas 0.00 MiB
+  (`docs/gefs-crashleak.md` luku 8). Sama suuruusluokka kuin
+  `space-v6`:n ~200 MiB.
+- Uusi `CRASHCOPY=DIR tools/test-gefs.sh`: kopioi gefs-osio juuri tapon
+  jälkeen, ennen kuin seuraava boot toistaa lokin ja katkaisee hännän.
+  Ilman sitä kaatunut tila katoaa (KEEP=1 jättää QEMUn käyntiin vain
+  virheen jälkeen).
+- Korjattu väite: sen aikaisen `main`-haaran `check` **ei** laskenut
+  vuotoa — `gefs -c` sanoi `ok`, vaikka häntää oli 155 MiB, koska
+  `checkdata` testaa vain ettei vapaa lohko ole käytössä. Vuotolaskuri
+  `checkleak` oli silloin vain `space-v6`:ssä. `space-v6`:n mergen
+  (`c8854e6`) jälkeen laskuri on myös `main`issa, mutta se vain
+  tulostaa: `ok`-tulos ei siis vieläkään sulje vuotoa pois.
+- `CRASHCOPY=build/crashimg NOROOT=1 CRASH=1 tools/test-gefs.sh` PASS:
+  palautus onnistui, `gefsck` puhdas, `tools/test-gefslog.py` 19/19.
+
+## `space-v6`:n avoimet ennen V7:tä (19.10.2026)
+
+Haara `space-v6` (`2863f82`) on nyt yhdistetty `main`-haaraan
+(merge `c8854e6`), joten myös sen suunnitteludokumentit
+(`docs/object-model.md`, `docs/gefs-obj.md`) ja `checkleak`-laskuri
+ovat `main`issa. Merge ei sulkenut alla olevia asioita. Avoimista
+asioista on yhteenveto: `docs/space-v6-open.md`.
+
+- "200 MiB:n osio" ei ole osio vaan `gefs`-osion **kaatumisvuodon
+  laskuri** (`checkleak`). Analyysi on valmis
+  (`docs/gefs-crashleak.md`): kyse ei ole `space-v6`:n regressiosta, ja
+  oikeasta kaatuneesta `main`-kuvasta mitattiin 155.52 MiB. Itse vuotoa
+  ei ole korjattu, ja `checkleak` vain tulostaa.
+- `docs/gefs-obj.md` luku 7: auki avaus ~8,3 s (dictien täyttö),
+  RAMissa elävät juurista saavuttamattomat oliot, yhden commitin 64 MiB:n
+  raja (`Objtxmax`), `Kobj`-avaimien tarkistus `check.c`:ssä ja
+  vuotolaskuri.
+- V6 lupasi mutta ei toimittanut: T6.6:lla ei ole testiä, lukijan
+  uudelleenaloitus (`K > N`) puuttuu (`objread` antaa virheen), ja
+  `space/#0102939`-muoto on vain dokumentissa.
+- V7:n esteet: funktion nimeä (`__qualname__`) ei tallenneta, säilytys on
+  kiinteä `Objkeep = 3` eikä taivu palautuspisteeksi, migraatio ei mahdu
+  yhden commitin 64 MiB:in, ja T7.1–T7.4 puuttuvat.
+- Ajamatta: V6:n `ONLY=3` ja `ONLY=4`, `spacehw` korjatulla `hw.py`:llä
+  raudalla (silli). V0–V6-jakso on nyt myös tässä tiedostossa, koska
+  merge toi sen haaran mukana.
+
+## Kaatumisvuoto: mittaus kumoaa diagnoosin (19.10.2026)
+
+`docs/gefs-crashleak.md` päättelee, että kaatuminen jättää levyyn
+viimeisen sync-ikkunan verran lohkoja, jotka eivät ole vapaissa eikä
+missään puussa. Asia mitattiin uudelleen, ja **johtopäätös on väärä**.
+Ajo: `NOROOT=1 CRASH=1 CRASHCOPY=/tmp/crashverify tools/test-gefs.sh`
+(`build/test-gefs-final.log`); kaato osui tällä kertaa keskelle
+sync-ikkunaa, eli tapaus, jonka piti tuottaa vuoto:
+
+```
+tools/gefslog /tmp/crashverify/crash1.img
+  barriers: 48*   (replayed to gen 48)
+  past the replay point: 1723 entr(ies), ... net +26.97 MiB   (arena 0)
+  total: 9937 block(s), 155.27 MiB allocated past the last durable barrier
+```
+
+Sama kuva ajettiin vielä toistamatta (`tools/gefsck`, käyttäjätilan
+`gefs -c`): **`ok`**. Syy on se, että 155.27 MiB on
+**allokointimäärä, ei kadonnut tila**. Kolme mittausta samasta kuvasta:
+
+| Kysymys | Tulos |
+|---|---|
+| Montako hännän allokaatiota on jo vapaassa listassa toiston jälkeen? | **9929 / 9937 = 99.9 %** |
+| Montako hännän lohkoa on koskaan kirjoitettu levylle? | **687 / 9937 = 6.9 %** (loput 93 % ovat nollia) |
+| `gefs -c` (käyttäjätilan tarkistus) | **`ok`** |
+
+Mekanismi: `loadarena` alustaa vapaan tilan **koko areenaksi**
+(`a->free` tyhjä, `a->used = a->size`), ja toisto lisää siihen vain
+`LogFree`-alueet. `blkalloc_lk` ottaa lohkot **korkeimmasta**
+osoitteesta (`avlmax`), joten hännän lohkot ovat jo valmiiksi vapaan
+alueen sisällä: `grabrange` vain kutistaa aluetta, ja koska hännän
+allokaatioita **ei toisteta**, ne jäävät vapaiksi. Siksi toisto ei
+hukkaa niitä, ja siksi `gefs -c` on puhdas. Kolmanneksi useimmat hännän
+allokaatiot eivät ole lainkaan levylle kirjoitettuja lohkoja (esim.
+datan varauksia, jotka eivät ehtineet `enqueue`en), joten niistä ei ole
+mitään vapautettavaa.
+
+Mikä `check`in luku sitten on? Uudelleenbootatun kuvan `check` sanoi
+`leaked blocks: 75 (1200 KiB)`; ensimmäinen boot tuoreella juurella
+1204 lohkoa (19 MiB), siistin `fshalt`in jälkeen 25 lohkoa. Luku on
+**diagnostinen eikä vuotomitta**: se laskee lohkot, jotka eivät ole
+vapaita eikä saavutettuja, ja siihen kuuluvat limboon jääneet kesken
+olevat vapautukset (koodin kommentti: "reported, not failed: in-flight
+frees look leaked"). Siksi se on nollasta poikkeava myös puhtaalla
+levyllä.
+
+**Seuraus:** hännän vapautusta palautuksessa (`docs/gefs-crashleak.md`
+luku 6 vaihtoehto 1) **ei tarvita eikä sitä toteutettu** — se olisi
+koskenut gefs:n kirjoituspolkua ilman mitattavaa hyötyä. Jos
+`checkleak`ista halutaan käyttökelpoinen mittari, se pitää rajata
+lohkoihin, jotka ovat levylle kirjoitettuja (esim. ohittamalla
+nollalohkot) ja ajaa levossa olevasta kuvasta; se on erillinen työ.
+`docs/gefs-crashleak.md` luvut 2 ja 5–6 jäävät historiaan: niiden
+mekanismi ei vastaa mitattua käyttäytymistä.
+
+Regressiotesti `tools/test-gefslog.py`:ssä
+(`test_a_completed_sync_leaves_no_tail`) lukitsee osan tästä: valmis
+sync ei jätä häntää, keskeneräinen jättää. Testejä on nyt 20.

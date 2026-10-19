@@ -150,6 +150,29 @@ Kernelin `check` on tiukempi kuin upstreamin: jokainen viitattu lohko
 (myös vanhemmat sukupolvet, viimeinen pivotin lapsi ja lokiketjut)
 tarkistetaan vapaiden listaa vasten, ja `gefstrace=MiB` tallentaa
 gefs:n trace-puskurin, jonka assert tulostaa lohkon osalta.
+
+**Kaatumisvuoto (selvitetty 19.10.2026).** Kaatumisen jälkeen levyyn
+jää hukkaan noin viimeisen syncin jälkeisen kirjoituksen verran
+(`space-v6`:n oliotestissä ~200 MiB; `main`-haaran mittauksessa 155 MiB).
+Syy on allokointiloki, joka kirjoitetaan ennen
+puuta: `loadlog` palauttaa heti ensimmäisen voimassa olevan
+`LogSync`-merkin kohdalla, joten merkin jälkeen varatut lohkot eivät
+tule vapaisiin listoihin eivätkä mihinkään puuhun. Vuoto syntyy
+kaatumishetkellä; `loadlog` on sama sekä `space-v6`:ssä että sitä
+edeltäneessä `main`-haarassa.
+
+**Vuotoa ei ole (mitattu 19.10.2026, ks. `docs/status.md`):** 155.27
+MiB:n häntä oli käyttäjätilan `gefs -c`:llä puhdas, ja 99.9 % hännän
+allokaatioista oli jo vapaassa listassa. Luku on allokointimäärä, ei
+kadonnut tila; korjausta ei tarvita. Analyysi,
+vertailu ja korjausvaihtoehdot: `docs/gefs-crashleak.md`; hännän lukee
+kuvasta `tools/gefslog` (testit: `tools/test-gefslog.py`). Mitattu
+oikeasta kaadosta 19.10.2026: siisti levy 0 MiB, juuri tapettu 155.52
+MiB, palautuksen jälkeen taas 0 MiB — ja `gefs -c` sanoo silti `ok`,
+koska `main`-haaran `check` ei laske saavuttamattomia lohkoja
+(`checkleak`-vuotolaskuri tuli `main`iin `space-v6`:n mergessä, mutta
+se vain tulostaa eikä kaada tarkistusta). Kaatuneen levyn taltioi
+`CRASHCOPY=DIR tools/test-gefs.sh` ennen seuraavaa boottia.
 `mk install`, kernelin ja loaderin käännös gefs-juuressa toimivat
 (`BUILD=1`).
 

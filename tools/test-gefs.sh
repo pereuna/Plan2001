@@ -17,6 +17,10 @@
 #               every KTEST line OK (on a machine: ktest all at the prompt)
 #   INI='k=v;k=v'  more plan9.ini lines (gefsdebug=1, gefstrace=16)
 #   KEEP=1      leave QEMU running after a failure (tools/9run -d build/$TARGET/gefsvm)
+#   CRASHCOPY=DIR  with CRASH=N: after each kill -9 copy the gefs partition
+#               out (DIR/crash<N>.img) and read its log with tools/gefslog
+#               before the next boot replays it, so that the leak a crash
+#               leaves can be measured on the disk as the crash left it
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -78,6 +82,11 @@ halt() {
 	clean | grep -q 'done halting' || fail "fshalt"
 	clean | grep -q 'gefs: halted' || fail "gefs not halted"
 }
+# the disk's gefs partition: 65 MiB in (a 1 MiB GPT and the 64 MiB ESP)
+partcopy() {
+	local mib=$(( $(stat -c %s "$disk") / 1048576 - 66 ))
+	dd if="$disk" of="$1" bs=1M skip=65 count=$mib conv=sparse status=none
+}
 
 boot || exit 1
 clean | grep -q '^gefs: .*read-write' || fail "no gefs line"
@@ -119,6 +128,21 @@ for r in $(seq 1 $((n > 0 ? n+1 : 0))); do
 	sleep $t
 	echo "=== crash $r: QEMU killed after ${t}s of writing"
 	kill -9 $q; wait $q 2>/dev/null || true; q=
+	# the read-only measurement of what the crash left, before the next
+	# boot's replay would truncate the log's tail on the disk
+	if [ -n "${CRASHCOPY:-}" ]; then
+		mkdir -p "$CRASHCOPY"
+		cimg=$CRASHCOPY/crash$r.img
+		partcopy "$cimg"
+		echo "### gefslog crash$r (the disk as the crash left it)"
+		python3 "$here/gefslog" "$cimg" > "$vm/gefslog$r.out" 2>&1 || fail "gefslog crash$r"
+		sed 's/^/	/' "$vm/gefslog$r.out"
+		# the tail is only reported when the crash landed inside a sync
+		# window; whether one is left depends on where the kill fell, so
+		# the line's presence is not a failure condition (measured
+		# 19.10.2026: 192.73 MiB on one run, 0.00 MiB on another)
+		grep -q 'past the replay point' "$vm/gefslog$r.out" || fail "gefslog crash$r: no measurement"
+	fi
 done
 [ "$fails" = 0 ] || { echo "FAIL: $fails (crashes)"; exit 1; }
 stop
@@ -126,8 +150,7 @@ stop
 # the partition checked and read back in the build VM (userspace gefs)
 part=$b/gefspart.img
 rm -f "$part"
-mib=$(( $(stat -c %s "$disk") / 1048576 - 66 ))
-dd if="$disk" of="$part" bs=1M skip=65 count=$mib conv=sparse status=none
+partcopy "$part"
 echo "### gefsck"
 "$here/gefsck" "$part" /usr/glenda/gefshello /usr/glenda/bigsum > "$vm/out" 2>&1 || fail gefsck
 sed 's/^/	/' "$vm/out" | tail -5
