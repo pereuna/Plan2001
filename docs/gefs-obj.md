@@ -293,6 +293,11 @@ Lisäksi:
 - Yksi commit on enintään 64 MiB (`Objtxmax`), joten iso
   `v<N>`-Space ei siirry storeen yhdellä commitilla.
 - `check.c` ei vielä tarkista `Kobj`-avaimia erikseen (gefsck on puhdas).
+- `check`in vuotolaskuri (19.10.2026): `test-gefs.sh CRASH=3` näyttää
+  vuotaneiden lohkojen kasvavan noin 200 MiB kaatumista kohden. Se on
+  suunnilleen viimeisen syncin jälkeen kirjoitettu määrä. Vertailu
+  main-haaran kerneliin ja syy (allokointiloki levyllä ennen puuta?)
+  ovat selvittämättä. gefsck ja check ovat muuten puhtaat.
 - Barrierin kattavuus natiiveissa moduuleissa, joiden oliot eivät ole
   pysyviä tyyppejä (5.5): ne nostavat jo `CommitError`in.
 

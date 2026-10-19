@@ -259,16 +259,17 @@ checkfree(int fd)
 static void
 markdl(Bptr hd, Bptr tl)
 {
-	Bptr bp;
+	Bptr bp, nb;
 	Blk *b;
 	char *p;
 	int done;
 
 	done = 0;
-	for(bp = hd; bp.addr != -1 && !done; bp = b->logp){
+	for(bp = hd; bp.addr != -1 && !done; bp = nb){
 		b = getblk(bp, 0);
 		for(p = b->data; p != b->data+b->logsz; p += 8)
 			mark(UNPACK64(p), Rdead);
+		nb = b->logp;
 		done = (bp.addr == tl.addr);
 		dropblk(b);
 	}
@@ -391,7 +392,6 @@ checkleak(int fd)
 {
 	vlong addr, base, n, i;
 	Arena *a;
-	Blk *b;
 	int j;
 
 	n = 0;
@@ -402,16 +402,12 @@ checkleak(int fd)
 			i = addr/Blksz;
 			if(i >= nreach || (reach[i/8] & 1<<(i%8)) || isfree(addr))
 				continue;
-			if(n++ < 10){
-				if(waserror()){
-					fprint(fd, "leaked block %llx: unreadable\n", addr);
-					continue;
-				}
-				b = getblk((Bptr){addr, -1, -1}, GBnochk);
-				fprint(fd, "leaked block %llx: type %d\n", addr, b->type);
-				dropblk(b);
-				poperror();
-			}
+			/*
+			 * not read: getblk would cache it with gen -1, and the
+			 * next getblk of the address fails its gen assert
+			 */
+			if(n++ < 10)
+				fprint(fd, "leaked block %llx\n", addr);
 		}
 	}
 	fprint(fd, "leaked blocks: %lld (%lld KiB)\n", n, n*Blksz/1024);
