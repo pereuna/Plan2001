@@ -78,6 +78,7 @@ Tree*	updatesnap(Tree*, char*, int);
 void	tagsnap(Tree*, char*, int);
 int	delsnap(Tree*, vlong, char*);
 void	freedl(Dlist*, int);
+int	blkisfree(vlong);
 Tree*	opentree(vlong);
 Tree*	opensnap(char*, int*);
 
@@ -220,3 +221,7 @@ void	fzinit(void);
 void	fzwrite(int, void*);
 void	fzscan(int, void*);
 
+
+int auditfs(int, int);
+extern int auditverbose;
+void auditreplayed(Arena*, vlong, vlong, int, vlong, vlong, vlong);

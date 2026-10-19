@@ -3,6 +3,7 @@
 TARG=gefs
 BIN=/$objtype/bin
 OFILES=\
+	audit.$O\
 	blk.$O\
 	cache.$O\
 	check.$O\
@@ -26,3 +27,5 @@ HFILES=\
 	fns.h\
 
 </sys/src/cmd/mkone
+
+audit.$O: ../../9/gefs/audit.c

@@ -77,7 +77,7 @@ sync(int id)
 {
 	Mount *mnt;
 	Arena *a;
-	Dlist *sdl, ddl;
+	Dlist *sdl, ddl, rdl;
 	Tree *r;
 	int i;
 
@@ -129,8 +129,26 @@ sync(int id)
 	 * dlist; the snap tree will not change from here.
 	 */
 	dlsync();
+	/*
+	 * Qfree updates the arena freelists and appends LogFree entries.
+	 * Drain those updates before the next log barrier and arena snapshot;
+	 * otherwise they land behind the barrier and are discarded on replay.
+	 */
+	wrbarrier();
+	wrwait();
+	/*
+	 * Reclaim the data recorded by the prior committed deadlist. Keep its
+	 * list blocks intact until this transaction commits the new reclaimdl
+	 * pointer; a crash before then can safely replay the frees.
+	 */
+	rdl = fs->reclaimdl;
+	freedl(&rdl, 2);
+	wrbarrier();
+	wrwait();
+	auditfreebegin();
 	*sdl = fs->snapdl;
 	ddl = fs->dropdl;
+	fs->reclaimdl = *sdl;
 	fs->snapdl.hd = Zb;
 	fs->snapdl.tl = Zb;
 	fs->snapdl.ins = nil;
@@ -150,9 +168,11 @@ sync(int id)
 		 */
 		logbarrier(a, agetv(&fs->qgen));
 		flushlog(a);
+		audithook("log-flush");
 
 		packarena(a->h0->data, Blksz, a);
 		packarena(a->h1->data, Blksz, a);
+		auditfreearena(a);
 		finalize(a->h0);
 		finalize(a->h1);
 		fs->arenabp[i] = a->h0->bp;
@@ -179,6 +199,7 @@ sync(int id)
 		enqueue(fs->arenas[i].h0);
 	wrbarrier();
 	wrwait();
+	auditfreeend();
 
 	/*
 	 * pass 2: sync superblock; we have a consistent
@@ -187,6 +208,7 @@ sync(int id)
 	 * get synced after so that we can use them next
 	 * time around.
          */
+	audithook("arena-heads");
 	tracem("supers");
 	enqueue(fs->sb0);
 	enqueue(fs->sb1);
@@ -198,6 +220,7 @@ sync(int id)
 	 *  the block headers are consistent, and we can
 	 *  use them.
          */
+	audithook("supers");
 	tracem("arenas1");
 	for(i = 0; i < fs->narena; i++)
 		enqueue(fs->arenas[i].h1);
@@ -215,9 +238,12 @@ sync(int id)
 	 * before we can free anything, otherwise it gets
 	 * clobbered.
 	 */
+	audithook("arena-tails");
 	tracem("snapdl");
 	freedl(&ddl, 0);
-	limbo(DFdlist, sdl);
+	freedl(&rdl, 0);
+	free(sdl);
+	audithook("cleanup");
 	syncproc = nil;
 	qunlock(&fs->synclk);
 	tracem("synced");
@@ -3203,7 +3229,7 @@ runtasks(int, void *)
 
 	while(1){
 		sleep(5000);
-		if(agetl(&fs->rdonly))
+		if(!auditautosync || agetl(&fs->rdonly))
 			continue;
 		if(waserror()){
 			fprint(2, "task error: %s\n", errmsg());

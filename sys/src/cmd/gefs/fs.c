@@ -83,7 +83,7 @@ sync(int id)
 {
 	Mount *mnt;
 	Arena *a;
-	Dlist *sdl, ddl;
+	Dlist *sdl, ddl, rdl;
 	Tree *r;
 	int i;
 
@@ -133,8 +133,15 @@ sync(int id)
 	 * dlist; the snap tree will not change from here.
 	 */
 	dlsync();
+	wrbarrier();
+	wrwait();
+	rdl = fs->reclaimdl;
+	freedl(&rdl, 2);
+	wrbarrier();
+	wrwait();
 	*sdl = fs->snapdl;
 	ddl = fs->dropdl;
+	fs->reclaimdl = *sdl;
 	fs->snapdl.hd = Zb;
 	fs->snapdl.tl = Zb;
 	fs->snapdl.ins = nil;
@@ -221,7 +228,8 @@ sync(int id)
 	 */
 	tracem("snapdl");
 	freedl(&ddl, 0);
-	limbo(DFdlist, sdl);
+	freedl(&rdl, 0);
+	free(sdl);
 	qunlock(&fs->synclk);
 	tracem("synced");
 	poperror();

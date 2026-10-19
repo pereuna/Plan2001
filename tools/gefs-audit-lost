@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Identify unreachable deadlists inside an ownership audit's ranges.
+
+  tools/gefs-audit-lost PARTITION_IMAGE AUDIT_LOG
+
+Reads only the reported ranges, without entering the gefs block cache.
+Validates a candidate deadlist's MetroHash using the repo's hash.c,
+compiled into a temporary native library. Reports how many unaccounted
+addresses are still named by these lost lists. Does not reclaim blocks.
+"""
+import ctypes
+import json
+from pathlib import Path
+import re
+import struct
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+BLK = 16384
+
+def main():
+    if len(sys.argv) != 3:
+        sys.exit('usage: tools/gefs-audit-lost PARTITION_IMAGE AUDIT_LOG')
+    image, log = map(Path, sys.argv[1:])
+    text = log.read_text()
+    if 'audit complete: yes' not in text:
+        sys.exit('requires a completed offline ownership audit')
+    unknown = set()
+    for a,b in re.findall(r'^audit range: start=([0-9a-f]+) end=([0-9a-f]+)',text,re.M):
+        unknown.update(range(int(a,16),int(b,16),BLK))
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        source = (ROOT / 'sys/src/cmd/gefs/hash.c').read_text()
+        source = re.sub(r'^#include .*\n', '', source, flags=re.M)
+        source = source.split('\nuvlong\nblkhash(', 1)[0]
+        source = ('#include <stdint.h>\n#include <stddef.h>\n'
+                  'typedef uint64_t uvlong, u64int; typedef uint32_t u32int;\n'
+                  'typedef uint16_t u16int; typedef uint8_t u8int, uchar; typedef size_t usize;\n' + source)
+        (d / 'hash.c').write_text(source)
+        subprocess.run(['cc','-shared','-fPIC','-O2','-fno-strict-aliasing',
+                        '-o',str(d / 'hash.so'),str(d / 'hash.c')],check=True)
+        lib = ctypes.CDLL(str(d / 'hash.so'))
+        lib.bufhash.argtypes = [ctypes.c_void_p,ctypes.c_size_t]
+        lib.bufhash.restype = ctypes.c_uint64
+        lost, named = [], set()
+        with open(image,'rb') as f:
+            for addr in sorted(unknown):
+                f.seek(addr); b = f.read(BLK)
+                if len(b)!=BLK: raise RuntimeError('short image')
+                kind,n,h = struct.unpack_from('>HHQ',b)
+                if kind!=4 or n>BLK-36 or n%8: continue
+                data=b[36:36+n]
+                buf=ctypes.create_string_buffer(data)
+                if lib.bufhash(buf,n)!=h: continue
+                addresses={x[0] for x in struct.iter_unpack('>Q',data)}
+                matching=addresses & unknown
+                named.update(matching)
+                lost.append(dict(address=hex(addr),entries=len(addresses),
+                                 unaccounted_entries=len(matching)))
+        print(json.dumps(dict(image=str(image),audit_log=str(log),
+                              unaccounted_blocks=len(unknown), lost_deadlists=lost,
+                              named_unaccounted_blocks=len(named),
+                              unnamed_unaccounted_blocks=len(unknown-named)),indent=2))
+
+if __name__=='__main__': main()

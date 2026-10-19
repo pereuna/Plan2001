@@ -222,6 +222,10 @@ checkdlist(int fd)
 		fprint(fd, "bad snap dlist (%B, %B): %s\n", fs->snapdl.hd, fs->snapdl.tl, errmsg());
 		ok = 0;
 	}
+	if(!checklog(fd, fs->reclaimdl.hd, fs->reclaimdl.tl)){
+		fprint(fd, "bad reclaim dlist (%B, %B): %s\n", fs->reclaimdl.hd, fs->reclaimdl.tl, errmsg());
+		ok = 0;
+	}
 	pfx[0] = Kdlist;
 	btnewscan(&s, pfx, 1);
 	btenter(&fs->snap, &s);

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Read-only ownership audit of gefs PARTITION images in the build VM.
+
+  tools/gefs-audit IMAGE...       GEFS defaults to build/amd64/gefs
+
+GEFS_AUDIT_REPO selects an isolated build VM workspace.
+Batch images must have the same size. The VM is paused while its raw
+scratch disk is replaced in place, preserving the open inode and size.
+Sources get SHA-256 digests; full byte comparisons verify scratch
+contents before and after each audit. Originals are never attached to QEMU. Full responses go to build/phase2/audit/*.log.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import subprocess
+import sys
+import tarfile
+import time
+
+ROOT = Path(os.environ.get('GEFS_AUDIT_REPO', Path(__file__).resolve().parent.parent)).resolve()
+B = ROOT / 'build'
+OUT = B / 'phase2/audit'
+VM = B / 'vm'
+
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for b in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(b)
+    return h.hexdigest()
+
+def run(args, **kw):
+    return subprocess.run([str(x) for x in args], check=True, cwd=ROOT, **kw)
+
+def monitor(command):
+    with socket.socket(socket.AF_UNIX) as s:
+        s.settimeout(10)
+        s.connect(str(VM / 'mon.sock'))
+        data = b''
+        while b'(qemu) ' not in data:
+            data += s.recv(4096)
+        s.sendall(command.encode() + b'\n')
+        data = b''
+        while b'(qemu) ' not in data:
+            data += s.recv(4096)
+        if b'Error' in data:
+            raise RuntimeError(data.decode(errors='replace'))
+
+def main():
+    images = [Path(p).resolve() for p in sys.argv[1:]]
+    if not images:
+        sys.exit('usage: tools/gefs-audit PARTITION_IMAGE...')
+    if len({p.stat().st_size for p in images}) != 1:
+        sys.exit('audit batch: images must have the same size')
+    if (VM / 'qemu.pid').exists():
+        sys.exit('audit: build VM already present; stop it first')
+    OUT.mkdir(parents=True, exist_ok=True)
+    tool = Path(os.environ.get('GEFS', B / 'amd64/gefs')).resolve()
+    with tarfile.open(B / 'in.img', 'w', format=tarfile.USTAR_FORMAT) as t:
+        t.add(tool, arcname='audit-gefs')
+    with open(B / 'in.img', 'ab') as f:
+        f.truncate(16 * 1024 * 1024)
+    scratch = B / 'out.img'
+    run(['cp', '--sparse=always', '--reflink=auto', images[0], scratch])
+    started = False
+    results = []
+    try:
+        run([ROOT / 'tools/vm', 'start'], stdout=subprocess.DEVNULL)
+        started = True
+        run([ROOT / 'tools/9run', '-t', '180', '--dialog', '-'],
+            input='term% \t!done\n', text=True, stdout=subprocess.DEVNULL)
+        run([ROOT / 'tools/9run', 'cd /tmp && tar xf /dev/sdE1/data audit-gefs'],
+            stdout=subprocess.DEVNULL)
+        inode = scratch.stat().st_ino
+        for n, image in enumerate(images):
+            before = digest(image)
+            st = image.stat()
+            identity = (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+            monitor('stop')
+            # cp keeps the inode; QEMU's fd therefore sees the new bytes.
+            run(['cp', '--sparse=always', '--reflink=auto', image, scratch])
+            if scratch.stat().st_ino != inode:
+                raise RuntimeError('scratch inode changed')
+            run(['cmp', '-s', image, scratch])
+            monitor('cont')
+            r = subprocess.run([str(ROOT / 'tools/9run'), '-t', '600',
+                                '/tmp/audit-gefs -R -c -L -f /dev/sdE2/data >/tmp/audit.log >[2=1]; st=$status; @{cd /tmp && tar c audit.log} >/dev/sdE1/data && ~ $st \'\''],
+                               cwd=ROOT, capture_output=True, text=True)
+            # Read the full report from the disposable input/result disk,
+            # not over the UART: ownership maps can contain thousands of ranges.
+            with tarfile.open(B / 'in.img', 'r:') as t:
+                text = t.extractfile('audit.log').read().decode('utf-8', 'replace')
+            text += r.stdout + r.stderr
+            log = OUT / f'{time.time_ns()}-{image.stem}.log'
+            log.write_text(text)
+            run(['cmp', '-s', image, scratch])
+            st = image.stat()
+            if (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns) != identity:
+                raise RuntimeError(f'source image changed: {image}')
+            m = re.search(r'^audit summary: (.*)$', text, re.M)
+            if r.returncode or not m or 'audit complete: yes\n' not in text:
+                print(text, file=sys.stderr)
+                raise RuntimeError(f'incomplete audit: {image}; {log}')
+            counts = {k: int(v) for k, v in re.findall(r'(\w+)=(\d+)', m[1])}
+            result = dict(image=str(image), sha256=before, unchanged=True, log=str(log), **counts)
+            results.append(result)
+            print(json.dumps(result), flush=True)
+    finally:
+        if started:
+            run([ROOT / 'tools/vm', 'stop'], stdout=subprocess.DEVNULL)
+        (OUT / 'last-results.json').write_text(json.dumps(results, indent=2) + '\n')
+
+if __name__ == '__main__':
+    main()

@@ -18,6 +18,7 @@ int	nproc;
 int	permissive;
 int	usereserve;
 int	checkonly;
+int	auditonly;
 ulong	fuzzseed;
 char	*reamuser;
 char	*dev;
@@ -318,7 +319,7 @@ runannounce(int, void *arg)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-SARsc] [-r user] [-m mem] [-n srv] [-a net]... -f dev\n", argv0);
+	fprint(2, "usage: %s [-SARscL] [-r user] [-m mem] [-n srv] [-a net]... -f dev\n", argv0);
 	exits("usage");
 }
 
@@ -343,6 +344,9 @@ main(int argc, char **argv)
 	case 'r':
 		ream = 1;
 		reamuser = EARGF(usage());
+		break;
+	case 'L':
+		auditonly = 1;
 		break;
 	case 'c':
 		checkonly = 1;
@@ -398,7 +402,7 @@ main(int argc, char **argv)
 		usage();
 		break;
 	}ARGEND;
-	if(dev == nil)
+	if(dev == nil || (auditonly && (!checkonly || !rdonly || ream || grow)))
 		usage();
 
 	/*
@@ -409,6 +413,7 @@ main(int argc, char **argv)
 	assert(2*Msgmax < Bufspc);
 	assert(Treesz < Inlmax);
 
+	auditverbose = auditonly;
 	initfs(cachesz, rdonly);
 	initshow();
 	errctx = privalloc();
@@ -448,7 +453,7 @@ main(int argc, char **argv)
 	}
 	if(checkonly){
 		qlock(&fs->mutlk);
-		if(!checkfs(2))
+		if(auditonly ? !auditfs(2, 1) : !checkfs(2))
 			sysfatal("broken fs: %r");
 		qunlock(&fs->mutlk);
 		exits(nil);

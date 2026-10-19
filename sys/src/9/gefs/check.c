@@ -290,6 +290,11 @@ checkdlist(int fd)
 		ok = 0;
 	}else
 		markdl(fs->snapdl.hd, fs->snapdl.tl);
+	if(!checklog(fd, fs->reclaimdl.hd, fs->reclaimdl.tl)){
+		fprint(fd, "bad reclaim dlist (%B, %B): %s\n", fs->reclaimdl.hd, fs->reclaimdl.tl, errmsg());
+		ok = 0;
+	}else
+		markdl(fs->reclaimdl.hd, fs->reclaimdl.tl);
 	pfx[0] = Kdlist;
 	btnewscan(&s, pfx, 1);
 	btenter(&fs->snap, &s);

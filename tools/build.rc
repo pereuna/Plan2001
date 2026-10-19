@@ -133,6 +133,7 @@ if not if(~ $what kernel){
 		mklog /sys/src/cmd/$c `{basename $c} install
 	cp /$objtype/bin/aux/kbdfs $out
 	mklog /sys/src/cmd/ktest ktest install 'BIN='^$out
+	mklog /sys/src/cmd/gefs gefs install 'BIN='^$out
 	kernel
 	loader
 }

@@ -1082,8 +1082,14 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
 - `tools/test-gefs-results.py`: puuttuvat tulokset, rakenteellinen virhe,
   kuljetusvirhe sekä rc:n check/sync-virheen peittyminen; positiivinen
   diagnostinen lohkomäärä ei yksin hylkää rakenteellista tarkistusta.
-- Noin 200 MiB:n kaatumiskohtainen lohkolaskurin kasvu on edelleen avoin;
-  tämä muutos ei muuta allokointia, palautusta tai laskennan kattavuutta.
+- Vaiheen 3 Qfree-fence tyhjentää vapautusjonon ennen arena-kuvaa ja
+  lokirajaa. Deadlistin kohteet säilyvät seuraavaan superblock-committiin
+  asti `gefs9.01`-muodon `reclaimdl`-kentässä; vapautuksen replay on
+  idempotentti. Root hyväksyy myös vanhan `gefs9.00`-muodon. Kontrolloidussa
+  `supers`-kaatumisessa vanhan deadlistin kohdelohkot eivät enää jää
+  saavuttamattomiksi. Viisi listan metadatablokkia voi silti jäädä
+  saavuttamattomaksi commitin jälkeisessä kaatumisikkunassa. Kolmen crash-
+  kierroksen testi ja `gefsck` läpäisivät. Katso `docs/gefs.md`.
 - Varmistus: `WHAT=kernel tools/build.sh` ja
   `NOROOT=1 CRASH=1 KTEST=all tools/test-gefs.sh` läpi QEMU/KVM:ssä
   (31 ktestiä, kaatumisen yli säilynyt synkattu merkkitiedosto,

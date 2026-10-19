@@ -36,7 +36,7 @@ isgefs(Chan *c, vlong off)
 	if(devtab[c->type]->read(c, sb, sizeof sb, off) != sizeof sb)
 		error(Eio);
 	poperror();
-	return memcmp(sb, "gefs9.00", 8) == 0;
+	return memcmp(sb, "gefs9.00", 8) == 0 || memcmp(sb, "gefs9.01", 8) == 0;
 }
 
 static uvlong

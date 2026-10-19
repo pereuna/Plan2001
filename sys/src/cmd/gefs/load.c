@@ -44,6 +44,8 @@ loadarena(Arena *a, Bptr hd)
 		h1 = getblk(bp, GBnochk);
 
 	unpackarena(a, b->data, Arenasz);
+	if(auditverbose)
+		fprint(2, "audit arena: selected=%llx log=%llx size=%lld\n", b->bp.addr, a->loghd.addr, a->size);
 	if((a->free = avlcreate(rangecmp)) == nil)
 		error(Enomem);
 	a->logbuf[0] = cachepluck();
@@ -81,7 +83,7 @@ loadfs(char *dev)
 	fs->narena = 1;
 	fs->dropdl.hd = Zb;
 	fs->dropdl.tl = Zb;
-	if((fs->fd = open(dev, ORDWR)) == -1)
+	if((fs->fd = open(dev, agetl(&fs->rdonly) ? OREAD : ORDWR)) == -1)
 		sysfatal("open %s: %r", dev);
 	if((d = dirfstat(fs->fd)) == nil)
 		sysfatal("stat %s: %r", dev);
@@ -93,6 +95,7 @@ loadfs(char *dev)
 	fs->sb1 = getblk(btl, GBnochk);
 	if(!waserror()){
 		unpacksb(fs, fs->sb0->buf, Blksz);
+		if(auditverbose) fprint(2, "audit super: selected=primary qgen=%lld\n", agetv(&fs->qgen));
 		poperror();
 	}else{
 		fprint(2, "unable to load primary superblock: %s\n", errmsg());
@@ -101,6 +104,7 @@ loadfs(char *dev)
 			exits("corrupt");
 		}
 		unpacksb(fs, fs->sb1->buf, Blksz);
+		if(auditverbose) fprint(2, "audit super: selected=backup qgen=%lld\n", agetv(&fs->qgen));
 		poperror();
 	}
 

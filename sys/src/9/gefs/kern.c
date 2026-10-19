@@ -919,6 +919,10 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv)
 	dev = d;
 	g.raw = rawfile(dev);
 	newgfd(c, dev, off, size);
+	if(getconf("gefsaudittrace") != nil)
+		auditverbose = 1;
+	if(getconf("gefsauditnosync") != nil)
+		auditautosync = 0;
 	loadfs(dev);
 
 	nproc = conf.nmach*2;

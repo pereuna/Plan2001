@@ -173,6 +173,12 @@ runcons(int tid, void *pfd)
 			fprint(fd, "\tfree -- free blocks\n");
 			fprint(fd, "\ttrace -- trace of recent operations\n");
 			fprint(fd,"\ttree [name] -- dump tree 'name'\n");
+		}else if(nf == 2 && strcmp(f[0], "auditstop") == 0){
+			fprint(fd, "auditstop: %s\n", auditarm(f[1]) ? f[1] : "invalid phase");
+		}else if(strcmp(f[0], "audit") == 0){
+			qlock(&fs->mutlk);
+			auditfs(fd, 0);
+			qunlock(&fs->mutlk);
 		}else if(strcmp(f[0], "check") == 0){
 			qlock(&fs->mutlk);
 			checkfs(fd);

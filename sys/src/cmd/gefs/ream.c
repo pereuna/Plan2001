@@ -326,6 +326,8 @@ reamfs(char *dev)
 	fs->snapdl.hd.hash = -1;
 	fs->snapdl.tl.addr = -1;
 	fs->snapdl.tl.hash = -1;
+	fs->reclaimdl.hd = Zb;
+	fs->reclaimdl.tl = Zb;
 
 	dropblk(mb);
 	dropblk(ab);

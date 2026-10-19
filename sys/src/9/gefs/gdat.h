@@ -547,6 +547,7 @@ struct Gefs {
 	 * call completes.
 	 */
 	Dlist	snapdl;		/* on disk */
+	Dlist	reclaimdl;	/* on disk: committed deadlist awaiting reclamation */
 	Dlist	dropdl;		/* in mem */
 	int	narena;
 	vlong	flag;

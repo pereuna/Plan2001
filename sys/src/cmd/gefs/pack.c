@@ -443,7 +443,7 @@ packsb(char *p0, int sz, Gefs *fi)
 	nextqid = fi->nextqid;
 	nextgen = fi->nextgen;
 	qgen = agetv(&fi->qgen);
-	memcpy(p, "gefs9.00", 8);	p += 8;
+	memcpy(p, "gefs9.01", 8);	p += 8;
 	PACK32(p, Blksz);		p += 4;
 	PACK32(p, Bufspc);		p += 4;
 	PACK32(p, fi->narena);		p += 4;
@@ -454,6 +454,10 @@ packsb(char *p0, int sz, Gefs *fi)
 	PACK64(p, fi->snapdl.hd.hash);	p += 8;
 	PACK64(p, fi->snapdl.tl.addr);	p += 8;
 	PACK64(p, fi->snapdl.tl.hash);	p += 8;
+	PACK64(p, fi->reclaimdl.hd.addr);p += 8;
+	PACK64(p, fi->reclaimdl.hd.hash);p += 8;
+	PACK64(p, fi->reclaimdl.tl.addr);p += 8;
+	PACK64(p, fi->reclaimdl.tl.hash);p += 8;
 	PACK64(p, fi->flag);		p += 8;
 	PACK64(p, nextqid);		p += 8;
 	PACK64(p, nextgen);		p += 8;
@@ -473,11 +477,12 @@ unpacksb(Gefs *fi, char *p0, int sz)
 	vlong qgen;
 	uvlong dh, xh;
 	char *p;
-	int i;
+	int i, v1;
 
 	assert(sz == Blksz);
 	p = p0;
-	if(memcmp(p, "gefs9.00", 8) != 0)
+	v1 = memcmp(p, "gefs9.01", 8) == 0;
+	if(!v1 && memcmp(p, "gefs9.00", 8) != 0)
 		error("%s %.8s", Efsvers, p);
 	p += 8;
 	fi->blksz = UNPACK32(p);		p += 4;
@@ -495,6 +500,19 @@ unpacksb(Gefs *fi, char *p0, int sz)
 	fi->snapdl.tl.hash = UNPACK64(p);	p += 8;
 	fi->snapdl.tl.gen = -1;			p += 0;
 	fi->snapdl.gen = -1;			p += 0;
+	if(v1){
+		fi->reclaimdl.hd.addr = UNPACK64(p); p += 8;
+		fi->reclaimdl.hd.hash = UNPACK64(p); p += 8;
+		fi->reclaimdl.hd.gen = -1;
+		fi->reclaimdl.tl.addr = UNPACK64(p); p += 8;
+		fi->reclaimdl.tl.hash = UNPACK64(p); p += 8;
+		fi->reclaimdl.tl.gen = -1;
+	}else{
+		fi->reclaimdl.hd = Zb;
+		fi->reclaimdl.tl = Zb;
+	}
+	fi->reclaimdl.gen = -1;
+	fi->reclaimdl.ins = nil;
 	fi->flag = UNPACK64(p);			p += 8;
 	fi->nextqid = UNPACK64(p);		p += 8;
 	fi->nextgen = UNPACK64(p);		p += 8;

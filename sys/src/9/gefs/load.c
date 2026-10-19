@@ -38,6 +38,8 @@ loadarena(Arena *a, Bptr hd)
 		h1 = getblk(bp, GBnochk);
 
 	unpackarena(a, b->data, Arenasz);
+	if(auditverbose)
+		fprint(2, "audit arena: selected=%llx log=%llx size=%lld\n", b->bp.addr, a->loghd.addr, a->size);
 	if((a->free = avlcreate(rangecmp)) == nil)
 		error(Enomem);
 	a->logbuf[0] = cachepluck();
@@ -87,6 +89,7 @@ loadfs(char *dev)
 	fs->sb1 = getblk(btl, GBnochk);
 	if(!waserror()){
 		unpacksb(fs, fs->sb0->buf, Blksz);
+		if(auditverbose) fprint(2, "audit super: selected=primary qgen=%lld\n", agetv(&fs->qgen));
 		poperror();
 	}else{
 		fprint(2, "unable to load primary superblock: %s\n", errmsg());
@@ -95,6 +98,7 @@ loadfs(char *dev)
 			sysfatal("gefs: corrupt");	/* Plan2001: was exits */
 		}
 		unpacksb(fs, fs->sb1->buf, Blksz);
+		if(auditverbose) fprint(2, "audit super: selected=backup qgen=%lld\n", agetv(&fs->qgen));
 		poperror();
 	}
 

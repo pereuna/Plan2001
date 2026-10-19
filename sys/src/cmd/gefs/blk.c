@@ -205,6 +205,30 @@ Again:
 	}
 }
 
+static int
+isfree(Avltree *t, vlong off)
+{
+	Arange q, *r;
+
+	q.off = off;
+	q.len = Blksz;
+	r = (Arange*)avllookup(t, &q.Avl, -1);
+	return r != nil && off >= r->off && off+Blksz <= r->off+r->len;
+}
+
+int
+blkisfree(vlong off)
+{
+	Arena *a;
+	int yes;
+
+	a = getarena(off);
+	qlock(a);
+	yes = isfree(a->free, off);
+	qunlock(a);
+	return yes;
+}
+
 static void
 grabrange(Avltree *t, vlong off, vlong len)
 {
@@ -333,7 +357,7 @@ logappend(Arena *a, vlong off, vlong len, int op)
 void
 loadlog(Arena *a, Bptr bp)
 {
-	vlong ent, off, len, gen;
+	vlong ent, off, len, gen, head, na, nf;
 	int op, i, n;
 	char *d;
 	Blk *b;
@@ -341,6 +365,8 @@ loadlog(Arena *a, Bptr bp)
 
 	dprint("loadlog %B\n", bp);
 	traceb("loadlog", bp);
+	head = bp.addr;
+	na = nf = 0;
 	b = a->logbuf[0];
 	while(1){
 		bassert(b, checkflag(b, Bstatic, Bcached));
@@ -359,6 +385,7 @@ loadlog(Arena *a, Bptr bp)
 				gen = ent >> 8;
 				dprint("\tlog@%x: sync %lld\n", i, gen);
 				if(gen >= agetv(&fs->qgen)){
+					auditreplayed(a, head, bp.addr, i, gen, na, nf);
 					if(a->logtl == nil){
 						b->logp = Zb;
 						b->logsz = i;
@@ -390,13 +417,17 @@ loadlog(Arena *a, Bptr bp)
 				dprint("\tlog@%x alloc: %llx+%llx\n", i, off, len);
 				grabrange(a->free, off & ~0xff, len);
 				a->used += len;
+				na += len;
 				break;
 			case LogFree:
 			case LogFree1:
 				len = (op >= Log2wide) ? UNPACK64(d+8) : Blksz;
 				dprint("\tlog@%x free: %llx+%llx\n", i, off, len);
-				freerange(a->free, off & ~0xff, len);
-				a->used -= len;
+				if(!isfree(a->free, off & ~0xff)){
+					freerange(a->free, off & ~0xff, len);
+					a->used -= len;
+				}
+				nf += len;
 				break;
 			default:
 				dprint("\tlog@%x: log op %d\n", i, op);
@@ -405,6 +436,7 @@ loadlog(Arena *a, Bptr bp)
 			}
 		}
 		if(b->logp.addr == -1){
+			auditreplayed(a, head, bp.addr, b->logsz, -1, na, nf);
 			a->logtl = b;
 			return;
 		}

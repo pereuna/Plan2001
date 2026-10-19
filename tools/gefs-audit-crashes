@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Run a repo's original CRASH=3 workload, preserving recovery images.
+
+  tools/gefs-audit-crashes REPO OUTPUT_DIRECTORY
+
+Uses NOROOT=1 (prepare build/selfroot first), delays 3,10,17 seconds.
+Adds only host-side pause/copy checkpoints; no guest allocation changes.
+The generated script and original are retained for reproduction.
+"""
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+CAPTURE = '''
+auditcapture() {
+    python3 - "$disk" "$auditout/$1.gefs" "$vm/mon.sock" "$q" <<'AUDITPY'
+import os, socket, subprocess, sys
+from pathlib import Path
+disk, out, monitor, running = sys.argv[1:]
+def command(text):
+    with socket.socket(socket.AF_UNIX) as s:
+        s.settimeout(10); s.connect(monitor)
+        data = b''
+        while b'(qemu) ' not in data: data += s.recv(4096)
+        s.sendall(text.encode() + b'\\n')
+        data = b''
+        while b'(qemu) ' not in data: data += s.recv(4096)
+if running: command('stop')
+try:
+    mib = os.stat(disk).st_size//1048576-66
+    subprocess.run(['dd', 'if='+disk, 'of='+out, 'bs=1M', 'skip=65',
+                    'count='+str(mib), 'conv=sparse', 'status=none'], check=True)
+finally:
+    if running: command('cont')
+AUDITPY
+}
+'''
+
+def main():
+    if len(sys.argv)!=3:
+        sys.exit('usage: tools/gefs-audit-crashes REPO OUTPUT_DIRECTORY')
+    repo, out = [Path(x).resolve() for x in sys.argv[1:]]
+    if out.exists(): sys.exit('output already exists')
+    out.mkdir(parents=True)
+    source = (repo / 'tools/test-gefs.sh').read_text()
+    (out / 'original.sh').write_text(source)
+    script = source.replace('here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")',
+                            'here='+shlex.quote(str(repo / 'tools'))+'; root='+shlex.quote(str(repo)))
+    if script == source: raise RuntimeError('script root anchor missing')
+    script = script.replace('-nic none -display none \\\n', '-nic none -display none -monitor unix:"$vm/mon.sock",server=on,wait=off \\\n')
+    anchor = '\nboot || exit 1\n'
+    if script.count(anchor)!=1: raise RuntimeError('boot anchor missing')
+    script = script.replace(anchor, '\nauditout='+shlex.quote(str(out))+'\n'+CAPTURE+anchor)
+    script = script.replace('[ $r -gt $n ] && { halt; break; }',
+                            '[ $r -gt $n ] && { halt; auditcapture halted; break; }')
+    script = script.replace('\t[ "$fails" = 0 ] || { echo "FAIL: $fails (crash $r)"; exit 1; }',
+                            '\t[ "$fails" = 0 ] || { echo "FAIL: $fails (crash $r)"; exit 1; }\n\tauditcapture recovered-$r')
+    anchor = '\trun "{ for(i in'
+    if script.count(anchor)!=1: raise RuntimeError('writer anchor missing')
+    script = script.replace(anchor, '\tauditcapture synced-$r\n'+anchor)
+    script = script.replace('t=$((3 + RANDOM % 15))',
+                            'case $r in 1) t=3 ;; 2) t=10 ;; *) t=17 ;; esac')
+    anchor = '\tkill -9 $q; wait $q 2>/dev/null || true; q=\n'
+    if script.count(anchor)!=1: raise RuntimeError('crash anchor missing')
+    script = script.replace(anchor, anchor+'\tauditcapture raw-$r\n')
+    path = out / 'run.sh'
+    path.write_text(script)
+    subprocess.run(['bash','-n',str(path)], check=True)
+    env = dict(os.environ, NOROOT='1', CRASH='3', KTEST='')
+    with open(out / 'run.log','w') as f:
+        subprocess.run(['bash',str(path)], cwd=repo, env=env,
+                       stdout=f,stderr=subprocess.STDOUT,check=True)
+    print(out, flush=True)
+
+if __name__=='__main__': main()

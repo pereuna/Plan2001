@@ -160,7 +160,7 @@ freedl(Dlist *dl, int dofree)
 	done = 0;
 	while(bp.addr != -1 && !done){
 		b = getblk(bp, 0);
-		if(dofree){
+		if(dofree == 1 || dofree == 2){
 			for(p = b->data; p != b->data+b->logsz; p += 8){
 				qe.op = Qfree;
 				qe.bp.addr = UNPACK64(p);
@@ -168,18 +168,22 @@ freedl(Dlist *dl, int dofree)
 				qe.bp.gen = -1;
 				qe.b = nil;
 				a = getarena(qe.bp.addr);
-				qput(a->sync, qe);
+				if(!blkisfree(qe.bp.addr))
+					qput(a->sync, qe);
 				traceb("dlclear", qe.bp);
 			}
 		}
 		done = (bp.addr == dl->tl.addr);
 		bp = b->logp;
-		qe.op = Qfree;
-		qe.bp = b->bp;
-		qe.b = nil;
-		a = getarena(qe.bp.addr);
-		qput(a->sync, qe);
-		traceb("dlfreeb", qe.bp);
+		if(dofree != 2){
+			qe.op = Qfree;
+			qe.bp = b->bp;
+			qe.b = nil;
+			a = getarena(qe.bp.addr);
+			if(!blkisfree(qe.bp.addr))
+				qput(a->sync, qe);
+			traceb("dlfreeb", qe.bp);
+		}
 		dropblk(b);
 	}
 }

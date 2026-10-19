@@ -214,3 +214,84 @@ QEMU:n N kertaa kesken kirjoituksen ja `KTEST=all` ajaa kernelin testit
 (`sys/src/cmd/ktest`, `-u` muulle tiedostopalvelimelle) bootatussa
 järjestelmässä konsolin kautta (raudalla: `ktest all` kehotteessa). Tulossa:
 snapshotista käynnistys.
+
+## GEFS-lohkojen kaatumisauditointi (19.10.2026)
+
+`tools/gefs-audit` on read-only auditointityökalu raakaa GEFS-osiokuvaa varten:
+`tools/gefs-audit IMAGE`. Se avaa kuvan käyttäjätilan `gefs`-ohjelmalla
+`-R -c -L`-tilassa; lähdekuva kopioidaan väliaikaiseen QEMU-levyyn, ja
+SHA-256 sekä tiedoston metatiedot tarkistetaan ennen ja jälkeen. Auditointi
+kävelee kaikki snapshot- ja mount-juuret, fyysiset puusolmut, lohkot, lokin,
+kuolleiden listat ja vapaat alueet. Fyysiseen solmuun jäänyt vanha
+dataviite raportoidaan erikseen `physicalonly`-määränä. Offline-auditointi
+voi luvata täydellisen tuloksen; elävän tiedostojärjestelmän laskenta ei
+huomioi jäädytettyä työjonoa eikä ole täydellinen. `-L` ei korvaa tavallista
+rakenteellista `gefs check` -tarkistusta.
+
+Vaiheen 2 vertailu käytti samaa 512 MiB:n levykuvaa, kuormaa ja
+kaatumisvaiheita `main`-commitissa `b1119c46090950b1b1ce397103f03efccfd43bae`
+sekä `space-v6`-haarassa. Jokaisesta kuudesta pysäytysvaiheesta otettiin
+kolme riippumatonta kopiota ja auditointi tehtiin ennen palautusta, heti
+palautuksen jälkeen, syncin jälkeen ja puhtaan uudelleenkäynnistyksen
+jälkeen (yhteensä 210 kuvan auditointi). Kaikissa kuvissa auditointi oli
+täydellinen eikä lähdekuvan sisältö muuttunut. Kontrollissa tuntemattomia
+lohkoja oli 44 ennen testiä ja 182 heti kaatumisen jälkeen; log-flush- ja
+arena-heads-pysäytyksissä määrä pysyi 44:ssä. Kun uusi superblock oli
+julkaistu, määrä nousi molemmissa haaroissa 4 490–4 494 lohkoon
+(noin 70 MiB) ja säilyi palautuksessa. Sync ja puhdas uudelleenkäynnistys
+muuttivat määrää vain muutamalla lohkolla. Tulos toistui kolmesti kummassakin
+haarassa; ero ei siis synny `space-v6`:n muutoksista, vaan vanhemmasta
+GEFS:n superblock-julkaisun ja allokointilokin vuorovaikutuksesta.
+
+Alkuperäinen `CRASH=3`-kuorma onnistui molemmissa haaroissa ja synkattu
+testisisältö säilyi. Diagnostinen määrä kasvoi viimeisessä otoksessa
+`main`-haarassa 8 260 lohkoon (noin 129 MiB) ja `space-v6`:ssa 8 896
+lohkoon (noin 139 MiB). Aiempi noin 200 MiB oli siis työkuormasta riippuva
+mittaustulos, ei vakio jokaisella kaatumisella. Löydetty tuntematon alue ei
+ole itsessään todiste käyttäjädatan menetyksestä: tunnetut tiedostot ja
+rakenteelliset tarkistukset säilyivät.
+
+Vaihe 3 paikallisti pääasiallisen katoamissyyn: `sync()` odotti Qfree-jonoa
+vasta arena-otsakkeiden kirjoittamisen jälkeen. Jonossa olleet vapautukset
+kirjautuivat `LogFree`-merkinnöiksi lokin sync-rajan taakse, eikä recovery
+palauttanut niitä vapaalistaan. Lisätty fence tyhjentää jonon ennen
+lokirajaa ja arena-kuvaa.
+
+Sama `supers`-kaatumistesti korjauksen jälkeen vähensi saavuttamattomat
+lohkot 4 490:stä 214:ään ennen palautusta; heti palautuksen jälkeen luku
+pysyi 214:ssä. Ensimmäisen syncin jälkeen luku oli 231 ja puhtaan rebootin
+jälkeen 223. Osoitevertailussa 4 268 uutta saavuttamatonta lohkoa oli samoja
+kuin ennen korjausta käsitellyt Qfree-osoitteet. Jäännöksestä 164 lohkoa
+olivat vanhojen puusolmujen fyysisiä viitteitä. Lisäksi löytyi viisi
+saavuttamatonta deadlist-lohkoa, jotka nimesivät 19 muuta lohkoa. Qfree-
+fence ei yksin poistanut tätä deadlist-jäännöstä.
+
+`NOROOT=1 CRASH=3 KTEST=all tools/test-gefs.sh` läpäisi korjatulla kernelillä:
+31 ktestiä, kolme kaatumisesta palautumista ja lopun `gefsck` PASS.
+Synkatut merkkitiedostot säilyivät jokaisen kaatumisen yli. Tavallisen
+testin live-saavutettavuuslaskuri raportoi silti 112 MiB viimeisellä
+palautuskerralla; se sisältää keskeneräisiä jonoja eikä ole offline-vuodon
+mitta. Korjauksen vaikutus vahvistettiin täydellisellä offline-auditoinnilla
+viidestä vaihekuvasta.
+
+Toistettavuus ja tuloskuvat: `tools/test-gefs-audit.py` ja
+`tools/gefs-audit-main`; testien sekä auditointien lokit ovat
+`build/phase2/`-hakemistossa. Walkerin virhetilanteiden natiivitestit ja
+ASan/UBSan-ajot ovat `tools/test-gefs-audit-walker.py`.
+
+Deadlistin jatkokorjaus lisää superblock-version `gefs9.01` ja pysyvän
+`reclaimdl`-osoittimen. Sync julkaisee vapautettujen lohkojen listan
+superblockissa; seuraava sync vapauttaa listan kohteet idempotentisti ennen
+kuin poistaa osoittimen commitissa. Näin kaatuminen ennen seuraavaa committia
+voi lukea listan uudelleen, ja lokin jo palauttamat vapautukset ohitetaan.
+Root-laite hyväksyy sekä `gefs9.00`- että `gefs9.01`-tunnisteen.
+
+Uusi `supers`-testi (`build/phase2/deadlist-matrix/space/supers-1`) läpäisi
+kaatumisen, palautuksen, syncin ja rebootin. Offline-auditoinnissa vanhan
+deadlistin kohdelohkot eivät jää saavuttamattomiksi (`lost-list-entries=0`);
+165 lohkoa ovat vanhojen puusolmujen fyysisiä viitteitä. Kaatumishetkellä
+viisi vanhan listan metadatablokkia jää vielä saavuttamattomiksi, mutta niiden
+listaamat kohdelohkot ovat vapaita tai saavutettavissa. Tavallinen
+`NOROOT=1 CRASH=3 tools/test-gefs.sh` läpäisi clean rebootin, kolme
+crash/recovery-kierrosta ja `gefsck`-tarkistuksen. Listametadatan
+palauttaminen jää jatkokatselmointiin.

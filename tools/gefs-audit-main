@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Put only the phase-2 diagnostics on a clean main@b1119c4 worktree.
+
+  tools/gefs-audit-main WORKTREE
+
+WORKTREE must already exist, be clean and have the pinned main HEAD.
+Its diagnostic diff is retained as build/phase2/main-diagnostics.patch.
+No allocation, replay or reserve implementation is copied from Space.
+"""
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+BASE = 'b1119c46090950b1b1ce397103f03efccfd43bae'
+
+def git(path, *args):
+    return subprocess.check_output(['git', '-C', str(path), *args], text=True)
+
+def replace(path, old, new):
+    text = path.read_text()
+    if text.count(old) != 1:
+        raise RuntimeError(f'{path}: expected one anchor {old!r}')
+    path.write_text(text.replace(old, new))
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit('usage: tools/gefs-audit-main CLEAN_MAIN_WORKTREE')
+    target = Path(sys.argv[1]).resolve()
+    if git(target, 'rev-parse', 'HEAD').strip() != BASE or git(target, 'status', '--porcelain'):
+        sys.exit('expected a clean main@b1119c4 worktree')
+    g = target / 'sys/src/9/gefs'
+    for name in ('audit.c', 'check.c', 'load.c'):
+        shutil.copyfile(ROOT / 'sys/src/9/gefs' / name, g / name)
+    with open(g / 'gfns.h', 'a') as f:
+        f.write('\nint auditfs(int, int);\nint auditarm(char*);\nvoid audithook(char*);\nextern int auditautosync;\nextern int auditverbose;\nvoid auditreplayed(Arena*, vlong, vlong, int, vlong, vlong, vlong);\n')
+    replace(g / 'cons.c', '}else if(strcmp(f[0], "check") == 0){',
+            '}else if(nf == 2 && strcmp(f[0], "auditstop") == 0){\n'
+            '\t\t\tfprint(fd, "auditstop: %s\\n", auditarm(f[1]) ? f[1] : "invalid phase");\n'
+            '\t\t}else if(strcmp(f[0], "audit") == 0){\n'
+            '\t\t\tqlock(&fs->mutlk);\n\t\t\tauditfs(fd, 0);\n\t\t\tqunlock(&fs->mutlk);\n'
+            '\t\t}else if(strcmp(f[0], "check") == 0){')
+    replace(g / 'blk.c', '\t\ta->nlog++;\n\t}\n}\n\nvoid\nloadlog',
+            '\t\ta->nlog++;\n\t\taudithook("log-chain");\n\t}\n}\n\nvoid\nloadlog')
+    path = g / 'blk.c'
+    original = path.read_text()
+    current = (ROOT / 'sys/src/9/gefs/blk.c').read_text()
+    start = 'loadlog(Arena *a, Bptr bp)'
+    end = '\nvoid\nflushlog'
+    a, b = original.split(start, 1)
+    _, c = b.split(end, 1)
+    body = current.split(start, 1)[1].split(end, 1)[0]
+    path.write_text(a + start + body + end + c)
+    replace(g / 'fs.c', '\t\tflushlog(a);\n\n\t\tpackarena',
+            '\t\tflushlog(a);\n\t\taudithook("log-flush");\n\n\t\tpackarena')
+    for before, phase in [('tracem("supers");', 'arena-heads'),
+                          ('tracem("arenas1");', 'supers'),
+                          ('tracem("snapdl");', 'arena-tails')]:
+        replace(g / 'fs.c', '\t' + before, f'\taudithook("{phase}");\n\t' + before)
+    replace(g / 'fs.c', '\tlimbo(DFdlist, sdl);', '\tlimbo(DFdlist, sdl);\n\taudithook("cleanup");')
+    replace(g / 'kern.c', '\tloadfs(dev);',
+            '\tif(getconf("gefsaudittrace") != nil)\n\t\tauditverbose = 1;\n\tif(getconf("gefsauditnosync") != nil)\n\t\tauditautosync = 0;\n\tloadfs(dev);')
+    path = g / 'fs.c'
+    text = path.read_text()
+    a, b = text.split('runtasks(int, void *)', 1)
+    b = b.replace('if(agetl(&fs->rdonly))', 'if(!auditautosync || agetl(&fs->rdonly))', 1)
+    path.write_text(a + 'runtasks(int, void *)' + b)
+    # Include the newly added audit source in the recorded diff.
+    subprocess.run(['git', '-C', str(target), 'add', '-N', 'sys/src/9/gefs/audit.c'], check=True)
+    out = ROOT / 'build/phase2/main-diagnostics.patch'
+    out.write_text(git(target, 'diff'))
+    print(out)
+
+if __name__ == '__main__':
+    main()
