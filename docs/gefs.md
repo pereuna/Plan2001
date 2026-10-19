@@ -164,14 +164,21 @@ edeltäneessä `main`-haarassa.
 **Vuotoa ei ole (mitattu 19.10.2026, ks. `docs/status.md`):** 155.27
 MiB:n häntä oli käyttäjätilan `gefs -c`:llä puhdas, ja 99.9 % hännän
 allokaatioista oli jo vapaassa listassa. Luku on allokointimäärä, ei
-kadonnut tila; korjausta ei tarvita. Analyysi,
-vertailu ja korjausvaihtoehdot: `docs/gefs-crashleak.md`; hännän lukee
-kuvasta `tools/gefslog` (testit: `tools/test-gefslog.py`). Mitattu
-oikeasta kaadosta 19.10.2026: siisti levy 0 MiB, juuri tapettu 155.52
-MiB, palautuksen jälkeen taas 0 MiB — ja `gefs -c` sanoo silti `ok`,
-koska `main`-haaran `check` ei laske saavuttamattomia lohkoja
-(`checkleak`-vuotolaskuri tuli `main`iin `space-v6`:n mergessä, mutta
-se vain tulostaa eikä kaada tarkistusta). Kaatuneen levyn taltioi
+kadonnut tila; korjausta ei tarvita. Tarkemmin: `loadarena` aloittaa
+vapaan tilan tyhjänä ja toisto täyttää sen meritkin edellä olevista
+`LogFree`-merkinnöistä, joten hännän allokaatio on ilmaista tilaa,
+paitsi jos jokin meritkin *edellä* otti lohkon pois vapaasta tilasta.
+Mitattu 19.10.2026: 9924/9937 peitettyjä, **13 (0.20 MiB)
+peittämättömiä**, ja jokaisessa peittämättömässä on hännässä `LogFree`
+ennen omaa `LogAlloc`iaan — siksi hännän vapautus palautuksessa olisi
+vaarallinen, ei hyödyllinen. Analyysi, vertailu ja korjausvaihtoehdot:
+`docs/gefs-crashleak.md`; hännän lukee ja luokittelee kuvasta
+`tools/gefslog` (testit: `tools/test-gefslog.py`). Mitattu oikeasta
+kaadosta 19.10.2026: siisti levy 0 MiB, juuri tapettu 155.52 MiB,
+palautuksen jälkeen taas 0 MiB — ja `gefs -c` sanoo silti `ok`, koska
+vuotoluku on diagnostinen eikä kaada tarkistusta. Saavutettavuuslaskenta
+(`checkleak`) on nyt sekä kernelin että käyttäjätilan `check`issä, joten
+`gefs -c` tulostaa saman `leaked blocks:`-luvun. Kaatuneen levyn taltioi
 `CRASHCOPY=DIR tools/test-gefs.sh` ennen seuraavaa boottia.
 `mk install`, kernelin ja loaderin käännös gefs-juuressa toimivat
 (`BUILD=1`).

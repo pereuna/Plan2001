@@ -551,6 +551,197 @@ def test_a_completed_sync_leaves_no_tail():
           "a completed sync left %.2f MiB" % r["totals"]["tail_alloc_mib"])
 
 
+def test_loadarena_starts_empty_and_the_replay_fills_it():
+    """loadarena leaves a->free empty; only the replayed prefix fills it.
+
+    This is the mechanism the docs got wrong once (they said the arena
+    starts entirely free).  A LogFree before the barrier is what puts a
+    range in the free set, so a block with no such free is not covered.
+    """
+    # a real log opens with a whole-arena LogFree (compresslog writes the
+    # free ranges out), which is what makes the replays grabbable at all
+    lo, hi = 0x10000, 0x10000 + 8 * Blksz
+    taken = blkaddrs(4, lo)
+    prefix = (ent_free(lo, hi - lo)
+              + b"".join(ent_alloc1(a) for a in taken) + ent_sync(5))
+    # after the barrier the log frees one more block and then allocates
+    # two: the one it freed is covered, the other was taken before the
+    # barrier and given back only in the unapplied tail
+    freed, fresh = taken[0], lo + 5 * Blksz
+    payloads = [prefix + ent_alloc1(freed) + ent_alloc1(fresh)]
+    b = one_arena(qgen=5, payloads=payloads)
+    with tempfile.TemporaryDirectory() as d:
+        r = g.analyse(b.write(os.path.join(d, "img")))
+    lg = r["arena"][0]["log"]
+    check(lg["prefix_bad_grabs"] == 0,
+          "the prefix grabbed %d ranges it did not have" % lg["prefix_bad_grabs"])
+    # four of the eight blocks were taken out before the barrier
+    check(lg["free_after_replay_bytes"] == (hi - lo) - 4 * Blksz,
+          "the replayed free set is %d bytes, want %d"
+          % (lg["free_after_replay_bytes"], (hi - lo) - 4 * Blksz))
+    check(lg["tail_alloc_blocks"] == 2, "tail %d, want 2" % lg["tail_alloc_blocks"])
+    # the block the prefix took is not free, so its tail alloc is uncovered
+    check(lg["tail_uncovered_blocks"] == 1,
+          "uncovered %d, want 1 (the block the prefix allocated)"
+          % lg["tail_uncovered_blocks"])
+    # the untouched block past the taken ones is still free space
+    check(lg["tail_covered_blocks"] == 1,
+          "covered %d, want 1 (the block no prefix entry touched)"
+          % lg["tail_covered_blocks"])
+
+
+def test_a_freed_range_covers_the_tail_allocation():
+    """a LogFree before the barrier makes the tail's block free space.
+
+    This is the measured case: 99.9 % of a crash image's tail was
+    already free, because the prefix returned those blocks to the free
+    set.  The tail's LogAlloc is never applied, so nothing is taken.
+    """
+    off = 0x10000
+    # the whole arena is free (compresslog's first entries), the barrier
+    # follows, and a block inside that free range is allocated after it
+    payloads = [ent_free(off, 4 * Blksz) + ent_sync(6) + ent_alloc1(off)]
+    b = one_arena(qgen=6, payloads=payloads)
+    with tempfile.TemporaryDirectory() as d:
+        r = g.analyse(b.write(os.path.join(d, "img")))
+    lg = r["arena"][0]["log"]
+    check(lg["free_after_replay_bytes"] == 4 * Blksz,
+          "free set %d bytes, want four blocks" % lg["free_after_replay_bytes"])
+    check(lg["tail_alloc_blocks"] == 1, "tail %d, want 1" % lg["tail_alloc_blocks"])
+    check(lg["tail_covered_blocks"] == 1,
+          "the tail allocation is not covered by the free set")
+    check(lg["tail_uncovered_blocks"] == 0,
+          "uncovered %d, want 0: the replay left the block free"
+          % lg["tail_uncovered_blocks"])
+
+
+def test_a_tail_free_before_its_alloc_is_a_duplicate_free():
+    """the measured 13 blocks: a tail LogFree before the tail LogAlloc.
+
+    Neither entry is applied, so the block is neither free nor reached,
+    and a naive tail reclaim would freerange it a second time and abort
+    on "freerange: already free".  The block is uncovered and counted
+    apart as tail_uncovered_dupfree.
+    """
+    # one block of the free range is taken before the barrier, so it is
+    # not free after the replay; the tail frees it and allocates it again
+    off = 0x10000
+    payloads = [ent_free(off, 2 * Blksz) + ent_alloc1(off) + ent_sync(7)
+                + ent_free1(off) + ent_alloc1(off)]
+    b = one_arena(qgen=7, payloads=payloads)
+    with tempfile.TemporaryDirectory() as d:
+        r = g.analyse(b.write(os.path.join(d, "img")))
+    lg = r["arena"][0]["log"]
+    check(lg["free_after_replay_bytes"] == Blksz,
+          "the prefix took one of the two blocks, so the free set is %d bytes"
+          % lg["free_after_replay_bytes"])
+    check(lg["tail_alloc_blocks"] == 1, "tail %d allocs, want 1" % lg["tail_alloc_blocks"])
+    check(lg["tail_uncovered_blocks"] == 1,
+          "uncovered %d, want 1" % lg["tail_uncovered_blocks"])
+    check(lg["tail_uncovered_dupfree"] == 1,
+          "the duplicate free was not counted (dupfree %d)"
+          % lg["tail_uncovered_dupfree"])
+    # this prefix's LogFree covered off, and the prefix then allocated
+    # it, so a tail reclaim frees a range the free set already has:
+    # freerange's "already free" abort, counted apart from dupfree
+    check(lg["tail_uncovered_prefreed"] == 1,
+          "the prefix freed this block, but prefreed is %d"
+          % lg["tail_uncovered_prefreed"])
+
+
+def test_a_plain_uncovered_block_is_not_called_a_duplicate():
+    """an uncovered allocation with no tail free of it is not a dupfree.
+
+    The two cases differ: a dupfree would break a naive reclaim with an
+    abort, a plain uncovered block would not.
+    """
+    a, b_ = 0x10000, 0x900000
+    # the free range is taken entirely before the barrier, so the tail
+    # allocation has nothing to be covered by and no free of its own
+    payloads = [ent_free(a, 4 * Blksz) + b"".join(ent_alloc1(x) for x in blkaddrs(4, a))
+                + ent_sync(8) + ent_alloc1(b_)]
+    b = one_arena(qgen=8, payloads=payloads)
+    with tempfile.TemporaryDirectory() as d:
+        r = g.analyse(b.write(os.path.join(d, "img")))
+    lg = r["arena"][0]["log"]
+    check(lg["prefix_bad_grabs"] == 0,
+          "the prefix grabbed %d ranges it did not have" % lg["prefix_bad_grabs"])
+    check(lg["tail_uncovered_blocks"] == 1,
+          "uncovered %d, want 1 (nothing free covers the tail's block)"
+          % lg["tail_uncovered_blocks"])
+    check(lg["tail_uncovered_dupfree"] == 0,
+          "a block freed nowhere was counted as a dupfree")
+    check(lg["tail_uncovered_prefreed"] == 0,
+          "no LogFree before the barrier covered b_, but prefreed is %d"
+          % lg["tail_uncovered_prefreed"])
+
+
+def test_the_totals_add_up_and_the_report_has_no_leak_claim():
+    """the totals are per-arena sums, and the report does not claim a leak.
+
+    The tool used to print "Nothing frees it again" and call the tail
+    the crash leak; measurement disproved that, so the wording went.
+    """
+    a, b_ = 0x10000, 0x900000
+    # the arena is free, one block is taken before the barrier; after it
+    # one is allocated from the free range (covered) and one from the
+    # block the prefix took (uncovered)
+    payloads = [ent_free(a, 2 * Blksz) + ent_alloc1(a) + ent_sync(4)
+                + ent_alloc1(b_) + ent_alloc1(a + Blksz)]
+    b = one_arena(qgen=4, payloads=payloads)
+    with tempfile.TemporaryDirectory() as d:
+        p = b.write(os.path.join(d, "img"))
+        r = g.analyse(p)
+        out = subprocess.run([sys.executable, os.path.join(here, "gefslog"), p],
+                             capture_output=True, text=True)
+    t = r["totals"]
+    check(t["tail_alloc_blocks"] == 2, "total tail %d, want 2" % t["tail_alloc_blocks"])
+    check(t["tail_covered_blocks"] == 1 and t["tail_uncovered_blocks"] == 1,
+          "covered/uncovered %d/%d, want 1/1"
+          % (t["tail_covered_blocks"], t["tail_uncovered_blocks"]))
+    check(t["tail_covered_blocks"] + t["tail_uncovered_blocks"] == t["tail_alloc_blocks"],
+          "covered + uncovered (%d) != tail (%d)"
+          % (t["tail_covered_blocks"] + t["tail_uncovered_blocks"], t["tail_alloc_blocks"]))
+    check(out.returncode == 0, "gefslog exited %d: %s" % (out.returncode, out.stderr))
+    check("Nothing frees it again" not in out.stdout,
+          "the report still claims nothing frees the tail again:\n%s" % out.stdout)
+    check("uncovered" in out.stdout, "the report does not classify the tail")
+    check("covered" in out.stdout, "the report does not show the covered part")
+
+
+def test_a_freeset_merge_matches_freerange():
+    """Freeset merges neighbours the way blk.c freerange does."""
+    f = g.Freeset()
+    f.free(0x10000, Blksz)
+    f.free(0x10000 + Blksz, Blksz)     # touches the one before: merges
+    check(f.ranges == [(0x10000, 2 * Blksz)],
+          "adjacent ranges did not merge: %s" % (f.ranges,))
+    f.free(0x10000 + 3 * Blksz, Blksz)
+    check(len(f.ranges) == 2, "a disjoint range merged: %s" % (f.ranges,))
+    f.free(0x10000 + 2 * Blksz, Blksz)  # bridges the two: all three merge
+    check(f.ranges == [(0x10000, 4 * Blksz)],
+          "a bridging range did not merge all: %s" % (f.ranges,))
+    check(f.bytes() == 4 * Blksz, "bytes %d, want %d" % (f.bytes(), 4 * Blksz))
+
+
+def test_a_grab_splits_like_grabrange():
+    """Freeset.grab splits in the middle and trims at either end."""
+    f = g.Freeset()
+    lo = 0x10000
+    f.free(lo, 4 * Blksz)
+    check(f.grab(lo, Blksz), "the first block was not there")
+    check(f.ranges == [(lo + Blksz, 3 * Blksz)],
+          "the head was not trimmed: %s" % (f.ranges,))
+    check(f.grab(lo + 3 * Blksz, Blksz), "the last block was not there")
+    check(f.ranges == [(lo + Blksz, 2 * Blksz)],
+          "the tail was not trimmed: %s" % (f.ranges,))
+    check(f.grab(lo + Blksz, Blksz), "the middle was not there")
+    check(f.ranges == [(lo + 2 * Blksz, Blksz)],
+          "the middle split did not keep the right half: %s" % (f.ranges,))
+    # a grab the C code would abort on is reported, not raised
+    check(not f.grab(0x900000, Blksz), "a grab outside every range succeeded")
+
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
 
 

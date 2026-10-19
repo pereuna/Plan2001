@@ -1,16 +1,27 @@
 # Kaatumisvuoto: 200 MiB QEMU-tapossa (19.10.2026)
 
-> **HUOM (19.10.2026, myöhempi mittaus): tämän tiedoston luku 2 ja
-> luvun 6 vaihtoehto 1 eivät vastaa mitattua käyttäytymistä.**
+> **HUOM (19.10.2026, myöhempi mittaus: tämän tiedoston luku 2 ja
+> luvun 6 vaihtoehto 1 eivät vastaa mitattua käyttäytymistä).**
 > Uudelleenmitattu kaatokuva, jossa häntä oli 155.27 MiB, oli
 > käyttäjätilan `gefs -c`:llä **puhdas**, ja 99.9 % hännän
 > allokaatioista oli jo vapaassa listassa toiston jälkeen (93 % niistä
 > ei ollut koskaan kirjoitettu levylle). "Häntä" on siis
-> allokointimäärä, ei kadonnut tila: `loadarena` aloittaa koko areenan
-> vapaana ja `blkalloc_lk` ottaa lohkot korkeimmasta osoitteesta, joten
-> toistamatta jääneet hännän allokaatiot jäävät vapaan alueen sisään.
-> Korjausta ei tarvita eikä toteutettu. Mittaukset:
-> `docs/status.md`, "Kaatumisvuoto: mittaus kumoaa diagnoosin".
+> allokointimäärä, ei kadonnut tila. Mekanismi on tarkemmin:
+> `loadarena` aloittaa vapaan tilan **tyhjänä** (`a->free` tyhjä,
+> `a->used = a->size`, `load.c`), ja toisto täyttää sen meritkin
+> edellä olevista `LogFree`-merkinnöistä. Hännän allokaatio on siksi
+> ilmaista tilaa, paitsi jos jokin meritkin *edellä* otti lohkon pois
+> vapaasta tilasta. (Aiempi muotoilu "aloittaa koko areenan vapaana" oli
+> virheellinen, samoin `avlmax`-perustelu; ks. `docs/status.md`.)
+> Mitattu 19.10.2026: 9924/9937 hännän allokaatiota on peitettyjä ja
+> **13 (0.20 MiB) peittämättömiä**; jokaisessa peittämättömässä on
+> hännässä `LogFree` ennen omaa `LogAlloc`iaan, joten naiivi hännän
+> vapautus kaatuisi `grabrangen` `abort()`iin (lohko ei ole vapaassa
+> tilassa, joten toisto ei ottanut sitä); 8 näistä oli lisäksi
+> vapautettu jo meritkin edellä, joten ne kaatuisivat myös
+> `freerange`n `already free` -virheeseen. Korjausta ei tarvita
+> eikä toteutettu. Mittaukset: `docs/status.md`, "Kaatumisvuoto:
+> mittaus kumoaa diagnoosin" ja sen tarkennus.
 > Alla oleva teksti on säilytetty sellaisenaan historiana.
 
 `docs/gefs-obj.md` (luku 7 "Avoimet") jätti avoimeksi havainnon:
@@ -229,20 +240,28 @@ uudelleen heti tapon jälkeen: palautus toistaa lokin ja katkaisee
 hännän levyltä, joten tarkasteltava tila katoaa. Pelkkä `KEEP=1` ei
 auta — se jättää QEMUn käyntiin vain *virheen* jälkeen.
 
-**`check` ei näytä tätä lukua `main`-haarassa.** Tarkistus mitattiin
-kaatuneesta kuvasta (luku 8): käyttäjätilan `gefs -c` sanoo `ok`, vaikka
-häntää on 155 MiB. `main`-haaran `checkfs` (`sys/src/cmd/gefs/check.c`,
-`sys/src/9/gefs/check.c`) ei laske vuotoa lainkaan: se tarkistaa, ettei
-mikään vapaa lohko ole käytössä (`checkdata`: `isfree`), mutta ei sitä,
-että jokainen käytetty lohko olisi saavutettu. Laskuri `checkleak`
-(`nreach`/`reach[]`, lohkot jotka eivät ole vapaita eikä saavutettuja) oli
-silloin vain `space-v6`-haarassa; `space-v6`:n mergen (`c8854e6`)
-jälkeen se on myös `main`issa mutta ei edelleenkään kaada tarkistusta —
-kommentti koodissa: "reported, not failed: in-flight frees look leaked".
+**`check` ei näyttänyt tätä lukua `main`-haarassa (tilanne 19.10.2026,
+korjattu).** Tarkistus mitattiin kaatuneesta kuvasta (luku 8):
+käyttäjätilan `gefs -c` sanoo `ok`, vaikka häntää on 155 MiB. Sen
+aikaisen `main`-haaran `checkfs` ei laskenut vuotoa lainkaan: se
+tarkisti, ettei mikään vapaa lohko ole käytössä (`checkdata`: `isfree`),
+mutta ei sitä, että jokainen käytetty lohko olisi saavutettu. Laskuri
+`checkleak` (`nreach`/`reach[]`, lohkot jotka eivät ole vapaita eikä
+saavutettuja) oli silloin vain `space-v6`-haarassa, ja `space-v6`:n
+mergen (`c8854e6`) jälkeenkin vain kernelin `check`issä: käyttäjätilan
+`check.c` (jota `gefs -c` ajaa) ei sitä tuntenut.
 
-Siksi `tools/gefslog` on toistaiseksi ainoa mittari, joka näkee vuodon
-`check`in tuloksesta riippumatta, ja se lukee sen suoraan lokiketjusta
-ilman QEMU:a.
+**Korjaus (19.10.2026):** saavutettavuuslaskenta on nyt myös
+käyttäjätilan `check`issä (`sys/src/cmd/gefs/check.c`, sama `mark`/
+`checkleak` kuin kernelissä), joten `gefs -c` tulostaa saman
+`leaked blocks:`-luvun. Se ei edelleenkään kaada tarkistusta —
+kommentti koodissa: "reported, not failed: in-flight frees look leaked"
+— koska myös puhtaalla levyllä luku on nollasta poikkeava (mitattu:
+puhdas juuri 17 lohkoa, kaatunut kuva 73 lohkoa).
+
+`tools/gefslog` on siis edelleen kätevin mittari, koska se lukee luvun
+suoraan lokiketjusta ilman QEMU:a ja erottaa peitetyt lohkot
+peittämättömistä.
 (Huom: sama varaus kuin `checkleak`illa — aja kuvasta, joka on levossa:
 kesken oleva kirjoitus näyttää vuodolta.)
 
@@ -285,11 +304,13 @@ Tämä vahvistaa luvun 2 mallin kolmella tapaa:
    paluu ei siis jätä häntää, vaan hännän olemassaolo on täsmälleen
    "loki kirjoitettiin, puuta ei ehditty syncata". Sama ajo myös näyttää,
    että palautus siivoaa hännän levyltä (luku 4, `finalize` + `syncblk`).
-3. **`check` ei tätä näe.** `tools/gefsck build/crashimg/crash1.img`
+3. **`check` ei tätä nähnyt.** `tools/gefsck build/crashimg/crash1.img`
    tulostaa `ok` sekä 155 MiB:n hännällä että palautuksen jälkeen —
-   `main`-haaran `checkfs` ei laske saavuttamattomia lohkoja (luku 7).
+   sen aikainen `checkfs` ei laskenut saavutettamattomia lohkoja (luku 7).
    Vuoto ei siis ole eheysvirhe vaan hukattua tilaa, ja siksi se on
-   aiemmin jäänyt huomaamatta `check`in läpäisseissä ajoissa.
+   aiemmin jäänyt huomaamatta `check`in läpäisseissä ajoissa. (Nykytila:
+   käyttäjätilan `check` laskee ne ja tulostaa `leaked blocks:`-luvun,
+   mutta ei kaada tarkistusta; ks. luku 7 ja `docs/status.md`.)
 
 Työkalu ei muuta kuvaa: `tools/test-gefslog.py` tarkistaa sen (sha256 ja
 mtime), ja sama pätee tähän ajoon — `gefslog` avaa kuvan vain lukien.

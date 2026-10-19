@@ -21,9 +21,19 @@ Muistikirjauksissa kulkenut "200 MiB:n osio" on itse asiassa
 > vuotoa ole. Kuvassa, jossa häntä oli 155.27 MiB, käyttäjätilan
 > `gefs -c` oli puhdas, 99.9 % hännän allokaatioista oli jo vapaassa
 > listassa toiston jälkeen ja 93 % niistä ei ollut koskaan kirjoitettu
-> levylle: luku on allokointimäärä, ei kadonnut tila. Korjausta ei
-> tarvita. Mittaukset: `docs/status.md`, "Kaatumisvuoto: mittaus
-> kumoaa diagnoosin".
+> levylle: luku on allokointimäärä, ei kadonnut tila. Tarkemmin:
+> `loadarena` aloittaa vapaan tilan tyhjänä ja toisto täyttää sen
+> meritkin edellä olevista `LogFree`-merkinnöistä; 13 allokaatiota
+> (0.20 MiB) ei ole peitettyjä, ja niissä on hännässä `LogFree` ennen
+> omaa `LogAlloc`iaan. Korjausta ei tarvita. Mittaukset:
+> `docs/status.md`, "Kaatumisvuoto: mittaus kumoaa diagnoosin" ja sen
+> tarkennus.
+
+> **HUOM (19.10.2026, korjattu):** alla oleva väite, että laskuri olisi
+> vain kernelissä, ei enää pidä paikkaansa: `checkleak` on nyt myös
+> käyttäjätilan `check`issä (`sys/src/cmd/gefs/check.c`), joten
+> `gefs -c` tulostaa `leaked blocks:`-luvun. Se ei edelleenkään kaada
+> tarkistusta (diagnostinen).
 
 - Luku tulee `check`in saavutettavuuslaskennasta: `checkleak`
   (`sys/src/9/gefs/check.c:391`) laskee lohkot, jotka eivät ole

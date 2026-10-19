@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read a gefs image's alloc logs, read-only, to locate a crash leak.
+"""Read a gefs image's alloc logs, read-only: what a crash left unapplied.
 
   gefslog IMG                  the log chain of every arena, and the
-                               entries past the last durable barrier
+                               entries past the last durable barrier,
+                               classified against the replayed free set
   gefslog IMG --json           the same as JSON (for the tests)
   gefslog IMG --census         also a physical census of block types
   gefslog IMG --hash auto|blk|blob
@@ -12,24 +13,40 @@
 
 Why: docs/gefs-obj.md (space-v6) records that `check`'s leak counter
 grows ~200 MiB per QEMU kill, about the amount written since the last
-sync, and leaves the cause open.  The leak is where: an alloc-log entry
-replayed by loadlog makes a block leased or free in memory, but no tree
-reaches it; or the entry is gone from the replayed log while the block
-is not free.
+sync, and leaves the cause open.
 
 The alloc log is written before the tree (blk.c logappend, called from
 blkalloc), so after a crash the disk holds more log than the tree
 accounts for.  loadlog replays up to the first LogSync whose generation
 is still current (gen >= fs->qgen) and then returns, so the rest of the
-chain is never read.  loadarena starts the free tree empty with
-a->used = a->size, and the replay is the only thing that adds ranges to
-it: a block the replay never reached is therefore not in the free set
-and is counted used.  Nothing on the disk refers to it either, because
-it was allocated by a transaction that had not been synced.  That is the
-crash leak: allocated, on the disk, in no free set, in no tree.  This
-tool counts it per arena, which is the tail after the last durable
-barrier -- about the bytes written since the last sync, as
-docs/gefs-obj.md reports (~200 MiB per kill).
+chain is never read and its entries stay unapplied.
+
+What that tail means is NOT a loss of space, and this tool does not call
+it one (measured 19.10.2026, docs/status.md: 9924 of the 9937 tail
+allocations of a real crash image were already inside the reconstructed
+free set).  loadarena starts a->free EMPTY with a->used = a->size
+(load.c), and the replay is what fills the free set in, from the
+LogFree entries before the barrier; the LogAlloc entries before it take
+blocks back out again.  A tail allocation is therefore free space
+already, unless something *before* the barrier took it out of the free
+set and the tail is what gives it back.
+
+So the tail is split, per arena, into:
+
+  covered    the block is inside the free set the replay rebuilt: its
+             LogAlloc was never applied, so the space is still free and
+             nothing is lost.  Most of the tail, and most of it is never
+             written to the disk at all.
+  uncovered  the block is not free after the replay and no tree reaches
+             it (the tree was not synced).  This is the part that can
+             cost space, and it is small: 13 blocks / 208 KiB in the
+             measured image.
+
+An uncovered block with a LogFree in the tail *before* its LogAlloc is a
+second case: the replay applies neither entry, so the block is neither
+free nor reached.  Such a duplicate free is also what a naive tail
+reclaim (freerange in loadlog) would abort on ("freerange: already
+free"), which is why it is counted apart, as `uncovered_dupfree`.
 
 The tool never writes to IMG and takes no locks: it is for images at
 rest (a halted disk, or a copy of a killed QEMU's disk).
@@ -451,6 +468,90 @@ def walk_log(img, hd, tl=None, limit=1 << 20):
     return chain
 
 
+class Freeset:
+    """The free set loadlog rebuilds, as the ranges blk.c keeps.
+
+    loadarena leaves a->free empty and a->used = a->size (load.c), so the
+    replay is the only writer: LogFree adds a range (freerange), LogAlloc
+    takes one out (grabrange).  Ranges are kept sorted and merged, as
+    freerange merges its neighbours.
+    """
+
+    def __init__(self):
+        self.ranges = []
+
+    def bytes(self):
+        return sum(n for _o, n in self.ranges)
+
+    def _at(self, off):
+        for i, (o, n) in enumerate(self.ranges):
+            if o <= off < o + n:
+                return i
+        return None
+
+    def free(self, off, n):
+        """freerange: add a range, merging with the ones that touch it."""
+        self.ranges.append((off, n))
+        self.ranges.sort()
+        out = []
+        for o, m in self.ranges:
+            if out and out[-1][0] + out[-1][1] == o:
+                out[-1] = (out[-1][0], out[-1][1] + m)
+            else:
+                out.append((o, m))
+        self.ranges = out
+
+    def grab(self, off, n):
+        """grabrange: take a range out; False where the C code would abort."""
+        i = self._at(off)
+        if i is None or off + n > self.ranges[i][0] + self.ranges[i][1]:
+            return False
+        o, m = self.ranges[i]
+        if off == o:
+            self.ranges[i] = (o + n, m - n)
+        elif off + n == o + m:
+            self.ranges[i] = (o, m - n)
+        else:
+            self.ranges[i:i + 1] = [(o, off - o), (off + n, o + m - (off + n))]
+        if self.ranges[i][1] == 0:
+            del self.ranges[i]
+        return True
+
+    def covers(self, off, n):
+        """is off..off+n entirely inside one free range?"""
+        i = self._at(off)
+        if i is None:
+            return False
+        o, m = self.ranges[i]
+        return off + n <= o + m
+
+    def has(self, off):
+        """does any free range contain this address at all?"""
+        return self._at(off) is not None
+
+
+def replay_freeset(prefix):
+    """the free set loadlog holds once it has applied `prefix`.
+
+    The C code aborts on a grab of a range it does not have, so a failed
+    grab is counted rather than raised: a crash image is evidence, not an
+    assertion.
+    """
+    f = Freeset()
+    bad = 0
+    for e in prefix:
+        # a LogSync carries no address (walk_entries leaves off None)
+        if e["op"] not in (LogAlloc, LogAlloc1, LogFree, LogFree1):
+            continue
+        off = e["off"] & ~0xff
+        if e["op"] in (LogAlloc, LogAlloc1):
+            if not f.grab(off, e["len"]):
+                bad += 1
+        else:
+            f.free(off, e["len"])
+    return f, bad
+
+
 def analyse_log(chain, qgen):
     """Split the replayed log at its last durable barrier.
 
@@ -475,6 +576,34 @@ def analyse_log(chain, qgen):
     tail = seq[stop + 1:] if stop is not None else []
     alloc = [e for e in tail if e["op"] in (LogAlloc, LogAlloc1)]
     free = [e for e in tail if e["op"] in (LogFree, LogFree1)]
+
+    # The free set the replay has built from the prefix.  A tail
+    # allocation whose block is still in it cost nothing: the LogAlloc
+    # was never applied, so the space was never taken.  One that is not
+    # in it is the whole of what a crash can cost.
+    fs, badgrabs = replay_freeset(seq[:stop] if stop is not None else [])
+    cov = unc = dup = 0
+    covb = uncb = 0
+    for e in alloc:
+        off = e["off"] & ~0xff
+        if fs.covers(off, e["len"]):
+            cov += 1
+            covb += e["len"]
+        else:
+            unc += 1
+            uncb += e["len"]
+    # a tail LogFree of an uncovered block, before its tail LogAlloc:
+    # neither entry is applied, so the block is neither free nor reached,
+    # and a naive reclaim of the tail would freerange it twice
+    freed = set(e["off"] & ~0xff for e in free)
+    dup = sum(1 for e in alloc if not fs.covers(e["off"] & ~0xff, e["len"])
+              and (e["off"] & ~0xff) in freed)
+    # of the uncovered ones, the blocks a LogFree before the barrier had
+    # already returned to the free set: a tail reclaim frees them twice
+    prefreed = set(e["off"] & ~0xff for e in (seq[:stop] if stop is not None else [])
+                   if e["op"] in (LogFree, LogFree1))
+    pre = sum(1 for e in alloc if not fs.covers(e["off"] & ~0xff, e["len"])
+              and (e["off"] & ~0xff) in prefreed)
     return {
         "entries": len(seq),
         "barriers": [{"gen": e["gen"], "replay": (stop is not None and i == stop)}
@@ -488,6 +617,15 @@ def analyse_log(chain, qgen):
         "tail_free_bytes": sum(e["len"] for e in free),
         "tail_net_bytes": sum(e["len"] for e in alloc) - sum(e["len"] for e in free),
         "has_barrier": stop is not None,
+        # what the tail costs, against the free set the replay rebuilt
+        "free_after_replay_bytes": fs.bytes(),
+        "prefix_bad_grabs": badgrabs,
+        "tail_covered_blocks": cov,
+        "tail_covered_bytes": covb,
+        "tail_uncovered_blocks": unc,
+        "tail_uncovered_bytes": uncb,
+        "tail_uncovered_dupfree": dup,
+        "tail_uncovered_prefreed": pre,
     }
 
 
@@ -539,6 +677,12 @@ def analyse(path, hashmode="auto", do_census=False):
             "tail_alloc_mib": round(sum(a["log"]["tail_alloc_bytes"] for a in arenas) / MiB, 3),
             "tail_net_mib": round(sum(a["log"]["tail_net_bytes"] for a in arenas) / MiB, 3),
             "tail_alloc_blocks": sum(a["log"]["tail_alloc_blocks"] for a in arenas),
+            "tail_covered_blocks": sum(a["log"]["tail_covered_blocks"] for a in arenas),
+            "tail_uncovered_blocks": sum(a["log"]["tail_uncovered_blocks"] for a in arenas),
+            "tail_uncovered_mib": round(sum(a["log"]["tail_uncovered_bytes"] for a in arenas) / MiB, 3),
+            "tail_uncovered_dupfree": sum(a["log"]["tail_uncovered_dupfree"] for a in arenas),
+            "tail_uncovered_prefreed": sum(a["log"]["tail_uncovered_prefreed"] for a in arenas),
+            "free_after_replay_mib": round(sum(a["log"]["free_after_replay_bytes"] for a in arenas) / MiB, 3),
             "used_mib": round(sum(a["used"] for a in arenas) / MiB, 3),
         }
         if do_census:
@@ -570,18 +714,37 @@ def report(res, out):
               % (lg["tail_entries"], lg["tail_alloc_blocks"], lg["tail_free_blocks"],
                  lg["tail_alloc_bytes"] / MiB, lg["tail_free_bytes"] / MiB,
                  lg["tail_net_bytes"] / MiB), file=out)
+        print("    free set after the replay: %.1f MiB; the tail against it: "
+              "%d covered (%.1f MiB), %d uncovered (%.1f MiB)"
+              % (lg["free_after_replay_bytes"] / MiB,
+                 lg["tail_covered_blocks"], lg["tail_covered_bytes"] / MiB,
+                 lg["tail_uncovered_blocks"], lg["tail_uncovered_bytes"] / MiB), file=out)
+        if lg["prefix_bad_grabs"]:
+            print("    warning: %d prefix alloc(s) grab a range the replay does not have"
+                  % lg["prefix_bad_grabs"], file=out)
     t = res["totals"]
-    print("  total: %d block(s), %.2f MiB allocated past the last durable barrier"
-          % (t["tail_alloc_blocks"], t["tail_alloc_mib"]), file=out)
+    print("  total: %d block(s), %.2f MiB allocated past the last durable barrier; "
+          "%.2f MiB of that is uncovered" %
+          (t["tail_alloc_blocks"], t["tail_alloc_mib"], t["tail_uncovered_mib"]), file=out)
+    if t["tail_uncovered_dupfree"]:
+        print("  %d of the uncovered blocks have a LogFree before their LogAlloc in the"
+              % t["tail_uncovered_dupfree"], file=out)
+        print("  tail, so the replay applies neither entry; a tail reclaim would abort in", file=out)
+        print("  grabrange on all of them, and in freerange (\"already free\") on the %d"
+              % t["tail_uncovered_prefreed"], file=out)
+        print("  that a LogFree before the barrier had already freed.", file=out)
     if "census" in res:
         print("  census: " + ", ".join("%s %d" % (k, v) for k, v in sorted(res["census"].items())),
               file=out)
     print("", file=out)
-    print("  The tail is what a crash at this point leaves: allocated in the log, on", file=out)
-    print("  the disk, in no free set (the replay returned before it) and in no tree.", file=out)
-    print("  Nothing frees it again.  check does not report it: it tests only that", file=out)
-    print("  nothing free is in use, never that every used block is reached.  The", file=out)
-    print("  reader is space-v6's checkleak (sys/src/9/gefs/check.c there).", file=out)
+    print("  The tail is the log written after the last durable barrier: a crash there", file=out)
+    print("  leaves it unapplied.  Most of it costs nothing -- 99.9 % of a measured", file=out)
+    print("  crash image's tail was still free in the set the replay rebuilds, and", file=out)
+    print("  most of those blocks were never written to the disk at all.  The", file=out)
+    print("  uncovered blocks are the ones a crash can cost, and check reports them", file=out)
+    print("  since the census was added to the user-space check too (sys/src/cmd/gefs", file=out)
+    print("  and sys/src/9/gefs check.c: checkleak, \"reported, not failed\" -- a disk", file=out)
+    print("  at rest still shows in-flight frees there, so the count is diagnostic).", file=out)
 
 
 def main(argv):

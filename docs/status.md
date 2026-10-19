@@ -1164,20 +1164,44 @@ Sama kuva ajettiin vielä toistamatta (`tools/gefsck`, käyttäjätilan
 
 | Kysymys | Tulos |
 |---|---|
-| Montako hännän allokaatiota on jo vapaassa listassa toiston jälkeen? | **9929 / 9937 = 99.9 %** |
+| Montako hännän allokaatiota on jo vapaassa listassa toiston jälkeen? | **9924 / 9937 = 99.9 %** (peitetty, "covered") |
+| Montako hännän allokaatiota ei ole vapaassa listassa? | **13 = 0.20 MiB** ("uncovered") |
 | Montako hännän lohkoa on koskaan kirjoitettu levylle? | **687 / 9937 = 6.9 %** (loput 93 % ovat nollia) |
 | `gefs -c` (käyttäjätilan tarkistus) | **`ok`** |
 
-Mekanismi: `loadarena` alustaa vapaan tilan **koko areenaksi**
-(`a->free` tyhjä, `a->used = a->size`), ja toisto lisää siihen vain
-`LogFree`-alueet. `blkalloc_lk` ottaa lohkot **korkeimmasta**
-osoitteesta (`avlmax`), joten hännän lohkot ovat jo valmiiksi vapaan
-alueen sisällä: `grabrange` vain kutistaa aluetta, ja koska hännän
-allokaatioita **ei toisteta**, ne jäävät vapaiksi. Siksi toisto ei
-hukkaa niitä, ja siksi `gefs -c` on puhdas. Kolmanneksi useimmat hännän
-allokaatiot eivät ole lainkaan levylle kirjoitettuja lohkoja (esim.
-datan varauksia, jotka eivät ehtineet `enqueue`en), joten niistä ei ole
-mitään vapautettavaa.
+Mekanismi: `loadarena` alustaa vapaan tilan **tyhjäksi** (`a->free =
+avlcreate(...)`, `a->used = a->size`, `load.c`), ei suinkaan koko
+areenaksi vapaaksi. Toisto on ainoa kirjoittaja: `LogFree` lisää
+`freerange`lla ja `LogAlloc` ottaa `grabrangella` pois. Meritkin
+**jälkeisiä** allokaatioita ei toisteta, joten ne eivät muuta vapaata
+tilaa lainkaan. Siksi hännän allokaatio on ilmaista tilaa, **paitsi**
+jos jokin meritkin *edellä* otti lohkon pois vapaasta tilasta: silloin
+juuri hännän `LogFree` olisi antanut sen takaisin. Peitetty lohko ei
+siis ole kadonnutta tilaa, vaan tila, jota varaus ei koskaan ottanut;
+93 % hännän lohkoista ei ole lisäksi koskaan kirjoitettu levylle (esim.
+datan varauksia, jotka eivät ehtineet `enqueue`en).
+
+Aiempi selitys (tässä tiedostossa 19.10.2026 ennen tätä mittausta) sanoi
+`blkalloc_lk`:n ottavan lohkot korkeimmasta osoitteesta (`avlmax`) ja
+hännän lohkojen siksi "jo valmiiksi" olevan vapaan alueen sisällä. Se
+päättely on **väärä eikä selitä mittausta**: sillä perusteella kaikkien
+hännän allokaatioiden pitäisi olla peitettyjä, mutta 13 ei ole.
+Ratkaisevaa on meritkin *edellä* tapahtunut `LogFree`, ei allokaation
+suunta.
+
+Loput 13 lohkoa on nyt luokiteltu, eikä niitä tarvitse jättää
+avoimiksi: **jokaisessa on hännässä `LogFree` ennen omaa
+`LogAlloc`iaan**. Toisto ei toteuta kumpaakaan merkintää, joten lohko ei
+ole vapaa eikä saavutettu — siksi ne näkyvät `check`in luvussa. Lisäksi
+**8 lohkoa** oli vapautettu jo meritkin *edellä* tulleella `LogFree`lla,
+joten niitä kohti hännässä on sekä `LogFree` että `LogAlloc`. Tämä
+tarkoittaa, että naiivi hännän vapautus (freerange `loadlog`issa)
+**kaatuisi** kahdella tavalla: `grabrange` abortoisi kaikilla 13:lla
+(toisto ei koskaan ottanut lohkoa vapaasta tilasta), ja `freerange`
+abortoisi `already free` -virheeseen niillä 8:lla, jotka vapautettaisiin
+toistamiseen. Mittari: `tools/gefslog`in `tail_uncovered_dupfree` (13)
+ja `tail_uncovered_prefreed` (8).
+`tools/gefslog` laskee ne nyt erikseen (`tail_uncovered_dupfree`).
 
 Mikä `check`in luku sitten on? Uudelleenbootatun kuvan `check` sanoi
 `leaked blocks: 75 (1200 KiB)`; ensimmäinen boot tuoreella juurella
@@ -1188,15 +1212,98 @@ olevat vapautukset (koodin kommentti: "reported, not failed: in-flight
 frees look leaked"). Siksi se on nollasta poikkeava myös puhtaalla
 levyllä.
 
+Saavutettavuuslaskenta oli aiemmin vain kernelin `check`issä; nyt se on
+myös käyttäjätilan `check`issä (`sys/src/cmd/gefs/check.c`, sama
+`checkleak`). Mitattu samoista kuvista tämän työn aikana: kaatunut kuva
+`leaked blocks: 73 (1168 KiB)`, ja käännöstyön tekemä puhdas juuri
+`leaked blocks: 20 (320 KiB)` — molemmat silti `ok`. Luku ei siis ole
+vuotomitta vaan diagnostinen, kuten edellä.
+
 **Seuraus:** hännän vapautusta palautuksessa (`docs/gefs-crashleak.md`
 luku 6 vaihtoehto 1) **ei tarvita eikä sitä toteutettu** — se olisi
-koskenut gefs:n kirjoituspolkua ilman mitattavaa hyötyä. Jos
-`checkleak`ista halutaan käyttökelpoinen mittari, se pitää rajata
-lohkoihin, jotka ovat levylle kirjoitettuja (esim. ohittamalla
-nollalohkot) ja ajaa levossa olevasta kuvasta; se on erillinen työ.
+koskenut gefs:n kirjoituspolkua ilman mitattavaa hyötyä. Sitä vastoin
+hännän vapautus olisi jopa vaarallinen: 13 peittämättömän lohkon
+`LogFree`-varaus-pari kaataisi toiston `grabrangessa`, ja 8 lohkoa
+myös `freerangessa` (`already free`). Jos
+`checkleak`ista halutaan tarkempi mittari, se pitää rajata lohkoihin,
+jotka ovat levylle kirjoitettuja (esim. ohittamalla nollalohkot); se on
+erillinen työ.
 `docs/gefs-crashleak.md` luvut 2 ja 5–6 jäävät historiaan: niiden
 mekanismi ei vastaa mitattua käyttäytymistä.
 
 Regressiotesti `tools/test-gefslog.py`:ssä
 (`test_a_completed_sync_leaves_no_tail`) lukitsee osan tästä: valmis
 sync ei jätä häntää, keskeneräinen jättää. Testejä on nyt 20.
+
+### Tarkennus: 9924 eikä 9929, ja 13 eikä 8 (19.10.2026)
+
+Edellinen mittaus ilmoitti 9929 peitettyä ja "kahdeksan selittämätöntä"
+lohkoa. Tässä tehty itsenäinen toisto (kaksi eri toteutusta: `loadlog`in
+toisto mallinnettuna ja `tools/gefslog`in uusi luokittelu) antaa samasta
+kuvasta **9924 peitettyä ja 13 peittämätöntä**. Ero ei ole
+tulkinnanvarainen: `grabrangen` alkupisteen sisältävä testi ja koko
+alueen kattava testi antavat molemmat 9924 (`tail_covered_blocks`), ja
+toisto ei kohtaa yhtään `grabrange`-virhettä (`prefix_bad_grabs` 0).
+
+Syy eroon on todennäköisesti se, että aiempi luku laskettiin
+kertaluonteisella skriptillä, joka ei ole repossa, eikä sitä voi enää
+toistaa. Siksi tässä dokumentissa käytetään lukuja, jotka repossa oleva
+`tools/gefslog` tuottaa samasta kuvasta (`--json`:
+`tail_covered_blocks`, `tail_uncovered_blocks`,
+`tail_uncovered_dupfree`). Jos vanha luku halutaan säilyttää
+historiallisena, se on merkitty tähän; se ei ole enää mittari.
+
+Luokittelu toistettiin **toisella, erillisellä kaadolla** samalla
+skriptillä (`NOROOT=1 CRASH=1 CRASHCOPY=...`, `build/test-gefs-final.log`
+→ `/tmp/tgfinal.log` tämän työn aikana): häntä 9917 lohkoa / 154.95 MiB,
+josta **9903 peitettyä (99.86 %) ja 14 peittämätöntä** (0.22 MiB).
+Sama ilmiö ja sama suuruusluokka siis toistuvat eri kaadossa: noin yksi
+peittämätön lohko per areena, ei satoja. Tämä on suoraan katselmuksen
+peräänkuuluttama toistomittaus, joskin vain yhdellä lisäsyklillä; 10–20
+syklin sarja on yhä tekemättä.
+
+Luokittelu sulkee myös aiemman avoimen kohdan "kahdeksan lohkoa jää
+selittämättä": **13 peittämättömän lohkon joukossa jokaisessa on hännässä
+`LogFree` ennen omaa `LogAlloc`iaan** (`tail_uncovered_dupfree` = 13), eli
+kyse ei ole tuntemattomasta tilasta vaan toiston ulkopuolelle jääneestä
+vapautus-varaus-parista.
+
+### OpenAI-katselmuksen (V6, 200 MiB) käsittely (19.10.2026)
+
+Commitin `5a74aa3` katselmus `docs/gefs-v6-200mib-review.md` esitti viisi
+kohtaa. Ne käsiteltiin näin:
+
+1. **"Harhaanjohtava selitys dokumentaatiossa" — pitää paikkansa,
+   korjattu.** `loadarena` aloittaa vapaan tilan tyhjänä (`a->free` tyhjä,
+   `a->used = a->size`), ei koko areenana vapaana. Tämä tiedosto ja
+   `docs/gefs-crashleak.md`, `docs/gefs.md`, `docs/space-v6-open.md` on
+   korjattu, ja vääräksi osoittautunut `avlmax`-perustelu on merkitty
+   virheelliseksi.
+2. **"`tools/gefslog` nimittää hännän edelleen pysyväksi vuodoksi" —
+   pitää paikkansa, korjattu.** Työkalu mallintaa nyt `loadlog`in
+   vapaan tilan (`Freeset`: `freerange`/`grabrange`) ja luokittelee
+   hännän peitettyihin ja peittämättömiin; "Nothing frees it again" ja
+   "That is the crash leak" -väitteet on poistettu. Työkalu on edelleen
+   vain lukeva (`test_analysis_does_not_touch_the_image`).
+3. **"`check`in kattavuus on puutteellinen" — pitää paikkansa,
+   korjattu.** Saavutettavuuslaskenta (`mark`/`checkleak`) oli vain
+   kernelin `check`issä; se on nyt myös käyttäjätilan `check`issä
+   (`sys/src/cmd/gefs/check.c`), joten `gefs -c` tulostaa saman
+   `leaked blocks:`-luvun. Se ei kaada tarkistusta, koska luku on
+   nollasta poikkeava myös puhtaalla levyllä (mitattu 17 ja 73 lohkoa).
+4. **"Kahdeksan hännän lohkoa jää selittämättä" — pitää paikkansa
+   tarkoitukseltaan, mutta luku on 13.** Kaikki 13 ovat
+   `LogFree`-varaus-pari hännässä, eli luokiteltuja eivätkä enää
+   selittämättömiä (ks. edellä).
+5. **"20 testin sarja ei riitä sulkemaan asiaa" — pitää paikkansa,
+   laajennettu.** Sarjassa on nyt 27 testiä: vapaan tilan
+   alkuarvo ja toiston täyttäminen, peitetty vs. peittämätön
+   luokittelu, duplikaattivapautus, `Freeset`in yhdistäminen ja
+   halkaisu (`freerange`/`grabrange`), sekä se, ettei raportti enää
+   väitä vuotoa. Testit on varmistettu mutaatiolla: rikkomalla
+   luokittelu tai duplikaattilaskuri 4/3/1 testiä epäonnistuu.
+
+Katselmuksen suositus (10–20 kaatumissyklin toistettava
+palautumistesti samalla kuvalla) **on yhä tekemättä**; `CRASH=N
+CRASHCOPY=DIR` antaa siihen valmiin työkalun. Se on ainoa avoin kohta.
+Tämän työn aikana ajetut testit on lueteltu commit-viestissä.
