@@ -1089,6 +1089,51 @@ Monolithin `test-apps` (myös `--drop`) ja `test-compute` PASS.
   myöhemmin kirjoiteta. T5.12 testaa version säilymisen, ei siivouksen
   palautumista. Korjaus ja tätä erottava testi ovat jatkotyötä.
 
+## Pysyvä olioympäristö V7: koodin päivitys (19.10.2026)
+
+- Määrittely: `docs/v7-upgrade.md` (agentin työmääräys, invariantit
+  I1–I9); levymuoto: `docs/gefs-obj.md` luku 9; vaihe:
+  `docs/object-model.md` V7.
+- `space.upgrade(nimi, uusi_env)` tekee päivityksen omassa
+  prosessissaan, jossa ei ole Spacea auki. Se ottaa Spacen lukon
+  (`DMEXCL`), lukee julkaistun version ja sen Environmentin, lukee
+  uuden Environmentin määritelmät ja niiden nimet (lähde käännetään ja
+  sen skooppipuu tarkistetaan `.mpy`:tä vasten), sitoo graafin uudelleen
+  nimellä `(moduuli, qualname)`, rakentaa luokat uudesta
+  määritelmästä, ajaa `__migrate__`in niille instansseille, joiden
+  luokan `__schema__` muuttui, ja julkaisee kaiken **yhtenä versiona**
+  (yksi `'c'`-tietue, sync). Kaatuminen missä tahansa ennen sitä jättää
+  edellisen version kokonaiseksi.
+- Store: Environmentin aikakaudet omassa oliossa
+  (`OID_UPGRADE_META`), palautuspiste otsakkeen käyttäjäsosassa
+  (V7: 88 tavua, `fmt=2`, `pin`), ja gefs:n `commit()` rajoittaa
+  `K`:n piniin (`K <= pin <= N`). Funktiot ja luokat kirjoitetaan
+  nimetyssä muodossa (`O_FUNN`, `O_CLASSN`); V5/V6:n tietueet luetaan
+  edelleen.
+- Testit (`tools/test-space.sh`, vaihe v7; `ONLY=7`): T7.1 (calc
+  v1→v2: tila, OID:t ja uusi koodi bootin jälkeen), T7.2 (alias
+  listassa, dictissä ja attribuutissa; lasten järjestys muuttuu), T7.3
+  (skeema ilman hookia hylätään; hook kerran per instanssi), T7.4
+  (kaatuminen päivityksen kirjoituksen aikana: seuraava boot näkee
+  joko vanhan tai uuden kokonaisuuden), T7.5 (vain Environment
+  muuttuu), T7.6 (100 committia ja bootti: pin pysyy ja vanha versio
+  luetaan vanhalla koodilla), T7.7 (toinen päivitys: uusi pin,
+  aikakaudet, kaikki kolme koodiversiota luettavissa), T7.8 (moduuli
+  pudonnut / skeema ilman hookia: hylkäys, ei julkaisua), T7.9
+  (kirjoituksen aikainen virhe `$spacefail`: ei julkaisua), T7.10
+  (sykli, jaettu viite, instanssi dictin avaimena), T7.11 (V5:n
+  72-tavun otsake päivittyy; V2–V4:n Space ilman storea hylätään
+  tiedostojaan poistamatta), T7.12 (kirjoittajan lukko; lukija saa
+  ehjän version). Ajo: 55 `ok`, 0 FAIL, lopun `gefsck` `ok`.
+- Regressiot samalla binäärillä: `ONLY=2`, `ONLY=3`, `ONLY=4`,
+  `ONLY=5` ja `ONLY=6` läpi (ks. alla mitä ajettiin).
+- Rajat: luokkakappale ajetaan päivityksessä (sivuvaikutukset ovat
+  I9:n mukaisesti perumattomia); moduulin ylätasoa ei ajeta, joten
+  luokkakappale ei voi nojata ylätason ajonaikaisiin arvoihin. Metodin
+  oletusarvojen määrä ei saa muuttua. Nimeämättömät funktiot sidotaan
+  lähimpään nimettyyn esivanhempaan, muuten päivitys hylätään. Yli
+  64 MiB:n migraatio hylätään (ei vielä erissä).
+
 ## Kaatumisvuoto mitattu oikeasta QEMU-kaadosta (19.10.2026)
 
 - Ympäristö saatiin valmiiksi: QEMU 10.0.13, OVMF, KVM (`/dev/kvm`

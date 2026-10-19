@@ -705,6 +705,56 @@ gefs:n versiot takaavat, että näkymä on yksi kokonainen versio.
   version=v)`), kunnes seuraava päivitys tehdään; säilytysväli `K…N`
   ei siivoa sitä ennen sitä.
 
+**Toteutus (19.10.2026).** Määrittely ja sen invariantit I1–I9:
+`docs/v7-upgrade.md`; levymuoto: `docs/gefs-obj.md` luku 9.
+
+- **Ajo:** `space.upgrade` on oma prosessi (`mp -c`), jossa ei ole
+  Spacea auki. Se ottaa Spacen `lock`in (`DMEXCL`) koko ajaksi; jos
+  kirjoittaja pitää sitä, päivitys ei ala. Kaikki tapahtuu muistissa,
+  ja julkaisu on yksi `'c'`-tietue (synkattuna): lukija näkee joko
+  `(vanha env, vanha graafi)` tai `(uusi env, migroitu graafi)`.
+- **Nimet:** vanhan graafin nimet luetaan sen omista sanakirjoista
+  (moduulin globaalit ja luokkien `dict`it), joten listaan, dictiin,
+  oletusarvoon tai attribuuttiin talletettu viite sidotaan samalla
+  nimellä. Uuden Environmentin nimi->koodi-taulu saadaan kääntämällä
+  määritelmän lähde (`lib/mod/<sha>.py`) ja vertaamalla sen
+  skooppipuu `.mpy`:n puuhun (erolla päivitys hylätään). Jos moduulin
+  määritelmä ei muutu, polku käy sellaisenaan eikä lähdettä käännetä.
+  Nimeämätön funktio (lambda, comprehension, sulkeuman sisäfunktio)
+  sidotaan lähimpään nimettyyn esivanhempaan ja suhteelliseen polkuun;
+  jos sitäkään ei ole, päivitys hylätään viestillä, joka nimeää
+  moduulin.
+- **Luokat** rakennetaan uudesta määritelmästä ajamalla sen
+  luokkakappale (`__build_class__`) kannan ollessa jo uusi luokka:
+  metodit ovat uuden määritelmän funktioita, uudet metodit tulevat
+  mukaan ja `__migrate__` löytyy uudesta luokasta. Luokan oma `dict`
+  -olio (OID) säilyy: uudet alkiot siirretään siihen. Luokkakappaleen
+  sivuvaikutukset ajetaan (I9: niitä ei voi perua), mutta moduulin
+  ylätasoa ei ajeta.
+- **Instanssit** saavat uuden luokan (`__class__`), ja jos
+  `__schema__` muuttui, `__migrate__(self, vanha)` kutsutaan kerran
+  per instanssi; `vanha` on matala kopio instanssin jäsenistä
+  (dict), joten hook ei voi tuhota muiden tarvitsemaa dataa. Jos
+  skeema muuttui ilman hookia, päivitys hylätään ennen julkaisua.
+- **OID:t** säilyvät: korvattava olio saa vanhan oliön OID:n, myös
+  uudelleen rakennettu monikko tai joukko (`space.oid` on sama ennen
+  ja jälkeen). Kaikki tietueet kirjoitetaan uudelleen (`p9_image_all_dirty`),
+  joten vanhaa koodia ei jää mihinkään tietueeseen.
+- **Environmentin aikakaudet** (`(alkuversio, env)` -lista storen
+  omassa oliossa) kertovat, mikä Environment oli milläkin versiolla;
+  `space.open/space.view(version=v)` valitsevat sen ja lukevat version
+  sen omalla koodilla. Vanha versio säilyy `pin`in ansiosta: gefs ei
+  siirrä `K`:ta pinin yli, ja seuraava päivitys asettaa uuden pinin
+  samassa transaktiossa kuin se julkaisee.
+- **Rajat:** päivitys hylätään ennen julkaisua, jos moduuli puuttuu
+  uudesta Environmentista, nimi on tuntematon tai moniselitteinen,
+  metodin oletusarvojen määrä muuttuu, luokalta puuttuu nimi, skeema
+  muuttui ilman hookia, `.mpy` tai lähde puuttuu, runtime on väärä, tai
+  transaktio ylittää 64 MiB. Epäonnistunut yritys ei muuta storea
+  (gefs hylkää `W>N`-tietueet), eikä V2–V4:n `v<N>`-tiedostoja
+  poisteta. Uudelleenajo samaan Environmentiin hylätään ("already its
+  Environment").
+
 | Testi | Hyväksymisehto |
 |---|---|
 | T7.1 | `calc` v1 → v2: tila säilyy, ja uusi koodi on käytössä. |
@@ -731,5 +781,5 @@ asti v0.1:n luvut 10–14 eivät ole voimassa.
 | V4 | QEMU: valmis 18.10.2026 (`graph.py`: relaatiot, tunniste, #tagit). V5:n ehto täyttyy suurella graafilla (koko kuvan commit sekunteja) |
 | V5 | QEMU: valmis 18.10.2026 (gefs:n `obj.c` ja `DMOBJ`, ktest `fsobj`; barrierit, OID-taulu, inkrementaalinen commit). Commit ~30 000 oliolla 34–67 ms (ennen 2,3–3,6 s); V2–V4 `$spacecheck`illa. V5:n testit läpi 19.10.2026 (T5.4, T5.9, T5.12 ja T5.13 katselmoinnin jälkeen). `spacehw` V5:n tallentimella (T3.4 ja T3.5 pois, kuten `test-space`ssa). Avoimet: avaus ~8,3 s (`docs/gefs-obj.md` 7) |
 | V6 | QEMU: valmis 18.10.2026 (`space.view`: oma moduulimaailma, vieraat oliot OID-taulussa; T6.1–T6.6, T6.1: 316 näkymää 100 versiosta, 0 ristiriitaa) |
-| V7 | – |
+| V7 | QEMU: valmis 19.10.2026 (`space.upgrade`: uudelleensidonta nimellä, luokat uudesta määritelmästä, `__migrate__`, Environmentin aikakaudet, pin palautuspisteenä; T7.1–T7.12 `ONLY=7`, V2–V6 ennallaan) |
 | V8 | ehdollinen |
