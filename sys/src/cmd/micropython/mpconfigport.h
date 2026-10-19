@@ -41,6 +41,30 @@
 /* tabs and spaces mixed so that the blocks are ambiguous: an error */
 #define MICROPY_LEXER_TAB_CHECK (1)
 #define MICROPY_ENABLE_EXTERNAL_IMPORT (1)
+/*
+ * the persistent object environment (p9space.c, docs/object-model.md):
+ * a module's .mpy made once and loaded from memory; import through
+ * p9_import (an Environment's modules, or MicroPython's own)
+ */
+#define MICROPY_PERSISTENT_CODE_LOAD (1)
+#define MICROPY_PERSISTENT_CODE_SAVE (1)
+#define mp_builtin___import__ p9_import
+/* a Space's commit point: a REPL statement's end (mp -S) */
+int p9_space_commit(int force);
+// the Space's object store (p9image.c, docs/gefs-obj.md): an object
+// with an OID changed in place, one freed; on only when there are OIDs
+extern size_t p9_space_noid;
+void p9_space_dirty(const void *p);
+void p9_space_freed(const void *p);
+#define P9_DIRTY(p) do { if (p9_space_noid) p9_space_dirty(p); } while (0)
+#define P9_FREED(p) do { if (p9_space_noid) p9_space_freed(p); } while (0)
+#define MICROPY_BOARD_AFTER_PYTHON_EXEC(kind, flags, val, ret) p9_space_commit(0)
+/* the types a Space keeps (docs/object-model.md 5.5); graph's links
+   are descriptors (5.7) */
+#define MICROPY_PY_BUILTINS_FROZENSET (1)
+#define MICROPY_PY_DESCRIPTORS (1)
+/* a Space's graph is wide: a mark stack that overflows rescans the heap */
+#define MICROPY_ALLOC_GC_STACK_SIZE (4096)
 #define MICROPY_VFS (0)
 #define MICROPY_READER_POSIX (0)
 #define MICROPY_NLR_SETJMP (1)
@@ -88,7 +112,7 @@
 #define PACKED
 #define MP_BITS(n)
 #define MP_OBJ_TYPE_NSLOTS 11
-#define MP_ROM_TUPLE_NITEMS 4
+#define MP_ROM_TUPLE_NITEMS 5	/* sys.implementation with _mpy */
 #define MP_QSTR_POOL_SIZED (1)
 #define MP_NO_NONCONSTEXPR_ASSERT
 /* 6c: NaN compares as equal, -x of +0.0 is +0.0 (docs/bugs_to_9front.md) */

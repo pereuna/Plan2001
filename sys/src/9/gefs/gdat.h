@@ -118,6 +118,9 @@ enum {
 
 	/* configuration */
 	Kconf,	/* name[] => value[] */
+
+	/* Plan2001: object stores (obj.c, docs/gefs-obj.md) */
+	Kobj,	/* store[8] [oid[8] ~ver[8] idx[4]] => header or chunk */
 };
 
 enum {
@@ -356,6 +359,8 @@ enum {
 	AOrclose,
 	AOsetcfg,
 	AOclrcfg,
+	AOobjabort,	/* Plan2001: a clunked fid's object transaction */
+	AOobjclear,	/* Plan2001: a removed object store's keys */
 };
 
 enum {
@@ -437,12 +442,13 @@ struct Amsg {
 			char	key[32];
 			char	val[128];
 		};
-		struct {	/* AOclear, AOrclose */
+		struct {	/* AOclear, AOrclose, AOobjabort, AOobjclear */
 			Mount	*mnt;
 			Dent	*dent;
 			vlong	qpath;
 			vlong	off;
 			vlong	end;
+			void	*otx;	/* AOobjabort's transaction */
 		};
 	};
 };

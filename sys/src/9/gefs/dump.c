@@ -39,6 +39,16 @@ showkey(Fmt *fmt, Key *k)
 	case Kconf:
 		n = fmtprint(fmt, "Conf %.*s", k->nk-1, k->k+1);
 		break;
+	case Kobj:	/* Plan2001: store[8] [oid[8] ~ver[8] idx[4]] */
+		if(k->nk == 1+8)
+			n = fmtprint(fmt, "obj store:%llx header", UNPACK64(k->k+1));
+		else if(k->nk == 1+8+8+8+4)
+			n = fmtprint(fmt, "obj store:%llx oid:%llx ver:%lld idx:%d",
+				UNPACK64(k->k+1), UNPACK64(k->k+9),
+				~UNPACK64(k->k+17), UNPACK32(k->k+25));
+		else
+			n = fmtprint(fmt, "obj ??? %.*H", k->nk, k->k);
+		break;
 	default:
 		n = fmtprint(fmt, "??? %.*H", k->nk, k->k);
 		break;
@@ -165,6 +175,9 @@ showval(Fmt *fmt, Kvp *v, int op, int flg)
 		break;
 	case Kconf:
 		n = fmtprint(fmt, "%.*s", v->nv, v->v);
+		break;
+	case Kobj:
+		n = fmtprint(fmt, "%d bytes", v->nv);
 		break;
 	default:
 		n = fmtprint(fmt, "??? %.*H", v->nv, v->v);

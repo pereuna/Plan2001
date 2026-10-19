@@ -628,6 +628,7 @@ static void gc_sweep_free_blocks(void) {
             switch (ATB_GET_KIND(area, block)) {
                 case AT_HEAD:
                     free_tail = 1;
+                    P9_FREED((void *)PTR_FROM_BLOCK(area, block));
                     DEBUG_printf("gc_sweep_free_blocks(%p)\n", (void *)PTR_FROM_BLOCK(area, block));
                     #if MICROPY_PY_GC_COLLECT_RETVAL
                     MP_STATE_MEM(gc_collected)++;
@@ -947,6 +948,7 @@ void gc_free(void *ptr) {
     area = &MP_STATE_MEM(area);
     #endif
 
+    P9_FREED(ptr);
     size_t block = BLOCK_FROM_PTR(area, ptr);
     assert(ATB_GET_KIND(area, block) == AT_HEAD
         || (ATB_GET_KIND(area, block) == AT_MARK && (MP_STATE_THREAD(gc_lock_depth) & GC_COLLECT_FLAG)));

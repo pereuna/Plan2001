@@ -851,6 +851,326 @@ fssync(void)
 	remove(path("sync"));
 }
 
+/*
+ * object stores (DMOBJ, the kernel gefs' obj.c, docs/gefs-obj.md):
+ * records written, versions read back as a stream
+ */
+#ifndef DMOBJ
+#define DMOBJ	0x02000000
+#define QTOBJ	0x02
+#endif
+
+typedef struct Oread Oread;
+struct Oread {
+	uvlong	n;
+	uvlong	k;
+	char	user[256];
+	int	nobj;
+	uvlong	oid[64];
+	uvlong	ver[64];
+	vlong	len[64];
+	uchar	*data[64];
+};
+
+uchar	obuf[256*1024];
+char	*ostep = "";	/* fsobj's step, in its failures */
+
+uchar*
+orec(uchar *p, int t, uvlong oid, vlong len)
+{
+	*p++ = t;
+	if(t == 'p' || t == 'd' || t == 'v' || t == 's'){
+		p[0] = oid>>56; p[1] = oid>>48; p[2] = oid>>40; p[3] = oid>>32;
+		p[4] = oid>>24; p[5] = oid>>16; p[6] = oid>>8; p[7] = oid;
+		p += 8;
+	}
+	if(t == 'p'){
+		p[0] = len>>56; p[1] = len>>48; p[2] = len>>40; p[3] = len>>32;
+		p[4] = len>>24; p[5] = len>>16; p[6] = len>>8; p[7] = len;
+		p += 8;
+	}
+	return p;
+}
+
+void
+owrite(int fd, uchar *b, uchar *e)
+{
+	if(write(fd, b, e-b) != e-b)
+		fail("%s: object write: %r", ostep);
+}
+
+void
+oput(int fd, uvlong oid, uvlong seed, vlong len)
+{
+	uchar *p;
+
+	p = orec(obuf, 'p', oid, len);
+	fillpat(p, len, seed, 0);
+	owrite(fd, obuf, p+len);
+}
+
+void
+ocommit(int fd, int sync)
+{
+	uchar b[2];
+
+	b[0] = 'c';
+	b[1] = sync;
+	owrite(fd, b, b+2);
+}
+
+uvlong
+get64(uchar *p)
+{
+	return (uvlong)p[0]<<56 | (uvlong)p[1]<<48 | (uvlong)p[2]<<40 | (uvlong)p[3]<<32
+		| (uvlong)p[4]<<24 | p[5]<<16 | p[6]<<8 | p[7];
+}
+
+/* the whole stream from offset 0, in reads of chunk bytes */
+void
+oread(int fd, Oread *r, int chunk)
+{
+	vlong off, n, tot;
+	uchar *p, *e;
+	int i;
+
+	for(i = 0; i < r->nobj; i++)
+		free(r->data[i]);
+	memset(r, 0, sizeof *r);
+	tot = 0;
+	for(off = 0;; off += n){
+		if(tot + chunk > sizeof obuf)
+			fail("%s: object stream over %d bytes", ostep, (int)sizeof obuf);
+		if((n = pread(fd, obuf+tot, chunk, off)) < 0)
+			fail("%s: object read at %lld: %r", ostep, off);
+		if(n == 0)
+			break;
+		tot += n;
+	}
+	p = obuf;
+	e = obuf+tot;
+	if(e-p < 21 || *p != 'H')
+		fail("%s: object stream: no header", ostep);
+	r->n = get64(p+1);
+	r->k = get64(p+9);
+	i = p[17]<<24 | p[18]<<16 | p[19]<<8 | p[20];
+	memmove(r->user, p+21, i);
+	r->user[i] = 0;
+	p += 21+i;
+	while(p < e){
+		if(*p != 'o' || e-p < 25 || r->nobj == nelem(r->oid))
+			fail("%s: object stream: bad record at %lld", ostep, (vlong)(p-obuf));
+		i = r->nobj++;
+		r->oid[i] = get64(p+1);
+		r->ver[i] = get64(p+9);
+		r->len[i] = get64(p+17);
+		p += 25;
+		if(r->len[i] > e-p)
+			fail("%s: object stream: object %llud short", ostep, r->oid[i]);
+		r->data[i] = malloc(r->len[i]+1);
+		memmove(r->data[i], p, r->len[i]);
+		p += r->len[i];
+	}
+}
+
+/* oid's object in r: its version and pattern, or ver 0: not there */
+void
+ohas(Oread *r, uvlong oid, uvlong ver, uvlong seed, vlong len)
+{
+	uchar *b;
+	int i;
+
+	for(i = 0; i < r->nobj; i++)
+		if(r->oid[i] == oid)
+			break;
+	if(ver == 0){
+		if(i < r->nobj)
+			fail("%s: object %llud there (version %llud)", ostep, oid, r->ver[i]);
+		return;
+	}
+	if(i == r->nobj)
+		fail("%s: object %llud missing (N %llud)", ostep, oid, r->n);
+	if(r->ver[i] != ver || r->len[i] != len)
+		fail("%s: object %llud: version %llud len %lld, not %llud %lld",
+			ostep, oid, r->ver[i], r->len[i], ver, len);
+	b = malloc(len+1);
+	fillpat(b, len, seed, 0);
+	if(memcmp(b, r->data[i], len) != 0)
+		fail("%s: object %llud: data differs", ostep, oid);
+	free(b);
+}
+
+void
+fsobj(void)
+{
+	static Oread r;
+	uchar b[64], *p;
+	char *f, e[ERRMAX];
+	int fd, fd2, i;
+	Dir *d;
+
+	if(anyfs)
+		return;	/* the kernel gefs' */
+	f = strdup(path("obj"));
+	if((fd = create(f, ORDWR, DMOBJ|0600)) < 0)
+		fail("create DMOBJ: %r");
+	if((d = dirfstat(fd)) == nil)
+		fail("stat: %r");
+	if((d->qid.type & QTOBJ) == 0 || (d->mode & DMOBJ) == 0)
+		fail("qid.type %ux mode %ulx: not an object store", d->qid.type, d->mode);
+	free(d);
+
+	/* empty: the header, N 0 */
+	ostep = "new";
+	oread(fd, &r, 8192);
+	if(r.n != 0 || r.nobj != 0)
+		fail("new store: N %llud, %d objects", r.n, r.nobj);
+
+	/* version 1: three objects, one over many chunks, one empty */
+	ostep = "v1";
+	oput(fd, 1, 11, 5);
+	oput(fd, 2, 12, 1200);
+	oput(fd, 3, 13, 0);
+	p = b;
+	*p++ = 'h'; *p++ = 0; *p++ = 0; *p++ = 0; *p++ = 2; *p++ = 'u'; *p++ = '1';
+	owrite(fd, b, p);
+	ocommit(fd, 1);
+	oread(fd, &r, 8192);
+	if(r.n != 1 || r.k != 1 || strcmp(r.user, "u1") != 0)
+		fail("version 1: N %llud K %llud user %s", r.n, r.k, r.user);
+	ohas(&r, 1, 1, 11, 5);
+	ohas(&r, 2, 1, 12, 1200);
+	ohas(&r, 3, 1, 13, 0);
+
+	/* the same in reads of 7 bytes */
+	ostep = "small reads";
+	oread(fd, &r, 7);
+	ohas(&r, 2, 1, 12, 1200);
+
+	/* version 2: 2 shorter, 1 deleted; 3 stays version 1 */
+	ostep = "v2";
+	oput(fd, 2, 22, 10);
+	owrite(fd, b, orec(b, 'd', 1, 0));
+	ocommit(fd, 0);
+	oread(fd, &r, 8192);
+	if(r.n != 2 || strcmp(r.user, "u1") != 0)
+		fail("version 2: N %llud user %s", r.n, r.user);
+	ohas(&r, 1, 0, 0, 0);
+	ohas(&r, 2, 2, 22, 10);
+	ohas(&r, 3, 1, 13, 0);
+
+	/* version 1 still kept */
+	ostep = "v1 kept";
+	owrite(fd, b, orec(b, 'v', 1, 0));
+	oread(fd, &r, 8192);
+	ohas(&r, 1, 1, 11, 5);
+	ohas(&r, 2, 1, 12, 1200);
+
+	/* one object by 's' */
+	ostep = "'s'";
+	owrite(fd, b, orec(b, 's', 3, 0));
+	oread(fd, &r, 8192);
+	if(r.nobj != 1)
+		fail("'s' 3: %d objects", r.nobj);
+	ohas(&r, 3, 1, 13, 0);
+
+	/* uncommitted: unseen, by this fid and another; then aborted */
+	ostep = "uncommitted";
+	if((fd2 = open(f, OREAD)) < 0)
+		fail("open: %r");
+	oput(fd, 9, 99, 3000);
+	oread(fd2, &r, 8192);
+	ohas(&r, 9, 0, 0, 0);
+	oread(fd, &r, 8192);
+	ohas(&r, 9, 0, 0, 0);
+	b[0] = 'a';
+	owrite(fd, b, b+1);
+	oput(fd, 4, 44, 4);
+	ocommit(fd, 0);
+	oread(fd2, &r, 8192);
+	if(r.n != 3)
+		fail("after the abort: N %llud, not 3", r.n);
+	ohas(&r, 9, 0, 0, 0);
+	ohas(&r, 4, 3, 44, 4);
+
+	/* a second writer: busy; a clunked transaction: aborted */
+	ostep = "busy, clunk";
+	close(fd2);
+	if((fd2 = open(f, ORDWR)) < 0)
+		fail("open: %r");
+	oput(fd, 5, 55, 5);
+	p = orec(obuf, 'p', 6, 1);
+	*p++ = 'x';
+	if(write(fd2, obuf, p-obuf) >= 0)
+		fail("two transactions in a store");
+	close(fd);
+	sleep(200);	/* the sweeper's AOobjabort */
+	oput(fd2, 6, 66, 6);
+	ocommit(fd2, 1);
+	oread(fd2, &r, 8192);
+	if(r.n != 4)
+		fail("after the clunk: N %llud, not 4", r.n);
+	ohas(&r, 5, 0, 0, 0);
+	ohas(&r, 6, 4, 66, 6);
+	fd = fd2;
+
+	/* versions K..N kept: 3 */
+	ostep = "K..N";
+	for(i = 0; i < 3; i++){
+		oput(fd, 2, 100+i, 100+i);
+		ocommit(fd, 0);
+	}
+	oread(fd, &r, 8192);
+	if(r.n != 7 || r.k != 5)
+		fail("N %llud K %llud, not 7 5", r.n, r.k);
+	ohas(&r, 2, 7, 102, 102);
+	owrite(fd, b, orec(b, 'v', 5, 0));
+	oread(fd, &r, 8192);
+	ohas(&r, 2, 5, 100, 100);
+	owrite(fd, b, orec(b, 'v', 4, 0));
+	if(pread(fd, obuf, 8192, 0) >= 0)
+		fail("version 4 read, K is 5");
+
+	/* an unknown record: an error, the transaction out */
+	ostep = "bad record";
+	oput(fd, 7, 77, 7);
+	b[0] = 'z';
+	if(write(fd, b, 1) >= 0)
+		fail("record 'z' taken");
+	oread(fd, &r, 8192);
+	ohas(&r, 7, 0, 0, 0);
+
+	/* many objects, and one of 100 KB */
+	ostep = "many";
+	for(i = 0; i < 40; i++)
+		oput(fd, 1000+i, i, 50*i);
+	oput(fd, 2000, 7, 100*1024);
+	ocommit(fd, 1);
+	oread(fd, &r, 8192);
+	for(i = 0; i < 40; i++)
+		ohas(&r, 1000+i, 8, i, 50*i);
+	ohas(&r, 2000, 8, 7, 100*1024);
+
+	/* no truncation of a store */
+	close(fd);
+	if((fd = open(f, OWRITE|OTRUNC)) >= 0)
+		fail("OTRUNC of a store worked");
+	rerrstr(e, sizeof e);
+
+	/* removed and made again: empty */
+	ostep = "remade";
+	if(remove(f) < 0)
+		fail("remove: %r");
+	if((fd = create(f, ORDWR, DMOBJ|0600)) < 0)
+		fail("create again: %r");
+	oread(fd, &r, 8192);
+	if(r.n != 0 || r.nobj != 0)
+		fail("store made again: N %llud, %d objects", r.n, r.nobj);
+	close(fd);
+	remove(f);
+	free(f);
+}
+
 void
 fsfill(void)
 {
@@ -1333,6 +1653,7 @@ Test tests[] = {
 	"fsstale",	"fs",	fsstale,
 	"fsgrow",	"fs",	fsgrow,
 	"fssync",	"fs",	fssync,
+	"fsobj",	"fs",	fsobj,
 	"fsfill",	"fill",	fsfill,
 	"memalloc",	"mem",	memalloc,
 	"memprocs",	"mem",	memprocs,

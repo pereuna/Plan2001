@@ -6,6 +6,11 @@
  *	micropython -B			Plan2001's init: the built-in boot.py
  *					(the kernel's /boot/mp), then the REPL
  *					again and again
+ *	micropython -E env ...		import from the Environment env alone
+ *	micropython -S space ...	in the Space space: its image restored,
+ *					committed after each REPL statement
+ *					and at the program's end
+ *					(docs/object-model.md)
  * A failure exits with status micropython (usage: usage); sys.exit(n)
  * with n.
  */
@@ -20,6 +25,7 @@
 #include "shared/runtime/gchelper.h"
 #include "shared/runtime/pyexec.h"
 #include "p9console.h"
+#include "p9space.h"
 #ifdef __PLAN9__
 #include "boot.h"
 #else
@@ -33,6 +39,9 @@ static uintptr_t pystack[MICROPY_PYSTACK_SIZE / sizeof(uintptr_t)];
 size_t gc_get_max_new_split(void) {
     return 256 * 1024 * 1024;
 }
+
+// an exception other than SystemExit: no commit at the end
+static int uncaught;
 
 // SystemExit's status, or 1 for another exception (printed)
 static int failed(mp_obj_t exc) {
@@ -49,6 +58,7 @@ static int failed(mp_obj_t exc) {
         return 1;
     }
     mp_obj_print_exception(&mp_plat_print, exc);
+    uncaught = 1;
     return 1;
 }
 
@@ -110,8 +120,22 @@ static int onnote(void *ureg, char *note) {
 int main(int argc, char **argv) {
     volatile uintptr_t stack_top;
     int fail = 0, i, boot = 0;
-    const char *source = NULL, *file = NULL;
+    const char *source = NULL, *file = NULL, *env = NULL, *space = NULL;
+    char useenv[128];
 
+    // -E ENV: import from the Environment ENV alone; -S SPACE: in the
+    // Space SPACE (p9space.c)
+    if (argc >= 3 && strcmp(argv[1], "-E") == 0) {
+        env = argv[2];
+        argv[2] = argv[0];
+        argv += 2;
+        argc -= 2;
+    } else if (argc >= 3 && strcmp(argv[1], "-S") == 0) {
+        space = argv[2];
+        argv[2] = argv[0];
+        argv += 2;
+        argc -= 2;
+    }
     if (argc == 2 && strcmp(argv[1], "-B") == 0) {
         boot = 1;
     } else if (argc == 3 && strcmp(argv[1], "-c") == 0) {
@@ -119,7 +143,7 @@ int main(int argc, char **argv) {
     } else if (argc >= 2 && argv[1][0] != '-') {
         file = argv[1];
     } else if (argc != 1) {
-        fprint(2, "usage: micropython [-B | -c source | file [arg...]]\n");
+        fprint(2, "usage: micropython [-E env | -S space] [-B | -c source | file [arg...]]\n");
         exits("usage");
     }
     // inf and nan as results, as in C: Plan 9 traps them by default
@@ -130,8 +154,34 @@ int main(int argc, char **argv) {
     gc_init(heap, (char *)heap + sizeof(heap));
     mp_pystack_init(pystack, (char *)pystack + sizeof(pystack));
     mp_init();
-    mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR_));
-    mp_obj_list_append(mp_sys_path, mp_obj_new_str("/sys/lib/python", 15));
+    if (space != NULL) {
+        // the name goes into Python's source: a plain one
+        if (strlen(space) >= 64 || space[strcspn(space, "'\\/\n")] != 0) {
+            fprint(2, "micropython: -S %s: not a space name\n", space);
+            exits("usage");
+        }
+        snprint(useenv, sizeof useenv, "__import__('space').open('%s')", space);
+        if (execstr(useenv, MP_QSTR__lt_command_gt_) != 0) {
+            mp_deinit();
+            p9_console_exit(1);
+            return 1;
+        }
+    } else if (env == NULL) {
+        mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR_));
+        mp_obj_list_append(mp_sys_path, mp_obj_new_str("/sys/lib/python", 15));
+    } else {
+        // the name goes into Python's source: an Environment's is hex
+        if (strlen(env) > 64 || env[strspn(env, "0123456789abcdef")] != 0) {
+            fprint(2, "micropython: -E %s: not an Environment\n", env);
+            exits("usage");
+        }
+        snprint(useenv, sizeof useenv, "import space\nspace.useenv('%s')", env);
+        if (execstr(useenv, MP_QSTR__lt_command_gt_) != 0) {
+            mp_deinit();
+            p9_console_exit(1);
+            return 1;
+        }
+    }
     for (i = file != NULL ? 1 : argc; i < argc; i++) {
         mp_obj_list_append(mp_sys_argv, mp_obj_new_str(argv[i], strlen(argv[i])));
     }
@@ -152,6 +202,10 @@ int main(int argc, char **argv) {
             repl();
             pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
         } while (boot);
+    }
+    // the program's end, normal or SystemExit: a commit point
+    if (!uncaught && p9_space_commit(1) < 0) {
+        fail = 1;
     }
     mp_deinit();
     p9_console_exit(fail);

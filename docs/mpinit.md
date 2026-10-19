@@ -58,8 +58,10 @@ kun konfiguraatio muuttuu.
 
 `plan9`-moduuli: syscallit Pythonille (open, create, read, write, close,
 remove, seek, bind, mount, unmount, chdir, fd2path, dirread, dup, pipe,
-spawn, exec, wait, rfork, sleep, getpid, stat, wstat, alarm). Virhe on
-`OSError` Plan 9:n virhetekstillä. `alarm(ms)`:n päättyessä estävä
+spawn, exec, wait, rfork, sleep, getpid, stat, wstat, sync, alarm;
+`sync` on tyhjä wstat eli fsync, docs/object-model.md). Virhe on
+`OSError` Plan 9:n virhetekstillä. `space`-moduuli, `mp -E env` (moduulit
+Environmentista, ei `sys.path`ia) ja `mp -S space` (pysyvä Space) ovat `docs/object-model.md`:ssä. `alarm(ms)`:n päättyessä estävä
 kutsu keskeytyy (`OSError: interrupted`), ja prosessi jatkaa.
 
 ## Mallille (18.10.2026)

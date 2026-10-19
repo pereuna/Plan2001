@@ -669,6 +669,15 @@ typedef uint64_t mp_uint_t;
 // linear search on ordered (especially in-ROM) maps. Can provide a +10-15%
 // performance improvement on benchmarks involving lots of attribute access
 // or dictionary lookup.
+// Plan2001: a write barrier (a persistent object changed in place) and
+// the GC's frees, for the Space's object store (docs/gefs-obj.md)
+#ifndef P9_DIRTY
+#define P9_DIRTY(p) (void)0
+#endif
+#ifndef P9_FREED
+#define P9_FREED(p) (void)0
+#endif
+
 #ifndef MICROPY_OPT_MAP_LOOKUP_CACHE
 #define MICROPY_OPT_MAP_LOOKUP_CACHE (MICROPY_CONFIG_ROM_LEVEL_AT_LEAST_EXTRA_FEATURES)
 #endif

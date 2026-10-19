@@ -49,7 +49,9 @@ on toisen puun mounttaus.
    (`docs/init.md`): `root=` löytää gefs-osion.
 2. **Kernelin olio-API.** Suora rajapinta moottoriin (oma
    työntekijä-id, `mutlk` ja epoch, kuten `fs.c`:n `sync()`). Puu
-   `kernel` ja ensimmäiset kernelin pysyvät oliot.
+   `kernel` ja ensimmäiset kernelin pysyvät oliot. Ehdotus:
+   `docs/gefs-obj.md` (avaintyyppi `Kobj`, `obj.c`, `DMOBJ`-tiedosto
+   käyttäjätilalle; ensimmäinen käyttäjä on MicroPythonin Space, V5).
 3. **ext4 pois kernelistä** (tehty 17.10.2026): ext4 on käyttäjätilan
    palvelin (9frontin ext4srv, Monolith), ja kernelin ainoa juuri on gefs.
 4. Myöhemmin: `secrets` ja salaus. Lisäksi ehkä loader, joka lukee
@@ -76,7 +78,8 @@ muuttuvat vain siltä osin kuin kernel vaatii:
 - konsoli (`cons.c`: halt, check, show) näkyy
   `/srv/gefs.root.cmd`:nä, jonka `fshalt` pysäyttää.
 
-Muoto on täsmälleen upstreamin. Käyttäjätilan gefs (`sys/src/cmd/gefs`)
+Muoto on täsmälleen upstreamin (vaihe 2:n `Kobj` on ensimmäinen ero,
+`docs/gefs-obj.md`). Käyttäjätilan gefs (`sys/src/cmd/gefs`)
 reamaa ja tarkistaa saman osion, ja testit vertaavat kernelin
 kirjoittamaa siihen.
 

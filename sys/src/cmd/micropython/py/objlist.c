@@ -174,6 +174,7 @@ static mp_obj_t list_subscr(mp_obj_t self_in, mp_obj_t index, mp_obj_t value) {
             return MP_OBJ_FROM_PTR(res);
         }
         // assign/delete
+        P9_DIRTY(self);
         if (value == MP_OBJ_NULL) {
             // delete is equivalent to slice assignment of an empty sequence
             value = mp_const_empty_tuple;
@@ -226,6 +227,7 @@ static mp_obj_t list_getiter(mp_obj_t o_in, mp_obj_iter_buf_t *iter_buf) {
 }
 
 mp_obj_t mp_obj_list_append(mp_obj_t self_in, mp_obj_t arg) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     mp_check_self(mp_obj_is_type(self_in, &mp_type_list));
     mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
     if (self->len >= self->alloc) {
@@ -238,6 +240,7 @@ mp_obj_t mp_obj_list_append(mp_obj_t self_in, mp_obj_t arg) {
 }
 
 static mp_obj_t list_extend(mp_obj_t self_in, mp_obj_t arg_in) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     mp_check_self(mp_obj_is_type(self_in, &mp_type_list));
     if (mp_obj_is_type(arg_in, &mp_type_list)) {
         mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
@@ -259,6 +262,7 @@ static mp_obj_t list_extend(mp_obj_t self_in, mp_obj_t arg_in) {
 }
 
 static mp_obj_t list_pop(size_t n_args, const mp_obj_t *args) {
+    P9_DIRTY(MP_OBJ_TO_PTR(args[0]));
     mp_check_self(mp_obj_is_type(args[0], &mp_type_list));
     mp_obj_list_t *self = MP_OBJ_TO_PTR(args[0]);
     if (self->len == 0) {
@@ -323,6 +327,7 @@ static void mp_quicksort(mp_obj_t *head, mp_obj_t *tail, mp_obj_t key_fn, mp_obj
 
 // TODO Python defines sort to be stable but ours is not
 mp_obj_t mp_obj_list_sort(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    P9_DIRTY(MP_OBJ_TO_PTR(pos_args[0]));
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_key, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_rom_obj = MP_ROM_NONE} },
         { MP_QSTR_reverse, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
@@ -348,6 +353,7 @@ mp_obj_t mp_obj_list_sort(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_
 }
 
 static mp_obj_t list_clear(mp_obj_t self_in) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     mp_check_self(mp_obj_is_type(self_in, &mp_type_list));
     mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
     self->len = 0;
@@ -376,6 +382,7 @@ static mp_obj_t list_index(size_t n_args, const mp_obj_t *args) {
 }
 
 static mp_obj_t list_insert(mp_obj_t self_in, mp_obj_t idx, mp_obj_t obj) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     mp_check_self(mp_obj_is_type(self_in, &mp_type_list));
     mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
     // insert has its own strange index logic
@@ -410,6 +417,7 @@ mp_obj_t mp_obj_list_remove(mp_obj_t self_in, mp_obj_t value) {
 }
 
 static mp_obj_t list_reverse(mp_obj_t self_in) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     mp_check_self(mp_obj_is_type(self_in, &mp_type_list));
     mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
 
@@ -496,6 +504,7 @@ void mp_obj_list_get(mp_obj_t self_in, size_t *len, mp_obj_t **items) {
 }
 
 void mp_obj_list_set_len(mp_obj_t self_in, size_t len) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     // trust that the caller knows what it's doing
     // TODO realloc if len got much smaller than alloc
     mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
@@ -503,6 +512,7 @@ void mp_obj_list_set_len(mp_obj_t self_in, size_t len) {
 }
 
 void mp_obj_list_store(mp_obj_t self_in, mp_obj_t index, mp_obj_t value) {
+    P9_DIRTY(MP_OBJ_TO_PTR(self_in));
     mp_obj_list_t *self = MP_OBJ_TO_PTR(self_in);
     size_t i = mp_get_index(self->base.type, self->len, index, false);
     self->items[i] = value;

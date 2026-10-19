@@ -1,0 +1,5 @@
+#!/bin/rc
+# The persistent object environment's tests V0-V3 on this machine
+# (docs/object-model.md 7, /sys/lib/python/test/space/hw.py): started
+# once; then at each boot until done.  spacehw reset: again.
+exec /boot/mp /sys/lib/python/test/space/hw.py $*

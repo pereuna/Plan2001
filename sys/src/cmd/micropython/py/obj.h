@@ -1091,6 +1091,7 @@ static inline mp_obj_t mp_obj_cell_get(mp_obj_t self_in) {
 
 static inline void mp_obj_cell_set(mp_obj_t self_in, mp_obj_t obj) {
     mp_obj_cell_t *self = (mp_obj_cell_t *)MP_OBJ_TO_PTR(self_in);
+    P9_DIRTY(self);
     self->obj = obj;
 }
 

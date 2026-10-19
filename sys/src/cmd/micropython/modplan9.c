@@ -8,6 +8,9 @@
 #include "py/objstr.h"
 #include "py/objtuple.h"
 
+// p9space.c: a rest before a call blocks (a Space's commit point 3)
+void p9_space_rest(void);
+
 static void raise_err(void) {
     char buf[ERRMAX];
 
@@ -58,6 +61,7 @@ static mp_obj_t p9_read(size_t n, const mp_obj_t *a) {
     vstr_t v;
     long r;
 
+    p9_space_rest();
     vstr_init_len(&v, n > 1 ? mp_obj_get_int(a[1]) : 8192);
     r = read(mp_obj_get_int(a[0]), v.buf, v.len);
     if (r < 0) {
@@ -205,6 +209,21 @@ static mp_obj_t p9_wstat(size_t n, const mp_obj_t *a) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(p9_wstat_obj, 2, 4, p9_wstat);
 
+// sync(name or fd): a wstat of nothing (nulldir), Plan 9's fsync: gefs
+// returns when what was written is on the disk (docs/object-model.md)
+static mp_obj_t p9_sync(mp_obj_t f) {
+    Dir d;
+
+    nulldir(&d);
+    if (mp_obj_is_int(f)) {
+        check(dirfwstat(mp_obj_get_int(f), &d));
+    } else {
+        check(dirwstat((char *)str(f), &d));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(p9_sync_obj, p9_sync);
+
 // dup(old, new=-1) -> fd
 static mp_obj_t p9_dup(size_t n, const mp_obj_t *a) {
     return check(dup(mp_obj_get_int(a[0]), n > 1 ? mp_obj_get_int(a[1]) : -1));
@@ -305,6 +324,7 @@ static mp_obj_t p9_wait(void) {
     Waitmsg *w;
     mp_obj_t t[2];
 
+    p9_space_rest();
     if ((w = wait()) == nil) {
         raise_err();
     }
@@ -323,6 +343,7 @@ static mp_obj_t p9_rfork(mp_obj_t flags) {
 static MP_DEFINE_CONST_FUN_OBJ_1(p9_rfork_obj, p9_rfork);
 
 static mp_obj_t p9_sleep(mp_obj_t ms) {
+    p9_space_rest();
     sleep(mp_obj_get_int(ms));
     return mp_const_none;
 }
@@ -360,6 +381,7 @@ static const mp_rom_map_elem_t plan9_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_stat), MP_ROM_PTR(&p9_stat_obj) },
     { MP_ROM_QSTR(MP_QSTR_alarm), MP_ROM_PTR(&p9_alarm_obj) },
     { MP_ROM_QSTR(MP_QSTR_wstat), MP_ROM_PTR(&p9_wstat_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sync), MP_ROM_PTR(&p9_sync_obj) },
     { MP_ROM_QSTR(MP_QSTR_dirread), MP_ROM_PTR(&p9_dirread_obj) },
     { MP_ROM_QSTR(MP_QSTR_dup), MP_ROM_PTR(&p9_dup_obj) },
     { MP_ROM_QSTR(MP_QSTR_pipe), MP_ROM_PTR(&p9_pipe_obj) },
@@ -395,6 +417,7 @@ static const mp_rom_map_elem_t plan9_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_RFREND), MP_ROM_INT(RFREND) },
     { MP_ROM_QSTR(MP_QSTR_RFNOMNT), MP_ROM_INT(RFNOMNT) },
     { MP_ROM_QSTR(MP_QSTR_DMDIR), MP_ROM_INT(DMDIR) },
+    { MP_ROM_QSTR(MP_QSTR_DMEXCL), MP_ROM_INT(DMEXCL) },
 };
 static MP_DEFINE_CONST_DICT(plan9_globals_dict, plan9_globals);
 

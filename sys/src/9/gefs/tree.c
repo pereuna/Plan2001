@@ -1209,6 +1209,53 @@ victim(Blk *b, Path *p)
 	}
 }
 
+/*
+ * Plan2001: as victim, the child that holds k: its messages in b's
+ * buffer.  The next child's separator, if any, into *next (btdrain).
+ */
+static void
+keyvictim(Blk *b, Path *p, Key *k, Kvp *next, char *buf, int nbuf, int *more)
+{
+	int i, j, lo, hi, sz, same;
+	Kvp kv, lk, hk;
+	Msg m;
+
+	p->b = b;
+	i = blksearch(b, k, &kv, &same);
+	if(i == -1)
+		i = 0;
+	if(i > 0)
+		getval(b, i, &lk);
+	if(i+1 < b->nval){
+		getval(b, i+1, &hk);
+		cpkvp(next, &hk, buf, nbuf);
+		*more = 1;
+	}
+	lo = 0;
+	if(i > 0)
+		for(; lo < b->nbuf; lo++){
+			getmsg(b, lo, &m);
+			if(keycmp(&m, &lk) >= 0)
+				break;
+		}
+	sz = 0;
+	for(hi = lo; hi < b->nbuf; hi++){
+		getmsg(b, hi, &m);
+		if(i+1 < b->nval && keycmp(&m, &hk) >= 0)
+			break;
+		sz += msgsz(&m);
+	}
+	j = i;
+	p->op = POmod;
+	p->lo = lo;
+	p->hi = hi;
+	p->sz = sz;
+	p->idx = j;
+	p->midx = j;
+	p->npull = 0;
+	p->pullsz = 0;
+}
+
 static void
 fastupsert(Tree *t, Blk *b, Msg *msg, int nmsg)
 {
@@ -1266,10 +1313,15 @@ fastupsert(Tree *t, Blk *b, Msg *msg, int nmsg)
 }
 	
 
-void
-btupsert(Tree *t, Msg *msg, int nmsg)
+/*
+ * deep: btdrain's.  The path goes down to the leaf of the key deep,
+ * whatever room the pivots have, so that the messages for that leaf
+ * on the way reach it.
+ */
+static int
+btupsert1(Tree *t, Msg *msg, int nmsg, Key *deep, Kvp *next, char *nbuf, int nnbuf)
 {
-	int i, npath, npull, dh, sz, height, degen;
+	int i, npath, npull, dh, sz, height, degen, more;
 	Path *path, *rp;
 	Blk *b, *rb;
 	Kvp sep;
@@ -1284,17 +1336,26 @@ btupsert(Tree *t, Msg *msg, int nmsg)
 		sz += msgsz(&msg[i]);
 	}
 	npull = 0;
+	more = 0;
 Again:
 	b = getroot(t, &height);
 	if(waserror()){
+		if(!agetl(&fs->rdonly))	/* Plan2001: why, on the console */
+			print("gefs: an update failed: %s: read-only\n", errmsg());
 		aincl(&fs->rdonly, 1);
 		dropblk(b);
 		nexterror();
 	}
-	if(npull == 0 && b->type == Tpivot && b->nval > 1 && !filledbuf(b, nmsg, sz)){
+	if(deep != nil && b->type == Tleaf){
+		/* no pivots: no buffers */
+		dropblk(b);
+		poperror();
+		return 0;
+	}
+	if(deep == nil && npull == 0 && b->type == Tpivot && b->nval > 1 && !filledbuf(b, nmsg, sz)){
 		fastupsert(t, b, msg, nmsg);
 		poperror();
-		return;
+		return 0;
 	}
 	/*
 	 * The tree can grow in height by 1 when we
@@ -1320,9 +1381,12 @@ Again:
 	path[0].lo = npull;
 	path[0].hi = nmsg;
 	while(b->type == Tpivot){
-		if(b->nval > 1 && !filledbuf(b, nmsg, path[npath - 1].sz))
+		if(deep != nil)
+			keyvictim(b, &path[npath], deep, next, nbuf, nnbuf, &more);
+		else if(b->nval > 1 && !filledbuf(b, nmsg, path[npath - 1].sz))
 			break;
-		victim(b, &path[npath]);
+		else
+			victim(b, &path[npath]);
 		getval(b, path[npath].idx, &sep);
 		bp = unpackbp(sep.v, sep.nv);
 		b = getblk(bp, 0);
@@ -1376,6 +1440,26 @@ Again:
 		tracem("short pull");
 		goto Again;
 	}
+	return more;
+}
+
+void
+btupsert(Tree *t, Msg *msg, int nmsg)
+{
+	btupsert1(t, msg, nmsg, nil, nil, nil, 0);
+}
+
+/*
+ * Plan2001: the messages for k's leaf, in the pivots' buffers on the
+ * way, down into it.  Clobbers wait in the buffers until a buffer
+ * fills, and the leaves keep what they clobber: a removed object
+ * store's range, never written again, kept its values (T5.4).  The
+ * next leaf's first key into *next: 0 at the tree's end.
+ */
+int
+btdrain(Tree *t, Key *k, Kvp *next, char *buf, int nbuf)
+{
+	return btupsert1(t, nil, 0, k, next, buf, nbuf);
 }
 
 Blk*

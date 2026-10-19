@@ -36,6 +36,9 @@ extern ulong	fuzzseed;
 
 void*	emalloc(usize, int);
 Blk*	newdblk(Tree*, vlong, int);
+int	dataroom(vlong);
+extern Proc	*syncproc;	/* Plan2001: their allocations may take the reserve */
+extern Proc	*sweepproc;
 Blk*	newblk(Tree*, int);
 Blk*	dupblk(Tree*, Blk*);
 Blk*	getroot(Tree*, int*);
@@ -106,6 +109,17 @@ void	writectl(Fmsg*, Fid*);
 void	readstatus(Fmsg*, Fid*, Fcall*);
 
 void	btupsert(Tree*, Msg*, int);
+int	btdrain(Tree*, Key*, Kvp*, char*, int);
+int	drain(Mount*, Key*, Kvp*, char*, int);
+void	upsert(Mount*, Msg*, int);
+int	objwrite(Fmsg*, Fid*, Amsg**, int);
+void	objread(Fmsg*, Fid*, Fcall*);
+void	objclunk(Fid*, Amsg**);
+void	objabortfid(Fid*, int);
+void	objsweep(int, Amsg*);
+int	objpending(char*, vlong);
+void	objresume(int);
+extern int	objfail;
 int	btlookup(Tree*, Key*, Kvp*, char*, int);
 void	btnewscan(Scan*, char*, int);
 void	btenter(Tree*, Scan*);

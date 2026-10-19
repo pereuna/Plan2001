@@ -82,9 +82,11 @@ sync(int id)
 	int i;
 
 	qlock(&fs->synclk);
+	syncproc = up;	/* Plan2001: a full disk's sync takes the reserve */
 	if(waserror()){
 		fprint(2, "failed to sync: %s\n", errmsg());
 		aincl(&fs->rdonly, 1);
+		syncproc = nil;
 		qunlock(&fs->synclk);
 		nexterror();
 	}
@@ -216,6 +218,7 @@ sync(int id)
 	tracem("snapdl");
 	freedl(&ddl, 0);
 	limbo(DFdlist, sdl);
+	syncproc = nil;
 	qunlock(&fs->synclk);
 	tracem("synced");
 	poperror();
@@ -416,7 +419,7 @@ rerror(Fmsg *m, char *fmt, ...)
 }
 
 
-static void
+void
 upsert(Mount *mnt, Msg *m, int nm)
 {
 	Tree *r;
@@ -429,6 +432,22 @@ upsert(Mount *mnt, Msg *m, int nm)
 		aswapp(&mnt->root, r);
 	}
 	btupsert(r, m, nm);
+}
+
+/* Plan2001: btdrain on the mount's tree, as upsert */
+int
+drain(Mount *mnt, Key *k, Kvp *next, char *buf, int nbuf)
+{
+	Tree *r;
+
+	if(!(mnt->flag & Lmut) || agetl(&fs->rdonly))
+		error(Erdonly);
+	r = agetp(&mnt->root);
+	if(r->nlbl != 1 || r->nref != 0) {
+		r = updatesnap(r, mnt->name, mnt->flag);
+		aswapp(&mnt->root, r);
+	}
+	return btdrain(r, k, next, buf, nbuf);
 }
 
 /*
@@ -847,6 +866,7 @@ clunkfid(Conn *c, Fid *fid, Amsg **ao)
 		(*ao)->dent = f->dent;
 	}
 	wunlock(f->dent);
+	objclunk(f, ao);
 }
 
 static void
@@ -858,6 +878,10 @@ freeamsg(Amsg *a)
 	case AOrclose:
 	case AOclear:
 		clunkdent(a->mnt, a->dent);
+		clunkmount(a->mnt);
+		break;
+	case AOobjabort:
+	case AOobjclear:
 		clunkmount(a->mnt);
 		break;
 	}
@@ -1492,7 +1516,7 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 	}
 	if(d.length != ~0){
 		nulldir = 0;
-		if(d.length < 0 || (de->mode & DMDIR) != 0)
+		if(d.length < 0 || (de->mode & (DMDIR|DMOBJ)) != 0)
 			error(Ewstatl);
 		if(d.length != de->length){
 			prevlen = de->length;
@@ -1526,7 +1550,9 @@ fswstat(Fmsg *m, int id, Amsg **ao)
 		nulldir = 0;
 		if((d.mode^de->mode) & DMDIR)
 			error(Ewstatd);
-		if(d.mode & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|0777))
+		if((d.mode^de->mode) & DMOBJ)
+			error(Ewstatb);
+		if(d.mode & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|DMOBJ|0777))
 			error(Ewstatb);
 		if(d.mode != de->mode){
 			n.mode = d.mode;
@@ -1737,7 +1763,9 @@ fscreate(Fmsg *m)
 		error(e);
 	if(m->perm & (DMMOUNT|DMAUTH))
 		error(Ebotch);
-	if(m->perm & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|0777))
+	if(m->perm & ~(DMDIR|DMAPPEND|DMEXCL|DMTMP|DMOBJ|0777))
+		error(Ewstatb);
+	if((m->perm & DMOBJ) && (m->perm & (DMDIR|DMAPPEND) || m->mode & (OTRUNC|ORCLOSE)))
 		error(Ewstatb);
 	if((f = getfid(m->conn, m->fid)) == nil)
 		error(Enofid);
@@ -1785,6 +1813,8 @@ fscreate(Fmsg *m)
 		d.qid.type |= QTEXCL;
 	if(m->perm & DMTMP)
 		d.qid.type |= QTTMP;
+	if(m->perm & DMOBJ)
+		d.qid.type |= QTOBJ;
 	d.qid.path = fs->nextqid++;
 	d.qid.vers = 0;
 	d.mode = m->perm;
@@ -1875,7 +1905,7 @@ candelete(Fid *f)
 static void
 fsremove(Fmsg *m, int id, Amsg **ao)
 {
-	char *e, buf[Kvmax];
+	char *e, buf[Kvmax], pk[Kvmax];
 	Fcall r;
 	int nm;
 	Msg mb[3];
@@ -1888,6 +1918,13 @@ fsremove(Fmsg *m, int id, Amsg **ao)
 	t = agetp(&f->mnt->root);
 	nm = 0;
 	wlock(f);
+	if(waserror()){
+		wunlock(f);
+		putfid(f);
+		nexterror();
+	}
+	objabortfid(f, id);	/* Plan2001: its transaction, before the clunk */
+	poperror();
 	clunkfid(m->conn, f, ao);
 	if(agetl(&fs->rdonly))
 		error(Erdonly);
@@ -1940,7 +1977,16 @@ fsremove(Fmsg *m, int id, Amsg **ao)
 	}else{
 		*ao = emalloc(sizeof(Amsg), 1);
 		aincl(&f->mnt->ref, 1);
-		(*ao)->op = AOclear;
+		(*ao)->op = (f->dent->qid.type & QTOBJ) ? AOobjclear : AOclear;
+		if(f->dent->qid.type & QTOBJ){
+			/* Plan2001: pending until its keys are swept (objresume) */
+			mb[nm].op = Oinsert;
+			mb[nm].k = pk;
+			mb[nm].nk = objpending(pk, f->qpath);
+			mb[nm].v = nil;
+			mb[nm].nv = 0;
+			nm++;
+		}
 		(*ao)->mnt = f->mnt;
 		(*ao)->qpath = f->qpath;
 		(*ao)->off = 0;
@@ -1989,6 +2035,8 @@ fsopen(Fmsg *m, int id, Amsg **ao)
 	if((f->dent->qid.type & QTEXCL) && agetl(&f->dent->ref) != 1)
 		error(Elocked);
 	if((f->dent->qid.type & QTDIR) && (mbits & 0222) != 0)
+		error(Eperm);
+	if((f->dent->qid.type & QTOBJ) && (m->mode & (OTRUNC|ORCLOSE)))
 		error(Eperm);
 	if(m->mode & ORCLOSE){
 		if(fsaccess(f, f->dmode, f->duid, f->dgid, DMWRITE) == -1)
@@ -2280,6 +2328,8 @@ fsread(Fmsg *m)
 		readsnap(m, f, &r);
 	else if(f->dent->qid.type & QTDIR)
 		readdir(m, f, &r);
+	else if(f->dent->qid.type & QTOBJ)
+		objread(m, f, &r);
 	else if(f->dent->qid.path == Qstatus)
 		readstatus(m, f, &r);
 	else
@@ -2291,7 +2341,7 @@ fsread(Fmsg *m)
 }
 
 static void
-fswrite(Fmsg *m, int id)
+fswrite(Fmsg *m, int id, Amsg **ao)
 {
 	char sbuf[Wstatmax], kbuf[Max9p/Blksz+2][Offksz], vbuf[Max9p/Blksz+2][Ptrsz];
 	Bptr bp[Max9p/Blksz + 2];
@@ -2332,6 +2382,28 @@ fswrite(Fmsg *m, int id)
 	}
 	if(agetl(&fs->rdonly))
 		error(Erdonly);
+	if(f->dent->qid.type & QTOBJ){
+		/* Plan2001: records of an object store (obj.c) */
+		wlock(f);
+		if(waserror()){
+			wunlock(f);
+			putfid(f);
+			nexterror();
+		}
+		if(!(f->mode & DMWRITE))
+			error(Einuse);
+		if(f->dent->gone)
+			error(Ephase);
+		if(!objwrite(m, f, ao, id)){
+			r.type = Rwrite;
+			r.count = m->count;
+			respond(m, &r);
+		}
+		wunlock(f);
+		putfid(f);
+		poperror();
+		return;
+	}
 	wlock(f);
 	truncwait(f->dent, id);
 	wlock(f->dent);
@@ -2643,7 +2715,7 @@ runmutate(int id, void *)
 			 */
 			switch(m->type){
 			case Tcreate:	fscreate(m);		break;
-			case Twrite:	fswrite(m, id);		break;
+			case Twrite:	fswrite(m, id, &a);	break;
 			case Twstat:	fswstat(m, id, &a);	break;
 			case Tremove:	fsremove(m, id, &a);	break;
 			case Topen:	fsopen(m, id, &a);	break;
@@ -2799,6 +2871,23 @@ setconf(int id, int op, char *snap, char *key, char *val)
 	poperror();
 }
 
+/* Plan2001: the arenas' free blocks */
+static vlong
+freeblks(void)
+{
+	vlong n;
+	int i;
+
+	n = 0;
+	for(i = 0; i < fs->narena; i++)
+		n += (fs->arenas[i].size - fs->arenas[i].used)/Blksz;
+	return n;
+}
+
+enum {
+	Clearsync	= 256,	/* Plan2001: blocks a clear uses between syncs */
+};
+
 void
 runsweep(int id, void*)
 {
@@ -2807,16 +2896,23 @@ runsweep(int id, void*)
 	Bptr bp, nb, *oldhd;
 	Tree *t, *n;
 	Fcall r;
-	int i, nm, ok;
-	vlong off;
+	int i, nm, ok, resumed;
+	vlong off, nfree;
 	Arena *a;
 	Amsg *am;
 	Blk *b;
 
 	if((oldhd = calloc(fs->narena, sizeof(Bptr))) == nil)
 		sysfatal("malloc log heads");
+	sweepproc = up;	/* Plan2001: the reserve (blkalloc_lk) */
+	resumed = 0;
 	while(1){
 		am = chrecv(fs->admchan);
+		/* Plan2001: the first sync (runtasks, 5 s): a crash's removals */
+		if(!resumed && am->op == AOsync && !agetl(&fs->rdonly)){
+			resumed = 1;
+			objresume(id);
+		}
 		if(waserror()){
 			if(am->m != nil)
 				rerror(am->m, errmsg());
@@ -2825,6 +2921,10 @@ runsweep(int id, void*)
 		switch(am->op){
 		case AOsetcfg:
 			setconf(id, Oinsert, am->snap, am->key, am->val);
+			break;
+		case AOobjabort:
+		case AOobjclear:
+			objsweep(id, am);
 			break;
 		case AOclrcfg:
 			setconf(id, Odelete, am->snap, am->key, "");
@@ -2867,12 +2967,15 @@ runsweep(int id, void*)
 				if(a->nlog >= 2*a->lastlogsz){
 					oldhd[i] = a->loghd;
 					epochstart(id);
+					syncproc = up;	/* Plan2001: the reserve */
 					if(waserror()){
+						syncproc = nil;
 						epochend(id);
 						qunlock(a);
 						nexterror();
 					}
 					compresslog(a);
+					syncproc = nil;
 					epochend(id);
 					poperror();
 				}
@@ -2999,6 +3102,7 @@ Syncout:
 			}
 			fs->snap.dirty = 1;
 			nm = 0;
+			nfree = freeblks();
 			/*
 			 * Plan2001: from the block after the new end: the keys
 			 * are block offsets (the one with the end was zeroed in
@@ -3028,6 +3132,22 @@ Syncout:
 					poperror();
 					epochclean();
 					nm = 0;
+					/*
+					 * Plan2001: a sync when the clear has used
+					 * Clearsync blocks: the leaves it copies
+					 * leave their old blocks, and the data's, in
+					 * the deadlist until a sync.  A 3.9 GiB
+					 * file's clear on a full disk used the
+					 * reserve up (T5.9: read-only).
+					 */
+					if(nfree - freeblks() >= Clearsync){
+						if(debug)
+							print("DBG clear sync off %lld free %lld\n", off, freeblks());
+						sync(id);
+						nfree = freeblks();
+						if(debug)
+							print("DBG synced free %lld\n", nfree);
+					}
 				}
 			}
 			if(am->dent != nil){

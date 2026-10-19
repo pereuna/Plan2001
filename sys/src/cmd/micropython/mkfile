@@ -55,6 +55,9 @@ MUSLOFILES=\
 OFILES=\
 	main.$O\
 	modplan9.$O\
+	p9space.$O\
+	p9image.$O\
+	p9sha.$O\
 	p9file.$O\
 	p9builtin.$O\
 	p9math.$O\
