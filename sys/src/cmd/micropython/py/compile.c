@@ -3473,6 +3473,122 @@ static void scope_compute_things(scope_t *scope) {
 #if !MICROPY_EXPOSE_MP_COMPILE_TO_RAW_CODE
 static
 #endif
+/*
+ * PLAN2001 (docs/v7-upgrade.md 5.1): the scopes of the module compiled
+ * last, as a definition's symbol table: a stable qualified name ->
+ * raw-code path.  The compiler's scopes are a list, a scope's children
+ * (its MAKE_FUNCTIONs) in the order they were created, which is also
+ * the order of its raw code's children; so each scope's path from the
+ * module's raw code is its index among its parent's children, from the
+ * root down.  C's heap: the caller (p9image.c) copies what it needs,
+ * and the next compile frees it.
+ */
+static mp_scope_sym_t *syms;
+static size_t nsyms;
+
+void mp_compile_symbols_clear(void) {
+    size_t i;
+
+    for (i = 0; i < nsyms; i++) {
+        free(syms[i].path);
+        free(syms[i].qualname);
+    }
+    free(syms);
+    syms = NULL;
+    nsyms = 0;
+}
+
+mp_scope_sym_t *mp_compile_symbols(size_t *n) {
+    *n = nsyms;
+    return syms;
+}
+
+// S's index among the children of its parent (list order: the creation
+// order, which the raw code's children keep)
+static int sibindex(scope_t *head, scope_t *s) {
+    scope_t *t;
+    int i = 0;
+
+    for (t = head; t != NULL && t != s; t = t->next) {
+        if (t->parent == s->parent) {
+            i++;
+        }
+    }
+    return i;
+}
+
+static bool named(scope_t *s) {
+    return s->simple_name != MP_QSTRnull && qstr_str(s->simple_name)[0] != 0;
+}
+
+// S's qualified name ("C.m"); "" for an anonymous scope or under one
+static void qname(scope_t *s, scope_t *module, vstr_t *v) {
+    scope_t *p;
+
+    for (p = s; p != NULL && p != module; p = p->parent) {
+        if (!named(p)) {
+            return;	/* a lambda's or a comprehension's: no name */
+        }
+    }
+    /* the parents first, then the scope itself */
+    {
+        scope_t *chain[32];
+        int depth = 0, k;
+
+        for (p = s; p != NULL && p != module && depth < MP_ARRAY_SIZE(chain); p = p->parent) {
+            chain[depth++] = p;
+        }
+        for (k = depth - 1; k >= 0; k--) {
+            if (k < depth - 1) {
+                vstr_add_char(v, '.');
+            }
+            vstr_add_str(v, qstr_str(chain[k]->simple_name));
+        }
+    }
+}
+
+static void collectsyms(scope_t *head, scope_t *module) {
+    scope_t *s, *p;
+    vstr_t q;
+    size_t i, n = 0;
+    int depth, k;
+
+    mp_compile_symbols_clear();
+    for (s = head; s != NULL; s = s->next) {
+        if (s != module) {
+            n++;
+        }
+    }
+    syms = calloc(n > 0 ? n : 1, sizeof syms[0]);
+    if (syms == NULL) {
+        return;
+    }
+    for (s = head, i = 0; s != NULL; s = s->next) {
+        if (s == module) {
+            continue;
+        }
+        for (depth = 0, p = s; p != NULL && p != module; p = p->parent) {
+            depth++;
+        }
+        syms[i].kind = s->kind;
+        syms[i].depth = depth;
+        syms[i].path = malloc((depth > 0 ? depth : 1) * sizeof syms[i].path[0]);
+        for (k = depth - 1, p = s; k >= 0 && p != NULL; k--, p = p->parent) {
+            syms[i].path[k] = sibindex(head, p);
+        }
+        vstr_init(&q, 32);
+        qname(s, module, &q);
+        syms[i].qualname = malloc(q.len + 1);
+        if (syms[i].qualname != NULL) {
+            memmove(syms[i].qualname, q.buf, q.len);
+            syms[i].qualname[q.len] = 0;
+        }
+        vstr_clear(&q);
+        i++;
+    }
+    nsyms = i;
+}
+
 void mp_compile_to_raw_code(mp_parse_tree_t *parse_tree, qstr source_file, bool is_repl, mp_compiled_module_t *cm) {
     // put compiler state on the stack, it's relatively small
     compiler_t comp_state = {0};
@@ -3655,6 +3771,13 @@ emit_finished:
             }
         }
         #endif
+    }
+
+    // PLAN2001: the scopes, for a definition's stable names
+    if (comp->compile_error == MP_OBJ_NULL) {
+        collectsyms(comp->scope_head, module_scope);
+    } else {
+        mp_compile_symbols_clear();
     }
 
     // free the emitters

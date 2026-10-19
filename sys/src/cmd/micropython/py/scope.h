@@ -93,6 +93,25 @@ typedef struct _scope_t {
     id_info_t *id_info;
 } scope_t;
 
+/*
+ * PLAN2001 (docs/v7-upgrade.md 5.1): the scopes of the module compiled
+ * last, so that a definition's functions and classes have a stable
+ * name: each scope's kind (scope_kind_t), the path of child indices
+ * from the module's raw code, and its qualified name ("f", "C.m").
+ * A lambda's or a comprehension's name is "" (its parent's name and a
+ * relative path reach it).  C's heap, not the GC's: the caller copies
+ * what it needs, and the next compile frees the table.
+ */
+typedef struct _mp_scope_sym_t {
+    uint8_t kind;
+    uint16_t depth;
+    uint16_t *path;
+    char *qualname;
+} mp_scope_sym_t;
+
+mp_scope_sym_t *mp_compile_symbols(size_t *n);
+void mp_compile_symbols_clear(void);
+
 scope_t *scope_new(scope_kind_t kind, mp_parse_node_t pn, mp_uint_t emit_options);
 void scope_free(scope_t *scope);
 id_info_t *scope_find_or_add_id(scope_t *scope, qstr qstr, id_info_kind_t kind);

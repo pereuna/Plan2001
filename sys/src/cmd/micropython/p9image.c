@@ -17,6 +17,7 @@
  * those whose keys may run a user's __hash__ after all the others.
  */
 #include <string.h>
+#include <stdarg.h>
 #include "py/runtime.h"
 #include "py/bc.h"
 #include "py/objfun.h"
@@ -27,7 +28,15 @@
 #include "py/objlist.h"
 #include "py/parsenum.h"
 #include "py/emitglue.h"
+#include "py/lexer.h"
+#include "py/compile.h"
+#include "py/scope.h"
+#include "py/gc.h"
+#include "py/mpprint.h"
 #include "p9space.h"
+
+/* modbuiltins.c: the class body's way into a class */
+extern const mp_obj_fun_builtin_var_t mp_builtin___build_class___obj;
 
 extern const mp_obj_type_t mp_type_closure;
 extern const mp_obj_module_t mp_module___main__;
@@ -52,6 +61,8 @@ enum {	/* objects */
     O_CLOSURE,	/* function, n values */
     O_STATICMETH, O_CLASSMETH,	/* function */
     O_BOUNDMETH,	/* method, self */
+    O_FUNN,		/* V7: is_gen, module, qualname, n path, defaults */
+    O_CLASSN,		/* V7: module, qualname, name, bases, dict */
     O_NKIND
 };
 
@@ -137,6 +148,251 @@ static builtin_t *builtin(const void *p) {
     for (i = 0; i < nbt; i++) {
         if (bt[i].p == p) {
             return &bt[i];
+        }
+    }
+    return NULL;
+}
+
+/* ---- V7: the names of the definitions (docs/v7-upgrade.md 5.1) ---- */
+
+/*
+ * A Space's functions and classes are rebound by (module, qualified
+ * name) when its Environment changes, so an object's name is what
+ * survives a recompiled definition.  The names are the ones the graph
+ * itself has: a module's globals dict and a class's dict (so an alias
+ * in a list or a dict needs no name of its own: the function it holds
+ * is the one the globals name).  A function's raw code is named too, so
+ * that an anonymous nested function (a lambda, a comprehension, a
+ * closure's) is reached as its nearest named ancestor's raw code plus
+ * a path: modules are not renamed by an upgrade.
+ */
+enum {
+    NMlen = 96,		/* a qualname's room ("C.m"); longer: no name */
+};
+
+typedef struct {
+    const void *p;	/* the function, class or static/classmethod */
+    qstr mod;
+    char name[NMlen];
+} nent_t;
+
+typedef struct {
+    const mp_raw_code_t *rc;
+    qstr mod;
+    char name[NMlen];
+} rent_t;
+
+static nent_t *nents;
+static size_t nnents, anents;
+static rent_t *rents;
+static size_t nrents, arents;
+
+static void nadd(const void *p, qstr mod, const char *name) {
+    size_t i;
+
+    if (p == NULL || strlen(name) >= NMlen) {
+        return;
+    }
+    for (i = 0; i < nnents; i++) {
+        if (nents[i].p == p) {
+            return;	/* the first: one name is enough */
+        }
+    }
+    if (nnents == anents) {
+        anents = anents ? 2 * anents : 64;
+        nents = realloc(nents, anents * sizeof nents[0]);
+        if (nents == NULL) {
+            nnents = anents = 0;
+            return;
+        }
+    }
+    nents[nnents].p = p;
+    nents[nnents].mod = mod;
+    snprint(nents[nnents].name, NMlen, "%s", name);
+    nnents++;
+}
+
+static void radd(const mp_raw_code_t *rc, qstr mod, const char *name) {
+    size_t i;
+
+    if (rc == NULL || strlen(name) >= NMlen) {
+        return;
+    }
+    for (i = 0; i < nrents; i++) {
+        if (rents[i].rc == rc) {
+            return;
+        }
+    }
+    if (nrents == arents) {
+        arents = arents ? 2 * arents : 64;
+        rents = realloc(rents, arents * sizeof rents[0]);
+        if (rents == NULL) {
+            nrents = arents = 0;
+            return;
+        }
+    }
+    rents[nrents].rc = rc;
+    rents[nrents].mod = mod;
+    snprint(rents[nrents].name, NMlen, "%s", name);
+    nrents++;
+}
+
+// the names go: a new scan (a commit, an upgrade)
+static void names_clear(void) {
+    nnents = 0;
+    nrents = 0;
+}
+
+// the raw code of the function whose bytecode is B, in module M
+static const mp_raw_code_t *funrc(const p9_space_mod_t *m, const void *b) {
+    const mp_raw_code_t *st[64], *c;
+    size_t at[64];
+    int d;
+
+    if (m->rc == NULL) {
+        return NULL;
+    }
+    if (m->rc->fun_data == b) {
+        return m->rc;
+    }
+    st[0] = m->rc;
+    at[0] = 0;
+    d = 0;
+    while (d >= 0) {
+        if (at[d] < st[d]->n_children) {
+            c = st[d]->children[at[d]++];
+            if (c->fun_data == b) {
+                return c;
+            }
+            if (d + 1 < 64) {
+                d++;
+                st[d] = c;
+                at[d] = 0;
+            }
+        } else {
+            d--;
+        }
+    }
+    return NULL;
+}
+
+static int isfun(mp_obj_t o) {
+    const mp_obj_type_t *t = mp_obj_get_type(o);
+
+    return t == &mp_type_fun_bc || t == &mp_type_gen_wrap;
+}
+
+static int iswrapper(mp_obj_t o) {
+    const mp_obj_type_t *t = mp_obj_get_type(o);
+
+    return t == &mp_type_staticmethod || t == &mp_type_classmethod;
+}
+
+static void scanclass(const p9_space_mod_t *m, mp_obj_t cls, const char *prefix, int depth);
+
+// the names in a dict: its functions, methods, wrappers and classes
+static void scanmap(const p9_space_mod_t *m, mp_obj_t dicto, const char *prefix, int depth) {
+    mp_obj_dict_t *d = MP_OBJ_TO_PTR(dicto);
+    mp_map_t *map = &d->map;
+    mp_obj_t k, v;
+    const char *s;
+    char nm[NMlen];
+    size_t i;
+
+    for (i = 0; i < map->alloc; i++) {
+        if (!mp_map_slot_is_filled(map, i)) {
+            continue;
+        }
+        k = map->table[i].key;
+        v = map->table[i].value;
+        if (!mp_obj_is_str(k)) {
+            continue;
+        }
+        s = mp_obj_str_get_str(k);
+        if (strlen(prefix) + strlen(s) + 2 > NMlen) {
+            continue;
+        }
+        snprint(nm, sizeof nm, "%s%s%s", prefix, prefix[0] != 0 ? "." : "", s);
+        if (isfun(v)) {
+            nadd(MP_OBJ_TO_PTR(v), m->name, nm);
+            radd(funrc(m, ((mp_obj_fun_bc_t *)MP_OBJ_TO_PTR(v))->bytecode), m->name, nm);
+        } else if (iswrapper(v)) {
+            /* the wrapper and the function it wraps: both persistent */
+            mp_obj_t wf = ((mp_obj_static_class_method_t *)MP_OBJ_TO_PTR(v))->fun;
+
+            nadd(MP_OBJ_TO_PTR(v), m->name, nm);
+            if (isfun(wf)) {
+                nadd(MP_OBJ_TO_PTR(wf), m->name, nm);
+                radd(funrc(m, ((mp_obj_fun_bc_t *)MP_OBJ_TO_PTR(wf))->bytecode), m->name, nm);
+            }
+        } else if (mp_obj_is_type(v, &mp_type_type)) {
+            nadd(MP_OBJ_TO_PTR(v), m->name, nm);
+            if (depth < 2) {
+                scanclass(m, v, nm, depth + 1);
+            }
+        }
+    }
+}
+
+static void scanclass(const p9_space_mod_t *m, mp_obj_t cls, const char *prefix, int depth) {
+    const mp_obj_type_t *t = MP_OBJ_TO_PTR(cls);
+    mp_obj_t dict;
+
+    if (!MP_OBJ_TYPE_HAS_SLOT(t, locals_dict)) {
+        return;
+    }
+    dict = MP_OBJ_FROM_PTR(MP_OBJ_TYPE_GET_SLOT(t, locals_dict));
+    if (dict != MP_OBJ_NULL && mp_obj_is_type(dict, &mp_type_dict)) {
+        scanmap(m, dict, prefix, depth);
+    }
+}
+
+// every name the Space's modules have, or the world's (a commit's, an
+// upgrade's): the modules' globals and their classes' dicts
+static void scan_names(p9_space_mod_t *mods, int n) {
+    int k;
+
+    names_clear();
+    for (k = 0; k < n; k++) {
+        scanmap(&mods[k], MP_OBJ_FROM_PTR(mods[k].ctx->module.globals), "", 0);
+    }
+}
+
+// the names the records of this commit (or check) are written by
+static void scan_space_names(void) {
+    p9_space_mod_t *m;
+    int n;
+
+    m = p9_space_mods(&n);
+    scan_names(m, n);
+}
+
+// P's name (the first, an alias's needing none) and its module
+static const char *nameof(const void *p, qstr *mod) {
+    size_t i;
+
+    for (i = 0; i < nnents; i++) {
+        if (nents[i].p == p) {
+            if (mod != NULL) {
+                *mod = nents[i].mod;
+            }
+            return nents[i].name;
+        }
+    }
+    return NULL;
+}
+
+// the name of the raw code RC (the nearest named ancestor of a
+// function that has none), and its module
+static const char *rcnameof(const mp_raw_code_t *rc, qstr *mod) {
+    size_t i;
+
+    for (i = 0; i < nrents; i++) {
+        if (rents[i].rc == rc) {
+            if (mod != NULL) {
+                *mod = rents[i].mod;
+            }
+            return rents[i].name;
         }
     }
     return NULL;
@@ -495,6 +751,9 @@ static uint64_t ref(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
         return 0;
     }
     okind(e, o, parent, label);	/* not persistent: an error now, with its path */
+    if (*e->next >= OID_UPGRADE_META) {
+        notpersistent(e, o, parent, label, "the OIDs are spent");
+    }
     oid = (*e->next)++;
     oadd(MP_OBJ_TO_PTR(o), oid, 0);
     x = oget(MP_OBJ_TO_PTR(o));
@@ -591,11 +850,14 @@ static void putv(enc_t *e, mp_obj_t o, int parent, mp_obj_t label) {
     }
 }
 
-static void putfun(enc_t *e, size_t i, mp_obj_fun_bc_t *f) {
+// a function's record: its module and the path to its code, or (a
+// named one, V7) its qualname too.  Returns O_FUN or O_FUNN
+static int putfun(enc_t *e, size_t i, mp_obj_fun_bc_t *f) {
     vstr_t *v = e->out;
     p9_space_mod_t *m;
-    int n, k, depth;
-    const char *s;
+    int n, k, depth, named;
+    const char *s, *q;
+    qstr qm;
     size_t len, np;
     const byte *ip;
     const mp_raw_code_t *rc;
@@ -650,9 +912,15 @@ static void putfun(enc_t *e, size_t i, mp_obj_fun_bc_t *f) {
             notpersistent(e, e->obj[i], e->parent[i], e->label[i], "a function not in its module's code");
         }
     }
+    q = nameof(f, &qm);
+    named = q != NULL && qm == m[k].name;
     vstr_add_byte(v, mp_obj_get_type(MP_OBJ_FROM_PTR(f)) == &mp_type_gen_wrap);
     s = (const char *)qstr_data(m[k].name, &len);
     putstr(v, s, len);
+    if (named) {
+        /* the identity an upgrade rebinds by: module and qualname */
+        putstr(v, q, strlen(q));
+    }
     putu(v, depth);
     for (k = 0; k < depth; k++) {
         putu(v, idx[k]);
@@ -671,6 +939,7 @@ static void putfun(enc_t *e, size_t i, mp_obj_fun_bc_t *f) {
     } else {
         vstr_add_byte(v, V_NONE);
     }
+    return named ? O_FUNN : O_FUN;
 }
 
 // a map's or set's entries, from START to the end of V, each ending at
@@ -737,6 +1006,8 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
     const mp_obj_type_t *t;
     const void *p;
     int kind = okind(e, o, e->parent[i], e->label[i]);
+    size_t kindat = v->len;
+
 
     vstr_add_byte(v, kind);
     switch (kind) {
@@ -804,8 +1075,17 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
     case O_CELL:
         putv(e, mp_obj_cell_get(o), i, MP_OBJ_NULL);
         break;
-    case O_CLASS:
+    case O_CLASS: {
+        qstr cm;
+        const char *cq;
+
         t = MP_OBJ_TO_PTR(o);
+        if ((cq = nameof(MP_OBJ_TO_PTR(o), &cm)) != NULL) {
+            /* V7: its identity, then the same fields as O_CLASS's */
+            v->buf[kindat] = O_CLASSN;
+            putstr(v, qstr_str(cm), qstr_len(cm));
+            putstr(v, cq, strlen(cq));
+        }
         putstr(v, qstr_str(t->name), strlen(qstr_str(t->name)));
         if (!MP_OBJ_TYPE_HAS_SLOT(t, parent)) {
             putu(v, 0);
@@ -824,6 +1104,7 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
         }
         putv(e, MP_OBJ_FROM_PTR(MP_OBJ_TYPE_GET_SLOT(t, locals_dict)), i, MP_OBJ_NEW_QSTR(MP_QSTR___dict__));
         break;
+    }
     case O_INSTANCE:
         putv(e, MP_OBJ_FROM_PTR(mp_obj_get_type(o)), i, MP_OBJ_NEW_QSTR(MP_QSTR___class__));
         map = &((mp_obj_instance_t *)MP_OBJ_TO_PTR(o))->members;
@@ -846,7 +1127,7 @@ static void putobj(enc_t *e, size_t i, mp_obj_t transient) {
         free(end);
         break;
     case O_FUN:
-        putfun(e, i, MP_OBJ_TO_PTR(o));
+        v->buf[kindat] = putfun(e, i, MP_OBJ_TO_PTR(o));
         break;
     case O_CLOSURE: {
         closure_t *c = MP_OBJ_TO_PTR(o);
@@ -933,7 +1214,7 @@ static void record(vstr_t *rec, uint64_t oid, const char *p, size_t n) {
     vstr_add_strn(rec, p, n);
 }
 
-int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a) {
+int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a, int force) {
     nlr_buf_t nlr;
     enc_t e;
     roots_t r;
@@ -944,6 +1225,8 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a)
     int k, ret;
     char what[80];
     long long t0 = nsec();
+
+    scan_space_names();
 
     memset(&e, 0, sizeof e);
     e.mainmod = MP_OBJ_FROM_PTR(&mp_module___main__);
@@ -1005,7 +1288,7 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a)
         }
         snprint(what, sizeof what, "commit: %d encoded, %d records, %d bytes", (int)e.n, (int)nrec, (int)rec.len);
         p9_spacetime(what, t0);
-        ret = nrec == 0 ? 0 : write(&rec, a) < 0 ? -1 : 1;
+        ret = nrec == 0 && !force ? 0 : write(&rec, a) < 0 ? -1 : 1;
         p9_spacetime("commit: written", t0);
         nlr_pop();
     } else {
@@ -1044,6 +1327,19 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a)
     return ret;
 }
 
+// an upgrade changed every record's meaning: all of them are written
+// (the table is looked through: no need to grow the dirty list)
+void p9_image_all_dirty(void) {
+    size_t i;
+
+    for (i = 0; i < otsize; i++) {
+        if (ot[i].p != NULL && !ot[i].foreign) {
+            ot[i].dirty = 1;
+        }
+    }
+    dirtylost = 1;
+}
+
 int p9_image_check(void) {
     enc_t e;
     roots_t r;
@@ -1052,6 +1348,7 @@ int p9_image_check(void) {
     size_t i;
     int k;
 
+    scan_space_names();
     memset(&e, 0, sizeof e);
     e.mainmod = MP_OBJ_FROM_PTR(&mp_module___main__);
     e.check = 1;
@@ -1238,12 +1535,27 @@ static void skipobj(dec_t *d, int kind) {
         for (n = getu(d), k = 0; k < n; k++) getv(d, true);
         getv(d, true);
         break;
+    case O_CLASSN:
+        getstr(d, &n);	/* its module and its qualname */
+        getstr(d, &n);
+        getstr(d, &n);
+        for (n = getu(d), k = 0; k < n; k++) getv(d, true);
+        getv(d, true);
+        break;
     case O_INSTANCE:
         getv(d, true);
         for (n = getu(d), k = 0; k < 2 * n; k++) getv(d, true);
         break;
     case O_FUN:
         getb(d);
+        getstr(d, &n);
+        for (n = getu(d), k = 0; k < n; k++) getu(d);
+        for (n = getu(d), k = 0; k < n; k++) getv(d, true);
+        getv(d, true);
+        break;
+    case O_FUNN:
+        getb(d);
+        getstr(d, &n);	/* its module and its qualname */
         getstr(d, &n);
         for (n = getu(d), k = 0; k < n; k++) getu(d);
         for (n = getu(d), k = 0; k < n; k++) getv(d, true);
@@ -1304,9 +1616,14 @@ static bool mkshell(dec_t *d, size_t i) {
     case O_CELL:
         d->shell[i] = mp_obj_new_cell(mp_const_none);
         return true;
-    case O_CLASS: {
+    case O_CLASS:
+    case O_CLASSN: {
         mp_obj_type_t *t;
 
+        if (d->kind[i] == O_CLASSN) {
+            getstr(d, &n);	/* its module and its qualname */
+            getstr(d, &n);
+        }
         s = getstr(d, &n);
         args[0] = MP_OBJ_NEW_QSTR(qstr_from_strn(s, n));
         n = getu(d);
@@ -1334,14 +1651,20 @@ static bool mkshell(dec_t *d, size_t i) {
         d->shell[i] = MP_OBJ_FROM_PTR(mp_obj_new_instance(MP_OBJ_TO_PTR(x), &nb));
         return true;
     }
-    case O_FUN: {
+    case O_FUN:
+    case O_FUNN: {
         p9_space_mod_t *m;
         const mp_raw_code_t *rc;
         mp_obj_t def[2], pos;
+        size_t mn;
 
         getb(d);
         s = getstr(d, &n);
-        m = d->view != NULL ? p9_view_loadmod(d->view, qstr_from_strn(s, n)) : p9_space_loadmod(qstr_from_strn(s, n));
+        mn = n;
+        if (d->kind[i] == O_FUNN) {
+            getstr(d, &n);	/* its qualname: the path below is what binds */
+        }
+        m = d->view != NULL ? p9_view_loadmod(d->view, qstr_from_strn(s, mn)) : p9_space_loadmod(qstr_from_strn(s, mn));
         rc = m->rc;
         for (n = getu(d), k = 0; k < n; k++) {
             size_t c = getu(d);
@@ -1483,11 +1806,15 @@ static void fill(dec_t *d, size_t i) {
             mp_map_lookup(map, key, MP_MAP_LOOKUP_ADD_IF_NOT_FOUND)->value = need(getv(d, false));
         }
         break;
-    case O_FUN: {
+    case O_FUN:
+    case O_FUNN: {
         mp_obj_fun_bc_t *f = MP_OBJ_TO_PTR(o);
 
         getb(d);
         getstr(d, &n);
+        if (d->kind[i] == O_FUNN) {
+            getstr(d, &n);
+        }
         for (n = getu(d), k = 0; k < n; k++) {
             getu(d);
         }
@@ -1685,6 +2012,9 @@ void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *
             nr = olen;
             continue;
         }
+        if (oid == OID_UPGRADE_META) {
+            continue;	/* the Environment epochs: p9space.c's */
+        }
         if (olen < 1 || q[25] >= O_NKIND) {
             corrupt();
         }
@@ -1732,4 +2062,1213 @@ void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *
     }
     roothash = fnv((const char *)rr, nr);
     p9_spacetime("restore: OIDs", t0);
+}
+
+
+/* ---- V7: the upgrade (docs/v7-upgrade.md 5.3) ---- */
+
+/*
+ * The objects an upgrade makes (and the ones it replaces): a list the
+ * GC sees, so that a name's old object cannot be freed and its address
+ * reused while the bindings still name it.
+ */
+MP_REGISTER_ROOT_POINTER(mp_obj_t p9_upgkeep);
+
+static void keepadd(mp_obj_t o) {
+    if (MP_STATE_VM(p9_upgkeep) == MP_OBJ_NULL) {
+        MP_STATE_VM(p9_upgkeep) = mp_obj_new_list(0, NULL);
+    }
+    mp_obj_list_append(MP_STATE_VM(p9_upgkeep), o);
+}
+
+/*
+ * The restored graph is rebound to the new Environment's modules: every
+ * function to the definition its (module, qualname) names, every class
+ * rebuilt from the new class's body (its bases rebound, its dict filled
+ * by that body), every instance retargeted to its new class and, when
+ * its __schema__ changed, migrated by its class's __migrate__.  Then
+ * every reference in the graph is rewritten, so that a reference saved
+ * in a list, a dict, a default or an attribute is the new object too,
+ * and the commit writes every record again: an OID is the same before
+ * and after, and no record names the old Environment's code.
+ */
+
+typedef struct {
+    char name[NMlen];
+    uint8_t kind;		/* SCOPE_CLASS, SCOPE_FUNCTION, ... */
+    uint8_t depth;
+    uint16_t path[32];
+} syment_t;
+
+typedef struct {
+    qstr mod;
+    syment_t *e;
+    size_t n, a;
+    size_t nscopes;		/* the definition's scopes, with the module's */
+    int done;
+} modsym_t;
+
+static modsym_t *modsyms;
+static size_t nmodsyms, amodsyms;
+static void *upgworld;
+
+// the whole file into V (initialised here); -1: no such file
+static int readfile(const char *path, vstr_t *v) {
+    int fd;
+    long n;
+
+    if ((fd = open((char *)path, OREAD)) < 0) {
+        return -1;
+    }
+    vstr_init(v, 8192);
+    for (;;) {
+        vstr_hint_size(v, 8192);
+        n = read(fd, v->buf + v->len, v->alloc - v->len);
+        if (n <= 0) {
+            break;
+        }
+        v->len += n;
+    }
+    close(fd);
+    return n < 0 ? -1 : 0;
+}
+
+static MP_NORETURN void upgfail(const char *fmt, ...) {
+    vstr_t v;
+    mp_print_t pr;
+    va_list ap;
+
+    vstr_init_print(&v, 128, &pr);
+    va_start(ap, fmt);
+    mp_vprintf(&pr, fmt, ap);
+    va_end(ap);
+    mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space: upgrade: %s"),
+        vstr_null_terminated_str(&v));
+}
+
+static modsym_t *modsym(qstr mod, int make) {
+    size_t i;
+
+    for (i = 0; i < nmodsyms; i++) {
+        if (modsyms[i].mod == mod) {
+            return &modsyms[i];
+        }
+    }
+    if (!make) {
+        return NULL;
+    }
+    if (nmodsyms == amodsyms) {
+        amodsyms = amodsyms ? 2 * amodsyms : 8;
+        modsyms = realloc(modsyms, amodsyms * sizeof modsyms[0]);
+        if (modsyms == NULL) {
+            amodsyms = 0;
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the symbol tables"));
+        }
+    }
+    memset(&modsyms[nmodsyms], 0, sizeof modsyms[0]);
+    modsyms[nmodsyms].mod = mod;
+    return &modsyms[nmodsyms++];
+}
+
+// a definition's symbol table: its source compiled, its scopes' names
+// copied out (the raw code itself is the GC's, and goes)
+void p9_image_symtab(qstr mod, const char *source) {
+    modsym_t *ms;
+    mp_lexer_t *lex;
+    mp_parse_tree_t pt;
+    mp_compiled_module_t cm;
+    mp_scope_sym_t *sym;
+    vstr_t src;
+    size_t n, i, k;
+    const char *base;
+    syment_t *e;
+
+    ms = modsym(mod, 1);
+    ms->done = 1;
+    ms->n = 0;
+    if (readfile(source, &src) < 0) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space: upgrade: no definition's source %s"), source);
+    }
+    base = strrchr(source, '/');
+    base = base != NULL ? base + 1 : source;
+    lex = mp_lexer_new_from_str_len(qstr_from_str(base), src.buf, src.len, 0);
+    pt = mp_parse(lex, MP_PARSE_FILE_INPUT);
+    memset(&cm, 0, sizeof cm);
+    cm.context = m_new_obj(mp_module_context_t);
+    cm.context->module.globals = mp_globals_get();
+    mp_compile_to_raw_code(&pt, qstr_from_str(base), false, &cm);
+    sym = mp_compile_symbols(&n);
+    ms->nscopes = n;
+    for (i = 0; i < n; i++) {
+        struct _mp_scope_sym_t *x = &sym[i];
+
+        if (x->qualname == NULL || x->qualname[0] == 0 || x->depth > 32) {
+            continue;
+        }
+        if (ms->n == ms->a) {
+            ms->a = ms->a ? 2 * ms->a : 8;
+            ms->e = realloc(ms->e, ms->a * sizeof ms->e[0]);
+            if (ms->e == NULL) {
+                ms->n = ms->a = 0;
+                mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: a symbol table"));
+            }
+        }
+        e = &ms->e[ms->n];
+        snprint(e->name, NMlen, "%s", x->qualname);
+        for (k = 0; k < ms->n; k++) {
+            if (strcmp(ms->e[k].name, e->name) == 0) {
+                e->kind = 0xff;	/* ambiguous: never bound */
+                break;
+            }
+        }
+        if (k == ms->n) {
+            e->kind = x->kind;
+        }
+        e->depth = x->depth;
+        for (k = 0; k < x->depth; k++) {
+            e->path[k] = x->path[k];
+        }
+        ms->n++;
+    }
+    mp_compile_symbols_clear();
+    vstr_clear(&src);
+}
+
+// a name's scope: 0 no such name, 1 SYM, -1 ambiguous
+static int symfind(qstr mod, const char *name, syment_t *sym) {
+    modsym_t *ms = modsym(mod, 0);
+    size_t i;
+
+    if (ms == NULL) {
+        return 0;
+    }
+    for (i = 0; i < ms->n; i++) {
+        if (strcmp(ms->e[i].name, name) != 0) {
+            continue;
+        }
+        if (ms->e[i].kind == 0xff) {
+            return -1;
+        }
+        if (sym != NULL) {
+            *sym = ms->e[i];
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static size_t treecount(const mp_raw_code_t *rc) {
+    size_t n = 1, k;
+
+    for (k = 0; k < rc->n_children; k++) {
+        n += treecount(rc->children[k]);
+    }
+    return n;
+}
+
+// the symbol table of MODULE's source must describe RC's tree (the
+// .mpy's): a source that is not the definition's is no use
+void p9_image_symcheck(qstr module, const mp_raw_code_t *rc) {
+    modsym_t *ms = modsym(module, 0);
+
+    if (ms == NULL || rc == NULL) {
+        return;
+    }
+    if (treecount(rc) - 1 != ms->nscopes) {
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("space: upgrade: %q: the source's scopes are not its .mpy's"), module);
+    }
+}
+
+static const mp_raw_code_t *walkrc(const mp_raw_code_t *rc, const uint16_t *path, int depth) {
+    int k;
+
+    if (rc == NULL) {
+        return NULL;
+    }
+    for (k = 0; k < depth; k++) {
+        if (path[k] >= rc->n_children) {
+            return NULL;
+        }
+        rc = rc->children[path[k]];
+    }
+    return rc;
+}
+
+// the path from the module's raw code to B's; -1: not there
+static int rcpath(const mp_raw_code_t *rc, const void *b, uint16_t *path, const mp_raw_code_t **nodes, int *depth) {
+    size_t k;
+
+    for (k = 0; k < rc->n_children; k++) {
+        nodes[*depth + 1] = rc->children[k];
+        path[*depth] = k;
+        if (rc->children[k]->fun_data == b) {
+            (*depth)++;
+            return 0;
+        }
+        (*depth)++;
+        if (*depth < 31 && rcpath(rc->children[k], b, path, nodes, depth) == 0) {
+            return 0;
+        }
+        (*depth)--;
+    }
+    return -1;
+}
+
+// the Space's module of a context, or NULL
+static p9_space_mod_t *ctxmod(const void *ctx) {
+    p9_space_mod_t *m;
+    int n, k;
+
+    m = p9_space_mods(&n);
+    for (k = 0; k < n; k++) {
+        if (m[k].ctx == ctx) {
+            return &m[k];
+        }
+    }
+    return NULL;
+}
+
+// P's OID is NEW's now: the old entry goes, the new one is written
+static void oidmove(const void *p, const void *newo) {
+    oent_t *x = oget(p);
+    uint64_t oid;
+
+    if (x == NULL || x->foreign || p == newo) {
+        return;
+    }
+    oid = x->oid;
+    odel(p);
+    oadd(newo, oid, 0);
+    oget(newo)->dirty = 1;
+}
+
+/* ---- the replacements: an object -> the object that takes its place ---- */
+
+typedef struct {
+    const void *o, *n;
+} repl_t;
+
+static repl_t *rt;
+static size_t rtsize, nrt;
+
+static size_t rhashof(const void *p) {
+    return (size_t)(((uintptr_t)p >> 3) * 0x9E3779B97F4A7C15ULL >> 20) & (rtsize - 1);
+}
+
+static const void *rget(const void *o) {
+    size_t h;
+
+    if (rtsize == 0) {
+        return NULL;
+    }
+    for (h = rhashof(o); rt[h].o != NULL; h = (h + 1) & (rtsize - 1)) {
+        if (rt[h].o == o) {
+            return rt[h].n;
+        }
+    }
+    return NULL;
+}
+
+static void rset(const void *o, const void *n) {
+    size_t h, i;
+    repl_t *old;
+
+    if (o == NULL) {
+        return;
+    }
+    if (rtsize == 0) {
+        rtsize = 128;
+        rt = calloc(rtsize, sizeof rt[0]);
+        if (rt == NULL) {
+            rtsize = 0;
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the bindings"));
+        }
+    }
+    if (2 * (nrt + 1) > rtsize) {
+        old = rt;
+        rt = calloc(2 * rtsize, sizeof rt[0]);
+        if (rt == NULL) {
+            rt = old;
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the bindings"));
+        }
+        i = rtsize;
+        rtsize *= 2;
+        nrt = 0;
+        for (h = 0; h < i; h++) {
+            if (old[h].o != NULL) {
+                rset(old[h].o, old[h].n);
+            }
+        }
+        free(old);
+    }
+    for (h = rhashof(o); rt[h].o != NULL; h = (h + 1) & (rtsize - 1)) {
+        if (rt[h].o == o) {
+            rt[h].n = n;
+            return;
+        }
+    }
+    rt[h].o = o;
+    rt[h].n = n;
+    nrt++;
+}
+
+static void rclear(void) {
+    free(rt);
+    rt = NULL;
+    rtsize = nrt = 0;
+}
+
+/* ---- the graph: the objects, and every reference rewritten ---- */
+
+static mp_obj_t *gobjs;
+static size_t ngobjs, agobjs;
+
+static int livekind(mp_obj_t o) {
+    const mp_obj_type_t *t;
+
+    if (!mp_obj_is_obj(o)) {
+        return -1;
+    }
+    t = mp_obj_get_type(o);
+    if (t == &mp_type_tuple) return O_TUPLE;
+    if (t == &mp_type_list) return O_LIST;
+    if (t == &mp_type_dict) return O_DICT;
+    if (t == &mp_type_set) return O_SET;
+    #if MICROPY_PY_BUILTINS_FROZENSET
+    if (t == &mp_type_frozenset) return O_FROZENSET;
+    #endif
+    if (t == &mp_type_bytearray) return O_BYTEARRAY;
+    if (t == celltype()) return O_CELL;
+    if (isfun(o)) return O_FUN;
+    if (t == &mp_type_closure) return O_CLOSURE;
+    if (t == &mp_type_staticmethod) return O_STATICMETH;
+    if (t == &mp_type_classmethod) return O_CLASSMETH;
+    if (t == &mp_type_bound_meth) return O_BOUNDMETH;
+    if (t == &mp_type_type) return O_CLASS;
+    if (mp_obj_is_instance_type(t)) return O_INSTANCE;
+    return -1;
+}
+
+static mp_obj_t mapref(mp_obj_t o) {
+    const void *n;
+    mp_obj_t nt;
+    mp_obj_t *items, *nitems;
+    size_t k, nn;
+    int kind;
+
+    if (!mp_obj_is_obj(o)) {
+        return o;
+    }
+    if ((n = rget(MP_OBJ_TO_PTR(o))) != NULL) {
+        return MP_OBJ_FROM_PTR(n);
+    }
+    kind = livekind(o);
+    if (kind == O_TUPLE) {
+        mp_obj_get_array(o, &nn, &items);
+        nt = mp_obj_new_tuple(nn, NULL);
+        keepadd(nt);
+        mp_obj_tuple_get(nt, &nn, &nitems);
+        for (k = 0; k < nn; k++) {
+            nitems[k] = mapref(items[k]);
+        }
+        rset(MP_OBJ_TO_PTR(o), MP_OBJ_TO_PTR(nt));
+        oidmove(MP_OBJ_TO_PTR(o), MP_OBJ_TO_PTR(nt));
+        return nt;
+    }
+    if (kind == O_SET || kind == O_FROZENSET) {
+        mp_obj_t it, x;
+
+        nt = mp_obj_new_set(0, NULL);
+        keepadd(nt);
+        it = mp_getiter(o, NULL);
+        while ((x = mp_iternext(it)) != MP_OBJ_STOP_ITERATION) {
+            mp_obj_set_store(nt, mapref(x));
+        }
+        #if MICROPY_PY_BUILTINS_FROZENSET
+        if (kind == O_FROZENSET) {
+            ((mp_obj_base_t *)MP_OBJ_TO_PTR(nt))->type = &mp_type_frozenset;
+        }
+        #endif
+        rset(MP_OBJ_TO_PTR(o), MP_OBJ_TO_PTR(nt));
+        oidmove(MP_OBJ_TO_PTR(o), MP_OBJ_TO_PTR(nt));
+        return nt;
+    }
+    return o;
+}
+
+static void remapdict(mp_obj_dict_t *to, mp_obj_dict_t *from);
+
+// a dict's (or an instance's) map, rebuilt: its keys and values
+// replaced, and its keys hashed again (a key may be a tuple of classes)
+static void remap(mp_map_t *map) {
+    mp_map_t old = *map;
+    mp_map_elem_t *el;
+    mp_obj_t k, v;
+    size_t i;
+
+    mp_map_init(map, old.used + 4);
+    for (i = 0; i < old.alloc; i++) {
+        if (!mp_map_slot_is_filled(&old, i)) {
+            continue;
+        }
+        k = mapref(old.table[i].key);
+        v = mapref(old.table[i].value);
+        el = mp_map_lookup(map, k, MP_MAP_LOOKUP_ADD_IF_NOT_FOUND);
+        el->value = v;
+    }
+    mp_map_deinit(&old);
+}
+
+static void collectobjs(void) {
+    size_t i;
+
+    ngobjs = 0;
+    for (i = 0; i < otsize; i++) {
+        if (ot[i].p == NULL || ot[i].foreign) {
+            continue;
+        }
+        if (ngobjs == agobjs) {
+            agobjs = agobjs ? 2 * agobjs : 256;
+            gobjs = realloc(gobjs, agobjs * sizeof gobjs[0]);
+            if (gobjs == NULL) {
+                agobjs = 0;
+                mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the graph"));
+            }
+        }
+        gobjs[ngobjs++] = MP_OBJ_FROM_PTR(ot[i].p);
+    }
+}
+
+// a class's bases (0 for object: no parent slot)
+static int classbases(const mp_obj_type_t *t, mp_obj_t *b, int max) {
+    const void *p;
+    size_t n, k;
+    mp_obj_t *items;
+
+    if (!MP_OBJ_TYPE_HAS_SLOT(t, parent)) {
+        return 0;
+    }
+    p = MP_OBJ_TYPE_GET_SLOT(t, parent);
+    if (p == NULL) {
+        return 0;
+    }
+    if (((mp_obj_base_t *)p)->type == &mp_type_tuple) {
+        mp_obj_tuple_get(MP_OBJ_FROM_PTR(p), &n, &items);
+        for (k = 0; k < n && k < max; k++) {
+            b[k] = items[k];
+        }
+        return k;
+    }
+    b[0] = MP_OBJ_FROM_PTR(p);
+    return 1;
+}
+
+// the new definition's raw code for F, in old module OM; *NM: its module
+static const mp_raw_code_t *newrcfun(p9_space_mod_t *om, mp_obj_fun_bc_t *f, p9_space_mod_t **nm) {
+    uint16_t path[32];
+    const mp_raw_code_t *nodes[33], *rc;
+    const char *name;
+    syment_t sym;
+    qstr amod;
+    int depth, k, r;
+
+    *nm = p9_world_loadmod(upgworld, om->name);
+    nodes[0] = om->rc;
+    depth = 0;
+    if (rcpath(om->rc, f->bytecode, path, nodes, &depth) < 0) {
+        upgfail("%q: a function not in its module's code", om->name);
+    }
+    if (p9_world_unchanged(upgworld, om->name)) {
+        /* the same definition: the same tree, so the same path */
+        rc = walkrc((*nm)->rc, path, depth);
+        if (rc == NULL) {
+            upgfail("%q: its definition's code differs from its source", om->name);
+        }
+        return rc;
+    }
+    /* a new definition: the nearest named ancestor, and a path from it */
+    for (k = depth; k >= 0; k--) {
+        if ((name = rcnameof(nodes[k], &amod)) != NULL && amod == om->name) {
+            break;
+        }
+    }
+    if (k < 0) {
+        upgfail("%q: a function with no name (an anonymous or a nested one)", om->name);
+    }
+    r = symfind(om->name, name, &sym);
+    if (r < 0) {
+        upgfail("%q.%s: an ambiguous name", om->name, name);
+    }
+    if (r == 0) {
+        upgfail("%q.%s: not in the new Environment", om->name, name);
+    }
+    if ((rc = walkrc((*nm)->rc, sym.path, sym.depth)) == NULL) {
+        upgfail("%q.%s: the new definition has no such scope", om->name, name);
+    }
+    if ((rc = walkrc(rc, &path[k], depth - k)) == NULL) {
+        upgfail("%q.%s: the new definition has no such nested function", om->name, name);
+    }
+    return rc;
+}
+
+// the defaults of a rebound function: the old values, rewritten once
+// every reference in the graph has been
+typedef struct {
+    mp_obj_t fun;
+    mp_obj_t kw;
+    mp_obj_t *def;
+    size_t ndef;
+} pend_t;
+
+static pend_t *pends;
+static size_t npends, apends;
+
+static void pendadd(mp_obj_t fun, mp_obj_t *def, size_t ndef, mp_obj_t kw) {
+    pend_t *p;
+
+    if (npends == apends) {
+        apends = apends ? 2 * apends : 16;
+        pends = realloc(pends, apends * sizeof pends[0]);
+        if (pends == NULL) {
+            apends = 0;
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the defaults"));
+        }
+    }
+    p = &pends[npends++];
+    p->fun = fun;
+    p->kw = kw;
+    p->ndef = ndef;
+    p->def = malloc((ndef > 0 ? ndef : 1) * sizeof p->def[0]);
+    if (p->def == NULL) {
+        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the defaults"));
+    }
+    if (ndef > 0) {
+        memmove(p->def, def, ndef * sizeof p->def[0]);
+    }
+}
+
+static void pendfill(void) {
+    size_t i, k;
+    mp_obj_fun_bc_t *f;
+
+    for (i = 0; i < npends; i++) {
+        f = MP_OBJ_TO_PTR(pends[i].fun);
+        for (k = 0; k < pends[i].ndef; k++) {
+            f->extra_args[k] = mapref(pends[i].def[k]);
+        }
+        if (pends[i].kw != MP_OBJ_NULL) {
+            f->extra_args[pends[i].ndef] = mapref(pends[i].kw);
+        }
+    }
+}
+
+// a function of the graph, bound to the new Environment's definition
+static void bindfun(p9_space_mod_t *om, mp_obj_t o) {
+    mp_obj_fun_bc_t *f = MP_OBJ_TO_PTR(o);
+    p9_space_mod_t *nm;
+    const mp_raw_code_t *rc;
+    mp_obj_t nf, kw, def[2], pos, kwdef, *items;
+    const char *name;
+    mp_map_elem_t *el;
+    size_t np, npn, k;
+    int kwf, kwfn;
+    qstr qm;
+
+    rc = newrcfun(om, f, &nm);
+    {
+        /* the old defaults (the new definition must still have them) */
+        const byte *ip = f->bytecode;
+
+        MP_BC_PRELUDE_SIG_DECODE(ip);
+        np = n_def_pos_args;
+        kwf = (scope_flags & MP_SCOPE_FLAG_DEFKWARGS) != 0;
+    }
+    {
+        const byte *ip = ((const mp_raw_code_t *)rc)->fun_data;
+
+        MP_BC_PRELUDE_SIG_DECODE(ip);
+        npn = n_def_pos_args;
+        kwfn = (scope_flags & MP_SCOPE_FLAG_DEFKWARGS) != 0;
+    }
+    if (np != npn || kwf != kwfn) {
+        name = nameof(f, &qm);
+        upgfail("%q.%s: its defaults changed", om->name, name != NULL ? name : "?");
+    }
+    name = nameof(f, &qm);
+    /*
+     * The new function is made with room for its defaults (their number
+     * is the new definition's, and equal to the old one's): pendfill
+     * puts the old values there once the graph's references are new.
+     */
+    pos = MP_OBJ_NULL;
+    kwdef = MP_OBJ_NULL;
+    if (np > 0) {
+        size_t npos = np;
+
+        pos = mp_obj_new_tuple(npos, NULL);
+        mp_obj_tuple_get(pos, &npos, &items);
+        for (k = 0; k < npos; k++) {
+            items[k] = mp_const_none;
+        }
+        keepadd(pos);
+    }
+    if (kwf) {
+        kwdef = mp_obj_new_dict(0);
+        keepadd(kwdef);
+    }
+    def[0] = pos;
+    def[1] = kwdef;
+    nf = mp_make_function_from_proto_fun(rc, nm->ctx,
+        def[0] != MP_OBJ_NULL || def[1] != MP_OBJ_NULL ? def : NULL);
+    keepadd(o);
+    keepadd(nf);
+    kw = kwf ? f->extra_args[np] : MP_OBJ_NULL;
+    if (np > 0 || kw != MP_OBJ_NULL) {
+        pendadd(nf, f->extra_args, np, kw);
+    }
+    rset(f, MP_OBJ_TO_PTR(nf));
+    oidmove(f, MP_OBJ_TO_PTR(nf));
+    /* a module-level name: the new function is there for a class body
+       that runs before the graph's references are rewritten */
+    if (name != NULL && qm == om->name && strchr(name, '.') == NULL) {
+        el = mp_map_lookup(&nm->ctx->module.globals->map, MP_OBJ_NEW_QSTR(qstr_from_str(name)),
+            MP_MAP_LOOKUP);
+        if (el != NULL) {
+            el->value = nf;
+        }
+    }
+}
+
+// the world's modules take the place of the Space's: a reference to a
+// module (a V_MODULE) is by name, and the name is the new module's
+static void upg_mods(void) {
+    p9_space_mod_t *nm, *om;
+    mp_obj_t nw, ow;
+    int nn, no, i, k;
+
+    nm = p9_world_mods(upgworld, &nn);
+    om = p9_space_mods(&no);
+    for (i = 0; i < nn; i++) {
+        for (k = 0; k < no; k++) {
+            if (om[k].name != nm[i].name) {
+                continue;
+            }
+            ow = MP_OBJ_FROM_PTR(om[k].ctx);
+            nw = MP_OBJ_FROM_PTR(nm[i].ctx);
+            if (ow != nw) {
+                keepadd(ow);
+                rset(MP_OBJ_TO_PTR(ow), MP_OBJ_TO_PTR(nw));
+            }
+            break;
+        }
+    }
+}
+
+static void upg_funs(void) {
+    size_t i;
+
+    for (i = 0; i < ngobjs; i++) {
+        mp_obj_t o = gobjs[i];
+        p9_space_mod_t *om;
+
+        if (livekind(o) != O_FUN) {
+            continue;
+        }
+        if ((om = ctxmod(((mp_obj_fun_bc_t *)MP_OBJ_TO_PTR(o))->context)) == NULL) {
+            upgfail("%s", ((mp_obj_fun_bc_t *)MP_OBJ_TO_PTR(o))->context->module.globals
+                == &MP_STATE_VM(dict_main)
+                ? "a function defined in __main__ (not persistent)" : "a function not of the Space's modules");
+        }
+        bindfun(om, o);
+    }
+}
+
+/* ---- the classes ---- */
+
+// the old class's dict entries go to the new class's: functions and
+// wrappers rebound, plain values kept (the new class body's own)
+static void classmembers(mp_obj_dict_t *oldd, mp_obj_dict_t *newd) {
+    mp_map_t *om = &oldd->map;
+    mp_obj_t k, ov, nv;
+    mp_map_elem_t *el;
+    size_t i;
+
+    for (i = 0; i < om->alloc; i++) {
+        if (!mp_map_slot_is_filled(om, i)) {
+            continue;
+        }
+        k = om->table[i].key;
+        ov = om->table[i].value;
+        el = mp_map_lookup(&newd->map, k, MP_MAP_LOOKUP);
+        nv = el != NULL ? el->value : MP_OBJ_NULL;
+        if (nv != MP_OBJ_NULL) {
+            if (isfun(ov) && isfun(nv)) {
+                keepadd(ov);
+                keepadd(nv);
+                rset(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+                oidmove(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+            } else if (iswrapper(ov) && iswrapper(nv)) {
+                mp_obj_t of = ((mp_obj_static_class_method_t *)MP_OBJ_TO_PTR(ov))->fun;
+                mp_obj_t nf = ((mp_obj_static_class_method_t *)MP_OBJ_TO_PTR(nv))->fun;
+
+                keepadd(ov);
+                keepadd(nv);
+                rset(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+                oidmove(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+                if (isfun(of) && isfun(nf)) {
+                    rset(MP_OBJ_TO_PTR(of), MP_OBJ_TO_PTR(nf));
+                    oidmove(MP_OBJ_TO_PTR(of), MP_OBJ_TO_PTR(nf));
+                }
+            }
+        } else if (isfun(ov) || iswrapper(ov)) {
+            upgfail("%s: not in the new definition", mp_obj_str_get_str(k));
+        }
+    }
+}
+
+// the class P's body, run in the new definition, in the graph's own dict
+static mp_int_t schemaof(const mp_obj_type_t *t);
+
+// a class's __schema__ before its dict took the new definition's
+typedef struct {
+    const void *cls;
+    mp_int_t schema;
+} olds_t;
+
+static olds_t *olds;
+static size_t nolds, aolds;
+
+static void oldsset(const void *cls, mp_int_t schema) {
+    if (nolds == aolds) {
+        aolds = aolds ? 2 * aolds : 8;
+        olds = realloc(olds, aolds * sizeof olds[0]);
+        if (olds == NULL) {
+            aolds = 0;
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the schemas"));
+        }
+    }
+    olds[nolds].cls = cls;
+    olds[nolds].schema = schema;
+    nolds++;
+}
+
+static int oldsget(const void *cls, mp_int_t *schema) {
+    size_t i;
+
+    for (i = nolds; i > 0; i--) {
+        if (olds[i - 1].cls == cls) {
+            *schema = olds[i - 1].schema;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void bindclass(mp_obj_t o) {
+    mp_obj_type_t *t = MP_OBJ_TO_PTR(o), *nt;
+    p9_space_mod_t *nm;
+    const mp_raw_code_t *rc;
+    const char *name, *dot;
+    syment_t sym;
+    mp_obj_t args[10], bases[8], body, cls, g;
+    mp_obj_dict_t *oldd, *newd;
+    int nb, r;
+    qstr qm;
+
+    if ((name = nameof(o, &qm)) == NULL) {
+        upgfail("a class with no name");
+    }
+    if (p9_world_unchanged(upgworld, qm)) {
+        return;		/* the same definition: the same class, as it is */
+    }
+    nm = p9_world_loadmod(upgworld, qm);
+    r = symfind(qm, name, &sym);
+    if (r < 0) {
+        upgfail("%q.%s: an ambiguous name", qm, name);
+    }
+    if (r == 0) {
+        upgfail("%q.%s: not in the new Environment", qm, name);
+    }
+    if (sym.kind != SCOPE_CLASS) {
+        upgfail("%q.%s: not a class in the new definition", qm, name);
+    }
+    if ((rc = walkrc(nm->rc, sym.path, sym.depth)) == NULL || rc->kind != MP_CODE_BYTECODE) {
+        upgfail("%q.%s: no class body in the new definition", qm, name);
+    }
+    /* its bases: the graph's own, rebound (or a builtin's) */
+    nb = classbases(t, bases, MP_ARRAY_SIZE(bases));
+    if (nb >= MP_ARRAY_SIZE(bases)) {
+        upgfail("%q.%s: too many bases", qm, name);
+    }
+    for (r = 0; r < nb; r++) {
+        const void *b = rget(MP_OBJ_TO_PTR(bases[r]));
+
+        if (b != NULL) {
+            bases[r] = MP_OBJ_FROM_PTR(b);
+        }
+    }
+    /* __name__ of the body's module: the class body reads it */
+    g = MP_OBJ_FROM_PTR(nm->ctx->module.globals);
+    if (mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(g))->map, MP_OBJ_NEW_QSTR(MP_QSTR___name__),
+        MP_MAP_LOOKUP) == NULL) {
+        mp_obj_dict_store(g, MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(qm));
+    }
+    body = mp_make_function_from_proto_fun(rc, nm->ctx, NULL);
+    args[0] = body;
+    dot = strrchr(name, '.');
+    args[1] = mp_obj_new_str(dot != NULL ? dot + 1 : name, strlen(dot != NULL ? dot + 1 : name));
+    for (r = 0; r < nb; r++) {
+        args[2 + r] = bases[r];
+    }
+    keepadd(o);
+    cls = mp_call_function_n_kw(MP_OBJ_FROM_PTR(&mp_builtin___build_class___obj), 2 + nb, 0, args);
+    keepadd(cls);
+    nt = MP_OBJ_TO_PTR(cls);
+    oldsset(o, schemaof(t));
+    oldd = MP_OBJ_TO_PTR(MP_OBJ_TYPE_GET_SLOT(t, locals_dict));
+    newd = MP_OBJ_TO_PTR(MP_OBJ_TYPE_GET_SLOT(nt, locals_dict));
+    /* the graph's dict object stays (its OID): the body's entries are
+       moved into it, the old class's members rebound into them */
+    if (oldd != NULL && newd != NULL && oldd != newd) {
+        classmembers(oldd, newd);
+        remapdict(oldd, newd);
+        MP_OBJ_TYPE_SET_SLOT(nt, locals_dict, oldd, 9);
+    }
+    nt->flags |= MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS;
+    rset(o, cls);
+    oidmove(o, cls);
+    /* a module-level name: for a class body that runs later */
+    if (strchr(name, '.') == NULL) {
+        mp_map_elem_t *el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(g))->map,
+            MP_OBJ_NEW_QSTR(qstr_from_str(name)), MP_MAP_LOOKUP);
+
+        if (el != NULL) {
+            el->value = cls;
+        }
+    }
+}
+
+// FROM's entries into TO's, which are the graph's own
+static void remapdict(mp_obj_dict_t *to, mp_obj_dict_t *from) {
+    mp_map_t *fm = &from->map;
+    size_t i;
+
+    mp_map_clear(&to->map);
+    for (i = 0; i < fm->alloc; i++) {
+        if (mp_map_slot_is_filled(fm, i)) {
+            mp_obj_dict_store(MP_OBJ_FROM_PTR(to), fm->table[i].key, fm->table[i].value);
+        }
+    }
+}
+
+// how deep a class is in its bases (their children go after them)
+static int cdep(const mp_obj_type_t *t, int level) {
+    mp_obj_t b[8];
+    int nb, k, d, m = level;
+
+    if (level > 8) {
+        return level;
+    }
+    nb = classbases(t, b, MP_ARRAY_SIZE(b));
+    for (k = 0; k < nb; k++) {
+        if (mp_obj_is_type(b[k], &mp_type_type) && oget(MP_OBJ_TO_PTR(b[k])) != NULL
+            && mp_obj_is_instance_type((const mp_obj_type_t *)MP_OBJ_TO_PTR(b[k]))) {
+            d = cdep(MP_OBJ_TO_PTR(b[k]), level + 1);
+            if (d > m) {
+                m = d;
+            }
+        }
+    }
+    return m;
+}
+
+static void upg_classes(void) {
+    size_t i, j, n = 0;
+    mp_obj_t *cs;
+    int *dep;
+
+    cs = malloc((ngobjs > 0 ? ngobjs : 1) * sizeof cs[0]);
+    dep = malloc((ngobjs > 0 ? ngobjs : 1) * sizeof dep[0]);
+    if (cs == NULL || dep == NULL) {
+        free(cs);
+        free(dep);
+        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the classes"));
+    }
+    for (i = 0; i < ngobjs; i++) {
+        if (livekind(gobjs[i]) == O_CLASS) {
+            dep[n] = cdep(MP_OBJ_TO_PTR(gobjs[i]), 0);
+            cs[n++] = gobjs[i];
+        }
+    }
+    /* the bases first (a class body may name them) */
+    for (i = 1; i < n; i++) {
+        for (j = i; j > 0 && dep[j - 1] > dep[j]; j--) {
+            int d = dep[j];
+            mp_obj_t c = cs[j];
+
+            dep[j] = dep[j - 1];
+            cs[j] = cs[j - 1];
+            dep[j - 1] = d;
+            cs[j - 1] = c;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        bindclass(cs[i]);
+    }
+    free(cs);
+    free(dep);
+}
+
+/* ---- the instances, and the schema's migrations ---- */
+
+typedef struct {
+    mp_obj_t inst;
+    const mp_obj_type_t *oldc;
+} mig_t;
+
+static mig_t *migs;
+static size_t nmigs, amigs;
+
+static void upg_insts(void) {
+    size_t i;
+    const void *n;
+
+    for (i = 0; i < ngobjs; i++) {
+        mp_obj_t o = gobjs[i];
+        const mp_obj_type_t *t;
+
+        if (livekind(o) != O_INSTANCE) {
+            continue;
+        }
+        t = mp_obj_get_type(o);
+        n = rget(t);
+        if (n == NULL) {
+            /* an instance of a class the graph has not: kept as it is */
+            continue;
+        }
+        if (nmigs == amigs) {
+            amigs = amigs ? 2 * amigs : 16;
+            migs = realloc(migs, amigs * sizeof migs[0]);
+            if (migs == NULL) {
+                amigs = 0;
+                mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: the migrations"));
+            }
+        }
+        migs[nmigs].inst = o;
+        migs[nmigs].oldc = t;
+        nmigs++;
+        ((mp_obj_base_t *)MP_OBJ_TO_PTR(o))->type = (mp_obj_type_t *)n;
+    }
+}
+
+// a class's __schema__ (0: none)
+static mp_int_t schemaof(const mp_obj_type_t *t) {
+    nlr_buf_t nlr;
+    mp_obj_t v;
+
+    if (nlr_push(&nlr) == 0) {
+        v = mp_load_attr(MP_OBJ_FROM_PTR(t), MP_QSTR___schema__);
+        nlr_pop();
+    } else {
+        return 0;	/* no such attribute: 0, as none was ever set */
+    }
+    if (!mp_obj_is_int(v)) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space: upgrade: %q.__schema__ is not an int"),
+            (qstr)t->name);
+    }
+    return mp_obj_get_int(v);
+}
+
+// the members of an instance, as a copy: a hook cannot destroy them
+static mp_obj_t oldstate(mp_obj_t inst) {
+    mp_obj_instance_t *o = MP_OBJ_TO_PTR(inst);
+    mp_obj_t d = mp_obj_new_dict(o->members.used);
+    size_t i;
+
+    for (i = 0; i < o->members.alloc; i++) {
+        if (mp_map_slot_is_filled(&o->members, i)) {
+            mp_obj_dict_store(d, o->members.table[i].key, o->members.table[i].value);
+        }
+    }
+    return d;
+}
+
+// a class's __migrate__, if it has one (a lookup of a missing one is
+// an AttributeError: not a failure of the upgrade, a refusal of it)
+static int loadhook(const mp_obj_type_t *t, mp_obj_t *hook) {
+    nlr_buf_t nlr;
+    mp_obj_t md[2];
+
+    if (nlr_push(&nlr) == 0) {
+        mp_load_method(MP_OBJ_FROM_PTR(t), MP_QSTR___migrate__, md);
+        nlr_pop();
+        *hook = md[0];
+        return md[0] != MP_OBJ_NULL;
+    }
+    return 0;
+}
+
+// each instance whose class's schema changed, migrated once
+static int upg_migrate(void) {
+    size_t i;
+    mp_obj_t hook, inst;
+    const mp_obj_type_t *t;
+    mp_int_t so, sn;
+    int n = 0;
+
+    for (i = 0; i < nmigs; i++) {
+        inst = migs[i].inst;
+        t = mp_obj_get_type(inst);
+        if (!oldsget(migs[i].oldc, &so)) {
+            so = schemaof(migs[i].oldc);
+        }
+        sn = schemaof(t);
+        if (so == sn) {
+            continue;
+        }
+        if (!loadhook(t, &hook)) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: upgrade: %q.__schema__ %d -> %d, but no __migrate__"),
+                (qstr)t->name, (int)so, (int)sn);
+        }
+        nlr_buf_t nlr;
+        mp_obj_t st = oldstate(inst);
+
+        if (nlr_push(&nlr) == 0) {
+            mp_call_function_2(hook, inst, st);
+            nlr_pop();
+        } else {
+            mp_printf(&mp_plat_print, "space: upgrade: %q.__migrate__ failed: ", (qstr)t->name);
+            mp_obj_print_helper(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val), PRINT_EXC);
+            mp_printf(&mp_plat_print, "\n");
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: upgrade: %q.__migrate__ failed"), (qstr)t->name);
+        }
+        n++;
+    }
+    return n;
+}
+
+/* ---- every reference in the graph ---- */
+
+static void rewriteone(mp_obj_t o) {
+    mp_obj_t *items;
+    size_t n, k;
+    int kind = livekind(o);
+
+    switch (kind) {
+    case O_LIST:
+        mp_obj_list_get(o, &n, &items);
+        for (k = 0; k < n; k++) {
+            items[k] = mapref(items[k]);
+        }
+        break;
+    case O_DICT:
+        remap(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(o))->map);
+        break;
+    case O_INSTANCE:
+        remap(&((mp_obj_instance_t *)MP_OBJ_TO_PTR(o))->members);
+        break;
+    case O_CELL:
+        mp_obj_cell_set(o, mapref(mp_obj_cell_get(o)));
+        break;
+    case O_CLOSURE: {
+        closure_t *c = MP_OBJ_TO_PTR(o);
+
+        c->fun = mapref(c->fun);
+        for (k = 0; k < c->n_closed; k++) {
+            c->closed[k] = mapref(c->closed[k]);
+        }
+        break;
+    }
+    case O_STATICMETH:
+    case O_CLASSMETH: {
+        mp_obj_static_class_method_t *w = MP_OBJ_TO_PTR(o);
+
+        w->fun = mapref(w->fun);
+        break;
+    }
+    case O_BOUNDMETH: {
+        boundmeth_t *b = MP_OBJ_TO_PTR(o);
+
+        b->meth = mapref(b->meth);
+        b->self = mapref(b->self);
+        break;
+    }
+    }
+}
+
+static void upg_rewrite(void) {
+    size_t i;
+
+    /* the immutable ones first (a new tuple goes where the old was) */
+    for (i = 0; i < ngobjs; i++) {
+        int kind = livekind(gobjs[i]);
+
+        if (kind == O_TUPLE || kind == O_SET || kind == O_FROZENSET) {
+            gobjs[i] = mapref(gobjs[i]);
+        }
+    }
+    for (i = 0; i < ngobjs; i++) {
+        if (livekind(gobjs[i]) != O_TUPLE) {
+            rewriteone(gobjs[i]);
+        }
+    }
+}
+
+static void upg_clear(void) {
+    size_t i;
+
+    for (i = 0; i < npends; i++) {
+        free(pends[i].def);
+    }
+    free(pends);
+    pends = NULL;
+    npends = apends = 0;
+    free(migs);
+    migs = NULL;
+    nmigs = amigs = 0;
+    free(gobjs);
+    gobjs = NULL;
+    ngobjs = agobjs = 0;
+    rclear();
+    free(olds);
+    olds = NULL;
+    nolds = aolds = 0;
+    MP_STATE_VM(p9_upgkeep) = MP_OBJ_NULL;
+    for (i = 0; i < nmodsyms; i++) {
+        free(modsyms[i].e);
+    }
+    free(modsyms);
+    modsyms = NULL;
+    nmodsyms = amodsyms = 0;
+}
+
+void p9_image_upgrade(void *world) {
+    nlr_buf_t nlr;
+    p9_space_mod_t *om;
+    int nold, nmig;
+
+    upgworld = world;
+    if (nlr_push(&nlr) != 0) {
+        upg_clear();
+        nlr_jump(nlr.ret_val);
+    }
+    collectobjs();
+    om = p9_space_mods(&nold);
+    scan_names(om, nold);
+    upg_mods();
+    upg_funs();
+    upg_classes();
+    upg_insts();
+    upg_rewrite();
+    pendfill();
+    nmig = upg_migrate();
+    p9_image_all_dirty();
+    nlr_pop();
+    if (nmig > 0) {
+        mp_printf(&mp_plat_print, "space: upgrade: %d migrations\n", nmig);
+    }
+    upg_clear();
 }

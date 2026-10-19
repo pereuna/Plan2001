@@ -17,6 +17,10 @@ p9_space_mod_t *p9_space_loadmod(qstr name);
 enum {
     OID_ROOTS = 1,
     OID_FIRST = 2,
+    // V7 (docs/v7-upgrade.md 4.1): the Environment epochs, an internal
+    // record of p9image.c's (not a MicroPython object).  UINT64_MAX is
+    // obj.c's "no object selected" sentinel, so the one below it.
+    OID_UPGRADE_META = 0xfffffffffffffffeULL,
 };
 
 // V2-V4's image (v<N>): restored once, its objects then given OIDs
@@ -26,14 +30,45 @@ void p9_image_restore(const byte *p, size_t n);
 // VIEW (space.view): restored into the view's modules and __main__,
 // the objects foreign (no OIDs, a commit refuses them)
 void p9_image_restore_store(const byte *p, size_t n, uint64_t *version, char *user, size_t *nuser, void *view);
-// a view's module NAME (loaded once, not run, not in sys.modules) and
-// its __main__'s dict (p9space.c)
+// V7: the restored graph rebound to the new Environment's definitions
+// (WORLD: p9_world_env's), each function, class and instance, and each
+// __schema__ change migrated by its class's __migrate__.  Every OID is
+// kept; the graph is re-encoded in full by the commit.  A failure
+// raises, and nothing is published.
+void p9_image_upgrade(void *world);
+// the symbol table of MODULE's definition (its source compiled), for
+// p9_image_upgrade: the qualnames of its functions and classes.  A
+// raised error: the definition cannot be read.
+void p9_image_symtab(qstr module, const char *source);
+// and it must describe the definition's raw code (the .mpy's tree)
+void p9_image_symcheck(qstr module, const mp_raw_code_t *rc);
+// a world's module NAME (loaded once, not run, not in sys.modules) and
+// its __main__'s dict (p9space.c): the world is what a view and an
+// upgrade hand to p9_image_restore_store / p9_image_upgrade
 p9_space_mod_t *p9_view_loadmod(void *view, qstr name);
 mp_obj_t p9_view_main(void *view);
+
+// V7: the upgrade's new Environment, a world of its own (p9space.c):
+// its modules are loaded from an Environment into its own contexts, not
+// in sys.modules, and their globals are the Space's own dicts (the
+// roots) so that the rebound objects see the same state
+void *p9_world_env(const char *lib, mp_obj_t envmap);
+p9_space_mod_t *p9_world_loadmod(void *w, qstr name);
+// the module's definition (its .py's path: LIB/mod/SHA.py) and the
+// Environment's definition for the name (NULL: not in the Environment)
+const char *p9_world_defpath(void *w, qstr name, char *buf, size_t n);
+const char *p9_world_defsha(void *w, qstr name);
+// 1: the same definition as the Space's Environment has (its code, so
+// its paths, are the same and no name is needed)
+int p9_world_unchanged(void *w, qstr name);
+p9_space_mod_t *p9_world_mods(void *w, int *n);
 // a commit's records: the changed objects (new OIDs from *next) and
 // the freed, given to write (0 written, -1 failed: all rolled back).
-// Returns 1 written, 0 nothing changed, -1 write's failure
-int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a);
+// FORCE: write even when no object changed (an Environment or a
+// catalog only).  Returns 1 written, 0 nothing changed, -1 failure
+int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a, int force);
+// every object of the graph changed (an upgrade: all records rewritten)
+void p9_image_all_dirty(void);
 // $spacecheck: every object reached encoded again and compared with
 // what the store has: the number differing (printed)
 int p9_image_check(void);
