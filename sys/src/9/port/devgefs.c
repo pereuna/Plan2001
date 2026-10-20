@@ -29,6 +29,9 @@
 Chan*	gefsserve(char*, Chan*, vlong, vlong, int, char*, void**);
 void	gefspost(Chan*, char*);
 void	gefsshutdown(void*);
+void*	geopen(char*, Chan*, vlong, vlong, int);
+void	gestart(void*);
+void	geprobe(void*);
 
 /*
  * Plan2001: the volumes this device has started, for the shutdown at
@@ -267,6 +270,49 @@ gefsroot(char *spec, int rw)
 }
 
 /*
+ * Plan2001 stage 1's gate (docs/PoC-experimental-demo.md 1): getest=
+ * PARTUUID=guid|DEVICE opens an existing GE volume, starts the storage
+ * engine and reads and writes a raw key/value record.  No root, FS
+ * mount, user metadata or 9P server is involved.
+ */
+static void
+geprobevol(char *spec)
+{
+	char dev[64];
+	vlong off, size;
+	Chan *c;
+	Dir *d;
+	void *v;
+
+	off = 0;
+	size = 0;
+	if(cistrncmp(spec, "PARTUUID=", 9) == 0){
+		if(!scandisks(spec+9, dev, sizeof dev, &off, &size))
+			error("no disk has that partition");
+	}else
+		kstrcpy(dev, spec, sizeof dev);
+	c = namec(dev, Aopen, ORDWR, 0);
+	if(waserror()){
+		cclose(c);
+		nexterror();
+	}
+	if(!isgefs(c, off))
+		error("no gefs there");
+	if(size == 0){
+		d = dirchanstat(c);
+		size = d->length;
+		free(d);
+	}
+	v = geopen(dev, c, off, size, 1);
+	poperror();	/* c is the GE volume's now */
+	print("getest: GE volume %s@%lld, %lld MiB, opened without FS\n",
+		dev, off, size/MiB);
+	gestart(v);
+	geprobe(v);
+	gefsshutdown(v);
+}
+
+/*
  * plan9.ini's root= ([-w] PARTUUID=guid|DEVICE [!tree]): the kernel's
  * gefs mounted before / in the first process, before it runs init
  * (init0, docs/init.md).  The host owner is user= (as factotum -u would
@@ -281,6 +327,14 @@ rootmount(void)
 	if((u = getconf("user")) != nil && *u != 0){
 		kstrdup(&eve, u);
 		kstrdup(&up->user, u);
+	}
+	if((s = getconf("getest")) != nil && *s != 0){
+		if(waserror()){
+			print("getest=%s: %s\n", s, up->errstr);
+			return 0;
+		}
+		geprobevol(s);
+		poperror();
 	}
 	if((s = getconf("root")) == nil)
 		return 0;

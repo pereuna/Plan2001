@@ -904,20 +904,18 @@ cachemb(void)
 }
 
 /*
- * gefs on dev (its partition at off, size long: c, opened), written
- * if rw: loaded, its procs started, serving 9P on a pipe.  The other
- * end of the pipe, for mntattach.  Its console is posted as srv.
+ * Plan2001: open a GE volume (docs/PoC-experimental-demo.md 1).  This
+ * is the storage engine's context: its device, cache, superblock,
+ * arenas, logs and recovery.  It loads no FS mount or user metadata and
+ * starts no 9P server; gefsserve adds those for the legacy root.
  */
-Kchan*
-gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv, void **vol)
+void*
+geopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
 {
 	static int nvol;	/* instances made, for their names */
-	Kchan *s0, *s1, *c0, *c1;
 	Gefs *fs;
 	char *d;
-	int i, nproc, sfd, cfd;
 	int mb;
-	Conn *conn;
 
 	/* main.c's sanity checks */
 	assert(4*Kpmax < Pivspc);
@@ -961,11 +959,24 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv, void **
 
 	d = nil;
 	kstrdup(&d, dev);
-	dev = d;
-	fs->k.raw = rawfile(dev);
-	newgfd(fs, c, dev, off, size);
-	loadfs(fs, dev);
+	fs->k.raw = rawfile(d);
+	newgfd(fs, c, d, off, size);
+	loadge(fs, d);
+	return fs;
+}
 
+/*
+ * Plan2001: the engine's kprocs (mutator, sweeper, tasks, readers,
+ * syncers), without FS's console and 9P server.  A native O volume
+ * needs these and nothing from FS (docs/PoC-experimental-demo.md 1).
+ */
+void
+gestart(void *v)
+{
+	Gefs *fs;
+	int i, nproc;
+
+	fs = v;
 	nproc = conf.nmach*2;
 	if(nproc < 2)
 		nproc = 2;
@@ -988,11 +999,6 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv, void **
 		fs->arenas[i].sync = &fs->syncq[i%fs->nsyncers];
 	}
 
-	mkpipe(&s0, &s1);
-	mkpipe(&c0, &c1);
-	sfd = newgfd(fs, s1, nil, 0, 0);
-	cfd = newgfd(fs, c1, nil, 0, 0);
-	launch(fs, runcons, (void*)(uintptr)cfd, aincl(&fs->nworker, 1), "cons");
 	launch(fs, runmutate, nil, aincl(&fs->nworker, 1), "mutate");
 	launch(fs, runsweep, nil, aincl(&fs->nworker, 1), "sweep");
 	launch(fs, runtasks, nil, -1, "tasks");
@@ -1000,6 +1006,81 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv, void **
 		launch(fs, runread, fs->rdchan[i], aincl(&fs->nworker, 1), "read");
 	for(i = 0; i < fs->nsyncers; i++)
 		launch(fs, runsync, &fs->syncq[i], aincl(&fs->nworker, 1), "sync");
+}
+
+/*
+ * Plan2001 stage 1 gate: a raw GE key/value record, read and written
+ * back on the volume opened by geopen, before FS's loadfs.  The key is
+ * GE's config namespace in the snapshot tree, not an FS file or path.
+ */
+void
+geprobe(void *v)
+{
+	char kbuf[Keymax], vbuf[8], xbuf[Kvmax];
+	Gefs *fs;
+	Key k;
+	Kvp kv;
+	Msg m;
+	uvlong seq;
+
+	fs = v;
+	kbuf[0] = Kconf;
+	strecpy(kbuf+1, kbuf+sizeof(kbuf), "getest.seq");
+	k.k = kbuf;
+	k.nk = 1+strlen("getest.seq");
+	seq = 0;
+	if(btlookup(&fs->snap, &k, &kv, xbuf, sizeof(xbuf))){
+		if(kv.nv != 8)
+			error("getest: bad value length");
+		seq = UNPACK64(kv.v);
+	}
+	print("getest: raw GE key getest.seq = %llud\n", seq);
+	seq++;
+	PACK64(vbuf, seq);
+	m.op = Oinsert;
+	m.k = kbuf;
+	m.nk = k.nk;
+	m.v = vbuf;
+	m.nv = sizeof(vbuf);
+	qlock(&fs->mutlk);
+	if(waserror()){
+		qunlock(&fs->mutlk);
+		nexterror();
+	}
+	btupsert(&fs->snap, &m, 1);
+	qunlock(&fs->mutlk);
+	poperror();
+	if(!btlookup(&fs->snap, &k, &kv, xbuf, sizeof(xbuf)) || kv.nv != 8 || UNPACK64(kv.v) != seq)
+		error("getest: raw GE write did not read back");
+	gesync(fs, 0);
+	print("getest: raw GE key getest.seq written %llud, synced: PASS\n", seq);
+}
+
+/*
+ * gefs on dev (its partition at off, size long: c, opened), written
+ * if rw: its procs started, serving 9P on a pipe.  The other end of the
+ * pipe, for mntattach.  Its console is posted as srv.
+ */
+Kchan*
+gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv, void **vol)
+{
+	Kchan *s0, *s1, *c0, *c1;
+	Gefs *fs;
+	int sfd, cfd;
+	int mb;
+	Conn *conn;
+
+	fs = geopen(dev, c, off, size, rw);
+	mb = fs->cmax*Blksz/MiB;
+
+	mkpipe(&c0, &c1);
+	cfd = newgfd(fs, c1, nil, 0, 0);
+	launch(fs, runcons, (void*)(uintptr)cfd, aincl(&fs->nworker, 1), "cons");
+	gestart(fs);
+	loadfs(fs);
+
+	mkpipe(&s0, &s1);
+	sfd = newgfd(fs, s1, nil, 0, 0);
 	if((conn = newconn(fs, sfd, sfd, -1)) == nil)
 		sysfatal("newconn: %r");
 	launch(fs, runfs, conn, -1, "srv");

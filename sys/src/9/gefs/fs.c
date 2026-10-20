@@ -226,6 +226,13 @@ sync(Gefs *fs, int id)
 	poperror();
 }
 
+/* Plan2001: sync from a GE caller that is not the sweeper (stage 1's probe) */
+void
+gesync(Gefs *fs, int id)
+{
+	sync(fs, id);
+}
+
 /*
  * Adds or removes a labelled snapshot; if the tree
  * needs to be cleaned up outside of the epoch, it

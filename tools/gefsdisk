@@ -14,6 +14,9 @@
 #                             without it the machine's screen and keyboard
 #   INIT=/init                plan9.ini init= (default the kernel's:
 #                             /$objtype/init -t)
+#   NOROOTFS=1                no root= (an init=/boot/... without an FS)
+#   GETEST=partuuid|SPEC      plan9.ini getest= (partuuid: this disk's
+#                             GE partition; stage 1's raw GE probe)
 #   INI='k=v;k=v'             more plan9.ini lines, ;-separated
 #   ESPDIR=EFI/BOOT           plan9.ini and the kernel in the loader's
 #                             directory, not the ESP's root (the loader
@@ -37,7 +40,15 @@ rm -f "$esp"
 {
 	printf 'bootfile=/%s\n' "${ESPDIR:+$ESPDIR/}$kernel"
 	[ -n "$CONSOLE" ] && printf 'console=%s\n' "$CONSOLE"
-	printf 'user=glenda\nroot=-w PARTUUID=%s\n' "$puuid"
+	printf 'user=glenda\n'
+	[ "${NOROOTFS:-0}" = 1 ] || printf 'root=-w PARTUUID=%s\n' "$puuid"
+	if [ -n "$GETEST" ]; then
+		if [ "$GETEST" = partuuid ]; then
+			printf 'getest=PARTUUID=%s\n' "$puuid"
+		else
+			printf 'getest=%s\n' "$GETEST"
+		fi
+	fi
 	[ -n "$INIT" ] && printf 'init=%s\n' "$INIT"
 	if [ -n "$INI" ]; then printf '%s\n' "$INI" | tr ';' '\n' | grep .; fi
 } > "$out.ini"

@@ -52,31 +52,26 @@ loadarena(Arena *a, Bptr hd)
 	a->used = a->size;
 }
 
+/*
+ * Plan2001: open and load a GE volume only: its superblock, arenas and
+ * allocation logs.  This is the storage engine's part of what loadfs
+ * used to do; FS adds its mount and user metadata below, and O will use
+ * this without either (docs/PoC-experimental-demo.md 1).
+ */
 void
-loadfs(Gefs *fs, char *dev)
+loadge(Gefs *fs, char *dev)
 {
 	Bptr bhd, btl;
-	Mount *dump;
 	Arena *a;
-	Tree *t;
 	Dir *d;
 	int i;
 	vlong eb;
 
-	if((dump = mallocz(sizeof(*dump), 1)) == nil)
-		sysfatal("malloc: %r");
-	dump->fs = fs;
-	if(waserror())
-		sysfatal("load fs: %s", errmsg());
-	snprint(dump->name, sizeof(dump->name), "dump");
-	aswapl(&dump->ref, 1);
-	dump->gen = -1;
-	aswapp(&dump->root, &fs->snap);
-
-	fs->snapmnt = dump;
 	fs->narena = 1;
 	fs->dropdl.hd = Zb;
 	fs->dropdl.tl = Zb;
+	if(waserror())
+		sysfatal("load ge: %s", errmsg());
 	if((fs->fd = open(dev, ORDWR)) == -1)
 		sysfatal("open %s: %r", dev);
 	if((d = dirfstat(fs->fd)) == nil)
@@ -117,11 +112,6 @@ loadfs(Gefs *fs, char *dev)
 		loadlog(a, a->loghd);
 	}
 
-	if((t = opensnap(fs, "adm", nil)) == nil)
-		sysfatal("load users: no adm label");
-	loadusers(t);
-	poperror();
-
 	fprint(2, "load %s:\n", dev);
 	fprint(2, "\tsnaptree:\t%B\n", fs->snap.bp);
 	fprint(2, "\tnarenas:\t%d\n", fs->narena);
@@ -131,5 +121,34 @@ loadfs(Gefs *fs, char *dev)
 	fprint(2, "\tnextgen:\t%lld\n", fs->nextgen);
 	fprint(2, "\tblocksize:\t%lld\n", Blksz);
 	fprint(2, "\tcachesz:\t%lld MiB\n", fs->cmax*Blksz/MiB);
+	poperror();
+}
+
+/*
+ * Plan2001: the FS profile's part of the old loadfs: its dump mount and
+ * the user metadata from the adm snapshot.  GE is already loaded
+ * (loadge); nothing here is on O's path (docs/PoC-experimental-demo.md 1).
+ */
+void
+loadfs(Gefs *fs)
+{
+	Mount *dump;
+	Tree *t;
+
+	if((dump = mallocz(sizeof(*dump), 1)) == nil)
+		sysfatal("malloc: %r");
+	dump->fs = fs;
+	if(waserror())
+		sysfatal("load fs: %s", errmsg());
+	snprint(dump->name, sizeof(dump->name), "dump");
+	aswapl(&dump->ref, 1);
+	dump->gen = -1;
+	aswapp(&dump->root, &fs->snap);
+
+	fs->snapmnt = dump;
+	if((t = opensnap(fs, "adm", nil)) == nil)
+		sysfatal("load users: no adm label");
+	loadusers(t);
 	closesnap(t);
+	poperror();
 }

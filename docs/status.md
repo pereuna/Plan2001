@@ -1,5 +1,15 @@
 # Tila ja suunnitelma
 
+> **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md):** kokeilun
+> vaihe 1: GE:n avaaminen on erotettu FS:stä (`geopen`, `loadge`,
+> `gestart`); FS:n `loadfs` on nyt vain dump-mount ja käyttäjät.  QEMU-testi
+> (`tools/test-ge.sh`, plan9.ini `getest=`) avaa GE-tilavuuden ilman
+> `root=`a, lukee ja kirjoittaa raa'an Kconf-avain/arvo-tietueen,
+> synkronoi ja toistaa kirjoituksen seuraavassa bootissa; FS:ää ei
+> mountata eikä 9P-palvelinta käynnistetä.  O-profiilia, oliokatalogia,
+> `-O`/`-S`-boottia tai natiiveja oliofunktioita ei ole; ne ovat PoC:n
+> vaiheet 2–5.
+
 > **20.10.2026:** GE/FS/O-jako aloitettu: `docs/ge-fs-o.md`:n vaihe 1
 > (GE-instanssien erottelu) ja vaiheen 2 olio-ytimen osa on toteutettu.
 > Kernelin gefsissä ei ole enää globaalia `Gefs *fs`:ää eikä yhden
