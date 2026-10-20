@@ -74,6 +74,27 @@
 #   T6.3  a foreign object in a commit: CommitError; an int of it kept
 #   T6.4  graph.py's Space as a view: search, links, its own classes
 #   T6.5  version=v; one not kept refused; the writer's lock no matter
+# V7 (the code and the state to a new Environment, docs/v7-upgrade.md):
+#   T7.1  calc v1->v2: the state, the OIDs and the saved aliases kept;
+#         the new code runs, through the graph and after a boot
+#   T7.2  aliases in a list, a dict and an attribute; the definitions'
+#         children reordered: every alias runs v2's code
+#   T7.3  __schema__ changed with no __migrate__: refused, nothing
+#         published; with one: run once per instance
+#   T7.4  QEMU killed amid the upgrade's write: the next boot has the
+#         old one or the new one, whole
+#   T7.5  only the Environment changes: the version is published and
+#         the new definition is what runs
+#   T7.6  100 commits and a boot: the version before the upgrade stays
+#         readable, with its own Environment and code; K <= pin
+#   T7.7  a second upgrade: the pin is the version just before it, every
+#         version reads with its own code
+#   T7.8  a module dropped, a name gone: refused, nothing published
+#   T7.9  a failed write ($spacefail): nothing published
+#   T7.10 a cycle, a shared reference, a dict keyed by an instance
+#   T7.11 a V5 store's 72-byte header becomes V7's 88; a V2-V4 Space
+#         (no store) refused, its files kept
+#   T7.12 the upgrade takes the writer's lock: none beside a writer
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
@@ -746,7 +767,205 @@ def vhw():
             return
         crash()
 
-phases = [v0, v1, v2, v3, v4, v5, v6]
+def v7():
+    # V7 (docs/v7-upgrade.md): the code and the state to a new
+    # Environment, in one version, the one before it pinned.  calc and
+    # shapes change their bodies and their children's order; aliases of
+    # theirs are saved in a list, a dict and an attribute; sch changes
+    # its __schema__.
+    src = {
+        'calc1': "def f(x):\n    return x * 2\n\ndef helper(v):\n    return 'h1-' + str(v)\n\n"
+            "class C:\n    __schema__ = 0\n    def __init__(self, n):\n        self.n = n\n"
+            "    def total(self):\n        return self.n + 1\n    def kind(self):\n        return 'v1'\n",
+        'calc2': "class C:\n    __schema__ = 0\n    def kind(self):\n        return 'v2'\n"
+            "    def twice(self):\n        return self.n * 2\n    def total(self):\n        return self.n + 10\n"
+            "    def __init__(self, n):\n        self.n = n\n\n"
+            "def f(x):\n    return x * 3\n\ndef helper(v):\n    return 'h2-' + str(v)\n",
+        'calc3': "class C:\n    __schema__ = 0\n    def kind(self):\n        return 'v3'\n"
+            "    def twice(self):\n        return self.n * 3\n    def total(self):\n        return self.n + 20\n"
+            "    def __init__(self, n):\n        self.n = n\n\n"
+            "def f(x):\n    return x * 4\n\ndef helper(v):\n    return 'h3-' + str(v)\n",
+        'shapes1': "def a(x):\n    return 'a1'\n\ndef b(x):\n    return 'b1'\n\n"
+            "class Base:\n    def __init__(self, x):\n        self.x = x\n    def get(self):\n        return self.x\n"
+            "    @staticmethod\n    def twice(v):\n        return 2 * v\n"
+            "    @classmethod\n    def make(cls, v):\n        return cls(v)\n\n"
+            "class Sub(Base):\n    def get(self):\n        return self.x + 100\n\n"
+            "class Holder:\n    pass\n\n"
+            "def scale(v, f=3, *, off=1):\n    return v * f + off\n",
+        'shapes2': "class Holder:\n    pass\n\n"
+            "def b(x):\n    return 'b2'\n\ndef a(x):\n    return 'a2'\n\n"
+            "class Base:\n    def __init__(self, x):\n        self.x = x\n"
+            "    def get(self):\n        return self.x * 2\n"
+            "    @classmethod\n    def make(cls, v):\n        return cls(v)\n"
+            "    @staticmethod\n    def twice(v):\n        return 4 * v\n\n"
+            "class Sub(Base):\n    def get(self):\n        return self.x + 200\n\n"
+            "def scale(v, f=3, *, off=1):\n    return v * f + off + 1000\n",
+        'sch1': "class S:\n    __schema__ = 0\n    def __init__(self, a):\n        self.a = a\n"
+            "    def __hash__(self):\n        return 7\n"
+            "    def __eq__(self, o):\n        return isinstance(o, S) and o.a == self.a\n",
+        'sch2': "class S:\n    __schema__ = 1\n    def __init__(self, a):\n        self.a = a\n"
+            "    def __hash__(self):\n        return 7\n"
+            "    def __eq__(self, o):\n        return isinstance(o, S) and o.a == self.a\n",
+        'sch3': "class S:\n    __schema__ = 1\n    def __init__(self, a):\n        self.a = a\n"
+            "    def __hash__(self):\n        return 7\n"
+            "    def __eq__(self, o):\n        return isinstance(o, S) and o.a == self.a\n"
+            "    def __migrate__(self, old):\n        self.a = old['a'] * 10\n        self.parts = ['migrated']\n",
+        'gone': "def g(x):\n    return x + 1\n",
+    }
+    if not boot():
+        return
+    raw('import plan9 as p, space', r'\A\Z')
+    defs = ("try:\n    p.create('/usr/glenda/src7', p.OREAD, p.DMDIR | 0o775)\nexcept OSError:\n    pass\n")
+    for n, t in src.items():
+        defs += "with open('/usr/glenda/src7/%s.py', 'w') as f:\n    f.write(%r)\n" % (n, t)
+    def envname(mods):
+        """the Environment's name: its text's SHA-256 (space.mkenv)"""
+        t = "runtime mp-1.27.0-mpy6.3\n" + "".join(
+            "%s %s\n" % (n, hashlib.sha256(mods[n].encode()).hexdigest()) for n in sorted(mods))
+        return hashlib.sha256(t.encode()).hexdigest()
+    e1 = envname({'calc': src['calc1'], 'shapes': src['shapes1'], 'sch': src['sch1']})
+    e2 = envname({'calc': src['calc2'], 'shapes': src['shapes2'], 'sch': src['sch3']})
+    e3 = envname({'calc': src['calc3'], 'shapes': src['shapes2'], 'sch': src['sch3']})
+    es = envname({'calc': src['calc2'], 'shapes': src['shapes2'], 'sch': src['sch2']})
+    defs += ("h = {n: space.define('/usr/glenda/src7/' + n + '.py') for n in %r}\n"
+        "e1 = space.mkenv({'calc': h['calc1'], 'shapes': h['shapes1'], 'sch': h['sch1']})\n"
+        "e2 = space.mkenv({'calc': h['calc2'], 'shapes': h['shapes2'], 'sch': h['sch3']})\n"
+        "e3 = space.mkenv({'calc': h['calc3'], 'shapes': h['shapes2'], 'sch': h['sch3']})\n"
+        "es = space.mkenv({'calc': h['calc2'], 'shapes': h['shapes2'], 'sch': h['sch2']})\n"
+        "print('envs', e1 == %r, e2 == %r, e3 == %r, es == %r)\n"
+        % (tuple(sorted(src)), e1, e2, e3, es))
+    code = ("def run(src, sp='t7', args=None):\n"
+        "    pid = p.spawn(['/boot/mp'] + (['-S', sp] if args is None else args) + ['-c', src])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n"
+        "    print('status', repr(w[1]))\n"
+        "def upg(sp, env, more=''):\n"
+        "    c = 'import space\\nspace.upgrade(' + repr(sp) + ', ' + repr(env) + ')' + more\n"
+        "    pid = p.spawn(['/boot/mp', '-c', c])\n"
+        "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n"
+        "    print('status', repr(w[1]))\n"
+        "def envset(n, v):\n"
+        "    if v is None:\n        try:\n            p.remove('/env/' + n)\n        except OSError:\n            pass\n"
+        "    else:\n        with open('/env/' + n, 'w') as f:\n            f.write(v)\n"
+        "def hdr(sp='t7'):\n"
+        "    fd = p.open('/usr/glenda/space/' + sp + '/obj', p.OREAD)\n    b = p.read(fd, 128)\n    p.close(fd)\n"
+        "    g = lambda o, n: int.from_bytes(b[o:o + n], 'big')\n    nu = g(17, 4)\n"
+        "    return (g(1, 8), g(9, 8), b[21:85].decode(), g(21 + 80, 8) if nu == 88 else 0, nu)\n")
+    raw(code, r'\A\Z', secs=60, name='V7 sources, run(), upg(), envset(), hdr()')
+    raw(defs, r'envs True True True True', secs=180, name='V7 the Environments')
+    raw("space.create('t7', e1)\nspace.create('t7e', e1)\nspace.create('t7g', e1)", r'\A\Z', secs=60,
+        name='V7 the Spaces')
+    out = raw("print(hdr())", r"^\(\d+, \d+, '[0-9a-f]{64}', 0, 72\)$", name='T7.11 a V5 store: 72 bytes, no pin')
+    raw("run(%r)" % ("import calc, shapes, sch\na = calc.C(10)\nb = shapes.Base(5)\ns = shapes.Sub.make(7)\n"
+        "f = calc.f\nlst = [calc.f, shapes.Base]\nd = {'f': calc.f}\nhl = shapes.Holder()\nhl.m = calc.C.total\n"
+        "cyc = []\ncyc.append(cyc)\nshared = {'x': cyc, 'again': cyc}\nkd = {sch.S(1): 'one'}\n"
+        "print('made', a.total(), a.kind(), f(2), lst[0](2), d['f'](2), hl.m(a), len(kd), b.get(), s.get())"),
+        r"^made 11 v1 4 4 4 11 1 5 107\nstatus ''$", secs=60, name='V7 the objects')
+    out = raw("run(%r)" % ("import space\nprint('oids', space.oid(a), space.oid(lst), space.oid(lst[1]), "
+        "space.oid(d), space.oid(kd), space.oid(cyc))"),
+        r"^oids (\d+) (\d+) (\d+) (\d+) (\d+) (\d+)\nstatus ''$", secs=60, name='V7 their OIDs')
+    m = re.search(r'^oids ([\d ]+)$', out or '', re.M)
+    oids = m.group(1) if m else None
+    crash()
+    if not boot():
+        return
+    raw('import plan9 as p, space\n' + code, r'\A\Z', name='V7 run(), upg(), hdr()')
+    raw(defs, r'envs True True True True', secs=180, name='V7 the Environments')
+    raw("run(%r)" % ("import calc, shapes, sch\nprint('restored', a.total(), a.kind(), f(2), lst[0](2), "
+        "d['f'](2), hl.m(a), len(kd), b.get(), s.get())\n"
+        "print('cycle', cyc[0] is cyc, shared['x'] is cyc, kd[sch.S(1)])"),
+        r"^restored 11 v1 4 4 4 11 1 5 107\ncycle True True one\nstatus ''$", secs=60,
+        name='V7 after the crash: the old code')
+    raw("upg('t7', es)", r"no __migrate__.*\nstatus '.+'$", secs=120,
+        name='T7.3 __schema__ changed, no __migrate__: refused')
+    raw("print(hdr()[0:2])", r"^\(\d+, \d+\)$", name='T7.3 the version is as it was')
+    raw("bg = p.spawn(['/boot/mp', '-S', 't7', '-c', 'import plan9\\nplan9.sleep(4000)'])\np.sleep(1500)\n"
+        "upg('t7', e2)\nwhile p.wait()[0] != bg:\n    pass",
+        r"space t7 locked\nstatus '.+'$", secs=60, name='T7.12 the lock: no upgrade beside a writer')
+    raw("envset('spacefail', '1')\nupg('t7', e2)\nenvset('spacefail', None)",
+        r"(commit failed|object record|OSError|CommitError).*\nstatus '.+'$", secs=120,
+        name='T7.9 a failed write: nothing published')
+    raw("run(%r)" % "print('still', a.kind(), a.total())", r"^still v1 11\nstatus ''$", secs=60,
+        name='T7.9 the version before is what is read')
+    raw("upg('t7', e2)", r"^((\d+ migrations|space: upgrade: \d+ new definitions)\n)*status ''$", secs=180,
+        name='T7.1 the upgrade to v2')
+    raw("run(%r)" % ("import calc, shapes, sch, space\nprint('new', a.total(), a.kind(), a.twice(), f(2), "
+        "lst[0](2), d['f'](2), hl.m(a))\n"
+        "print('shapes', b.get(), s.get(), lst[1](4).get(), shapes.Base.twice(3), shapes.scale(2), shapes.a(0), shapes.b(0),\n"
+        "    type(lst[1](4)) is shapes.Base, isinstance(lst[1](4), shapes.Base))"),
+        r"^new 20 v2 20 6 6 6 20\nshapes 10 207 8 12 1007 a2 b2 True True\nstatus ''$", secs=60,
+        name='T7.1-2 the new code through every alias')
+    raw("run(%r)" % ("import space, sch\nprint('oid', space.oid(a), space.oid(lst), space.oid(lst[1]), "
+        "space.oid(d), space.oid(kd), space.oid(cyc))\n"
+        "print('state', a.n, list(kd.values()), type(kd).__name__)"),
+        r"^oid %s\nstate 10 \['one'\] dict\nstatus ''$" % (oids if oids else r'[\d ]+'), secs=60,
+        name='T7.1, T7.10 the OIDs, the state and the instance key survive')
+    raw("run(%r)" % ("import sch\nprint('mig', sch.S(10).a, kd[sch.S(10)])"),
+        r"^mig 10 one\nstatus ''$", secs=60,
+        name='T7.3 the hook ran once: the key is the migrated instance')
+    out = raw("print(hdr())", r"^\(\d+, \d+, '[0-9a-f]{64}', \d+, 88\)$", name='T7.11 the V7 header: 88 bytes, a pin')
+    m = re.search(r"^\((\d+), (\d+), '[0-9a-f]{64}', (\d+), 88\)$", out or '', re.M)
+    n, k, pin = (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (-1, -1, -1)
+    check('T7.1 the version grew and the one before it is pinned: N=%d pin=%d K=%d' % (n, pin, k),
+        n >= 2 and pin == n - 1 and k <= pin)
+    raw("run(%r, args=[])" % ("import space\nspace.open('t7', %d)\nimport calc\nprint('old', space.env() == %r, "
+        "space.info()[1], a.kind(), a.total(), f(2))" % (pin, e1)),
+        r"^old True %d v1 11 4\nstatus ''$" % pin, secs=60,
+        name='T7.6 the pinned version: the old Environment, the old code')
+    raw("run(%r, args=[])" % ("import space\nspace.open('t7', %d)\nimport calc\nprint('new', space.env() == %r, a.kind(), f(2))"
+        % (n, e2)), r"^new True v2 6\nstatus ''$", secs=60, name='T7.6 the new version: the new code')
+    raw("upg('t7e', e2)", r"^((space: upgrade: \d+ new definitions)\n)*status ''$", secs=120,
+        name='T7.5 an Environment-only upgrade')
+    raw("run(%r, sp='t7e', args=[])" % ("import space\nspace.open('t7e')\nimport calc\nprint('envonly', space.env() == %r, calc.f(5))" % e2),
+        r"^envonly True 15\nstatus ''$", secs=60, name='T7.5 the new definition in an empty Space')
+    raw("upg('t7', e3)", r"^((\d+ migrations|space: upgrade: \d+ new definitions)\n)*status ''$", secs=180,
+        name='T7.7 the second upgrade')
+    out = raw("print(hdr())", r"^\(\d+, \d+, '[0-9a-f]{64}', \d+, 88\)$", name='T7.7 its header')
+    m = re.search(r"^\((\d+), (\d+), '[0-9a-f]{64}', (\d+), 88\)$", out or '', re.M)
+    n2, k2, pin2 = (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (-1, -1, -1)
+    check('T7.7 the second pin is the version before it: N=%d pin=%d (was %d), K=%d' % (n2, pin2, pin, k2),
+        n2 > n and pin2 == n2 - 1 and k2 <= min(pin, pin2))
+    raw("run(%r, args=[])" % ("import space\nspace.open('t7', %d)\nimport calc\nprint('v2', space.env() == %r, "
+        "a.kind(), f(2), a.twice())" % (pin2, e2)), r"^v2 True v2 6 20\nstatus ''$", secs=60,
+        name='T7.7 the version before the second upgrade: v2')
+    raw("run('import calc\\nprint(calc.C(1).kind(), calc.f(2), a.twice())')",
+        r"^v3 8 30\nstatus ''$", secs=60, name='T7.7 the latest: v3')
+    raw("run(%r, args=[])" % ("import space\nspace.open('t7', %d)\nimport calc\nprint('v1', space.env() == %r, a.kind())"
+        % (pin, e1)), r"^v1 True v1\nstatus ''$", secs=60, name='T7.7 the first pin is still readable')
+    raw("pid = p.spawn(['/boot/mp', '-S', 't7', '-c', 'import plan9, space\\nspace.interval = 0\\n"
+        "for i in range(100):\\n    n = i\\n    plan9.sleep(5)\\nprint(\"w done\")'])\n"
+        "while p.wait()[0] != pid:\n    pass", r"^w done$", secs=240, name='T7.6 100 commits')
+    out = raw("print(hdr())", r"^\(\d+, \d+, '[0-9a-f]{64}', \d+, 88\)$", name='T7.6 the header after 100 commits')
+    m = re.search(r"^\((\d+), (\d+), '[0-9a-f]{64}', (\d+), 88\)$", out or '', re.M)
+    n3, k3, pin3 = (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (-1, -1, -1)
+    check('T7.6 K <= pin after 100 commits: N=%d K=%d pin=%d' % (n3, k3, pin3),
+        k3 <= pin3 and pin3 == pin2 and n3 >= n2 + 50)
+    raw("run(%r, args=[])" % ("import space\nspace.open('t7', %d)\nimport calc\nprint('pinned', space.env() == %r, "
+        "a.kind(), f(2))" % (pin2, e2)), r"^pinned True v2 6\nstatus ''$", secs=60,
+        name='T7.6 the pinned version after 100 commits: v2')
+    raw("e4 = space.mkenv({'calc': h['calc2'], 'sch': h['sch3']})\nupg('t7', e4)",
+        r"not in the new Environment.*\nstatus '.+'$", secs=120, name='T7.8 a module dropped: refused')
+    raw("print(hdr()[0:2])", r"^\(%d, %d\)$" % (n3, k3), name='T7.8 nothing published by a failure')
+    raw("space.create('t7v', e1)\np.remove('/usr/glenda/space/t7v/obj')\n"
+        "with open('/usr/glenda/space/t7v/v0000000000000001', 'w') as f:\n    f.write('x')\n"
+        "upg('t7v', e2)\nprint(sorted(x[0] for x in p.dirread('/usr/glenda/space/t7v')))",
+        r"no store .*\nstatus '.+'\n\['lock', 'v0000000000000001'\]$", secs=60,
+        name='T7.11 a V2-V4 Space: refused, its files kept')
+    raw("space.create('t7k', e1)\nrun(%r, 't7k')" % "x = [1]", r"^status ''$", secs=60, name='V7 a Space to crash')
+    raw("envset('spaceslow', '30000')\npid = p.spawn(['/boot/mp', '-c', "
+        "'import space\\nspace.upgrade(\"t7k\", ' + repr(e2) + ')'])\np.sleep(6000)",
+        r'\A\Z', secs=60, name='T7.4 the upgrade killed amid its write')
+    crash()
+    if not boot():
+        return
+    raw('import plan9 as p, space\n' + code, r'\A\Z', name='V7 run(), hdr()')
+    raw(defs, r'envs True True True True', secs=180, name='V7 the Environments')
+    raw("print(hdr('t7k')[0:2])", r"^\(\d+, \d+\)$", name='T7.4 the header after the crash')
+    raw("run(%r, sp='t7k', args=[])" % ("import space\nspace.open('t7k')\nimport calc\n"
+        "print('whole', space.env() in (%r, %r), x)" % (e1, e2)),
+        r"^whole True \[1\]\nstatus ''$", secs=60, name='T7.4 the old or the new one, whole')
+    halt()
+
+phases = [v0, v1, v2, v3, v4, v5, v6, v7]
 if os.environ.get('HWPY'):
     phases, phase, only = [vhw], 0, ''
 

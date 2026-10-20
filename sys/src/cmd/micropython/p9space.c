@@ -47,6 +47,9 @@ MP_REGISTER_ROOT_POINTER(mp_obj_t p9_space_env);
 MP_REGISTER_ROOT_POINTER(void *p9_space_mods);
 static int nmods;
 
+// space.upgrade's world of new definitions: a root while it runs
+MP_REGISTER_ROOT_POINTER(void *p9_space_world);
+
 MP_DEFINE_EXCEPTION(CommitError, Exception)
 
 // the Space of mp -S
@@ -60,6 +63,10 @@ static struct {
     int store;		/* obj, ORDWR */
     uint64_t next;	/* the next OID */
     int migrate;	/* v<N> taken in: removed after the first commit */
+    int fmt;		/* the header's user part: 1 (72 bytes) or V7 */
+    uint64_t pin;	/* the recovery point (V7), 0: none */
+    vstr_t meta;	/* a commit's catalog record, if it has one */
+    int hasmeta;
 } sp = { 0, "", "", -1, 0, 0, -1 };
 static vlong lastcommit;	/* nsec() */
 
@@ -503,21 +510,265 @@ static uint64_t get64(const byte *p) {
     return u;
 }
 
-// the store's records: the header's user part and the commit ('h',
-// 'c' 1: synced) after REC, written; $spaceslow ms amid the write (a
-// crash there: tools/test-space.sh T3.3), $spacefail a bad record
-// before the commit (T5.7).  -1 failed (errstr)
+/*
+ * The store's header user part (docs/v7-upgrade.md 4.1):
+ *   V5/V6  72: env[64] next[8]
+ *   V7     88: env[64] next[8] fmt[1] pad[7] pin[8]
+ * fmt 2 says the pin is there (0: none).  A V5/V6 store keeps its 72
+ * until an upgrade writes the V7 form; the Environment of a version
+ * older than the first upgrade is then the catalog's first epoch.
+ */
+enum {
+    UserNext = 64,
+    UserLen = 72,		/* V5/V6 */
+    UserFmt = 72,
+    UserPin = 80,
+    UserLen7 = 88,		/* V7 */
+    HdrFmt = 2,
+};
+
+typedef struct {
+    vlong n;		/* the published version */
+    vlong k;		/* the oldest kept */
+    char env[65];
+    uint64_t next;
+    uint64_t pin;
+    int fmt;
+} shdr_t;
+
+// a store's stream's header ('H' N[8] K[8] len[4] user); NULL: read
+static const char *storehdr(const byte *p, size_t len, shdr_t *h, size_t *nuser) {
+    size_t nu;
+
+    if (len < 21 || p[0] != 'H') {
+        return "not a Space's store";
+    }
+    h->n = get64(p + 1);
+    h->k = get64(p + 9);
+    nu = get64(p + 17) >> 32;
+    if ((nu != UserLen && nu != UserLen7) || len < 21 + nu) {
+        return "its header";
+    }
+    memmove(h->env, p + 21, 64);
+    h->env[64] = 0;
+    if (!ishex(h->env)) {
+        return "its Environment";
+    }
+    h->next = get64(p + 21 + UserNext);
+    if (h->next < OID_FIRST || h->next >= OID_UPGRADE_META) {
+        return "its OIDs";
+    }
+    h->fmt = nu == UserLen7 ? p[21 + UserFmt] : 1;
+    h->pin = nu == UserLen7 ? get64(p + 21 + UserPin) : 0;
+    if (h->fmt != 1 && h->fmt != HdrFmt) {
+        return "another header format";
+    }
+    *nuser = nu;
+    return NULL;
+}
+
+// a read stream's object OID after its header; NULL: not there
+static const byte *streamobj(const byte *p, size_t len, uint64_t oid, size_t *olen) {
+    const byte *q, *e = p + len;
+    size_t n;
+
+    if (len < 21 || p[0] != 'H') {
+        return NULL;
+    }
+    q = p + 21 + (get64(p + 17) >> 32);
+    while (q < e) {
+        if (e - q < 25 || *q != 'o') {
+            return NULL;
+        }
+        n = get64(q + 17);
+        if (n > (size_t)(e - q - 25)) {
+            return NULL;
+        }
+        if (get64(q + 1) == oid) {
+            *olen = n;
+            return q + 25;
+        }
+        q += 25 + n;
+    }
+    return NULL;
+}
+
+/*
+ * The Environment's epochs (docs/v7-upgrade.md 4.1): the Environment
+ * each range of versions has, as (start version, Environment) pairs,
+ * sorted, the first saying the oldest one.  It is an internal object of
+ * the store (OID_UPGRADE_META), not a MicroPython object:
+ *   "P2EC" ver[1] n[4] (start[8] env[64])*
+ */
+enum {
+    CatMagic = 1,
+    CatHdr = 9,
+    CatEnt = 72,
+};
+
+typedef struct {
+    vlong start;
+    char env[65];
+} epoch_t;
+
+static epoch_t *epochs;
+static int nepochs, aepochs;
+
+static void epochclear(void) {
+    free(epochs);
+    epochs = NULL;
+    nepochs = aepochs = 0;
+}
+
+static void epochadd(vlong start, const char *env) {
+    epoch_t *e;
+
+    if (nepochs == aepochs) {
+        aepochs = aepochs ? 2 * aepochs : 4;
+        epochs = realloc(epochs, aepochs * sizeof epochs[0]);
+        if (epochs == NULL) {
+            aepochs = 0;
+            nepochs = 0;
+            raise_err();
+        }
+    }
+    e = &epochs[nepochs++];
+    e->start = start;
+    snprint(e->env, sizeof e->env, "%s", env);
+}
+
+// the catalog's bytes read: 0 ok, 1 no catalog (a V5/V6 store), -1 bad
+static int catparse(const byte *p, size_t n) {
+    size_t k;
+    vlong last;
+
+    epochclear();
+    if (n < CatHdr || memcmp(p, "P2EC", 4) != 0 || p[4] != CatMagic) {
+        return -1;
+    }
+    if (get64(p + 5) >> 32 != (n - CatHdr) / CatEnt) {
+        return -1;	/* its length says otherwise */
+    }
+    if ((n - CatHdr) % CatEnt != 0 || (n - CatHdr) / CatEnt == 0) {
+        return -1;
+    }
+    last = 0;
+    for (k = 0; k < (n - CatHdr) / CatEnt; k++) {
+        const byte *e = p + CatHdr + k * CatEnt;
+        char env[65];
+
+        memmove(env, e + 8, 64);
+        env[64] = 0;
+        if (!ishex(env) || (vlong)get64(e) <= last) {
+            epochclear();
+            return -1;	/* not sorted, or twice: the catalog is no good */
+        }
+        last = get64(e);
+        epochadd(last, env);
+    }
+    return 0;
+}
+
+static void catbuild(vstr_t *v) {
+    byte b[8];
+    int k;
+
+    vstr_add_strn(v, "P2EC", 4);
+    vstr_add_byte(v, CatMagic);
+    put64(b, nepochs);
+    vstr_add_strn(v, (const char *)b + 4, 4);	/* its low four bytes */
+    for (k = 0; k < nepochs; k++) {
+        put64(b, epochs[k].start);
+        vstr_add_strn(v, (const char *)b, 8);
+        vstr_add_strn(v, epochs[k].env, 64);
+    }
+}
+
+// the Environment of version V: the last epoch whose start is <= V
+static int envat(vlong v, char *env) {
+    int k, found = -1;
+
+    for (k = 0; k < nepochs; k++) {
+        if (epochs[k].start <= v) {
+            found = k;
+        }
+    }
+    if (found < 0) {
+        return -1;
+    }
+    snprint(env, 65, "%s", epochs[found].env);
+    return 0;
+}
+
+// the store's stream of version VER (0: the newest) from offset 0
+static int readstream(int fd, vstr_t *v) {
+    vlong off;
+    long n;
+
+    vstr_init(v, 65536);
+    for (off = 0;; off += n) {
+        if (v->alloc - v->len < 32768) {
+            vstr_hint_size(v, v->alloc);
+        }
+        if ((n = pread(fd, v->buf + v->len, 32768, off)) < 0) {
+            return -1;
+        }
+        if (n == 0) {
+            return 0;
+        }
+        v->len += n;
+    }
+}
+
+// the store's object OID of version VER read into OBJ (0 ok, 1 not
+// there, -1 the store's failure)
+static int storereadobj(int fd, uint64_t oid, vlong ver, vstr_t *v) {
+    byte b[18];
+
+    b[0] = 'v';
+    put64(b + 1, ver);
+    b[9] = 's';
+    put64(b + 10, oid);
+    if (write(fd, b, 18) != 18) {
+        return -1;
+    }
+    return readstream(fd, v);
+}
+
+// the store's records: the catalog (an upgrade's), the header's user
+// part and the commit ('h', 'c' 1: synced) after REC, written;
+// $spaceslow ms amid the write (a crash there: tools/test-space.sh
+// T3.3), $spacefail a bad record before the commit (T5.7).
+// -1 failed (errstr)
 static int storewrite(vstr_t *rec, void *a) {
     char *slow, *fail;
     size_t half;
     byte b[8];
 
     (void)a;
+    if (sp.hasmeta) {
+        vstr_add_byte(rec, 'p');
+        put64(b, OID_UPGRADE_META);
+        vstr_add_strn(rec, (const char *)b, 8);
+        put64(b, sp.meta.len);
+        vstr_add_strn(rec, (const char *)b, 8);
+        vstr_add_strn(rec, sp.meta.buf, sp.meta.len);
+    }
     vstr_add_byte(rec, 'h');
-    vstr_add_strn(rec, "\0\0\0\x48", 4);	/* 72 */
+    if (sp.fmt == HdrFmt) {
+        vstr_add_strn(rec, "\0\0\0\x58", 4);	/* 88 */
+    } else {
+        vstr_add_strn(rec, "\0\0\0\x48", 4);	/* 72 */
+    }
     vstr_add_strn(rec, mp_obj_str_get_str(envitem(0)), 64);
     put64(b, sp.next);
     vstr_add_strn(rec, (const char *)b, 8);
+    if (sp.fmt == HdrFmt) {
+        vstr_add_byte(rec, HdrFmt);
+        vstr_add_strn(rec, "\0\0\0\0\0\0\0", 7);
+        put64(b, sp.pin);
+        vstr_add_strn(rec, (const char *)b, 8);
+    }
     vstr_add_strn(rec, "c\1", 2);
     slow = getenv("spaceslow");
     fail = getenv("spacefail");
@@ -547,8 +798,6 @@ static int storewrite(vstr_t *rec, void *a) {
 // the store's stream (gefs-obj.md 3.2) of version VER (0: the newest)
 static int storeread(int fd, vlong ver, vstr_t *v) {
     byte b[9];
-    vlong off;
-    long n;
 
     if (ver > 0) {
         b[0] = 'v';
@@ -557,19 +806,25 @@ static int storeread(int fd, vlong ver, vstr_t *v) {
             return -1;
         }
     }
-    vstr_init(v, 65536);
-    for (off = 0;; off += n) {
-        if (v->alloc - v->len < 32768) {
-            vstr_hint_size(v, v->alloc);
-        }
-        if ((n = pread(fd, v->buf + v->len, 32768, off)) < 0) {
-            return -1;
-        }
-        if (n == 0) {
-            return 0;
-        }
-        v->len += n;
+    return readstream(fd, v);
+}
+
+// the store's Environment epochs, read at the published version (V7;
+// NO catalog: a V5/V6 store).  0 read, 1 none, -1 bad or unreadable
+static int readcat(int fd, vstr_t *v) {
+    const byte *o;
+    size_t olen;
+
+    if (storereadobj(fd, OID_UPGRADE_META, 0, v) < 0) {
+        return -1;
     }
+    if ((o = streamobj((const byte *)v->buf, v->len, OID_UPGRADE_META, &olen)) == NULL) {
+        return 1;
+    }
+    if (catparse(o, olen) != 0) {
+        return -1;
+    }
+    return 0;
 }
 
 // version file PATH read and checked: its body in v (from *body); NULL
@@ -743,10 +998,12 @@ static void openversions(const char *dir, const char *name, char *env) {
 static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
     const char *name = mp_obj_str_get_str(args[0]);
     char dir[256], path[300], env[65], user[256];
+    const char *why;
+    shdr_t h;
     vlong ver, t0;
     uint64_t n;
     size_t nu;
-    vstr_t st;
+    vstr_t st, cat;
     int fd;
     nlr_buf_t nlr;
 
@@ -787,14 +1044,31 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
         }
     }
     if (fd >= 0) {
-        /* the header: N K len env[64] next[8] */
-        if (st.len < 21 + 72 || st.buf[0] != 'H' || get64((byte *)st.buf + 17) >> 32 != 72) {
-            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: not a Space's store"), name);
+        /* the header (a version chosen: its Environment, from the
+           epochs: V7, docs/v7-upgrade.md 4.1) */
+        if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: %s"), name, why);
         }
-        memcpy(env, st.buf + 21, 64);
-        env[64] = 0;
-        if (!ishex(env)) {
-            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: its Environment"), name);
+        snprint(env, sizeof env, "%s", h.env);
+        sp.fmt = h.fmt;
+        sp.pin = h.pin;
+        if (ver > 0) {
+            /*
+             * Its Environment at that version: the epochs (V7).  The
+             * selected version's header reports the version read, and
+             * the store's *current* user part: the epochs are the only
+             * way to the Environment the version was written with.
+             */
+            if (readcat(fd, &cat) < 0) {
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("space %s: its Environment epochs"), name);
+            }
+            if (nepochs > 0 && envat(ver, env) < 0) {
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("space %s: no Environment for version %d"), name, (int)ver);
+            }
+            vstr_clear(&cat);
+            epochclear();
         }
         useenv(name, env);
         t0 = nsec();
@@ -802,7 +1076,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
         p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, NULL);
         p9_spacetime("restore", t0);
         sp.n = n;
-        sp.next = get64((byte *)user + 64);
+        sp.next = get64((byte *)user + UserNext);
         vstr_clear(&st);
     } else {
         /* V2-V4's: taken into a store at the first commit */
@@ -853,6 +1127,115 @@ static mp_obj_t space_info(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(space_info_obj, space_info);
 
+/*
+ * A world (V6's space.view, V7's space.upgrade): an Environment's
+ * modules in contexts of their own, loaded from its definitions, not
+ * run, and not in sys.modules (except an upgrade's: they are the
+ * Space's own, and its modules' globals are the graph's dicts).
+ */
+typedef struct {
+    mp_obj_t envmap;	/* {import name: definition} */
+    mp_obj_t modules;	/* {name: module} */
+    mp_obj_t main;	/* its __main__'s dict */
+    p9_space_mod_t *mods;
+    size_t nmods;
+    char lib[256];	/* the Space's owner's lib */
+    int upgrade;	/* the Space's own modules and globals */
+} world_t;
+
+static world_t *worldnew(const char *lib, mp_obj_t envmap, int upgrade) {
+    world_t *w = m_new_obj(world_t);
+
+    memset(w, 0, sizeof *w);
+    w->envmap = envmap;
+    w->modules = mp_obj_new_dict(0);
+    w->main = MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main));
+    w->upgrade = upgrade;
+    snprint(w->lib, sizeof w->lib, "%s", lib);
+    return w;
+}
+
+// the world's module NAME (loaded once)
+p9_space_mod_t *p9_world_loadmod(void *wp, qstr name) {
+    world_t *w = wp;
+    mp_module_context_t *o;
+    mp_compiled_module_t cm;
+    mp_map_elem_t *el;
+    size_t i;
+
+    for (i = 0; i < w->nmods; i++) {
+        if (w->mods[i].name == name) {
+            return &w->mods[i];
+        }
+    }
+    if (p9_world_defsha(w, name) == NULL) {
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("space: upgrade: %q: not in the new Environment"), name);
+    }
+    o = m_new_obj(mp_module_context_t);
+    o->module.base.type = &mp_type_module;
+    o->module.globals = MP_OBJ_TO_PTR(mp_obj_new_dict(MICROPY_MODULE_DICT_SIZE));
+    if (w->upgrade) {
+        /* the Space's own module: the graph's globals are the state */
+        el = mp_map_lookup(&MP_STATE_VM(mp_loaded_modules_dict).map, MP_OBJ_NEW_QSTR(name), MP_MAP_LOOKUP);
+        if (el != NULL && mp_obj_is_type(el->value, &mp_type_module)
+            && ((mp_obj_module_t *)MP_OBJ_TO_PTR(el->value))->globals != NULL) {
+            o->module.globals = ((mp_obj_module_t *)MP_OBJ_TO_PTR(el->value))->globals;
+        }
+    }
+    mp_obj_dict_store(MP_OBJ_FROM_PTR(o->module.globals), MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(name));
+    loadmpy(w->envmap, w->lib, name, MP_OBJ_FROM_PTR(o), &cm);
+    w->mods = m_renew(p9_space_mod_t, w->mods, w->nmods, w->nmods + 1);
+    w->mods[w->nmods].name = name;
+    w->mods[w->nmods].ctx = cm.context;
+    w->mods[w->nmods].rc = (mp_raw_code_t *)cm.rc;
+    mp_obj_dict_store(w->modules, MP_OBJ_NEW_QSTR(name), MP_OBJ_FROM_PTR(o));
+    return &w->mods[w->nmods++];
+}
+
+const char *p9_world_defsha(void *wp, qstr name) {
+    world_t *w = wp;
+    mp_map_elem_t *el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(w->envmap))->map,
+        MP_OBJ_NEW_QSTR(name), MP_MAP_LOOKUP);
+
+    return el != NULL ? mp_obj_str_get_str(el->value) : NULL;
+}
+
+const char *p9_world_defpath(void *wp, qstr name, char *buf, size_t n) {
+    world_t *w = wp;
+    const char *sha = p9_world_defsha(wp, name);
+
+    if (sha == NULL) {
+        return NULL;
+    }
+    snprint(buf, n, "%s/mod/%s.py", w->lib, sha);
+    return buf;
+}
+
+int p9_world_unchanged(void *wp, qstr name) {
+    world_t *w = wp;
+    const char *new = p9_world_defsha(wp, name);
+    mp_map_elem_t *el;
+
+    if (new == NULL || MP_STATE_VM(p9_space_env) == MP_OBJ_NULL) {
+        return 0;
+    }
+    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(envitem(1)))->map, MP_OBJ_NEW_QSTR(name),
+        MP_MAP_LOOKUP);
+    if (el == NULL) {
+        return 0;
+    }
+    (void)w;
+    return strcmp(mp_obj_str_get_str(el->value), new) == 0;
+}
+
+p9_space_mod_t *p9_world_mods(void *wp, int *n) {
+    world_t *w = wp;
+
+    *n = w->nmods;
+    return w->mods;
+}
+
 // V6: view(name or path, version=None): another Space's published
 // version (or a kept one) as a world of its own: its modules (loaded
 // from its Environment, not run, not in sys.modules), its __main__;
@@ -860,43 +1243,18 @@ static MP_DEFINE_CONST_FUN_OBJ_0(space_info_obj, space_info);
 typedef struct {
     mp_obj_base_t base;
     mp_obj_t name, env;
-    mp_obj_t main;		/* its __main__'s dict */
-    mp_obj_t modules;	/* {name: module} */
-    mp_obj_t envmap;	/* {import name: definition} */
     vlong version;
-    p9_space_mod_t *mods;
-    size_t nmods;
-    char lib[256];		/* the Space's owner's lib */
+    world_t w;
 } view_t;
 
 static const mp_obj_type_t view_type;
 
-p9_space_mod_t *p9_view_loadmod(void *vp, qstr name) {
-    view_t *v = vp;
-    mp_module_context_t *o;
-    mp_compiled_module_t cm;
-    size_t i;
-
-    for (i = 0; i < v->nmods; i++) {
-        if (v->mods[i].name == name) {
-            return &v->mods[i];
-        }
-    }
-    o = m_new_obj(mp_module_context_t);
-    o->module.base.type = &mp_type_module;
-    o->module.globals = MP_OBJ_TO_PTR(mp_obj_new_dict(MICROPY_MODULE_DICT_SIZE));
-    mp_obj_dict_store(MP_OBJ_FROM_PTR(o->module.globals), MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(name));
-    loadmpy(v->envmap, v->lib, name, MP_OBJ_FROM_PTR(o), &cm);
-    v->mods = m_renew(p9_space_mod_t, v->mods, v->nmods, v->nmods + 1);
-    v->mods[v->nmods].name = name;
-    v->mods[v->nmods].ctx = cm.context;
-    v->mods[v->nmods].rc = (mp_raw_code_t *)cm.rc;
-    mp_obj_dict_store(v->modules, MP_OBJ_NEW_QSTR(name), MP_OBJ_FROM_PTR(o));
-    return &v->mods[v->nmods++];
+p9_space_mod_t *p9_view_loadmod(void *wp, qstr name) {
+    return p9_world_loadmod(wp, name);
 }
 
-mp_obj_t p9_view_main(void *vp) {
-    return ((view_t *)vp)->main;
+mp_obj_t p9_view_main(void *wp) {
+    return ((world_t *)wp)->main;
 }
 
 static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
@@ -905,12 +1263,13 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
         { MP_QSTR_version, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
     };
     mp_arg_val_t args[2];
-    const char *name;
+    const char *name, *why;
     char dir[256], path[300], env[65], user[256], *p;
+    shdr_t h;
     vlong ver, t0;
     uint64_t n;
     size_t nu;
-    vstr_t st;
+    vstr_t st, cat;
     view_t *v;
     int fd, i;
 
@@ -930,17 +1289,19 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
     memset(v, 0, sizeof *v);
     v->base.type = &view_type;
     /* the lib: <dir>/../../lib, the Space's owner's */
-    strcpy(v->lib, dir);
+    strcpy(v->w.lib, dir);
     for (i = 0; i < 2; i++) {
-        while ((p = strrchr(v->lib, '/')) != NULL && p[1] == 0 && p != v->lib) {
+        while ((p = strrchr(v->w.lib, '/')) != NULL && p[1] == 0 && p != v->w.lib) {
             *p = 0;
         }
-        if ((p = strrchr(v->lib, '/')) == NULL) {
+        if ((p = strrchr(v->w.lib, '/')) == NULL) {
             mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: not a Space's directory"), dir);
         }
         *p = 0;
     }
-    strcat(v->lib, "/lib");
+    strcat(v->w.lib, "/lib");
+    v->w.main = mp_obj_new_dict(0);
+    v->w.modules = mp_obj_new_dict(0);
     snprint(path, sizeof path, "%s/obj", dir);
     /* a version chosen: a record written ('v'), so ORDWR */
     if ((fd = open(path, (ver > 0 ? ORDWR : OREAD) | OCEXEC)) < 0) {
@@ -950,20 +1311,32 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
         close(fd);
         raise_err();
     }
-    close(fd);
-    if (st.len < 21 + 72 || st.buf[0] != 'H' || get64((byte *)st.buf + 17) >> 32 != 72) {
-        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: not a Space's store"), dir);
+    if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
+        close(fd);
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: %s"), dir, why);
     }
-    memcpy(env, st.buf + 21, 64);
-    env[64] = 0;
-    v->envmap = readenv(v->lib, env);
+    snprint(env, sizeof env, "%s", h.env);
+    if (ver > 0) {
+        /* its Environment at that version: the epochs (V7) */
+        if (readcat(fd, &cat) < 0) {
+            close(fd);
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: its Environment epochs"), dir);
+        }
+        if (nepochs > 0 && envat(ver, env) < 0) {
+            close(fd);
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("view: %s: no Environment for version %d"), dir, (int)ver);
+        }
+        vstr_clear(&cat);
+        epochclear();
+    }
+    close(fd);
+    v->w.envmap = readenv(v->w.lib, env);
     v->name = args[0].u_obj;
     v->env = mp_obj_new_str(env, 64);
-    v->main = mp_obj_new_dict(0);
-    v->modules = mp_obj_new_dict(0);
     t0 = nsec();
     nu = sizeof user;
-    p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, v);
+    p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, &v->w);
     p9_spacetime("view", t0);
     v->version = n;
     vstr_clear(&st);
@@ -981,10 +1354,10 @@ static void view_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
     }
     switch (attr) {
     case MP_QSTR_globals:
-        dest[0] = v->main;
+        dest[0] = v->w.main;
         return;
     case MP_QSTR_modules:
-        dest[0] = v->modules;
+        dest[0] = v->w.modules;
         return;
     case MP_QSTR_version:
         dest[0] = mp_obj_new_int_from_ll(v->version);
@@ -996,7 +1369,7 @@ static void view_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
         dest[0] = v->env;
         return;
     }
-    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(v->main))->map, MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
+    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(v->w.main))->map, MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
     if (el != NULL) {
         dest[0] = el->value;
     }
@@ -1016,6 +1389,221 @@ static MP_DEFINE_CONST_OBJ_TYPE(
     print, view_print,
     attr, view_attr
     );
+
+/* ---- V7: space.upgrade (docs/v7-upgrade.md) ---- */
+
+// the world's modules are the Space's: the roots the commit writes,
+// and the names its records are written by
+enum { Maxmods = 64 };
+static qstr oldmods[Maxmods];	/* the Space's modules before an upgrade */
+static int noldmods;
+
+static void spacenewmods(world_t *w) {
+    p9_space_mod_t *m;
+    mp_obj_t mo;
+    int n, i, k, in;
+
+    m = p9_world_mods(w, &n);
+    MP_STATE_VM(p9_space_mods) = m_new(p9_space_mod_t, n > 0 ? n : 1);
+    /*
+     * The Space's modules are the ones it had: a module of the new
+     * Environment that it had not loaded is not made a root (its top
+     * level runs at its first import, as before the upgrade).
+     */
+    for (i = in = 0; i < n; i++) {
+        for (k = 0; k < noldmods; k++) {
+            if (oldmods[k] == m[i].name) {
+                break;
+            }
+        }
+        if (k == noldmods) {
+            continue;
+        }
+        ((p9_space_mod_t *)MP_STATE_VM(p9_space_mods))[in++] = m[i];
+    }
+    nmods = in;
+    for (i = 0; i < in; i++) {
+        mo = MP_OBJ_FROM_PTR(((p9_space_mod_t *)MP_STATE_VM(p9_space_mods))[i].ctx);
+        mp_obj_dict_store(MP_OBJ_FROM_PTR(&MP_STATE_VM(mp_loaded_modules_dict)),
+            MP_OBJ_NEW_QSTR(((p9_space_mod_t *)MP_STATE_VM(p9_space_mods))[i].name), mo);
+    }
+}
+
+// the Environment the process has: the new one
+static void spaceenv(const char *env, mp_obj_t envmap) {
+    mp_obj_t items[2];
+
+    items[0] = mp_obj_new_str(env, 64);
+    items[1] = envmap;
+    MP_STATE_VM(p9_space_env) = mp_obj_new_tuple(2, items);
+}
+
+/*
+ * upgrade(name, env): the Space's code and state to ENV's definitions,
+ * in one published version.  Offline and exclusive: no Space may be
+ * open in this process, and the Space's lock is the writer's.  Every
+ * function and class is rebound by (module, qualname), every instance
+ * whose class's __schema__ changed is migrated by its __migrate__, and
+ * the version before the upgrade stays readable (the pin) with its own
+ * Environment (the epochs).  A failure publishes nothing.
+ */
+static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
+    const char *name = mp_obj_str_get_str(name_in), *envstr = mp_obj_str_get_str(env_in);
+    char dir[256], path[300], lib[256], oldenv[65], user[256], src[300];
+    mp_obj_t envmap;
+    mp_map_t *em;
+    p9_space_mod_t *nm;
+    const char *why;
+    world_t *w;
+    shdr_t h;
+    vstr_t st, raw;
+    uint64_t ver;
+    size_t nu;
+    qstr q;
+    int fd, lk, r, k, nk;
+    nlr_buf_t nlr;
+
+    if (sp.isopen) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("a Space is open"));
+    }
+    checkname(name);
+    if (!ishex(envstr)) {
+        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("not an Environment: '%s'"), envstr);
+    }
+    libpath(lib, sizeof lib, "", "");
+    spacepath(dir, sizeof dir, name, "");
+    if (access(dir, AEXIST) < 0) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("no space %s"), name);
+    }
+    /* the exclusive writer's lock, the one space.open takes */
+    snprint(path, sizeof path, "%s/lock", dir);
+    if ((lk = open(path, ORDWR | OCEXEC)) < 0) {
+        mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space %s locked"), name);
+    }
+    snprint(path, sizeof path, "%s/obj", dir);
+    if ((fd = open(path, ORDWR | OCEXEC)) < 0) {
+        close(lk);
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("space %s: no store (a V2-V4 Space needs its conversion first)"), name);
+    }
+    sp.store = fd;
+    sp.meta.len = 0;
+    sp.hasmeta = 0;
+    w = NULL;
+    if (nlr_push(&nlr) == 0) {
+        /* 1. preflight: the published version, the Environment, the
+           definitions and their names; nothing is written */
+        if (storeread(fd, 0, &st) < 0) {
+            raise_err();
+        }
+        if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: %s"), name, why);
+        }
+        if (h.n <= 0) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: nothing published"), name);
+        }
+        if (strcmp(h.env, envstr) == 0) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space %s: already its Environment %s"), name, envstr);
+        }
+        envmap = readenv(lib, envstr);	/* its text, its runtime */
+        /* the epochs: the Environment of the versions before the first
+           upgrade is the one the store publishes now */
+        r = readcat(fd, &raw);
+        if (r < 0) {
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: its Environment epochs"), name);
+        }
+        if (r == 1) {
+            epochclear();
+            epochadd(1, h.env);
+        }
+        vstr_clear(&raw);
+        /* the graph, under the Environment it was written with */
+        snprint(oldenv, sizeof oldenv, "%s", h.env);
+        useenv(name, oldenv);
+        nu = sizeof user;
+        p9_image_restore_store((const byte *)st.buf, st.len, &ver, user, &nu, NULL);
+        sp.n = ver;
+        sp.next = get64((byte *)user + UserNext);
+        vstr_clear(&st);
+        /* 2. the new world: every module of the new Environment loaded
+           (its .mpy read), and the symbol table of every changed
+           definition (its source compiled, its tree checked) */
+        w = worldnew(lib, envmap, 1);
+        MP_STATE_VM(p9_space_world) = w;
+        em = &((mp_obj_dict_t *)MP_OBJ_TO_PTR(envmap))->map;
+        for (k = nk = 0; k < em->alloc; k++) {
+            if (!mp_map_slot_is_filled(em, k)) {
+                continue;
+            }
+            q = mp_obj_str_get_qstr(em->table[k].key);
+            nm = p9_world_loadmod(w, q);
+            if (p9_world_unchanged(w, q)) {
+                continue;
+            }
+            if (p9_world_defpath(w, q, src, sizeof src) == NULL) {
+                continue;
+            }
+            p9_image_symtab(q, src);
+            p9_image_symcheck(q, nm->rc);
+            nk++;
+        }
+        /* 3. migrate in memory: rebind, rebuild, retarget, rehash */
+        {
+            p9_space_mod_t *om;
+            int nom, i;
+
+            om = p9_space_mods(&nom);
+            for (i = 0; i < nom && i < Maxmods; i++) {
+                oldmods[i] = om[i].name;
+            }
+            noldmods = i;
+        }
+        p9_image_upgrade(w);
+        /* 4. the Space is the new world: the commit's roots, names */
+        spacenewmods(w);
+        spaceenv(envstr, envmap);
+        /* 5. one published version: the epochs, the pin (the version
+           just before), the new Environment, every record, the sync */
+        epochadd(h.n + 1, envstr);
+        sp.pin = h.n;
+        sp.fmt = HdrFmt;
+        memset(&sp.meta, 0, sizeof sp.meta);
+        catbuild(&sp.meta);
+        sp.hasmeta = 1;
+        r = p9_image_commit(&sp.next, storewrite, NULL, 1);
+        sp.hasmeta = 0;
+        if (r < 0) {
+            raise_err();
+        }
+        sp.n = h.n + 1;
+        nlr_pop();
+        noldmods = 0;
+        epochclear();
+        vstr_clear(&sp.meta);
+        p9_image_reset();
+        MP_STATE_VM(p9_space_world) = NULL;
+        sp.store = -1;
+        close(fd);
+        close(lk);
+        if (nk > 0) {
+            mp_printf(&mp_plat_print, "space: upgrade: %d new definitions\n", nk);
+        }
+        return mp_const_none;
+    }
+    /* the store was not published: it is as it was */
+    noldmods = 0;
+    sp.hasmeta = 0;
+    epochclear();
+    vstr_clear(&sp.meta);
+    p9_image_reset();
+    MP_STATE_VM(p9_space_world) = NULL;
+    sp.store = -1;
+    close(fd);
+    close(lk);
+    nlr_jump(nlr.ret_val);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(space_upgrade_obj, space_upgrade);
 
 int p9_space_isopen(void) {
     return sp.isopen;
@@ -1062,7 +1650,7 @@ static void commit(void) {
 
     if (nlr_push(&nlr) == 0) {
         t0 = nsec();
-        r = p9_image_commit(&sp.next, storewrite, NULL);
+        r = p9_image_commit(&sp.next, storewrite, NULL, 0);
         p9_spacetime("commit", t0);
         if (r < 0) {
             raise_err();
@@ -1190,6 +1778,7 @@ static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&space_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_oid), MP_ROM_PTR(&space_oid_obj) },
     { MP_ROM_QSTR(MP_QSTR_view), MP_ROM_PTR(&space_view_obj) },
+    { MP_ROM_QSTR(MP_QSTR_upgrade), MP_ROM_PTR(&space_upgrade_obj) },
     { MP_ROM_QSTR(MP_QSTR_View), MP_ROM_PTR(&view_type) },
     { MP_ROM_QSTR(MP_QSTR_CommitError), MP_ROM_PTR(&mp_type_CommitError) },
     { MP_ROM_QSTR(MP_QSTR_atomic), MP_ROM_PTR(&atomic_type) },

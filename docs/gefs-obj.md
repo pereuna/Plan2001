@@ -322,3 +322,86 @@ OID-sivutaulun sääntö (luku 4), siirtymä V2–V4:stä (T5.11),
 `object-model.md`:n 6.2 (V5-menettely lisätty), testit samanaikaiselle
 lukijalle (T5.6), virheelle kesken erien (T5.7) ja epäonnistuneen
 syncin jälkeiselle commitille (T5.9).
+
+## 9. V7: Environmentin aikakaudet, palautuspiste ja nimetyt oliot (19.10.2026)
+
+`space.upgrade(nimi, uusi_env)` (määrittely: `docs/v7-upgrade.md`)
+tarvitsi kolme storen muotoa, jotka eivät riko V5/V6:n storeja. Kaikki
+kolme kirjoitetaan **samassa transaktiossa** kuin migroitu graafi, ja
+julkaisu on yksi `'c'`-tietue kuten ennenkin.
+
+**Otsakkeen käyttäjäsosa** (`h`-tietueen `user[]`, korkeintaan
+`Objuser` = 256 tavua). V5/V6 kirjoittaa 72 tavua:
+
+```
+0   64  72
+env hex[64] next_oid[8]                       (fmt = 1, 72 tavua)
+```
+
+V7 kirjoittaa 88 tavua, kun store on kerran päivitetty:
+
+```
+0   64  72  73      80  88
+env hex[64] next[8] fmt=2 pad[7] pin[8]       (fmt = 2, 88 tavua)
+```
+
+`pin` on palautuspiste: julkaistu versio, joka pysyy luettavana kunnes
+*seuraava* onnistunut päivitys julkaisee uuden. `obj.c:n commit()`
+laskee normaalin kolmen version lattian (`K = N - Objkeep + 1`) ja
+rajoittaa sen sitten piniin: `K <= pin <= N`, eikä `K` koskaan laske
+alle jo siivotun (`max(k0, min(floor, pin))`). Uusi käyttäjäsosa
+luetaan *ennen* `K`:n laskentaa, joten päivityksen julkaisu ei voi
+siivota omaa palautuspistettään. Tavallinen commit säilyttää `pin`in ja
+formaat timerkin; V5/V6-store kirjoittaa yhä 72 tavua, kunnes päivitys
+tapahtuu.
+
+**Environmentin aikakaudet** ovat storen oma olio, OID
+`0xfffffffffffffffe` (`OID_UPGRADE_META`; `~0ULL` on `objread`in
+"ei oliota" -sentinel, joten sitä ei voi käyttää). Se ei ole
+MicroPythonin olio: se ei ole OID-taulussa eikä GC:ssä, eikä sitä
+koskaan tulkita `O_CLASS`/`O_FUN`-tietueena. Sisältö:
+
+```
+"P2EC" ver[1]=1 n[4] (start_version[8] env_hex[64])*
+```
+
+Rivit ovat nousevassa järjestyksessä ja yksikäsitteisiä; ensimmäinen
+sanoo vanhimman version Environmentin. `env_at(v)` on viimeinen rivi,
+jonka `start <= v`. Ensimmäinen päivitys kirjoittaa kaksi riviä
+`(1, vanha)` ja `(N+1, uusi)`, seuraava lisää yhden. `space.open` ja
+`space.view` lukevat katalogin **julkaistusta versiosta erikseen**
+ennen kuin ne valitsevat historiallisen version: valitun version
+otsake nimittäin kertoo luetun version ja storen *nykyisen*
+käyttäjäsosan, ei version omaa Environmentia. Ilman katalogia (V5/V6)
+kaikki versiot käyttävät otsakkeen Environmentia.
+
+**Nimetyt tietueet.** V7:n commit kirjoittaa funktiot ja luokat
+nimellä sidottavassa muodossa, jotta sama `(moduuli, qualname)` on
+sidonta myöhemminkin:
+
+```
+O_FUNN   is_gen[1] module str qualname str n path[...] npos defaults...
+O_CLASSN module str qualname str name str bases... dict
+```
+
+(`str` on `putstr`: pituus varintina ja tavut.) `O_FUN` ja `O_CLASS`
+säilyvät ennallaan ja luetaan edelleen: kirjoittaja käyttää nimettyä
+muotoa, kun oliolla on nimi graafin omissa sanakirjoissa, ja vanhaa
+muotoa muuten (esim. ajonaikainen lambda). Polku on edelleen tietueessa
+(kirjoitushetken Environmentin mukaan) ja se on se, jolla lukija
+tietueen sitoo; qualname on identiteetti, jolla päivitys sitoo vanhan
+koodin uuteen. `P2SP FORMAT` on yhä 1: V5/V6:n `Kobj`-tietuegrammatiikka
+versioituu vain näillä kahdella uudella lajilla, jotka vanhat binäärit
+hylkäävät siististi (`corrupt`).
+
+**Vikojen rajat.** Päivityksen tietuevirta on: muuttuneet oliot
+(`'p'`/`'d'`), katalogi (`'p'` OID:llä `OID_UPGRADE_META`), otsake
+(`'h'`) ja lopuksi `'c'` syncillä. Kaikki ennen `'c'`-tietuetta
+kirjoitettu on versiota `W = N+1`, jota kukaan ei näe: keskeytys tai
+virhe siinä jättää edellisen julkaistun version kokonaiseksi, ja
+seuraava `begin` siivoaa `W>N`-avaimet. `'c'`-tietue julkaisee
+otsakkeen yhdellä viestillä; sen jälkeen tehty historian siivous ei voi
+enää perua julkaisua (siivouksen virhe tulostetaan, kuten ennenkin).
+Koska `'h'` kirjoitetaan vasta katalogin jälkeen ja julkaisu on yksi
+otsake, lukija ei voi nähdä uutta Environmentia vanhalla graafilla
+eikä päinvastoin.
