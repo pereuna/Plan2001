@@ -89,7 +89,7 @@ partcopy() {
 }
 
 boot || exit 1
-clean | grep -q '^gefs: .*read-write' || fail "no gefs line"
+clean | grep -q '^gefs[0-9]*: .*read-write' || fail "no gefs line"
 clean | grep -q '^init: / on gefs' || fail "init: not on gefs"
 run "ls /amd64/bin | wc -l; cat /dev/sysname" || fail root
 run "echo gefs root >/tmp/gefstest && cat /tmp/gefstest && rm /tmp/gefstest && echo hello >/usr/glenda/gefshello && cat /usr/glenda/gefshello" || fail write

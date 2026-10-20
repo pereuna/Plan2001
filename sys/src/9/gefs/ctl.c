@@ -17,7 +17,7 @@ fmtsz(Fmt *fmt, uvlong v)
 }
 
 static void
-fmtdf(Fmt *fmt)
+fmtdf(Gefs *fs, Fmt *fmt)
 {
 	vlong size, used, pct;
 	Arena *a;
@@ -43,13 +43,14 @@ fmtdf(Fmt *fmt)
 static void
 showconf(Fmt *fmt, Tree *t, char *name)
 {
+	Gefs *fs = t->fs;
 	char pfx[1];
 	int shown;
 	Scan s;
 
 	shown = 0;
 	pfx[0] = Kconf;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(t, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
@@ -64,13 +65,13 @@ showconf(Fmt *fmt, Tree *t, char *name)
 }
 
 static void
-iterconf(Fmt *fmt, int flg, char *name)
+iterconf(Gefs *fs, Fmt *fmt, int flg, char *name)
 {
 	Mount *mnt;
 	Tree *t;
 
 	if((flg & Lmut) && !waserror()){
-		mnt = getmount(name);
+		mnt = getmount(fs, name);
 		t = agetp(&mnt->root);
 		showconf(fmt, t, name);
 		clunkmount(mnt);
@@ -79,8 +80,9 @@ iterconf(Fmt *fmt, int flg, char *name)
 }
 
 static void
-showsnap(Fmt *fmt, int flg, char *name)
+showsnap(Gefs *fs, Fmt *fmt, int flg, char *name)
 {
+	USED(fs);
 	if(flg & Lmut)
 		fmtprint(fmt, "fork %q\n", name);
 	else
@@ -88,7 +90,7 @@ showsnap(Fmt *fmt, int flg, char *name)
 }
 
 static void
-itersnaps(Fmt *fmt, void(*show)(Fmt*, int, char*))
+itersnaps(Gefs *fs, Fmt *fmt, void(*show)(Gefs*, Fmt*, int, char*))
 {
 	char pfx[Snapsz], name[Keymax];
 	Scan s;
@@ -97,7 +99,7 @@ itersnaps(Fmt *fmt, void(*show)(Fmt*, int, char*))
 
 	pfx[0] = Klabel;
 	sz = 1;
-	btnewscan(&s, pfx, sz);
+	btnewscan(fs, &s, pfx, sz);
 	btenter(&fs->snap, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
@@ -105,7 +107,7 @@ itersnaps(Fmt *fmt, void(*show)(Fmt*, int, char*))
 		flg = UNPACK32(s.kv.v+1+8);
 		memcpy(name, s.kv.k+1, s.kv.nk-1);
 		name[s.kv.nk-1] = 0;
-		show(fmt, flg, name);
+		show(fs, fmt, flg, name);
 	}
 	btexit(&s);
 }
@@ -113,6 +115,7 @@ itersnaps(Fmt *fmt, void(*show)(Fmt*, int, char*))
 void
 readstatus(Fmsg *m, Fid *f, Fcall *r)
 {
+	Gefs *fs = m->conn->fs;
 	Fmt fmt;
 	int n;
 
@@ -126,10 +129,10 @@ readstatus(Fmsg *m, Fid *f, Fcall *r)
 			nexterror();
 		}
 		fmtprint(&fmt, "gefs p9\n");
-		fmtdf(&fmt);
+		fmtdf(fs, &fmt);
 		showconf(&fmt, &fs->snap, "");
-		itersnaps(&fmt, iterconf);
-		itersnaps(&fmt, showsnap);
+		itersnaps(fs, &fmt, iterconf);
+		itersnaps(fs, &fmt, showsnap);
 		f->aux = fmtstrflush(&fmt);
 		poperror();
 	}
@@ -149,6 +152,7 @@ readstatus(Fmsg *m, Fid *f, Fcall *r)
 static void
 asend(int op, Fmsg *m)
 {
+	Gefs *fs = m->conn->fs;
 	Amsg *a;
 
 	a = emalloc(sizeof(Amsg), 1);
@@ -160,6 +164,7 @@ asend(int op, Fmsg *m)
 static void
 setretain(char *snap, char **spec, int nspec, Fmsg *m)
 {
+	Gefs *fs = m->conn->fs;
 	char *p, *e;
 	Amsg *a;
 	int i;
@@ -186,6 +191,7 @@ setretain(char *snap, char **spec, int nspec, Fmsg *m)
 static void
 clrsnap(char *tag, Fmsg *m)
 {
+	Gefs *fs = m->conn->fs;
 	Amsg *a;
 
 	a = emalloc(sizeof(Amsg), 1);
@@ -199,6 +205,7 @@ clrsnap(char *tag, Fmsg *m)
 static void
 takesnap(char *old, char *new, int flag, Fmsg *m)
 {
+	Gefs *fs = m->conn->fs;
 	Amsg *a;
 
 	a = emalloc(sizeof(Amsg), 1);
@@ -214,6 +221,7 @@ takesnap(char *old, char *new, int flag, Fmsg *m)
 static void
 clrconf(char *snap, char *k, Fmsg *m)
 {
+	Gefs *fs = m->conn->fs;
 	Amsg *a;
 
 	a = emalloc(sizeof(Amsg), 1);
@@ -226,11 +234,11 @@ clrconf(char *snap, char *k, Fmsg *m)
 }
 
 static void
-refreshusers(void)
+refreshusers(Gefs *fs)
 {
 	Mount *mnt;
 
-	mnt = getmount("adm");
+	mnt = getmount(fs, "adm");
 	if(waserror()){
 		clunkmount(mnt);
 		nexterror();
@@ -243,6 +251,7 @@ refreshusers(void)
 void
 writectl(Fmsg *m, Fid *f)
 {
+	Gefs *fs = m->conn->fs;
 	char buf[256], *sp[8];
 	Fcall r;
 	int nsp;
@@ -267,13 +276,13 @@ writectl(Fmsg *m, Fid *f)
 			respond(m, &r);
 			asend(AOhalt, nil);
 		}else if(strcmp(sp[0], "check") == 0){
-			if(!checkfs(2)){
+			if(!checkfs(fs, 2)){
 				r.type = Rerror;
 				r.ename = Echeck;
 			}
 			respond(m, &r);
 		}else if(strcmp(sp[0], "users") == 0){
-			refreshusers();
+			refreshusers(fs);
 			respond(m, &r);
 		}else
 			error(Ebadctl);

@@ -1,7 +1,7 @@
 #include "gefs.h"
 
 static void
-showfid(int fd)
+showfid(Gefs *fs, int fd)
 {
 	int i;
 	Fid *f;
@@ -25,61 +25,61 @@ showfid(int fd)
 }
 
 static void
-showtree(int fd, int tid, char *name)
+showtree(Gefs *fs, int fd, int tid, char *name)
 {
 	Tree *t;
 	Blk *b;
 	int h;
 
-	epochstart(tid);
+	epochstart(fs, tid);
 	if(name == nil)
 		name = "main";
 	if(strcmp(name, "snap") == 0)
 		t = &fs->snap;
-	else if((t = opensnap(name, nil)) == nil){
+	else if((t = opensnap(fs, name, nil)) == nil){
 		fprint(fd, "open %s: %r\n", name);
-		epochend(tid);
+		epochend(fs, tid);
 		return;
 	}
 	b = getroot(t, &h);
 	fprint(fd, "=== [%s] %B @%d\n", name, t->bp, t->ht);
-	showblk(fd, b, "contents", 1);
+	showblk(fs, fd, b, "contents", 1);
 	dropblk(b);
 	if(t != &fs->snap)
 		closesnap(t);
-	epochend(tid);
+	epochend(fs, tid);
 }
 
 /* Plan2001: no trace buffer in the kernel (tracesz 0) */
 static void
-showtrace(int fd, char*)
+showtrace(Gefs *fs, int fd, char*)
 {
 	fprint(fd, "no trace\n");
 }
 
 /* Plan2001: main's object store keys (as synced), by store */
 static void
-showobjs(int fd, int tid)
+showobjs(Gefs *fs, int fd, int tid)
 {
 	char pfx[1];
 	vlong store, n, total;
 	Tree *t;
 	Scan s;
 
-	epochstart(tid);
-	if((t = opensnap("main", nil)) == nil){
+	epochstart(fs, tid);
+	if((t = opensnap(fs, "main", nil)) == nil){
 		fprint(fd, "open main: %r\n");
-		epochend(tid);
+		epochend(fs, tid);
 		return;
 	}
 	if(waserror()){
 		closesnap(t);
-		epochend(tid);
+		epochend(fs, tid);
 		fprint(fd, "objs: %s\n", errmsg());
 		return;
 	}
 	pfx[0] = Kobj;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(t, &s);
 	store = -1;
 	n = total = 0;
@@ -101,12 +101,12 @@ showobjs(int fd, int tid)
 	fprint(fd, "objs done: %lld keys\n", total);
 	poperror();
 	closesnap(t);
-	epochend(tid);
+	epochend(fs, tid);
 }
 
 /* Plan2001: the held locks, their holders' pc and first waiter */
 static void
-showlk1(int fd, char *name, int i, QLock *l)
+showlk1(Gefs *fs, int fd, char *name, int i, QLock *l)
 {
 	if(l->locked)
 		fprint(fd, "%s[%d] held pc %#p waiter %lud\n", name, i, l->pc,
@@ -114,24 +114,24 @@ showlk1(int fd, char *name, int i, QLock *l)
 }
 
 static void
-showlocks(int fd)
+showlocks(Gefs *fs, int fd)
 {
 	int i;
 
-	showlk1(fd, "mutlk", 0, &fs->mutlk);
-	showlk1(fd, "synclk", 0, &fs->synclk);
-	showlk1(fd, "mountlk", 0, &fs->mountlk);
-	showlk1(fd, "lrulk", 0, &fs->lrulk);
-	showlk1(fd, "bfreelk", 0, &fs->bfreelk);
+	showlk1(fs, fd, "mutlk", 0, &fs->mutlk);
+	showlk1(fs, fd, "synclk", 0, &fs->synclk);
+	showlk1(fs, fd, "mountlk", 0, &fs->mountlk);
+	showlk1(fs, fd, "lrulk", 0, &fs->lrulk);
+	showlk1(fs, fd, "bfreelk", 0, &fs->bfreelk);
 	for(i = 0; i < nelem(fs->blklk); i++)
-		showlk1(fd, "blklk", i, &fs->blklk[i]);
+		showlk1(fs, fd, "blklk", i, &fs->blklk[i]);
 	for(i = 0; i < fs->narena; i++)
-		showlk1(fd, "arena", i, &fs->arenas[i]);
+		showlk1(fs, fd, "arena", i, &fs->arenas[i]);
 	fprint(fd, "locks done\n");
 }
 
 static void
-showfree(int fd)
+showfree(Gefs *fs, int fd)
 {
 	Arange *r;
 	Arena *a;
@@ -149,7 +149,7 @@ showfree(int fd)
 }
 
 void
-runcons(int tid, void *pfd)
+runcons(Gefs *fs, int tid, void *pfd)
 {
 	char buf[256], *f[4];
 	int n, nf, fd;
@@ -175,7 +175,7 @@ runcons(int tid, void *pfd)
 			fprint(fd,"\ttree [name] -- dump tree 'name'\n");
 		}else if(strcmp(f[0], "check") == 0){
 			qlock(&fs->mutlk);
-			checkfs(fd);
+			checkfs(fs, fd);
 			qunlock(&fs->mutlk);
 		}else if(strcmp(f[0], "objfail") == 0){	/* Plan2001: T5.12 */
 			objfail = 1;
@@ -187,17 +187,17 @@ runcons(int tid, void *pfd)
 			fprint(fd, "gefs: ending...\n");
 		}else if(nf > 1 && strcmp(f[0], "show") == 0){
 			if(strcmp(f[1], "fid") == 0)
-				showfid(fd);
+				showfid(fs, fd);
 			else if(strcmp(f[1], "free") == 0)
-				showfree(fd);
+				showfree(fs, fd);
 			else if(strcmp(f[1], "locks") == 0)
-				showlocks(fd);
+				showlocks(fs, fd);
 			else if(strcmp(f[1], "objs") == 0)
-				showobjs(fd, tid);
+				showobjs(fs, fd, tid);
 			else if(nf <= 3 && strcmp(f[1], "trace") == 0)
-				showtrace(fd, f[2]);
+				showtrace(fs, fd, f[2]);
 			else if(nf <= 3 && strcmp(f[1], "tree") == 0)
-				showtree(fd, tid, f[2]);
+				showtree(fs, fd, tid, f[2]);
 			else
 				fprint(fd, "garbled show '%s'\n", f[1]);
 		}else{

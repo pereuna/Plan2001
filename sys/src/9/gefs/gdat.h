@@ -12,7 +12,6 @@ typedef struct Dent	Dent;
 typedef struct Dlist	Dlist;
 typedef struct Fid	Fid;
 typedef struct Fmsg	Fmsg;
-typedef struct Gefs	Gefs;
 typedef struct Key	Key;
 typedef struct Kvp	Kvp;
 typedef struct Limbo	Limbo;
@@ -373,8 +372,41 @@ enum {
 };
 
 struct Limbo {
+	Gefs	*fs;	/* Plan2001: the GE volume the object belongs to */
 	Limbo	*next;
 	int	op;
+};
+
+/*
+ * Plan2001: a volume's kernel glue (docs/ge-fs-o.md).  It was kern.c's
+ * one global `g': the device, connection and console file descriptors,
+ * the disk's raw file for cache flushes, and the halt state.  A GE
+ * instance (Gefs) has its own, so that two volumes do not share fds,
+ * console state or shutdown state.
+ */
+enum {
+	Nfd	= 16,
+};
+
+typedef struct Gfd	Gfd;
+typedef struct Gkern	Gkern;
+
+struct Gfd {
+	Kchan	*c;
+	char	*name;	/* gopen's, for the device */
+	vlong	off;
+	vlong	size;
+};
+
+struct Gkern {
+	QLock;
+	Gfd	fd[Nfd];
+	char	*raw;	/* the disk's raw file, for its cache flush */
+	int	flushwarned;
+	ulong	nflush;
+	char	*srv;	/* the console's srv file */
+	int	halting;
+	int	halted;
 };
 
 struct Bptr {
@@ -510,6 +542,7 @@ struct Qent {
 };
 
 struct Syncq {
+	Gefs	*fs;
 	QLock	lk;
 	Rendez	fullrz;
 	Rendez	emptyrz;
@@ -629,10 +662,24 @@ struct Gefs {
 	Trace	*trace;
 	Along	traceidx;
 	long	ntrace;
+
+	/*
+	 * Plan2001: the parts of a volume that used to be one global in
+	 * kern.c, blk.c, obj.c and check.c: its kernel glue, its scratch
+	 * block, the processes that may take its reserve, its object
+	 * transactions, and the state of a check that is running.
+	 */
+	int	id;		/* this instance's number, for names */
+	Gkern	k;
+	Proc	*syncproc;	/* the syncing process: it may take the reserve */
+	Proc	*sweepproc;
+	void	*otxs;		/* obj.c's transactions, under mutlk */
+	void	*ck;		/* check.c's state while it runs */
 };
 
 struct Arena {
 	QLock;
+	Gefs	*fs;
 	Avltree *free;
 	Blk	**queue;
 	int	nqueue;
@@ -667,6 +714,7 @@ struct Xdir {
 };
 
 struct Dent {
+	Gefs	*fs;
 	RWLock;
 	Key;
 	Xdir;
@@ -712,6 +760,7 @@ struct Mount {
 };
 
 struct Conn {
+	Gefs	*fs;
 	Conn	*next;
 
 	QLock	wrlk;
@@ -733,6 +782,7 @@ struct Conn {
 };
 
 struct Fid {
+	Gefs	*fs;
 	RWLock;
 	Fid	*next;
 	Mount	*mnt;
@@ -773,6 +823,7 @@ struct Scanp {
 };
 
 struct Scan {
+	Gefs	*fs;	/* Plan2001: the volume its tree belongs to */
 	vlong	offset;	/* last read offset */
 	char	first;
 	char	donescan;

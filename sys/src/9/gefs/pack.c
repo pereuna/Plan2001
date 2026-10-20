@@ -2,14 +2,14 @@
 
 /* Terminated so we can use them directly in C */
 char*
-unpackstr(char *p, char *e, char **s)
+unpackstr(Gefs *fs, char *p, char *e, char **s)
 {
 	int n;
 
 	assert(e - p >= 3);
 	n = UNPACK16(p);
 	if(e - p < n + 3 || p[n+2] != 0)
-		broke(Efs);
+		broke(fs, Efs);
 	*s = p+2;
 	return p+3+n;
 }
@@ -56,7 +56,7 @@ packdkey(char *p, int sz, vlong pup, char *name)
 }
 
 char*
-unpackdkey(char *p, int sz, vlong *pup)
+unpackdkey(Gefs *fs, char *p, int sz, vlong *pup)
 {
 	char key, *ep, *name;
 
@@ -65,7 +65,7 @@ unpackdkey(char *p, int sz, vlong *pup)
 	key = UNPACK8(p);	p += 1;
 	*pup = UNPACK64(p);	p += 8;
 	assert(key == Kent);
-	p = unpackstr(p, ep, &name);
+	p = unpackstr(fs, p, ep, &name);
 	assert(p <= ep);
 	return name;
 }
@@ -104,15 +104,15 @@ packdval(char *p, int sz, Xdir *d)
 }
 
 void
-kv2dir(Kvp *kv, Xdir *d)
+kv2dir(Gefs *fs, Kvp *kv, Xdir *d)
 {
 	char *v;
 
 	memset(d, 0, sizeof(Xdir));
 	if(kv->nk < 9 || kv->nv != Xdirsz)
-		broke(Efs);
+		broke(fs, Efs);
 
-	unpackstr(kv->k + 9, kv->k + kv->nk, &d->name);
+	unpackstr(fs, kv->k + 9, kv->k + kv->nk, &d->name);
 
 	v = kv->v;
 	d->flag 	= UNPACK64(v);	v += 8;
@@ -130,7 +130,7 @@ kv2dir(Kvp *kv, Xdir *d)
 }
 
 int
-dir2statbuf(Xdir *d, char *buf, int nbuf)
+dir2statbuf(Gefs *fs, Xdir *d, char *buf, int nbuf)
 {
 	int sz, nn, nu, ng, nm;
 	vlong atime, mtime;
@@ -138,12 +138,12 @@ dir2statbuf(Xdir *d, char *buf, int nbuf)
 	char *p;
 
 	rlock(&fs->userlk);
-	if((u = uid2user(d->uid)) == nil)
-		u = uid2user(noneid);
-	if((g = uid2user(d->gid)) == nil)
-		g = uid2user(nogroupid);
-	if((m = uid2user(d->muid)) == nil)
-		m = uid2user(noneid);
+	if((u = uid2user(fs, d->uid)) == nil)
+		u = uid2user(fs, noneid);
+	if((g = uid2user(fs, d->gid)) == nil)
+		g = uid2user(fs, nogroupid);
+	if((m = uid2user(fs, d->muid)) == nil)
+		m = uid2user(fs, noneid);
 	if(u == nil || g == nil || m == nil){
 		runlock(&fs->userlk);
 		error(Eperm);
@@ -187,12 +187,12 @@ dir2statbuf(Xdir *d, char *buf, int nbuf)
 }
 
 int
-kv2statbuf(Kvp *kv, char *buf, int nbuf)
+kv2statbuf(Gefs *fs, Kvp *kv, char *buf, int nbuf)
 {
 	Xdir d;
 
-	kv2dir(kv, &d);
-	return dir2statbuf(&d, buf, nbuf);
+	kv2dir(fs, kv, &d);
+	return dir2statbuf(fs, &d, buf, nbuf);
 }
 
 void
@@ -351,10 +351,11 @@ unpackbp(char *p, int sz)
 }
 
 Tree*
-unpacktree(Tree *t, char *p, int sz)
+unpacktree(Gefs *fs, Tree *t, char *p, int sz)
 {
 	assert(sz >= Treesz);
 	memset(t, 0, sizeof(Tree));
+	t->fs = fs;	/* nil: a dumper's, printed and dropped */
 	t->nref = UNPACK32(p);		p += 4;
 	t->nlbl = UNPACK32(p);		p += 4;
 	t->ht = UNPACK32(p);		p += 4;
@@ -407,9 +408,12 @@ char*
 unpackarena(Arena *a, char *p, int sz)
 {
 	char *e;
+	Gefs *fs;
 
 	assert(sz >= Arenasz);
+	fs = a->fs;		/* the volume, not the disk's: unpacking keeps it */
 	memset(a, 0, sizeof(*a));
+	a->fs = fs;
 
 	e = p + Arenasz;
 	a->loghd.addr = UNPACK64(p);	p += 8;
@@ -464,6 +468,7 @@ packsb(char *p0, int sz, Gefs *fi)
 char*
 unpacksb(Gefs *fi, char *p0, int sz)
 {
+	Gefs *fs = fi;
 	vlong qgen;
 	uvlong dh, xh;
 	char *p;

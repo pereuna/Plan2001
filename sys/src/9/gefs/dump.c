@@ -56,6 +56,34 @@ showkey(Fmt *fmt, Key *k)
 	return n;
 }
 
+/*
+ * Plan2001: %M and %P may be used anywhere, without a volume: the Kent
+ * value is decoded here without kv2dir's broke(), which would need one.
+ * A corrupt value is shown as it lies; nothing is marked read-only.
+ */
+static void
+showkvdir(Kvp *v, Xdir *d)
+{
+	char *p;
+
+	memset(d, 0, sizeof *d);
+	if(v->nk < 9 || v->nv != Xdirsz)
+		return;
+	d->name = v->k + 11;	/* packstr's length and its terminator */
+	p = v->v;
+	d->flag		= UNPACK64(p);	p += 8;
+	d->qid.path	= UNPACK64(p);	p += 8;
+	d->qid.vers	= UNPACK32(p);	p += 4;
+	d->qid.type	= UNPACK8(p);	p += 1;
+	d->mode		= UNPACK32(p);	p += 4;
+	d->atime	= UNPACK64(p);	p += 8;
+	d->mtime	= UNPACK64(p);	p += 8;
+	d->length	= UNPACK64(p);	p += 8;
+	d->uid		= UNPACK32(p);	p += 4;
+	d->gid		= UNPACK32(p);	p += 4;
+	d->muid		= UNPACK32(p);	p += 4;
+}
+
 static int
 showval(Fmt *fmt, Kvp *v, int op, int flg)
 {
@@ -94,7 +122,7 @@ showval(Fmt *fmt, Kvp *v, int op, int flg)
 		switch(op){
 		case Onop:
 		case Oinsert:
-			kv2dir(v, &d);
+			showkvdir(v, &d);
 			n = fmtprint(fmt, "[qid=(%llux,%lud,%d), p=%luo, f=%llux, t=%lld,%lld, l=%lld, o=%d, g=%d m=%d]",
 				d.qid.path, d.qid.vers, d.qid.type, d.mode,
 				d.flag, d.atime, d.mtime, d.length,
@@ -135,7 +163,7 @@ showval(Fmt *fmt, Kvp *v, int op, int flg)
 				p += 4;
 			}
 			if(p != v->v + v->nv){
-				fprint(2, "v->nv: %d, sz=%d\n", v->nv, (int)(p - v->v));
+				print("gefs: v->nv: %d, sz=%d\n", v->nv, (int)(p - v->v));
 				abort();
 			}
 			break;
@@ -151,7 +179,7 @@ showval(Fmt *fmt, Kvp *v, int op, int flg)
 			break;
 		case Onop:
 		case Oinsert:
-			if(unpacktree(&t, v->v, v->nv) == nil)
+			if(unpacktree(nil, &t, v->v, v->nv) == nil)
 				n = fmtprint(fmt, "corrupt tree");
 			else
 				n = fmtprint(fmt, "<tree %B [pred=%lld, succ=%lld, base=%lld, nref=%d, nlbl=%d]>",
@@ -279,7 +307,7 @@ Qconv(Fmt *fmt)
 }
 
 static void
-rshowblk(int fd, Blk *b, int indent, int recurse)
+rshowblk(Gefs *fs, int fd, Blk *b, int indent, int recurse)
 {
 	Blk *c;
 	int i;
@@ -307,9 +335,9 @@ rshowblk(int fd, Blk *b, int indent, int recurse)
 			if(b->type == Tpivot){
 				fprint(fd, "%.*s[%03d]|%#P\n", 4*indent, spc, i, &kv);
 				bp = unpackbp(kv.v, kv.nv);
-				c = getblk(bp, 0);
+				c = getblk(fs, bp, 0);
 				if(recurse)
-					rshowblk(fd, c, indent + 1, 1);
+					rshowblk(fs, fd, c, indent + 1, 1);
 				dropblk(c);
 			}else{
 				fprint(fd, "%.*s[%03d]|%P\n", 4*indent, spc, i, &kv);
@@ -339,25 +367,26 @@ rshowblk(int fd, Blk *b, int indent, int recurse)
 }
 
 void
-showblk(int fd, Blk *b, char *m, int recurse)
+showblk(Gefs *fs, int fd, Blk *b, char *m, int recurse)
 {
 	fprint(fd, "=== %s\n", m);
-	rshowblk(fd, b, 0, recurse);
+	rshowblk(fs, fd, b, 0, recurse);
 }
 
 void
-showbp(int fd, Bptr bp, int recurse)
+showbp(Gefs *fs, int fd, Bptr bp, int recurse)
 {
 	Blk *b;
 
-	b = getblk(bp, GBnochk);
-	rshowblk(fd, b, 0, recurse);
+	b = getblk(fs, bp, GBnochk);
+	rshowblk(fs, fd, b, 0, recurse);
 	dropblk(b);
 }
 
 void
 showtreeroot(int fd, Tree *t)
 {
+	Gefs *fs = t->fs;
 	fprint(fd, "\tflag\t0x%x\n", t->flag);
 	fprint(fd, "\tgen:\t%lld\n", t->gen);
 	fprint(fd, "\tbase\t%lld\n", t->base);

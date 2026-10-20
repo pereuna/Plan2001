@@ -78,6 +78,17 @@ muuttuvat vain siltä osin kuin kernel vaatii:
 - konsoli (`cons.c`: halt, check, show) näkyy
   `/srv/gefs.root.cmd`:nä, jonka `fshalt` pysäyttää.
 
+**GE-instanssi (20.10.2026).** Jokainen `gefsserve` tekee oman
+`Gefs`-instanssin: fd-taulukko, konsoli, halt-tila, levyn raw-tiedosto,
+synkronoijan ja siivoajan prosessit, oliotransaktiot, tarkistuksen tila
+ja välimuisti ovat tilavuuden, eivät koko gefsin. Tilavuus kulkee
+objektin mukana (`Limbo`/`Blk`/`Tree`/`Mount`/`Dlist`, `Fid`, `Conn`,
+`Dent`, `Arena`, `Syncq`, `Scan`, `Otx`) tai ensimmäisenä parametrina;
+globaalia `Gefs *fs`:ää ei ole. Yhden instanssin rajoitus on poistettu,
+ja `gefscache=` on nyt kaikkien tilavuuksien yhteinen budjetti. Tämä on
+`docs/ge-fs-o.md`:n vaihe 1; ks. `docs/ge-fs-o-impl.md` (mitä puuttuu:
+toisen tilavuuden käynnistys, natiivi oliomuoto, `-O`/`-S`).
+
 Muoto on täsmälleen upstreamin (vaihe 2:n `Kobj` on ensimmäinen ero,
 `docs/gefs-obj.md`). Käyttäjätilan gefs (`sys/src/cmd/gefs`)
 reamaa ja tarkistaa saman osion, ja testit vertaavat kernelin

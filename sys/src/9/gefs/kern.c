@@ -3,7 +3,10 @@
  * (gefs.h).  gefsserve starts it on a device as kprocs (main.c's
  * procs: the mutator, the readers, the sweeper, the syncers, the
  * tasks and the console) and gives the kernel the other end of the
- * pipe it serves 9P on, for mntattach.  One gefs at a time.
+ * pipe it serves 9P on, for mntattach.  Each call makes a GE instance
+ * of its own (docs/ge-fs-o.md): volumes share the engine's code, not
+ * its state, so two of them run at the same time on different
+ * partitions.
  */
 #include "gefs.h"
 
@@ -19,7 +22,6 @@
 #undef	read
 #undef	write
 
-Gefs	*fs;
 int	debug;
 int	permissive;
 int	usereserve;
@@ -27,13 +29,11 @@ char	*reamuser;
 int	noneid		= 0;
 int	nogroupid	= 9999;
 int	admid		= -1;
-Blk	*blkbuf;
 
-static void	gwritetrace(vlong);
+static void	gwritetrace(Gefs*, vlong);
 
 enum {
-	Nfd	= 16,
-	Nmsgerr	= 256,
+	Nmsgerr	= 256,	/* Nfd is the volume's (gdat.h) */
 };
 
 /*
@@ -181,26 +181,9 @@ acasp(Aptr *a, void *o, void *n)
 
 /*
  * gefs's file descriptors: the device (a partition of it: off and
- * size), the connection and the console, each a Chan of the kernel's
+ * size), the connection and the console, each a Chan of the kernel's.
+ * They are the volume's (Gefs.k, gdat.h), not one global table.
  */
-typedef struct Gfd Gfd;
-struct Gfd {
-	Kchan	*c;
-	char	*name;	/* gopen's, for the device */
-	vlong	off;
-	vlong	size;
-};
-
-static struct {
-	QLock;
-	Gfd	fd[Nfd];
-	char	*raw;	/* the disk's raw file, for its cache flush */
-	int	flushwarned;
-	ulong	nflush;
-	char	*srv;	/* the console's srv file */
-	int	halting;
-	int	halted;
-} g;
 
 /*
  * libc's %r is an errstr system call: in the kernel it is up->errstr,
@@ -248,7 +231,7 @@ gerror(char *fmt, ...)
 }
 
 _Noreturn void
-broke(char *fmt, ...)
+broke(Gefs *fs, char *fmt, ...)
 {
 	char buf[ERRMAX];
 	va_list arg;
@@ -274,9 +257,9 @@ gsysfatal(char *fmt, ...)
 }
 
 _Noreturn void
-_babort(vlong addr, char *msg)
+_babort(Gefs *fs, vlong addr, char *msg)
 {
-	gwritetrace(addr);
+	gwritetrace(fs, addr);
 	panic("gefs: assert failed for [%llx]: %s", addr, msg);
 }
 
@@ -294,7 +277,7 @@ gwerrstr(char *fmt, ...)
 
 /* 2 (and any fd not in the table) is the kernel's console */
 int
-gfprint(int fd, char *fmt, ...)
+gfprint(Gefs *fs, int fd, char *fmt, ...)
 {
 	char buf[512];
 	va_list arg;
@@ -304,15 +287,15 @@ gfprint(int fd, char *fmt, ...)
 	vfmtr(buf, sizeof buf, fmt, arg);
 	va_end(arg);
 	n = strlen(buf);
-	if(fd > 2 && fd < Nfd && g.fd[fd].c != nil)
-		return gwrite(fd, buf, n);
+	if(fd > 2 && fd < Nfd && fs->k.fd[fd].c != nil)
+		return gwrite(fs, fd, buf, n);
 	print("%s", buf);
 	return n;
 }
 
 /* main.c's trace (plan9.ini gefstrace=MiB), by pid */
 void
-_trace(char *msg, Bptr bp, vlong v0, vlong v1)
+_trace(Gefs *fs, char *msg, Bptr bp, vlong v0, vlong v1)
 {
 	Trace *t;
 	ulong idx;
@@ -329,7 +312,7 @@ _trace(char *msg, Bptr bp, vlong v0, vlong v1)
 
 /* main.c's writetrace: what the trace has of addr (or all, -1), oldest first */
 static void
-gwritetrace(vlong addr)
+gwritetrace(Gefs *fs, vlong addr)
 {
 	Trace *t;
 	long ti;
@@ -470,60 +453,60 @@ rwakeupall(Grendez *r)
 
 /* a Chan in the table: its fd */
 static int
-newgfd(Kchan *c, char *name, vlong off, vlong size)
+newgfd(Gefs *fs, Kchan *c, char *name, vlong off, vlong size)
 {
 	int i;
 
-	qlock(&g);
+	qlock(&fs->k);
 	for(i = 3; i < Nfd; i++)
-		if(g.fd[i].c == nil){
-			g.fd[i].c = c;
-			g.fd[i].name = name;
-			g.fd[i].off = off;
-			g.fd[i].size = size;
-			qunlock(&g);
+		if(fs->k.fd[i].c == nil){
+			fs->k.fd[i].c = c;
+			fs->k.fd[i].name = name;
+			fs->k.fd[i].off = off;
+			fs->k.fd[i].size = size;
+			qunlock(&fs->k);
 			return i;
 		}
-	qunlock(&g);
+	qunlock(&fs->k);
 	error("gefs: no fds");
 }
 
 static Gfd*
-getgfd(int fd)
+getgfd(Gefs *fs, int fd)
 {
-	if(fd < 3 || fd >= Nfd || g.fd[fd].c == nil){
+	if(fd < 3 || fd >= Nfd || fs->k.fd[fd].c == nil){
 		werrstr("bad fd %d", fd);
 		return nil;
 	}
-	return &g.fd[fd];
+	return &fs->k.fd[fd];
 }
 
 /* only the device's name opens: it is set up before (gefsserve) */
 int
-gopen(char *name, int)
+gopen(Gefs *fs, char *name, int)
 {
 	int i;
 
 	for(i = 3; i < Nfd; i++)
-		if(g.fd[i].name != nil && strcmp(g.fd[i].name, name) == 0)
+		if(fs->k.fd[i].name != nil && strcmp(fs->k.fd[i].name, name) == 0)
 			return i;
 	werrstr("%s: not gefs's device", name);
 	return -1;
 }
 
 int
-gclose(int fd)
+gclose(Gefs *fs, int fd)
 {
 	Gfd *f;
 	Kchan *c;
 
-	if((f = getgfd(fd)) == nil)
+	if((f = getgfd(fs, fd)) == nil)
 		return -1;
-	qlock(&g);
+	qlock(&fs->k);
 	c = f->c;
 	f->c = nil;
 	f->name = nil;
-	qunlock(&g);
+	qunlock(&fs->k);
 	if(!waserror()){
 		cclose(c);
 		poperror();
@@ -532,18 +515,19 @@ gclose(int fd)
 }
 
 int
-ghangup(int)
+ghangup(Gefs *fs, int)
 {
+	USED(fs);
 	return 0;
 }
 
 static long
-rw(int fd, void *buf, long n, vlong off, int write)
+rw(Gefs *fs, int fd, void *buf, long n, vlong off, int write)
 {
 	Gfd *f;
 	Kchan *c;
 
-	if((f = getgfd(fd)) == nil)
+	if((f = getgfd(fs, fd)) == nil)
 		return -1;
 	c = f->c;
 	if(f->size > 0){
@@ -564,18 +548,18 @@ rw(int fd, void *buf, long n, vlong off, int write)
 }
 
 long
-gread(int fd, void *buf, long n)
+gread(Gefs *fs, int fd, void *buf, long n)
 {
-	return rw(fd, buf, n, 0, 0);
+	return rw(fs, fd, buf, n, 0, 0);
 }
 
 long
-greadn(int fd, void *buf, long n)
+greadn(Gefs *fs, int fd, void *buf, long n)
 {
 	long m, t;
 
 	for(t = 0; t < n; t += m){
-		m = gread(fd, (char*)buf+t, n-t);
+		m = gread(fs, fd, (char*)buf+t, n-t);
 		if(m <= 0)
 			return t > 0 ? t : m;
 	}
@@ -583,30 +567,30 @@ greadn(int fd, void *buf, long n)
 }
 
 long
-gwrite(int fd, void *buf, long n)
+gwrite(Gefs *fs, int fd, void *buf, long n)
 {
-	return rw(fd, buf, n, 0, 1);
+	return rw(fs, fd, buf, n, 0, 1);
 }
 
 long
-gpread(int fd, void *buf, long n, vlong off)
+gpread(Gefs *fs, int fd, void *buf, long n, vlong off)
 {
-	return rw(fd, buf, n, off, 0);
+	return rw(fs, fd, buf, n, off, 0);
 }
 
 long
-gpwrite(int fd, void *buf, long n, vlong off)
+gpwrite(Gefs *fs, int fd, void *buf, long n, vlong off)
 {
-	return rw(fd, buf, n, off, 1);
+	return rw(fs, fd, buf, n, off, 1);
 }
 
 Dir*
-gdirfstat(int fd)
+gdirfstat(Gefs *fs, int fd)
 {
 	Gfd *f;
 	Dir *d;
 
-	if((f = getgfd(fd)) == nil)
+	if((f = getgfd(fs, fd)) == nil)
 		return nil;
 	if((d = mallocz(sizeof(Dir), 1)) == nil)
 		return nil;
@@ -622,22 +606,22 @@ gdirfstat(int fd)
  * once.
  */
 void
-gflushdev(void)
+gflushdev(Gefs *fs)
 {
 	uchar cmd[10];
 	char st[32];
 	Kchan *c;
 	long n;
 
-	if(g.raw == nil)
+	if(fs->k.raw == nil)
 		return;
 	if(waserror()){
-		if(!g.flushwarned)
-			print("gefs: %s: cache flush: %s\n", g.raw, up->errstr);
-		g.flushwarned = 1;
+		if(!fs->k.flushwarned)
+			print("gefs: %s: cache flush: %s\n", fs->k.raw, up->errstr);
+		fs->k.flushwarned = 1;
 		return;
 	}
-	c = namec(g.raw, Aopen, ORDWR, 0);
+	c = namec(fs->k.raw, Aopen, ORDWR, 0);
 	if(waserror()){
 		cclose(c);
 		nexterror();
@@ -653,7 +637,7 @@ gflushdev(void)
 	poperror();
 	cclose(c);
 	poperror();
-	g.nflush++;
+	fs->k.nflush++;
 }
 
 /* #S's raw file of the disk dev is on (#S/sdN0/data, ...); nil if none */
@@ -681,15 +665,15 @@ rawfile(char *dev)
 
 /* halted (the console's halt): read-only, synced; fshalt waits for this */
 void
-gefshalted(void)
+gefshalted(Gefs *fs)
 {
 	Kchan *c;
 
 	print("gefs: halted\n");
-	g.halted = 1;
-	if(g.srv == nil || waserror())
+	fs->k.halted = 1;
+	if(fs->k.srv == nil || waserror())
 		return;
-	c = namec(g.srv, Aremove, 0, 0);
+	c = namec(fs->k.srv, Aremove, 0, 0);
 	if(waserror()){
 		c->type = 0;	/* as sysremove: remove clunked it */
 		cclose(c);
@@ -702,16 +686,19 @@ gefshalted(void)
 	poperror();
 }
 
-/* main.c's, with the blocks from the kernel's heap */
+/*
+ * main.c's, with the blocks from the kernel's heap.  FS makes the
+ * volume (kern.c's gefsserve): every GE object it creates is bound to
+ * it -- the tree, the dlists and the blocks carry their volume, so the
+ * engine's functions find it in the data they were given.
+ */
 static void
-initfs(vlong cachesz, int rdonly)
+initfs(Gefs *fs, vlong cachesz, int rdonly)
 {
 	Bfree *f, *h;
 	Blk *b;
 	usize i;
 
-	if((fs = mallocz(sizeof(Gefs), 1)) == nil)
-		sysfatal("malloc: %r");
 	aswapl(&fs->rdonly, rdonly);
 	fs->lrurz.l = &fs->lrulk;
 	fs->syncrz.l = &fs->synclk;
@@ -735,6 +722,7 @@ initfs(vlong cachesz, int rdonly)
 		if((f = mallocz(sizeof(Bfree), 1)) == nil)
 			sysfatal("malloc: %r");
 		f->bp = Zb;
+		f->fs = fs;
 		f->next = h;
 		h = f;
 	}
@@ -744,6 +732,7 @@ initfs(vlong cachesz, int rdonly)
 		if((b = mallocz(sizeof(Blk), 1)) == nil)
 			sysfatal("cache: %lld blocks: %r", fs->cmax);
 		b->bp = Zb;
+		b->fs = fs;
 		b->magic = Magic;
 		lrutop(b);
 	}
@@ -752,7 +741,8 @@ initfs(vlong cachesz, int rdonly)
 /* main.c's launch: a kproc running f(id, arg) */
 typedef struct Gproc Gproc;
 struct Gproc {
-	void	(*f)(int, void*);
+	Gefs	*fs;		/* the volume the proc serves */
+	void	(*f)(Gefs*, int, void*);
 	void	*arg;
 	int	id;
 };
@@ -764,24 +754,25 @@ gproc(void *a)
 
 	p = *(Gproc*)a;
 	free(a);
-	(*p.f)(p.id, p.arg);
+	(*p.f)(p.fs, p.id, p.arg);
 	pexit("", 1);
 }
 
 static void
-launch(void (*f)(int, void*), void *arg, int id, char *text)
+launch(Gefs *fs, void (*f)(Gefs*, int, void*), void *arg, int id, char *text)
 {
 	Gproc *p;
 	char name[KNAMELEN];
 
 	p = smalloc(sizeof *p);
+	p->fs = fs;
 	p->f = f;
 	p->arg = arg;
 	p->id = id;
 	if(id >= 0)
-		snprint(name, sizeof name, "gefs%s.%d", text, id);
+		snprint(name, sizeof name, "gefs%d%s.%d", fs->id, text, id);
 	else
-		snprint(name, sizeof name, "gefs%s", text);
+		snprint(name, sizeof name, "gefs%d%s", fs->id, text);
 	kproc(name, gproc, p);
 }
 
@@ -859,21 +850,56 @@ gefspost(Kchan *c, char *srv)
 	fdclose(fd, 0);
 }
 
+/*
+ * Plan2001: the cache budget is the kernel's, not a volume's
+ * (docs/ge-fs-o.md 3): the instances' caches together must fit in it.
+ * The first volume gets the whole budget, as before (plan9.ini's
+ * gefscache=, or an eighth of memory); a later one gets what is left,
+ * and is refused if that is less than Cachemin, instead of taking the
+ * heap past the budget.  A machine that runs several volumes sets
+ * gefscache= for all of them.
+ */
+enum {
+	Cachemin	= 16,	/* MiB; also the least gefscache= may say */
+};
+
+static struct {
+	QLock;
+	int	set;
+	int	budget;	/* MiB, all the volumes together */
+	int	used;
+} cachebud;
+
 static int
 cachemb(void)
 {
 	char *s;
 	uvlong mem;
-	int mb;
+	int mb, budget;
 
-	if((s = getconf("gefscache")) != nil && (mb = strtol(s, nil, 0)) >= 16)
-		return mb;
-	mem = (uvlong)conf.npage*BY2PG;
-	mb = mem/8/MiB;
-	if(mb < 16)
-		mb = 16;
-	if(mb > 512)
-		mb = 512;
+	qlock(&cachebud);
+	if(!cachebud.set){
+		budget = 0;
+		if((s = getconf("gefscache")) != nil)
+			budget = strtol(s, nil, 0);
+		if(budget < Cachemin){
+			mem = (uvlong)conf.npage*BY2PG;
+			budget = mem/8/MiB;
+			if(budget < Cachemin)
+				budget = Cachemin;
+			if(budget > 512)
+				budget = 512;
+		}
+		cachebud.budget = budget;
+		cachebud.set = 1;
+	}
+	mb = cachebud.budget - cachebud.used;
+	if(mb < Cachemin){
+		qunlock(&cachebud);
+		return -1;
+	}
+	cachebud.used += mb;
+	qunlock(&cachebud);
 	return mb;
 }
 
@@ -883,24 +909,43 @@ cachemb(void)
  * end of the pipe, for mntattach.  Its console is posted as srv.
  */
 Kchan*
-gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv)
+gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv, void **vol)
 {
-	static int once;
+	static int nvol;	/* instances made, for their names */
 	Kchan *s0, *s1, *c0, *c1;
+	Gefs *fs;
 	char *d;
 	int i, nproc, sfd, cfd;
+	int mb;
 	Conn *conn;
 
-	if(once++)
-		error("gefs: one at a time");
 	/* main.c's sanity checks */
 	assert(4*Kpmax < Pivspc);
 	assert(2*Msgmax < Bufspc);
 	assert(Treesz < Inlmax);
 
+	/*
+	 * Plan2001: this call's GE instance (docs/ge-fs-o.md).  Nothing
+	 * below is one volume's alone any more: the engine's state is in
+	 * fs, and the objects it makes carry it.
+	 */
+	if((fs = mallocz(sizeof(Gefs), 1)) == nil)
+		sysfatal("malloc: %r");
+	fs->id = ++nvol;
+	fs->snap.fs = fs;	/* the volume's own trees and dlists */
+	fs->snapmnt = nil;
+	fs->snapdl.fs = fs;
+	fs->dropdl.fs = fs;
+	fs->dropdl.hd = Zb;
+	fs->dropdl.tl = Zb;
+	fs->k.raw = nil;
 	if((d = getconf("gefsdebug")) != nil)
 		debug = strtol(d, nil, 0);
-	initfs((vlong)cachemb()*MiB, !rw);
+	if((mb = cachemb()) < 0){
+		free(fs);
+		error("gefs: no cache left for another volume (set gefscache=)");
+	}
+	initfs(fs, (vlong)mb*MiB, !rw);
 	if((d = getconf("gefstrace")) != nil && strtol(d, nil, 0) > 0){
 		fs->ntrace = strtol(d, nil, 0)*MiB/sizeof(Trace);
 		if((fs->trace = mallocz(fs->ntrace*sizeof(Trace), 1)) == nil)
@@ -917,9 +962,9 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv)
 	d = nil;
 	kstrdup(&d, dev);
 	dev = d;
-	g.raw = rawfile(dev);
-	newgfd(c, dev, off, size);
-	loadfs(dev);
+	fs->k.raw = rawfile(dev);
+	newgfd(fs, c, dev, off, size);
+	loadfs(fs, dev);
 
 	nproc = conf.nmach*2;
 	if(nproc < 2)
@@ -933,37 +978,41 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv)
 	if(fs->nsyncers > fs->narena)
 		fs->nsyncers = fs->narena;
 	for(i = 0; i < fs->nsyncers; i++)
-		qinit(&fs->syncq[i]);
+		qinit(fs, &fs->syncq[i]);
 	if((fs->rdchan = malloc(fs->nreaders*sizeof(Chan*))) == nil)
 		sysfatal("malloc: %r");
 	for(i = 0; i < fs->nreaders; i++)
 		fs->rdchan[i] = mkchan(32);
-	for(i = 0; i < fs->narena; i++)
+	for(i = 0; i < fs->narena; i++){
+		fs->arenas[i].fs = fs;
 		fs->arenas[i].sync = &fs->syncq[i%fs->nsyncers];
+	}
 
 	mkpipe(&s0, &s1);
 	mkpipe(&c0, &c1);
-	sfd = newgfd(s1, nil, 0, 0);
-	cfd = newgfd(c1, nil, 0, 0);
-	launch(runcons, (void*)(uintptr)cfd, aincl(&fs->nworker, 1), "cons");
-	launch(runmutate, nil, aincl(&fs->nworker, 1), "mutate");
-	launch(runsweep, nil, aincl(&fs->nworker, 1), "sweep");
-	launch(runtasks, nil, -1, "tasks");
+	sfd = newgfd(fs, s1, nil, 0, 0);
+	cfd = newgfd(fs, c1, nil, 0, 0);
+	launch(fs, runcons, (void*)(uintptr)cfd, aincl(&fs->nworker, 1), "cons");
+	launch(fs, runmutate, nil, aincl(&fs->nworker, 1), "mutate");
+	launch(fs, runsweep, nil, aincl(&fs->nworker, 1), "sweep");
+	launch(fs, runtasks, nil, -1, "tasks");
 	for(i = 0; i < fs->nreaders; i++)
-		launch(runread, fs->rdchan[i], aincl(&fs->nworker, 1), "read");
+		launch(fs, runread, fs->rdchan[i], aincl(&fs->nworker, 1), "read");
 	for(i = 0; i < fs->nsyncers; i++)
-		launch(runsync, &fs->syncq[i], aincl(&fs->nworker, 1), "sync");
-	if((conn = newconn(sfd, sfd, -1)) == nil)
+		launch(fs, runsync, &fs->syncq[i], aincl(&fs->nworker, 1), "sync");
+	if((conn = newconn(fs, sfd, sfd, -1)) == nil)
 		sysfatal("newconn: %r");
-	launch(runfs, conn, -1, "srv");
+	launch(fs, runfs, conn, -1, "srv");
 	/* c0 is kept: the console reads on with no srv (or after halt) */
 	if(srv != nil && !waserror()){
 		gefspost(c0, srv);
-		kstrdup(&g.srv, srv);
+		kstrdup(&fs->k.srv, srv);
 		poperror();
 	}
-	print("gefs: %s@%lld, %lld MiB, cache %d MiB, %ld readers, %s\n",
-		dev, off, size/MiB, cachemb(), fs->nreaders, rw ? "read-write" : "read-only");
+	print("gefs%d: %s@%lld, %lld MiB, cache %d MiB, %ld readers, %s\n",
+		fs->id, dev, off, size/MiB, mb, fs->nreaders, rw ? "read-write" : "read-only");
+	if(vol != nil)
+		*vol = fs;
 	return s0;
 }
 
@@ -972,21 +1021,22 @@ gefsserve(char *dev, Kchan *c, vlong off, vlong size, int rw, char *srv)
  * it (the sweeper syncs), waited for a while.
  */
 void
-gefsshutdown(void)
+gefsshutdown(void *v)
 {
+	Gefs *fs = v;
 	Amsg *a;
 	int i;
 
-	if(fs == nil || fs->admchan == nil || agetl(&fs->rdonly) || g.halting++)
+	if(fs == nil || fs->admchan == nil || agetl(&fs->rdonly) || fs->k.halting++)
 		return;
 	if(waserror())
 		return;
 	a = emalloc(sizeof(Amsg), 1);
 	a->op = AOhalt;
 	chsend(fs->admchan, a);
-	for(i = 0; i < 100 && !g.halted; i++)
+	for(i = 0; i < 100 && !fs->k.halted; i++)
 		tsleep(&up->sleep, return0, nil, 100);
 	poperror();
-	if(!g.halted)
-		print("gefs: not halted\n");
+	if(!fs->k.halted)
+		print("gefs%d: not halted\n", fs->id);
 }

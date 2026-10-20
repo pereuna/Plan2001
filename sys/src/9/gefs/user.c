@@ -3,6 +3,7 @@
 static char*
 slurp(Tree *t, vlong path, vlong len)
 {
+	Gefs *fs = t->fs;
 	char *ret, buf[Offksz], kvbuf[Offksz + Ptrsz];
 	vlong o;
 	Blk *b;
@@ -21,7 +22,7 @@ slurp(Tree *t, vlong path, vlong len)
 		if(!btlookup(t, &k, &kv, kvbuf, sizeof(kvbuf)))
 			error(Esrch);
 		bp = unpackbp(kv.v, kv.nv);
-		b = getblk(bp, GBraw);
+		b = getblk(fs, bp, GBraw);
 		if(len - o >= Blksz)
 			memcpy(ret + o, b->buf, Blksz);
 		else
@@ -65,7 +66,7 @@ getfield(char **p, char delim)
 }
 
 User*
-name2user(char *name)
+name2user(Gefs *fs, char *name)
 {
 	int i;
 
@@ -76,7 +77,7 @@ name2user(char *name)
 }
 
 User*
-uid2user(int id)
+uid2user(Gefs *fs, int id)
 {
 	int i;
 
@@ -87,7 +88,7 @@ uid2user(int id)
 }
 
 static void
-parseusers(char *udata)
+parseusers(Gefs *fs, char *udata)
 {
 	char *pu, *p, *f, *m, buf[8192];
 	int i, j, lnum, ngrp, nusers, usersz;
@@ -203,6 +204,7 @@ parseusers(char *udata)
 void
 loadusers(Tree *t)
 {
+	Gefs *fs = t->fs;
 	vlong len;
 	char *s;
 	Qid q;
@@ -216,7 +218,7 @@ loadusers(Tree *t)
 			nexterror();
 		}
 		fprint(2, "\tfalling back to default\n");
-		parseusers("-1:adm::\n0:none::\n");
+		parseusers(fs, "-1:adm::\n0:none::\n");
 	}else{
 		if(walk1(t, Qadmroot, "users", &q, &len) == -1)
 			error(Esrch);
@@ -225,14 +227,14 @@ loadusers(Tree *t)
 		if(len >= 1*MiB)
 			error(Efsize);
 		s = slurp(t, q.path, len);
-		parseusers(s);
+		parseusers(fs, s);
 		poperror();
 	}
-	if((u = name2user("none")) != nil)
+	if((u = name2user(fs, "none")) != nil)
 		noneid = u->id;
-	if((u = name2user("adm")) != nil)
+	if((u = name2user(fs, "adm")) != nil)
 		admid = u->id;
-	if((u = name2user("nogroup")) != nil)
+	if((u = name2user(fs, "nogroup")) != nil)
 		nogroupid = u->id;
 	free(s);
 }

@@ -3,6 +3,7 @@
 static void
 lrudel(Blk *b)
 {
+	Gefs *fs = b->fs;
 	if(b == fs->chead)
 		fs->chead = b->cnext;
 	if(b == fs->ctail)
@@ -18,6 +19,7 @@ lrudel(Blk *b)
 void
 lrutop(Blk *b)
 {
+	Gefs *fs = b->fs;
 	qlock(&fs->lrulk);
 	/*
 	 * Someone got in first and did a
@@ -45,6 +47,7 @@ lrutop(Blk *b)
 void
 lrubot(Blk *b)
 {
+	Gefs *fs = b->fs;
 	qlock(&fs->lrulk);
 	/*
 	 * Someone got in first and did a
@@ -72,6 +75,7 @@ lrubot(Blk *b)
 void
 cacheins(Blk *b)
 {
+	Gefs *fs = b->fs;
 	Bucket *bkt;
 	u32int h;
 
@@ -92,7 +96,7 @@ cacheins(Blk *b)
 }
 
 static void
-cachedel_lk(vlong addr)
+cachedel_lk(Gefs *fs, vlong addr)
 {
 	Bucket *bkt;
 	Blk *b, **p;
@@ -120,17 +124,17 @@ cachedel_lk(vlong addr)
 	}
 }
 void
-cachedel(vlong addr)
+gcachedel(Gefs *fs, vlong addr)
 {
 	qlock(&fs->lrulk);
 	Bptr bp = {addr, -1, -1};
 	tracex("uncachelk", bp, -1, getcallerpc(&addr));
-	cachedel_lk(addr);
+	cachedel_lk(fs, addr);
 	qunlock(&fs->lrulk);
 }
 
 Blk*
-cacheget(vlong addr)
+cacheget(Gefs *fs, vlong addr)
 {
 	Bucket *bkt;
 	u32int h;
@@ -156,7 +160,7 @@ cacheget(vlong addr)
  * Pulls the block from the bottom of the LRU for reuse.
  */
 Blk*
-cachepluck(void)
+cachepluck(Gefs *fs)
 {
 	Blk *b;
 
@@ -168,7 +172,7 @@ cachepluck(void)
 	bassert(b, b->magic == Magic);
 	bassert(b, agetl(&b->ref) == 0);
 	if(checkflag(b, Bcached, 0))
-		cachedel_lk(b->bp.addr);
+		cachedel_lk(fs, b->bp.addr);
 	if(checkflag(b, Bcached, 0))
 		fprint(2, "%B cached %#p freed %#p\n", b->bp, b->cached, b->freed);
 	bassert(b, checkflag(b, 0, Bcached));

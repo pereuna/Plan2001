@@ -7,12 +7,10 @@
 #pragma varargck type "X"	char*
 #pragma varargck type "J"	Qid	/* Plan2001: %Q is the kernel's (quote) */
 
-extern Gefs*	fs;
 extern int	debug;
 extern int	permissive;
 extern int	usereserve;
 extern char*	reamuser;
-extern Blk*	blkbuf;
 extern int	noneid;
 extern int	nogroupid;
 extern int	admid;
@@ -36,73 +34,71 @@ extern ulong	fuzzseed;
 
 void*	emalloc(usize, int);
 Blk*	newdblk(Tree*, vlong, int);
-int	dataroom(vlong);
-extern Proc	*syncproc;	/* Plan2001: their allocations may take the reserve */
-extern Proc	*sweepproc;
+int	dataroom(Gefs*, vlong);
 Blk*	newblk(Tree*, int);
 Blk*	dupblk(Tree*, Blk*);
 Blk*	getroot(Tree*, int*);
-Blk*	getblk(Bptr, int);
+Blk*	getblk(Gefs*, Bptr, int);
 Blk*	holdblk(Blk*);
 void	dropblk(Blk*);
 
 void	lrutop(Blk*);
 void	lrubot(Blk*);
 void	cacheins(Blk*);
-void	cachedel(vlong);
-Blk*	cacheget(vlong);
-Blk*	cachepluck(void);
+void	gcachedel(Gefs*, vlong);
+Blk*	cacheget(Gefs*, vlong);
+Blk*	cachepluck(Gefs*);
 
-void	qinit(Syncq*);
+void	qinit(Gefs*, Syncq*);
 void	qput(Syncq*, Qent);
 
-Arena*	getarena(vlong);
+Arena*	getarena(Gefs*, vlong);
 void	syncblk(Blk*);
 void	enqueue(Blk*);
-void	epochstart(int);
-void	epochend(int);
-int	epochclean(void);
+void	epochstart(Gefs*, int);
+void	epochend(Gefs*, int);
+int	epochclean(Gefs*);
 void	limbo(int op, Limbo*);
-void	freeblk(Tree*, Blk*);
-void	freebp(Tree*, Bptr);
+void	freeblk(Gefs*, Tree*, Blk*);
+void	freebp(Gefs*, Tree*, Bptr);
 int	logbarrier(Arena *, vlong);
-void	killblk(Tree*, Bptr);
+void	killblk(Gefs*, Tree*, Bptr);
 ushort	blkfill(Blk*);
 uvlong	blkhash(Blk*);
 uvlong	bufhash(void*, usize);
 u32int	ihash(uvlong);
 void	finalize(Blk*);
 
-Mount*	getmount(char*);
+Mount*	getmount(Gefs*, char*);
 void	clunkmount(Mount*);
 
 Tree*	updatesnap(Tree*, char*, int);
 void	tagsnap(Tree*, char*, int);
 int	delsnap(Tree*, vlong, char*);
 void	freedl(Dlist*, int);
-Tree*	opentree(vlong);
-Tree*	opensnap(char*, int*);
+Tree*	opentree(Gefs*, vlong);
+Tree*	opensnap(Gefs*, char*, int*);
 
 void	closesnap(Tree*);
 void	reamfs(char*);
 void	growfs(char*);
 void	loadarena(Arena*, Bptr);
-void	loadfs(char*);
+void	loadfs(Gefs*, char*);
 void	loadlog(Arena*, Bptr);
 void	flushlog(Arena*);
 int	scandead(Dlist*, int, void(*)(Bptr, void*), void*);
 int	endfs(void);
 void	compresslog(Arena*);
-void	dlsync(void);
+void	dlsync(Gefs*);
 void	setval(Blk*, Kvp*);
 
-Conn*	newconn(int, int, int);
+Conn*	newconn(Gefs*, int, int, int);
 void	putconn(Conn*);
 
 int	walk1(Tree*, vlong, char*, Qid*, vlong*);
 void	loadusers(Tree*);
-User*	uid2user(int);
-User*	name2user(char*);
+User*	uid2user(Gefs*, int);
+User*	name2user(Gefs*, char*);
 
 void	respond(Fmsg*, Fcall*);
 void	writectl(Fmsg*, Fid*);
@@ -116,12 +112,12 @@ int	objwrite(Fmsg*, Fid*, Amsg**, int);
 void	objread(Fmsg*, Fid*, Fcall*);
 void	objclunk(Fid*, Amsg**);
 void	objabortfid(Fid*, int);
-void	objsweep(int, Amsg*);
+void	objsweep(Gefs*, int, Amsg*);
 int	objpending(char*, vlong);
-void	objresume(int);
+void	objresume(Gefs*, int);
 extern int	objfail;
 int	btlookup(Tree*, Key*, Kvp*, char*, int);
-void	btnewscan(Scan*, char*, int);
+void	btnewscan(Gefs*, Scan*, char*, int);
 void	btenter(Tree*, Scan*);
 int	btnext(Scan*, Kvp*);
 void	btexit(Scan*);
@@ -141,10 +137,10 @@ void	getmsg(Blk*, int, Msg*);
 Bptr	getptr(Kvp*, int*);
 
 void	initshow(void);
-void	showblk(int, Blk*, char*, int);
-void	showbp(int, Bptr, int);
+void	showblk(Gefs*, int, Blk*, char*, int);
+void	showbp(Gefs*, int, Bptr, int);
 void	showtreeroot(int, Tree*);
-int	checkfs(int);
+int	checkfs(Gefs*, int);
 
 
 #define dprint(...) \
@@ -154,34 +150,34 @@ int	checkfs(int);
 	fprint(2, __VA_ARGS__), abort()
 
 #define tracex(msg, bp, v0, v1) \
-		if(fs->trace != nil) _trace(msg, bp, v0, v1)
+		if(fs->trace != nil) _trace(fs, msg, bp, v0, v1)
 
 #define bassert(b, cond) \
-	if(cond){}else _babort(b->bp.addr, "cond")
+	if(cond){}else _babort(b->fs, b->bp.addr, "cond")
 
 #define traceb(msg, bp)	tracex(msg, bp, -1, -1)
 #define tracev(msg, v0)	tracex(msg, Zb, v0, -1)
 #define tracem(msg)	tracex(msg, Zb, -1, -1)
 
-_Noreturn void	broke(char*, ...);
-_Noreturn void	_babort(vlong, char*);
+_Noreturn void	broke(Gefs*, char*, ...);
+_Noreturn void	_babort(Gefs*, vlong, char*);
 void	writetrace(void*, vlong);
-void	_trace(char*, Bptr, vlong, vlong);
+void	_trace(Gefs*, char*, Bptr, vlong, vlong);
 char*	packstr(char*, char*, char*);
 
 void	dir2kv(vlong, Xdir*, Kvp*, char*, int);
-int	dir2statbuf(Xdir*, char*, int);
+int	dir2statbuf(Gefs*, Xdir*, char*, int);
 void	dlist2kv(Dlist*, Kvp*, char*, int);
 void	lbl2kv(char*, vlong, uint, Kvp*, char*, int);
 void	link2kv(vlong, vlong, Kvp*, char*, int);
 void	retag2kv(vlong, vlong, int, int, Kvp*, char*, int);
 void	tree2kv(Tree*, Kvp*, char*, int);
 
-void	kv2dir(Kvp*, Xdir*);
+void	kv2dir(Gefs*, Kvp*, Xdir*);
 void	kv2dlist(Kvp*, Dlist*);
 void	kv2link(Kvp*, vlong*, vlong*);
 void	kv2qid(Kvp*, Qid*);
-int	kv2statbuf(Kvp*, char*, int);
+int	kv2statbuf(Gefs*, Kvp*, char*, int);
 
 char*	packarena(char*, int, Arena*);
 char*	packbp(char*, int, Bptr*);
@@ -195,10 +191,10 @@ char*	packsb(char*, int, Gefs*);
 
 char*	unpackarena(Arena*, char*, int);
 Bptr	unpackbp(char*, int);
-char*	unpackdkey(char*, int, vlong*);
-Tree*	unpacktree(Tree*, char*, int);
+char*	unpackdkey(Gefs*, char*, int, vlong*);
+Tree*	unpacktree(Gefs*, Tree*, char*, int);
 char*	unpacksb(Gefs*, char*, int);
-char*	unpackstr(char*, char*, char**);
+char*	unpackstr(Gefs*, char*, char*, char**);
 void	fillxdir(Xdir*, vlong, char*, int, int, vlong);
 
 /* fmt */
@@ -212,14 +208,14 @@ int	Qconv(Fmt*);
 Chan*	mkchan(int);
 void*	chrecv(Chan*);
 void	chsend(Chan*, void*);
-void	runfs(int, void*);
-void	runmutate(int, void*);
-void	runread(int, void*);
-void	runcons(int, void*);
-void	runtasks(int, void*);
-void	runsync(int, void*);
-void	runsweep(int, void*);
-void	runsnap(int, void*);
+void	runfs(Gefs*, int, void*);
+void	runmutate(Gefs*, int, void*);
+void	runread(Gefs*, int, void*);
+void	runcons(Gefs*, int, void*);
+void	runtasks(Gefs*, int, void*);
+void	runsync(Gefs*, int, void*);
+void	runsweep(Gefs*, int, void*);
+void	runsnap(Gefs*, int, void*);
 
 /* fuzzing and testing */
 void	fzinit(void);

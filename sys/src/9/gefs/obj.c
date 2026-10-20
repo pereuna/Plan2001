@@ -58,6 +58,7 @@ struct Oent {
 };
 
 struct Otx {
+	Gefs	*fs;		/* Plan2001: its volume */
 	Otx	*next;		/* the active ones, under mutlk */
 	vlong	store;
 
@@ -113,7 +114,7 @@ enum {
 	Rskip,		/* done with it */
 };
 
-static Otx *otxs;	/* stores with a transaction, under mutlk */
+/* Plan2001: a volume's stores with a transaction, under its mutlk (Gefs.otxs) */
 
 static void
 packkey(char *k, vlong store, uvlong oid, uvlong ver, u32int idx)
@@ -179,6 +180,7 @@ puthdr(Mount *mnt, vlong store, Ohdr *h)
 static void
 flushtx(Mount *mnt, Otx *tx)
 {
+	Gefs *fs = mnt->fs;
 	int i;
 
 	if(tx->nm == 0)
@@ -190,7 +192,7 @@ flushtx(Mount *mnt, Otx *tx)
 	 */
 	for(i = 0; i < tx->nm; i++)
 		if(tx->mb[i].nv > 0){
-			if(!dataroom(Objroom*Blksz))
+			if(!dataroom(fs, Objroom*Blksz))
 				error(Efull);
 			break;
 		}
@@ -198,11 +200,11 @@ flushtx(Mount *mnt, Otx *tx)
 	tx->nm = 0;
 	if(tx->id >= 0 && ++tx->nflush >= Objyield){
 		tx->nflush = 0;
-		epochend(tx->id);
+		epochend(fs, tx->id);
 		qunlock(&fs->mutlk);
-		epochclean();
+		epochclean(fs);
 		qlock(&fs->mutlk);
-		epochstart(tx->id);
+		epochstart(fs, tx->id);
 	}
 }
 
@@ -239,6 +241,7 @@ addmsg(Mount *mnt, Otx *tx, int op, char *k, int nk, char *v, int nv)
 static void
 sweep(Mount *mnt, Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), void *a)
 {
+	Gefs *fs = mnt->fs;
 	char last[Keymax];
 	int nlast, more, n;
 	Scan *s;
@@ -250,7 +253,7 @@ sweep(Mount *mnt, Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), 
 	}
 	nlast = 0;
 	do{
-		btnewscan(s, pfx, npfx);
+		btnewscan(fs, s, pfx, npfx);
 		if(nlast > 0){
 			memmove(s->kvbuf, last, nlast);
 			s->kv.k = s->kvbuf;
@@ -353,6 +356,7 @@ gettx(Fid *f)
 
 	if((tx = f->aux) == nil){
 		tx = emalloc(sizeof(Otx), 1);
+		tx->fs = f->fs;
 		tx->store = f->qpath;
 		tx->id = -1;
 		f->aux = tx;
@@ -363,12 +367,13 @@ gettx(Fid *f)
 static void
 begin(Mount *mnt, Otx *tx)
 {
+	Gefs *fs = mnt->fs;
 	Ohdr h;
 	Otx *o;
 
 	if(tx->ver != 0)
 		return;
-	for(o = otxs; o != nil; o = o->next)
+	for(o = fs->otxs; o != nil; o = o->next)
 		if(o->store == tx->store)
 			error("object store busy");
 	if(tx->abort == nil)
@@ -388,16 +393,17 @@ begin(Mount *mnt, Otx *tx)
 	tx->nent = 0;
 	tx->bytes = 0;
 	tx->newuser = 0;
-	tx->next = otxs;
-	otxs = tx;
+	tx->next = fs->otxs;
+	fs->otxs = tx;
 }
 
 static void
 endtx(Otx *tx)
 {
+	Gefs *fs = tx->fs;
 	Otx **p;
 
-	for(p = &otxs; *p != nil; p = &(*p)->next)
+	for(p = (Otx**)&fs->otxs; *p != nil; p = &(*p)->next)
 		if(*p == tx){
 			*p = tx->next;
 			break;
@@ -542,6 +548,7 @@ commit(Mount *mnt, Otx *tx)
 int
 objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 {
+	Gefs *fs = m->conn->fs;
 	char *p, *e;
 	int n, need, sync;
 	Mount *mnt;
@@ -617,7 +624,7 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 			if(tx->left < 0 || tx->left > Objtxmax
 			|| tx->bytes + tx->left > Objtxmax)
 				error("object transaction too big");
-			if(!dataroom(2*tx->left + Blksz))
+			if(!dataroom(fs, 2*tx->left + Blksz))
 				error(Efull);
 			tx->bytes += tx->left;
 			tx->idx = 0;
@@ -695,6 +702,7 @@ emit(Otx *tx, char **pp, char *e, char *s, int n)
 void
 objread(Fmsg *m, Fid *f, Fcall *r)
 {
+	Gefs *fs = m->conn->fs;
 	char pfx[Objoidksz], b[Objrhdr+Objchunk], *p, *e;
 	uvlong oid, v;
 	u32int len;
@@ -726,9 +734,9 @@ objread(Fmsg *m, Fid *f, Fcall *r)
 		PACK64(pfx+1, tx->store);
 		if(tx->sel){
 			PACK64(pfx+9, tx->seloid);
-			btnewscan(tx->scan, pfx, Objoidksz);
+			btnewscan(fs, tx->scan, pfx, Objoidksz);
 		}else
-			btnewscan(tx->scan, pfx, Objhdrksz);
+			btnewscan(fs, tx->scan, pfx, Objhdrksz);
 		tx->sel = 0;
 		tx->rver = v;
 		tx->roff = 0;
@@ -837,7 +845,7 @@ objclunk(Fid *f, Amsg **ao)
 	free(tx->scan);
 	tx->scan = nil;
 	if(tx->ver == 0 || *ao != nil){
-		/* not a transaction (nor in otxs), or rclose: no store */
+		/* not a transaction (nor in fs->otxs), or rclose: no store */
 		free(tx->abort);
 		free(tx->ent);
 		free(tx);
@@ -869,7 +877,7 @@ objpending(char *k, vlong qpath)
 
 /* the sweeper's, once at the start: the removals a crash cut short */
 void
-objresume(int id)
+objresume(Gefs *fs, int id)
 {
 	char pfx[Objhdrksz];
 	vlong *q, *nq;
@@ -882,13 +890,13 @@ objresume(int id)
 		fprint(2, "gefs: removals not resumed: %s\n", errmsg());
 		return;
 	}
-	mnt = getmount("main");
+	mnt = getmount(fs, "main");
 	poperror();
 	q = nil;
 	n = a = 0;
-	epochstart(id);
+	epochstart(fs, id);
 	if(waserror()){
-		epochend(id);
+		epochend(fs, id);
 		fprint(2, "gefs: removals not resumed: %s\n", errmsg());
 		free(q);
 		clunkmount(mnt);
@@ -896,7 +904,7 @@ objresume(int id)
 	}
 	pfx[0] = Kobj;
 	PACK64(pfx+1, ~0ULL);
-	btnewscan(&s, pfx, sizeof(pfx));
+	btnewscan(fs, &s, pfx, sizeof(pfx));
 	btenter(agetp(&mnt->root), &s);
 	while(btnext(&s, &s.kv)){
 		if(s.kv.nk != Objoidksz)
@@ -912,7 +920,7 @@ objresume(int id)
 		q[n++] = UNPACK64(s.kv.k+9);
 	}
 	btexit(&s);
-	epochend(id);
+	epochend(fs, id);
 	poperror();
 	for(i = 0; i < n; i++){
 		print("gefs: store %llx: its removal resumed\n", q[i]);
@@ -924,7 +932,7 @@ objresume(int id)
 			fprint(2, "gefs: store %llx: %s\n", q[i], errmsg());
 			continue;
 		}
-		objsweep(id, &am);
+		objsweep(fs, id, &am);
 		poperror();
 	}
 	free(q);
@@ -940,6 +948,7 @@ objresume(int id)
 static void
 drainrange(Mount *mnt, Otx *tx, char *pfx, int npfx)
 {
+	Gefs *fs = mnt->fs;
 	char kb[Keymax], nb[Keymax+Inlmax];
 	Key k;
 	Kvp next;
@@ -954,26 +963,26 @@ drainrange(Mount *mnt, Otx *tx, char *pfx, int npfx)
 		k.nk = next.nk;
 		if(tx->id >= 0 && ++tx->nflush >= Objyield){
 			tx->nflush = 0;
-			epochend(tx->id);
+			epochend(fs, tx->id);
 			qunlock(&fs->mutlk);
-			epochclean();
+			epochclean(fs);
 			qlock(&fs->mutlk);
-			epochstart(tx->id);
+			epochstart(fs, tx->id);
 		}
 	}
 }
 
 /* the sweeper's: a fid's transaction, or a removed store's keys */
 void
-objsweep(int id, Amsg *am)
+objsweep(Gefs *fs, int id, Amsg *am)
 {
 	char pfx[Objhdrksz], pk[Objoidksz];
 	Otx *tx;
 
 	qlock(&fs->mutlk);
-	epochstart(id);
+	epochstart(fs, id);
 	if(waserror()){
-		epochend(id);
+		epochend(fs, id);
 		qunlock(&fs->mutlk);
 		if(am->otx != nil){
 			tx = am->otx;
@@ -993,6 +1002,7 @@ objsweep(int id, Amsg *am)
 		am->otx = nil;
 	}else{
 		tx = emalloc(sizeof(Otx), 1);
+		tx->fs = fs;
 		tx->id = id;
 		if(waserror()){
 			free(tx);
@@ -1008,7 +1018,7 @@ objsweep(int id, Amsg *am)
 		poperror();
 		free(tx);
 	}
-	epochend(id);
+	epochend(fs, id);
 	qunlock(&fs->mutlk);
 	poperror();
 }

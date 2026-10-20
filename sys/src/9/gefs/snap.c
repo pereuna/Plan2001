@@ -3,6 +3,7 @@
 static void
 dlflush(Dlist *dl)
 {
+	Gefs *fs = dl->fs;
 	char kvbuf[512];
 	Msg m;
 
@@ -26,6 +27,7 @@ dlflush(Dlist *dl)
 static void
 dlcachedel(Dlist *dl, int hdel)
 {
+	Gefs *fs = dl->fs;
 	uint h;
 	Dlist *d, **p;
 
@@ -53,7 +55,7 @@ dlcachedel(Dlist *dl, int hdel)
 }
 
 static Dlist*
-dlcacheget(vlong gen, vlong bgen)
+dlcacheget(Gefs *fs, vlong gen, vlong bgen)
 {
 	Dlist *dl;
 	uint h;
@@ -68,7 +70,7 @@ dlcacheget(vlong gen, vlong bgen)
 }
 
 static Dlist*
-getdl(vlong gen, vlong bgen)
+getdl(Gefs *fs, vlong gen, vlong bgen)
 {
 	char kbuf[Dlksz], kvbuf[Dlkvpsz];
 	Dlist *dl, **p;
@@ -77,9 +79,10 @@ getdl(vlong gen, vlong bgen)
 	Kvp kv;
 	Key k;
 
-	if((dl = dlcacheget(gen, bgen)) != nil)
+	if((dl = dlcacheget(fs, gen, bgen)) != nil)
 		return dl;
 	dl = emalloc(sizeof(Dlist), 1);
+	dl->fs = fs;
 	fs->dlcount++;
 	if(waserror()){
 		fs->dlcount--;
@@ -120,6 +123,7 @@ Found:
 void
 putdl(Dlist *dl)
 {
+	Gefs *fs = dl->fs;
 	Dlist *dt;
 
 	/*
@@ -149,6 +153,7 @@ putdl(Dlist *dl)
 void
 freedl(Dlist *dl, int dofree)
 {
+	Gefs *fs = dl->fs;
 	Arena *a;
 	Qent qe;
 	Bptr bp;
@@ -159,7 +164,7 @@ freedl(Dlist *dl, int dofree)
 	bp = dl->hd;
 	done = 0;
 	while(bp.addr != -1 && !done){
-		b = getblk(bp, 0);
+		b = getblk(fs, bp, 0);
 		if(dofree){
 			for(p = b->data; p != b->data+b->logsz; p += 8){
 				qe.op = Qfree;
@@ -167,7 +172,7 @@ freedl(Dlist *dl, int dofree)
 				qe.bp.hash = -1;
 				qe.bp.gen = -1;
 				qe.b = nil;
-				a = getarena(qe.bp.addr);
+				a = getarena(fs, qe.bp.addr);
 				qput(a->sync, qe);
 				traceb("dlclear", qe.bp);
 			}
@@ -177,7 +182,7 @@ freedl(Dlist *dl, int dofree)
 		qe.op = Qfree;
 		qe.bp = b->bp;
 		qe.b = nil;
-		a = getarena(qe.bp.addr);
+		a = getarena(fs, qe.bp.addr);
 		qput(a->sync, qe);
 		traceb("dlfreeb", qe.bp);
 		dropblk(b);
@@ -187,6 +192,7 @@ freedl(Dlist *dl, int dofree)
 static void
 splicedl(Dlist *d, Dlist *m)
 {
+	Gefs *fs = d->fs;
 	Blk *b;
 
 	/*
@@ -211,7 +217,7 @@ splicedl(Dlist *d, Dlist *m)
 			dropblk(m->ins);
 			m->ins = nil;
 		}
-		b = getblk(d->tl, 0);
+		b = getblk(fs, d->tl, 0);
 		b->logp = m->hd;
 		d->tl = m->tl;
 		assert(d->hd.addr != m->hd.addr);
@@ -225,14 +231,14 @@ splicedl(Dlist *d, Dlist *m)
 }
 
 static void
-mergedl(vlong merge, vlong gen, vlong bgen)
+mergedl(Gefs *fs, vlong merge, vlong gen, vlong bgen)
 {
 	char buf[2][Kvmax];
 	Dlist *d, *m;
 	Msg msg[2];
 
-	d = getdl(merge, bgen);
-	m = getdl(gen, bgen);
+	d = getdl(fs, merge, bgen);
+	m = getdl(fs, gen, bgen);
 	splicedl(d, m);
 	msg[0].op = Odelete;
 	dlist2kv(m, &msg[0], buf[0], sizeof(buf[0]));
@@ -254,13 +260,13 @@ mergedl(vlong merge, vlong gen, vlong bgen)
  * commit.
  */
 static void
-dropdl(vlong gen, vlong bgen, vlong succ)
+dropdl(Gefs *fs, vlong gen, vlong bgen, vlong succ)
 {
 	char buf[Kvmax];
 	Dlist *d;
 	Msg m;
 
-	d = getdl(gen, bgen);
+	d = getdl(fs, gen, bgen);
 	m.op = Odelete;
 	dlist2kv(d, &m, buf, sizeof(buf));
 	btupsert(&fs->snap, &m, 1);
@@ -283,7 +289,7 @@ dropdl(vlong gen, vlong bgen, vlong succ)
 }
 
 static void
-reclaimblocks(vlong gen, vlong succ, vlong prev)
+reclaimblocks(Gefs *fs, vlong gen, vlong succ, vlong prev)
 {
 	char pfx[9];
 	Dlist dl;
@@ -291,7 +297,7 @@ reclaimblocks(vlong gen, vlong succ, vlong prev)
 
 	pfx[0] = Kdlist;
 	PACK64(pfx+1, gen);
-	btnewscan(&s, pfx, sizeof(pfx));
+	btnewscan(fs, &s, pfx, sizeof(pfx));
 	btenter(&fs->snap, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
@@ -302,16 +308,16 @@ reclaimblocks(vlong gen, vlong succ, vlong prev)
 			nexterror();
 		}
 		if(succ != -1 && dl.bgen <= prev)
-			mergedl(succ, dl.gen, dl.bgen);
+			mergedl(fs, succ, dl.gen, dl.bgen);
 		else
-			dropdl(dl.gen, dl.bgen, succ);
+			dropdl(fs, dl.gen, dl.bgen, succ);
 		poperror();
 	}
 	btexit(&s);
 	if(succ != -1){
 		pfx[0] = Kdlist;
 		PACK64(pfx+1, succ);
-		btnewscan(&s, pfx, sizeof(pfx));
+		btnewscan(fs, &s, pfx, sizeof(pfx));
 		btenter(&fs->snap, &s);
 		while(1){
 			if(!btnext(&s, &s.kv))
@@ -323,7 +329,7 @@ reclaimblocks(vlong gen, vlong succ, vlong prev)
 				btexit(&s);
 				nexterror();
 			}
-			dropdl(dl.gen, dl.bgen, succ);
+			dropdl(fs, dl.gen, dl.bgen, succ);
 			poperror();
 		}
 		btexit(&s);
@@ -344,6 +350,7 @@ reclaimblocks(vlong gen, vlong succ, vlong prev)
 int
 delsnap(Tree *t, vlong succ, char *name)
 {
+	Gefs *fs = t->fs;
 	char *p, buf[4][Kvmax];
 	int nm, del;
 	Mount *mnt;
@@ -399,10 +406,10 @@ delsnap(Tree *t, vlong succ, char *name)
 		nm++;
 	}
 	assert(nm <= nelem(m));
-	dlsync();
+	dlsync(fs);
 	btupsert(&fs->snap, m, nm);
 	if(del){
-		reclaimblocks(t->gen, succ, t->pred);
+		reclaimblocks(fs, t->gen, succ, t->pred);
 		for(mnt = agetp(&fs->mounts); mnt != nil; mnt = mnt->next){
 			r = agetp(&mnt->root);
 			if(r->gen == t->succ)
@@ -422,6 +429,7 @@ delsnap(Tree *t, vlong succ, char *name)
 void
 tagsnap(Tree *t, char *name, int flg)
 {
+	Gefs *fs = t->fs;
 	char *p, buf[3][Kvmax];
 	Tree n, c;
 	Msg m[3];
@@ -440,10 +448,11 @@ tagsnap(Tree *t, char *name, int flg)
 		k.k = buf[0];
 		k.nk = p - buf[0];
 		if(!btlookup(&fs->snap, &k, &kv, buf[0], sizeof(buf[0])))
-			broke(Efs);
-		unpacktree(&c, kv.v, kv.nv);
+			broke(fs, Efs);
+		unpacktree(fs, &c, kv.v, kv.nv);
 
 		memset(&n, 0, sizeof(Tree));
+		n.fs = fs;
 		n.dirty = 0;
 		n.nlbl = 1;
 		n.nref = 0;
@@ -489,6 +498,7 @@ tagsnap(Tree *t, char *name, int flg)
 Tree*
 updatesnap(Tree *o, char *lbl, int flg)
 {
+	Gefs *fs = o->fs;
 	char buf[4][Kvmax];
 	Msg m[4];
 	Tree *t;
@@ -504,6 +514,7 @@ updatesnap(Tree *o, char *lbl, int flg)
 		free(t);
 		nexterror();
 	}
+	t->fs = fs;
 	aswapl(&t->memref, 1);
 	t->dirty = 0;
 
@@ -552,7 +563,7 @@ updatesnap(Tree *o, char *lbl, int flg)
 }
 
 Tree*
-opentree(vlong gen)
+opentree(Gefs *fs, vlong gen)
 {
 	char *p, buf[Kvmax];
 	Mount *mnt;
@@ -573,12 +584,13 @@ opentree(vlong gen)
 		free(t);
 		nexterror();
 	}
+	t->fs = fs;
 	p = packsnap(buf, sizeof(buf), gen);
 	k.k = buf;
 	k.nk = p - buf;
 	if(!btlookup(&fs->snap, &k, &kv, buf, sizeof(buf)))
-		broke(Efs);
-	unpacktree(t, kv.v, kv.nv);
+		broke(fs, Efs);
+	unpacktree(fs, t, kv.v, kv.nv);
 	aswapl(&t->memref, 1);
 	t->memgen = fs->nextgen++;
 	poperror();
@@ -589,7 +601,7 @@ opentree(vlong gen)
  * open snapshot by label, returning a tree.
  */
 Tree*
-opensnap(char *label, int *flg)
+opensnap(Gefs *fs, char *label, int *flg)
 {
 	char *p, buf[Kvmax];
 	vlong gen;
@@ -608,7 +620,7 @@ opensnap(char *label, int *flg)
 	if(flg != nil)
 		*flg = UNPACK32(kv.v + 1+8);
 
-	return opentree(gen);
+	return opentree(fs, gen);
 }
 
 /*
@@ -624,7 +636,7 @@ closesnap(Tree *t)
 }
 
 void
-dlsync(void)
+dlsync(Gefs *fs)
 {
 	Dlist *dl, *n;
 
@@ -645,7 +657,7 @@ dlsync(void)
  * no successors.
  */
 void
-killblk(Tree *t, Bptr bp)
+killblk(Gefs *fs, Tree *t, Bptr bp)
 {
 	Dlist *dl;
 	Blk *b;
@@ -659,7 +671,7 @@ killblk(Tree *t, Bptr bp)
 	if(t == &fs->snap)
 		dl = &fs->snapdl;
 	else if(bp.gen > t->base)
-		dl = getdl(t->memgen, bp.gen);
+		dl = getdl(fs, t->memgen, bp.gen);
 	else
 		return;
 	if(waserror()){

@@ -177,7 +177,7 @@ def boot():
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     m = wait(r'>>> $', 0, 150)
     if not check('boot %d: the REPL on the gefs root' % nboot, m is not None and
-            re.search(r'^gefs: .*read-write', text(), re.M) is not None, text()):
+            re.search(r'^gefs[0-9]*: .*read-write', text(), re.M) is not None, text()):
         return False
     start = len(text())
     typ('\x01')

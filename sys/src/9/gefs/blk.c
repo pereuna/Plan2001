@@ -1,9 +1,7 @@
 #include "gefs.h"
 
 static vlong	blkalloc_lk(Arena*, int);
-Proc	*syncproc;
-Proc	*sweepproc;
-static vlong	blkalloc(int, uint, int);
+static vlong	blkalloc(Gefs *fs, int, uint, int);
 static void	blkdealloc_lk(Arena*, vlong);
 static Blk*	initblk(Blk*, vlong, vlong, int);
 static void	readblk(Blk*, Bptr, int, uintptr);
@@ -33,17 +31,19 @@ setflag(Blk *b, int set, int clr)
 void
 syncblk(Blk *b)
 {
+	Gefs *fs = b->fs;
 	bassert(b, checkflag(b, Bfinal, 0));
 	bassert(b, b->bp.addr >= 0);
 	tracex("syncblk", b->bp, b->type, -1);
 	if(pwrite(fs->fd, b->buf, Blksz, b->bp.addr) == -1)
-		broke("%B %s: %r", b->bp, Eio);
+		broke(fs, "%B %s: %r", b->bp, Eio);
 	setflag(b, 0, Bdirty);
 }
 
 static void
 readblk(Blk *b, Bptr bp, int flg, uintptr)
 {
+	Gefs *fs = b->fs;
 	vlong off, xh, ck, rem, n;
 	char *p;
 
@@ -121,7 +121,7 @@ readblk(Blk *b, Bptr bp, int flg, uintptr)
 }
 
 static Arena*
-pickarena(uint ty, uint hint, int tries)
+pickarena(Gefs *fs, uint ty, uint hint, int tries)
 {
 	uint n, r;
 
@@ -134,7 +134,7 @@ pickarena(uint ty, uint hint, int tries)
 }
 
 Arena*
-getarena(vlong b)
+getarena(Gefs *fs, vlong b)
 {
 	int hi, lo, mid;
 	vlong alo, ahi;
@@ -162,7 +162,7 @@ getarena(vlong b)
 
 
 static void
-freerange(Avltree *t, vlong off, vlong len)
+freerange(Gefs *fs, Avltree *t, vlong off, vlong len)
 {
 	Arange *r, *s;
 
@@ -172,7 +172,7 @@ freerange(Avltree *t, vlong off, vlong len)
 	r->off = off;
 	r->len = len;
 	if(avllookup(t, r, 0) != nil)	/* Plan2001: the trace of off (_babort) */
-		_babort(off, "freerange: already free");
+		_babort(fs, off, "freerange: already free");
 	avlinsert(t, r);
 
 Again:
@@ -186,7 +186,7 @@ Again:
 			goto Again;
 		}
 		if(s->off+s->len >= r->off)
-			_babort(off, "freerange: overlaps the one before");
+			_babort(fs, off, "freerange: overlaps the one before");
 	}
 	s = (Arange*)avlnext(r);
 	if(s != nil){
@@ -199,7 +199,7 @@ Again:
 			goto Again;
 		}
 		if(r->off+r->len >= s->off)
-			_babort(off, "freerange: overlaps the one after");
+			_babort(fs, off, "freerange: overlaps the one after");
 	}
 }
 
@@ -240,6 +240,7 @@ grabrange(Avltree *t, vlong off, vlong len)
 static Blk*
 mklogblk(Arena *a, vlong o)
 {
+	Gefs *fs = a->fs;
 	Blk *lb;
 
 	lb = a->logbuf[0];
@@ -331,6 +332,7 @@ logappend(Arena *a, vlong off, vlong len, int op)
 void
 loadlog(Arena *a, Bptr bp)
 {
+	Gefs *fs = a->fs;
 	vlong ent, off, len, gen;
 	int op, i, n;
 	char *d;
@@ -361,7 +363,7 @@ loadlog(Arena *a, Bptr bp)
 						b->logp = Zb;
 						b->logsz = i;
 						a->logtl = b;
-						cachedel(b->bp.addr);
+						gcachedel(fs, b->bp.addr);
 						setflag(b, Bdirty, 0);
 						/*
 						 * Plan2001: the truncated tail on the disk
@@ -393,7 +395,7 @@ loadlog(Arena *a, Bptr bp)
 			case LogFree1:
 				len = (op >= Log2wide) ? UNPACK64(d+8) : Blksz;
 				dprint("\tlog@%x free: %llx+%llx\n", i, off, len);
-				freerange(a->free, off & ~0xff, len);
+				freerange(fs, a->free, off & ~0xff, len);
 				a->used -= len;
 				break;
 			default:
@@ -497,7 +499,7 @@ compresslog(Arena *a)
 	 */
 	dropblk(a->logtl);
 	a->loghd = (Bptr){blks[0], -1, -1};
-	a->logtl = b;	/* written back by sync() later */
+	a->logtl = b;	/* written back by sync(fs, fs) later */
 	a->nlog = nlog;
 	a->lastlogsz = nlog;
 
@@ -524,6 +526,7 @@ logbarrier(Arena *a, vlong gen)
 static vlong
 blkalloc_lk(Arena *a, int seq)
 {
+	Gefs *fs = a->fs;
 	Arange *r;
 	vlong b;
 
@@ -535,7 +538,7 @@ blkalloc_lk(Arena *a, int seq)
 	 * Plan2001: the reserve is the syncing proc's (syncproc) and
 	 * the sweeper's: its clears and syncs free a full disk
 	 */
-	if(!usereserve && up != syncproc && up != sweepproc && a->size - a->used <= a->reserve)
+	if(!usereserve && up != fs->syncproc && up != fs->sweepproc && a->size - a->used <= a->reserve)
 		return -1;
 	if(r == nil)
 		return -1;	/* Plan2001: blkalloc tries the next arena */
@@ -567,9 +570,10 @@ blkalloc_lk(Arena *a, int seq)
 static void
 blkdealloc_lk(Arena *a, vlong b)
 {
-	cachedel(b);
+	Gefs *fs = a->fs;
+	gcachedel(fs, b);
 	logappend(a, b, Blksz, LogFree);
-	freerange(a->free, b, Blksz);
+	freerange(fs, a->free, b, Blksz);
 	a->used -= Blksz;
 }
 
@@ -578,7 +582,7 @@ enum {
 };
 
 static vlong
-blkalloc(int ty, uint hint, int seq)
+blkalloc(Gefs *fs, int ty, uint hint, int seq)
 {
 	Arena *a;
 	vlong b;
@@ -586,7 +590,7 @@ blkalloc(int ty, uint hint, int seq)
 
 	tries = 0;
 Again:
-	a = pickarena(ty, hint, tries);
+	a = pickarena(fs, ty, hint, tries);
 	/*
 	 * Loop through the arena up to 2 times.
 	 * The first pass tries to find an arena
@@ -638,7 +642,7 @@ Again:
  * blocks, so its puts ask this, or a commit would eat the reserve
  */
 int
-dataroom(vlong n)
+dataroom(Gefs *fs, vlong n)
 {
 	vlong left;
 	Arena *a;
@@ -660,13 +664,14 @@ dataroom(vlong n)
 static Blk*
 initblk(Blk *b, vlong bp, vlong gen, int ty)
 {
+	Gefs *fs = b->fs;
 	Blk *ob;
 
 	b->type = ty;
 	b->bp.addr = bp;
 	b->bp.hash = -1;
 	b->bp.gen = gen;
-	ob = cacheget(bp);
+	ob = cacheget(fs, bp);
 	if(ob != nil)
 		fatal("double alloc: %#p %B %#p %B", b, b->bp, ob, ob->bp);
 	switch(ty){
@@ -703,11 +708,12 @@ initblk(Blk *b, vlong bp, vlong gen, int ty)
 Blk*
 newdblk(Tree *t, vlong hint, int seq)
 {
+	Gefs *fs = t->fs;
 	vlong bp;
 	Blk *b;
 
-	bp = blkalloc(Tdat, hint, seq);
-	b = cachepluck();
+	bp = blkalloc(fs, Tdat, hint, seq);
+	b = cachepluck(fs);
 	initblk(b, bp, t->memgen, Tdat);
 	b->alloced = getcallerpc(&t);
 	return b;
@@ -717,11 +723,12 @@ newdblk(Tree *t, vlong hint, int seq)
 Blk*
 newblk(Tree *t, int ty)
 {
+	Gefs *fs = t->fs;
 	vlong bp;
 	Blk *b;
 
-	bp = blkalloc(ty, 0, 0);
-	b = cachepluck();
+	bp = blkalloc(fs, ty, 0, 0);
+	b = cachepluck(fs);
 	initblk(b, bp, t->memgen, ty);
 	b->alloced = getcallerpc(&t);
 	return b;
@@ -730,6 +737,7 @@ newblk(Tree *t, int ty)
 Blk*
 dupblk(Tree *t, Blk *b)
 {
+	Gefs *fs = t->fs;
 	Blk *r;
 
 	if((r = newblk(t, b->type)) == nil)
@@ -785,7 +793,7 @@ finalize(Blk *b)
 }
 
 Blk*
-getblk(Bptr bp, int flg)
+getblk(Gefs *fs, Bptr bp, int flg)
 {
 	Blk *b;
 	int i;
@@ -800,11 +808,11 @@ getblk(Bptr bp, int flg)
 			aincl(&fs->rdonly, 1);
 		nexterror();
 	}
-	if((b = cacheget(bp.addr)) != nil){
+	if((b = cacheget(fs, bp.addr)) != nil){
 		bassert(b, checkflag(b, 0, Bfreed));
 		bassert(b, b->bp.gen == bp.gen);
 	} else {
-		b = cachepluck();
+		b = cachepluck(fs);
 		b->alloced = getcallerpc(&bp);
 		readblk(b, bp, flg, getcallerpc(&bp));
 		b->bp.gen = bp.gen;
@@ -847,6 +855,7 @@ dropblk(Blk *b)
 ushort
 blkfill(Blk *b)
 {
+	Gefs *fs = b->fs;
 	switch(b->type){
 	case Tpivot:
 		return 2*b->nbuf + b->bufsz +  2*b->nval + b->valsz;
@@ -861,6 +870,7 @@ blkfill(Blk *b)
 void
 limbo(int op, Limbo *l)
 {
+	Gefs *fs = l->fs;
 	Limbo *p;
 	ulong ge;
 
@@ -877,11 +887,11 @@ limbo(int op, Limbo *l)
 }
 
 void
-freeblk(Tree *t, Blk *b)
+freeblk(Gefs *fs, Tree *t, Blk *b)
 {
 	if(t == &fs->snap || (t != nil && b->bp.gen < t->memgen)){
 		tracex("killb", b->bp, getcallerpc(&t), -1);
-		killblk(t, b->bp);
+		killblk(fs, t, b->bp);
 		return;
 	}
 	b->freed = getcallerpc(&t);
@@ -893,13 +903,13 @@ freeblk(Tree *t, Blk *b)
 }
 
 void
-freebp(Tree *t, Bptr bp)
+freebp(Gefs *fs, Tree *t, Bptr bp)
 {
 	Bfree *f;
 
 	if(t == &fs->snap || (t != nil && bp.gen < t->memgen)){
 		tracex("killb", bp, getcallerpc(&t), -1);
-		killblk(t, bp);
+		killblk(fs, t, bp);
 		return;
 	}
 	tracex("freeb", bp, getcallerpc(&t), -1);
@@ -916,7 +926,7 @@ freebp(Tree *t, Bptr bp)
 }
 
 void
-epochstart(int tid)
+epochstart(Gefs *fs, int tid)
 {
 	ulong ge;
 
@@ -926,7 +936,7 @@ epochstart(int tid)
 }
 
 void
-epochend(int tid)
+epochend(Gefs *fs, int tid)
 {
 	ulong le;
 
@@ -936,7 +946,7 @@ epochend(int tid)
 }
 
 int
-epochclean(void)
+epochclean(Gefs *fs)
 {
 	ulong c, e, ge;
 	int i, delay;
@@ -984,8 +994,8 @@ Again:
 			break;
 		case DFbp:
 			f = (Bfree*)p;
-			a = getarena(f->bp.addr);
-			if((b = cacheget(f->bp.addr)) != nil){
+			a = getarena(fs, f->bp.addr);
+			if((b = cacheget(fs, f->bp.addr)) != nil){
 				setflag(b, Bfreed, Bdirty|Blimbo);
 				dropblk(b);
 			}
@@ -1005,7 +1015,7 @@ Again:
 			qe.bp = b->bp;
 			qe.b = nil;
 			setflag(b, Bfreed, Bdirty|Blimbo);
-			a = getarena(b->bp.addr);
+			a = getarena(fs, b->bp.addr);
 			dropblk(b);
 			qput(a->sync, qe);
 			break;
@@ -1025,6 +1035,7 @@ Again:
 void
 enqueue(Blk *b)
 {
+	Gefs *fs = b->fs;
 	Arena *a;
 	Qent qe;
 
@@ -1039,7 +1050,7 @@ enqueue(Blk *b)
 
 	b->enqueued = getcallerpc(&b);
 	traceb("queueb", b->bp);
-	a = getarena(b->bp.addr);
+	a = getarena(fs, b->bp.addr);
 	qe.op = Qwrite;
 	qe.bp = b->bp;
 	qe.b = b;
@@ -1047,8 +1058,9 @@ enqueue(Blk *b)
 }
 
 void
-qinit(Syncq *q)
+qinit(Gefs *fs, Syncq *q)
 {
+	q->fs = fs;
 	q->fullrz.l = &q->lk;
 	q->emptyrz.l = &q->lk;
 	q->nheap = 0;
@@ -1071,6 +1083,7 @@ qcmp(Qent *a, Qent *b)
 void
 qput(Syncq *q, Qent qe)
 {
+	Gefs *fs = q->fs;
 	int i;
 
 	if(qe.op == Qfree || qe.op == Qwrite)
@@ -1137,7 +1150,7 @@ Out:
 }
 
 void
-runsync(int, void *p)
+runsync(Gefs *fs, int, void *p)
 {
 	Arena *a;
 	Syncq *q;
@@ -1160,7 +1173,7 @@ runsync(int, void *p)
 			 * write/reuse ordering.
 			 */
 			assert(qe.b == nil);
-			a = getarena(qe.bp.addr);
+			a = getarena(fs, qe.bp.addr);
 			qlock(a);
 			blkdealloc_lk(a, qe.bp.addr);
 			qunlock(a);

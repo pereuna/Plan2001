@@ -23,7 +23,7 @@ struct Path {
 
 #define efreeblk(t, b) do { \
 	if(b != nil) \
-		freeblk(t, b); \
+		freeblk(fs, t, b); \
 	} while(0)
 
 static void
@@ -351,7 +351,7 @@ copyup(Blk *n, Path *pp, int *nbytes)
 }
 
 static void
-statupdate(Kvp *kv, Msg *m)
+statupdate(Gefs *fs, Kvp *kv, Msg *m)
 {
 	char *p, *e;
 	int op;
@@ -360,7 +360,7 @@ statupdate(Kvp *kv, Msg *m)
 	assert(m->nv >= 1);
 	p = m->v;
 	op = *p++;
-	kv2dir(kv, &d);
+	kv2dir(fs, kv, &d);
 	/* bump version */
 	d.qid.vers++;
 	if(op & Owsize){
@@ -400,7 +400,7 @@ statupdate(Kvp *kv, Msg *m)
 }
 
 static int
-apply(Kvp *kv, Msg *m, char *buf, int nbuf)
+apply(Gefs *fs, Kvp *kv, Msg *m, char *buf, int nbuf)
 {
 	char *p;
 	Tree t;
@@ -417,12 +417,12 @@ apply(Kvp *kv, Msg *m, char *buf, int nbuf)
 		return 1;
 	case Owstat:
 		assert(keycmp(kv, m) == 0);
-		statupdate(kv, m);
+		statupdate(fs, kv, m);
 		return 1;
 	case Orelink:
 	case Oreprev:
 	case Oincref:
-		unpacktree(&t, kv->v, kv->nv);
+		unpacktree(fs, &t, kv->v, kv->nv);
 		p = m->v;
 		if(m->op == Orelink)
 			t.succ = UNPACK64(p);
@@ -443,12 +443,13 @@ apply(Kvp *kv, Msg *m, char *buf, int nbuf)
 static void
 setb(Blk **dst, Tree *t, Blk *b)
 {
+	Gefs *fs = t->fs;
 	if(*dst != nil){
-		freeblk(t, *dst);
+		freeblk(fs, t, *dst);
 		dropblk(*dst);
 	}
 	if(b->nval == 0){
-		freeblk(t, b);
+		freeblk(fs, t, b);
 		dropblk(b);
 		*dst = nil;
 	}else{
@@ -485,6 +486,7 @@ pullmsg(Path *p, int i, Kvp *v, Msg *m, int *full, int spc)
 static void
 updateleaf(Tree *t, Path *pup, Path *p)
 {
+	Gefs *fs = t->fs;
 	char buf[Msgmax];
 	int i, j, c, ok, full, spc;
 	Blk *b, *n;
@@ -540,9 +542,9 @@ updateleaf(Tree *t, Path *pup, Path *p)
 			|| m.op == Oinsert
 			|| m.op == Odelete){
 				bp = unpackbp(v.v, v.nv);
-				freebp(t, bp);
+				freebp(fs, t, bp);
 			}
-			ok = apply(&v, &m, buf, sizeof(buf));
+			ok = apply(fs, &v, &m, buf, sizeof(buf));
 			goto Copyloop;
 		/* Message before value: Insert message sequence */
 		case 1:
@@ -552,7 +554,7 @@ updateleaf(Tree *t, Path *pup, Path *p)
 			if(m.op != Oclearb && m.op != Oclobber){
 				/* New keys need to start off with Oinsert */
 				if(m.op != Oinsert)
-					broke("%s: broken entry: %N\n", Efs, &m);
+					broke(fs, "%s: broken entry: %N\n", Efs, &m);
 				spc -= valsz(&m);
 				p->pullsz += msgsz(&m);
 				ok = 1;
@@ -568,10 +570,10 @@ updateleaf(Tree *t, Path *pup, Path *p)
 				|| m.op == Oinsert
 				|| m.op == Odelete){
 					bp = unpackbp(v.v, v.nv);
-					freebp(t, bp);
+					freebp(fs, t, bp);
 				}
 				p->pullsz += msgsz(&m);
-				ok = apply(&v, &m, buf, sizeof(buf));
+				ok = apply(fs, &v, &m, buf, sizeof(buf));
 				j++;
 			}
 			if(ok)
@@ -682,6 +684,7 @@ updatepiv(Tree *t, Path *pup, Path *p, Path *pp)
 static void
 splitleaf(Tree *t, Path *pup, Path *p)
 {
+	Gefs *fs = t->fs;
 	char buf[Msgmax];
 	Blk *b, *d, *l, *r;
 	int full, copied, spc, ok, halfsz;
@@ -744,9 +747,9 @@ splitleaf(Tree *t, Path *pup, Path *p)
 			|| m.op == Oinsert
 			|| m.op == Odelete){
 				bp = unpackbp(v.v, v.nv);
-				freebp(t, bp);
+				freebp(fs, t, bp);
 			}
-			ok = apply(&v, &m, buf, sizeof(buf));
+			ok = apply(fs, &v, &m, buf, sizeof(buf));
 			goto Copyloop;
 		case 1:
 			j++;
@@ -756,7 +759,7 @@ splitleaf(Tree *t, Path *pup, Path *p)
 			if(m.op != Oclearb && m.op != Oclobber){
 				/* New keys need to start off with Oinsert */
 				if(m.op != Oinsert)
-					broke("%s: broken entry: %N\n", Efs, &m);
+					broke(fs, "%s: broken entry: %N\n", Efs, &m);
 				spc -= valsz(&m);
 				p->pullsz += msgsz(&m);
 				ok = 1;
@@ -771,10 +774,10 @@ splitleaf(Tree *t, Path *pup, Path *p)
 				|| m.op == Oinsert
 				|| m.op == Odelete){
 					bp = unpackbp(v.v, v.nv);
-					freebp(t, bp);
+					freebp(fs, t, bp);
 				}
 				p->pullsz += msgsz(&m);
-				ok = apply(&v, &m, buf, sizeof(buf));
+				ok = apply(fs, &v, &m, buf, sizeof(buf));
 				j++;
 			}
 			if(ok)
@@ -798,6 +801,7 @@ splitleaf(Tree *t, Path *pup, Path *p)
 static void
 splitpiv(Tree *t, Path *, Path *p, Path *pp)
 {
+	Gefs *fs = t->fs;
 	int i, copied, halfsz;
 	Blk *b, *d, *l, *r;
 	Kvp tk, mid;
@@ -911,6 +915,7 @@ splitidx(Blk *l, Blk *r, Msg *m, int idx)
 static void
 rotate(Tree *t, Path *p, Path *pp, int midx, Blk *a, Blk *b, int halfpiv)
 {
+	Gefs *fs = t->fs;
 	int i, o, sz, sp;
 	Blk *d, *l, *r;
 	Msg m;
@@ -1007,6 +1012,7 @@ rotmerge(Tree *t, Path *p, Path *pp, int idx, Blk *a, Blk *b)
 static void
 trybalance(Tree *t, Path *p, Path *pp, int idx)
 {
+	Gefs *fs = t->fs;
 	Blk *l, *m, *r;
 	Kvp kl, kr;
 	int spc, fill;
@@ -1029,7 +1035,7 @@ trybalance(Tree *t, Path *p, Path *pp, int idx)
 		getval(p->b, idx-1, &kl);
 		bp = getptr(&kl, &fill);
 		if(fill + blkfill(m) < spc){
-			l = getblk(bp, 0);
+			l = getblk(fs, bp, 0);
 			if(waserror()){
 				dropblk(l);
 				nexterror();
@@ -1044,7 +1050,7 @@ trybalance(Tree *t, Path *p, Path *pp, int idx)
 		getval(p->b, idx+1, &kr);
 		bp = getptr(&kr, &fill);
 		if(fill + blkfill(m) < spc){
-			r = getblk(bp, 0);
+			r = getblk(fs, bp, 0);
 			if(waserror()){
 				dropblk(r);
 				nexterror();
@@ -1149,12 +1155,13 @@ Out:
 static void
 freepath(Tree *t, Path *path, int npath, int ok)
 {
+	Gefs *fs = t->fs;
 	Path *p;
 
 	for(p = path; p != path + npath; p++){
 		if(ok){
-			if(p->b) freeblk(t, p->b);
-			if(p->s) freeblk(t, p->s);
+			if(p->b) freeblk(fs, t, p->b);
+			if(p->s) freeblk(fs, t, p->s);
 		}
 		dropblk(p->b);
 		dropblk(p->s);
@@ -1259,6 +1266,7 @@ keyvictim(Blk *b, Path *p, Key *k, Kvp *next, char *buf, int nbuf, int *more)
 static void
 fastupsert(Tree *t, Blk *b, Msg *msg, int nmsg)
 {
+	Gefs *fs = t->fs;
 	int i, c, o, ri, lo, hi, mid, nbuf;
 	Msg cmp;
 	char *p;
@@ -1307,7 +1315,7 @@ fastupsert(Tree *t, Blk *b, Msg *msg, int nmsg)
 	t->dirty = 1;
 	unlock(&t->lk);
 
-	freeblk(t, b);
+	freeblk(fs, t, b);
 	dropblk(b);
 	dropblk(r);
 }
@@ -1321,6 +1329,7 @@ fastupsert(Tree *t, Blk *b, Msg *msg, int nmsg)
 static int
 btupsert1(Tree *t, Msg *msg, int nmsg, Key *deep, Kvp *next, char *nbuf, int nnbuf)
 {
+	Gefs *fs = t->fs;
 	int i, npath, npull, dh, sz, height, degen, more;
 	Path *path, *rp;
 	Blk *b, *rb;
@@ -1389,7 +1398,7 @@ Again:
 			victim(b, &path[npath]);
 		getval(b, path[npath].idx, &sep);
 		bp = unpackbp(sep.v, sep.nv);
-		b = getblk(bp, 0);
+		b = getblk(fs, bp, 0);
 		npath++;
 		assert(npath < height+2);
 	}
@@ -1465,6 +1474,7 @@ btdrain(Tree *t, Key *k, Kvp *next, char *buf, int nbuf)
 Blk*
 getroot(Tree *t, int *h)
 {
+	Gefs *fs = t->fs;
 	Bptr bp;
 
 	lock(&t->lk);
@@ -1473,12 +1483,13 @@ getroot(Tree *t, int *h)
 		*h = t->ht;
 	unlock(&t->lk);
 
-	return getblk(bp, 0);
+	return getblk(fs, bp, 0);
 }
 
 int
 btlookup(Tree *t, Key *k, Kvp *r, char *buf, int nbuf)
 {
+	Gefs *fs = t->fs;
 	int i, j, h, ok, same;
 	Blk *b, **p;
 	Bptr bp;
@@ -1502,7 +1513,7 @@ btlookup(Tree *t, Key *k, Kvp *r, char *buf, int nbuf)
 		if(blksearch(p[i-1], k, r, &same) == -1)
 			break;
 		bp = unpackbp(r->v, r->nv);
-		p[i] = getblk(bp, 0);
+		p[i] = getblk(fs, bp, 0);
 	}
 	if(p[h-1] != nil)
 		blksearch(p[h-1], k, r, &ok);
@@ -1515,14 +1526,14 @@ btlookup(Tree *t, Key *k, Kvp *r, char *buf, int nbuf)
 		if(j < 0 || !same)
 			continue;
 		if(ok || m.op == Oinsert)
-			ok = apply(r, &m, buf, nbuf);
+			ok = apply(fs, r, &m, buf, nbuf);
 		else if(m.op != Oclearb && m.op != Oclobber)
 			fatal("lookup %K << %N missing insert\n", k, &m);
 		for(j++; j < p[i]->nbuf; j++){
 			getmsg(p[i], j, &m);
 			if(keycmp(k, &m) != 0)
 				break;
-			ok = apply(r, &m, buf, nbuf);
+			ok = apply(fs, r, &m, buf, nbuf);
 		}
 	}
 	for(i = 0; i < h; i++)
@@ -1534,9 +1545,10 @@ btlookup(Tree *t, Key *k, Kvp *r, char *buf, int nbuf)
 }
 
 void
-btnewscan(Scan *s, char *pfx, int npfx)
+btnewscan(Gefs *fs, Scan *s, char *pfx, int npfx)
 {
 	memset(s, 0, sizeof(*s));
+	s->fs = fs;
 	s->first = 1;
 	s->donescan = 0;
 	s->offset = 0;
@@ -1552,6 +1564,7 @@ btnewscan(Scan *s, char *pfx, int npfx)
 void
 btenter(Tree *t, Scan *s)
 {
+	Gefs *fs = t->fs;
 	int i, same;
 	Scanp *p;
 	Msg m, c;
@@ -1559,6 +1572,7 @@ btenter(Tree *t, Scan *s)
 	Blk *b;
 	Kvp v;
 
+	s->fs = fs;
 	if(s->donescan)
 		return;
 	b = getroot(t, &s->ht);
@@ -1590,7 +1604,7 @@ btenter(Tree *t, Scan *s)
 				}
 			}
 			bp = unpackbp(v.v, v.nv);
-			b = getblk(bp, 0);
+			b = getblk(fs, bp, 0);
 			p[i+1].b = b;
 		}else if(p[i].vi == -1 || !same || !s->first)
 			p[i].vi++;
@@ -1602,6 +1616,7 @@ btenter(Tree *t, Scan *s)
 int
 btnext(Scan *s, Kvp *r)
 {
+	Gefs *fs = s->fs;
 	int i, j, h, ok, start, bufsrc;
 	Scanp *p;
 	Msg m, n;
@@ -1642,7 +1657,7 @@ Again:
 		for(i = start; i < h; i++){
 			getval(p[i-1].b, p[i-1].vi, &kv);
 			bp = unpackbp(kv.v, kv.nv);
-			p[i].b = getblk(bp, 0);
+			p[i].b = getblk(fs, bp, 0);
 		}
 		ok = 1;
 		m.op = Oinsert;
@@ -1654,7 +1669,7 @@ Again:
 		else if(m.op == Oclobber || m.op == Oclearb)
 			ok = 0;
 		else
-			broke("%s: broken entry: %N\n", Efs, &m);
+			broke(fs, "%s: broken entry: %N\n", Efs, &m);
 		bufsrc = start-1;
 	}
 
@@ -1668,7 +1683,7 @@ Again:
 			else if(n.op == Oclobber || n.op == Oclearb)
 				ok = 0;
 			else
-				broke("%s: broken entry: %N\n", Efs, &n);
+				broke(fs, "%s: broken entry: %N\n", Efs, &n);
 			bufsrc = i;
 			m = n;
 		}
@@ -1690,7 +1705,7 @@ Again:
 			getmsg(p[i].b, j, &m);
 			if(keycmp(r, &m) != 0)
 				break;
-			ok = apply(r, &m, s->kvbuf, sizeof(s->kvbuf));
+			ok = apply(fs, r, &m, s->kvbuf, sizeof(s->kvbuf));
 			p[i].bi++;
 		}
 	}

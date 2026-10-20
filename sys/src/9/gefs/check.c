@@ -5,27 +5,37 @@
  * and their entries), by address: a block neither free nor reached
  * is leaked.  Meaningful after a sync, with nothing in flight.
  */
-static uchar	*reach;
-static vlong	nreach;
 enum { Rtree, Rdata, Rlog, Rdead, Nr };
-static vlong	nreached[Nr];
 static char	*rname[Nr] = { "tree", "data", "log", "dead" };
-static vlong	nleaf, nleaf0, nleaf1, nkv, npiv, nmsg, nclob;	/* the tree's shape */
+
+/*
+ * Plan2001: a check's state is the volume's (Gefs.ck), not one global
+ * set: two volumes may be checked at the same time, each by its own
+ * console.
+ */
+typedef struct Ck Ck;
+struct Ck {
+	uchar	*reach;
+	vlong	nreach;
+	vlong	nreached[Nr];
+	vlong	nleaf, nleaf0, nleaf1, nkv, npiv, nmsg, nclob;	/* the tree's shape */
+};
 
 static void
-mark(vlong addr, int kind)
+mark(Gefs *fs, vlong addr, int kind)
 {
+	Ck *ck = fs->ck;
 	vlong i;
 
 	i = addr/Blksz;
-	if(reach != nil && i >= 0 && i < nreach && !(reach[i/8] & 1<<(i%8))){
-		reach[i/8] |= 1<<(i%8);
-		nreached[kind]++;
+	if(ck->reach != nil && i >= 0 && i < ck->nreach && !(ck->reach[i/8] & 1<<(i%8))){
+		ck->reach[i/8] |= 1<<(i%8);
+		ck->nreached[kind]++;
 	}
 }
 
 static int
-isfree(vlong bp)
+isfree(Gefs *fs, vlong bp)
 {
 	Arange *r, q;
 	Arena *a;
@@ -33,7 +43,7 @@ isfree(vlong bp)
 	q.off = bp;
 	q.len = Blksz;
 
-	a = getarena(bp);
+	a = getarena(fs, bp);
 	r = (Arange*)avllookup(a->free, &q, -1);
 	if(r == nil)
 		return 0;
@@ -41,8 +51,9 @@ isfree(vlong bp)
 }
 
 static int
-checktree(int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
+checktree(Gefs *fs, int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
 {
+	Ck *ck = fs->ck;
 	Kvp x, y;
 	Msg mx, my;
 	int i, r, fill;
@@ -51,21 +62,21 @@ checktree(int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
 	Bptr bp;
 
 	fail = 0;
-	mark(b->bp.addr, Rtree);
+	mark(fs, b->bp.addr, Rtree);
 	if(b->type == Tleaf){
-		nleaf++;
-		nkv += b->nval;
+		ck->nleaf++;
+		ck->nkv += b->nval;
 		if(b->nval == 0)
-			nleaf0++;
+			ck->nleaf0++;
 		else if(b->nval < 4)
-			nleaf1++;
+			ck->nleaf1++;
 	}else{
-		npiv++;
-		nmsg += b->nbuf;
+		ck->npiv++;
+		ck->nmsg += b->nbuf;
 		for(i = 0; i < b->nbuf; i++){
 			getmsg(b, i, &mx);
 			if(mx.op == Oclobber)
-				nclob++;
+				ck->nclob++;
 		}
 	}
 	if(h < 0){
@@ -88,7 +99,7 @@ checktree(int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
 	getval(b, 0, &x);
 	if(lo && keycmp(lo, &x) > 0){
 		fprint(fd, "out of range keys %P != %P\n", lo, &x);
-		showblk(fd, b, "out of range", 1);
+		showblk(fs, fd, b, "out of range", 1);
 		fail++;
 	}
 	for(i = 1; i < b->nval; i++){
@@ -100,13 +111,13 @@ checktree(int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
 		if(b->type == Tpivot){
 			bp = getptr(&x, &fill);
 			/* Plan2001: the free list against every pointer, older ones too */
-			if(isfree(bp.addr)){
+			if(isfree(fs, bp.addr)){
 				fprint(fd, "freed block in use: %B\n", bp);
 				fail++;
 			}
 			if(bp.gen <= pred)
 				goto Skip;
-			if((c = getblk(bp, 0)) == nil){
+			if((c = getblk(fs, bp, 0)) == nil){
 				fprint(fd, "corrupt block: %B\n", bp);
 				fail++;
 				continue;
@@ -115,7 +126,7 @@ checktree(int fd, Blk *b, int h, vlong pred, Kvp *lo, Kvp *hi)
 				fprint(fd, "mismatched block fill\n");
 				fail++;
 			}
-			if(checktree(fd, c, h - 1, pred, &x, &y))
+			if(checktree(fs, fd, c, h - 1, pred, &x, &y))
 				fail++;
 			dropblk(c);
 		}
@@ -138,16 +149,16 @@ Skip:
 	if(b->type == Tpivot){
 		getval(b, b->nval-1, &y);
 		bp = getptr(&x, &fill);
-		if(isfree(bp.addr)){	/* Plan2001: the last child was not looked at */
+		if(isfree(fs, bp.addr)){	/* Plan2001: the last child was not looked at */
 			fprint(fd, "freed block in use: %B\n", bp);
 			fail++;
 		}
 		if(bp.gen > pred){
-			if((c = getblk(bp, 0)) == nil){
+			if((c = getblk(fs, bp, 0)) == nil){
 				fprint(fd, "corrupt block: %B\n", bp);
 				fail++;
 			}
-			if(c != nil && checktree(fd, c, h - 1, pred, &y, nil))
+			if(c != nil && checktree(fs, fd, c, h - 1, pred, &y, nil))
 				fail++;
 			dropblk(c);
 		}
@@ -191,7 +202,7 @@ Skip:
 }
 
 static int
-checklog(int fd, Bptr hd, Bptr tl)
+checklog(Gefs *fs, int fd, Bptr hd, Bptr tl)
 {
 	Bptr pb, bp, nb;
 	Blk *b;
@@ -203,13 +214,13 @@ checklog(int fd, Bptr hd, Bptr tl)
 			return 0;
 		}
 		pb = bp;
-		mark(bp.addr, Rlog);
-		if(isfree(bp.addr)){	/* Plan2001 */
+		mark(fs, bp.addr, Rlog);
+		if(isfree(fs, bp.addr)){	/* Plan2001 */
 			fprint(fd, "freed log block in use: %B\n", bp);
 			poperror();
 			return 0;
 		}
-		b = getblk(bp, 0);
+		b = getblk(fs, bp, 0);
 		nb = b->logp;
 		dropblk(b);
 		poperror();
@@ -224,7 +235,7 @@ checklog(int fd, Bptr hd, Bptr tl)
 }
 
 static int
-checkfree(int fd)
+checkfree(Gefs *fs, int fd)
 {
 	Arena *a;
 	Arange *r, *n;
@@ -246,7 +257,7 @@ checkfree(int fd)
 			}
 			r = n;
 		}
-		if(!checklog(fd, a->loghd, Zb)){
+		if(!checklog(fs, fd, a->loghd, Zb)){
 			fprint(fd, "arena %d: broken freelist\n", i);
 			ok = 0;
 		}
@@ -257,7 +268,7 @@ checkfree(int fd)
 
 /* Plan2001: a deadlist's entries, the killed blocks, are not free yet */
 static void
-markdl(Bptr hd, Bptr tl)
+markdl(Gefs *fs, Bptr hd, Bptr tl)
 {
 	Bptr bp, nb;
 	Blk *b;
@@ -266,9 +277,9 @@ markdl(Bptr hd, Bptr tl)
 
 	done = 0;
 	for(bp = hd; bp.addr != -1 && !done; bp = nb){
-		b = getblk(bp, 0);
+		b = getblk(fs, bp, 0);
 		for(p = b->data; p != b->data+b->logsz; p += 8)
-			mark(UNPACK64(p), Rdead);
+			mark(fs, UNPACK64(p), Rdead);
 		nb = b->logp;
 		done = (bp.addr == tl.addr);
 		dropblk(b);
@@ -276,7 +287,7 @@ markdl(Bptr hd, Bptr tl)
 }
 
 static int
-checkdlist(int fd)
+checkdlist(Gefs *fs, int fd)
 {
 	char pfx[1];
 	Dlist dl;
@@ -284,30 +295,30 @@ checkdlist(int fd)
 	int ok;
 
 	ok = 1;
-	if(!checklog(fd, fs->snapdl.hd, fs->snapdl.tl)){
+	if(!checklog(fs, fd, fs->snapdl.hd, fs->snapdl.tl)){
 		fprint(fd, "bad snap dlist (%B, %B): %s\n", fs->snapdl.hd, fs->snapdl.tl, errmsg());
 		ok = 0;
 	}else
-		markdl(fs->snapdl.hd, fs->snapdl.tl);
+		markdl(fs, fs->snapdl.hd, fs->snapdl.tl);
 	pfx[0] = Kdlist;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(&fs->snap, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
 			break;
 		kv2dlist(&s.kv, &dl);
-		if(!checklog(fd, dl.hd, dl.tl)){
+		if(!checklog(fs, fd, dl.hd, dl.tl)){
 			fprint(fd, "bad dlist %P: %s\n", &s.kv, errmsg());
 			ok = 0;
 		}else
-			markdl(dl.hd, dl.tl);
+			markdl(fs, dl.hd, dl.tl);
 	}
 	btexit(&s);
 	return ok;
 }
 
 static int
-checkdata(int fd, Tree *t, vlong pred)
+checkdata(Gefs *fs, int fd, Tree *t, vlong pred)
 {
 	char pfx[1];
 	Bptr bp;
@@ -315,7 +326,7 @@ checkdata(int fd, Tree *t, vlong pred)
 	Blk *b;
 
 	pfx[0] = Kdat;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(t, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
@@ -325,13 +336,13 @@ checkdata(int fd, Tree *t, vlong pred)
 			nexterror();
 		}
 		bp = unpackbp(s.kv.v, s.kv.nv);
-		mark(bp.addr, Rdata);
-		if(isfree(bp.addr)){	/* Plan2001: older data too */
+		mark(fs, bp.addr, Rdata);
+		if(isfree(fs, bp.addr)){	/* Plan2001: older data too */
 			fprint(fd, "free block in use: %B\n", bp);
 			error("free block in use");
 		}
 		if(bp.gen > pred){
-			b = getblk(bp, GBraw);
+			b = getblk(fs, bp, GBraw);
 			dropblk(b);
 		}
 		poperror();
@@ -341,7 +352,7 @@ checkdata(int fd, Tree *t, vlong pred)
 }
 
 static vlong
-countlbl(int fd, vlong id)
+countlbl(Gefs *fs, int fd, vlong id)
 {
 	char pfx[1];
 	int nref;
@@ -349,7 +360,7 @@ countlbl(int fd, vlong id)
 
 	nref = 0;
 	pfx[0] = Klabel;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(&fs->snap, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
@@ -364,7 +375,7 @@ countlbl(int fd, vlong id)
 }
 
 static vlong
-countref(vlong id)
+countref(Gefs *fs, vlong id)
 {
 	char pfx[1];
 	Tree t;
@@ -373,12 +384,12 @@ countref(vlong id)
 
 	nref = 0;
 	pfx[0] = Ksnap;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(&fs->snap, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
 			break;
-		unpacktree(&t, s.kv.v, s.kv.nv);
+		unpacktree(fs, &t, s.kv.v, s.kv.nv);
 		if(t.pred == -1 && t.base == id)
 			nref++;
 	}
@@ -388,8 +399,9 @@ countref(vlong id)
 
 /* Plan2001: the blocks neither free nor reached */
 static int
-checkleak(int fd)
+checkleak(Gefs *fs, int fd)
 {
+	Ck *ck = fs->ck;
 	vlong addr, base, n, i;
 	Arena *a;
 	int j;
@@ -400,7 +412,7 @@ checkleak(int fd)
 		base = a->h0->bp.addr + 2*Blksz;
 		for(addr = base; addr < base + a->size; addr += Blksz){
 			i = addr/Blksz;
-			if(i >= nreach || (reach[i/8] & 1<<(i%8)) || isfree(addr))
+			if(i >= ck->nreach || (ck->reach[i/8] & 1<<(i%8)) || isfree(fs, addr))
 				continue;
 			/*
 			 * not read: getblk would cache it with gen -1, and the
@@ -412,15 +424,16 @@ checkleak(int fd)
 	}
 	fprint(fd, "leaked blocks: %lld (%lld KiB)\n", n, n*Blksz/1024);
 	for(j = 0; j < Nr; j++)
-		fprint(fd, "reached %s: %lld KiB\n", rname[j], nreached[j]*Blksz/1024);
+		fprint(fd, "reached %s: %lld KiB\n", rname[j], ck->nreached[j]*Blksz/1024);
 	fprint(fd, "reached leaves %lld (empty %lld, < 4 %lld) kvs %lld; pivots %lld msgs %lld clobbers %lld\n",
-		nleaf, nleaf0, nleaf1, nkv, npiv, nmsg, nclob);
+		ck->nleaf, ck->nleaf0, ck->nleaf1, ck->nkv, ck->npiv, ck->nmsg, ck->nclob);
 	return n == 0;
 }
 
 int
-checkfs(int fd)
+checkfs(Gefs *fs, int fd)
 {
+	Ck *ck;
 	int ok, height, nref, nlbl;
 	vlong gen;
 	char pfx[1];
@@ -430,34 +443,38 @@ checkfs(int fd)
 	Blk *b;
 
 	ok = 1;
+	if(fs->ck != nil)
+		error("gefs: check already running");
 	assert(!canqlock(&fs->mutlk));
+	ck = fs->ck = emalloc(sizeof(Ck), 1);
 	a = &fs->arenas[fs->narena-1];
-	nreach = (a->h0->bp.addr + a->size + 2*Blksz)/Blksz + 1;
-	reach = emalloc((nreach+7)/8, 1);
-	memset(nreached, 0, sizeof(nreached));
-	nleaf = nleaf0 = nleaf1 = nkv = npiv = nmsg = nclob = 0;
-	mark(fs->sb0->bp.addr, Rlog);
-	mark(fs->sb1->bp.addr, Rlog);
+	ck->nreach = (a->h0->bp.addr + a->size + 2*Blksz)/Blksz + 1;
+	ck->reach = emalloc((ck->nreach+7)/8, 1);
+	memset(ck->nreached, 0, sizeof(ck->nreached));
+	ck->nleaf = ck->nleaf0 = ck->nleaf1 = ck->nkv = ck->npiv = ck->nmsg = ck->nclob = 0;
+	mark(fs, fs->sb0->bp.addr, Rlog);
+	mark(fs, fs->sb1->bp.addr, Rlog);
 	if(waserror()){
 		fprint(fd, "error checking %s\n", errmsg());
-		free(reach);
-		reach = nil;
+		free(ck->reach);
+		free(ck);
+		fs->ck = nil;
 		return 0;
 	}
 	fprint(fd, "checking freelist\n");
-	if(!checkfree(fd))
+	if(!checkfree(fs, fd))
 		ok = 0;
 	fprint(fd, "checking deadlist\n");
-	if(!checkdlist(fd))
+	if(!checkdlist(fs, fd))
 		ok = 0;
 	fprint(fd, "checking snap tree: %B\n", fs->snap.bp);
 	if((b = getroot(&fs->snap, &height)) != nil){
-		if(checktree(fd, b, height-1, -1, nil, 0))
+		if(checktree(fs, fd, b, height-1, -1, nil, 0))
 			ok = 0;
 		dropblk(b);
 	}
 	pfx[0] = Ksnap;
-	btnewscan(&s, pfx, 1);
+	btnewscan(fs, &s, pfx, 1);
 	btenter(&fs->snap, &s);
 	while(1){
 		if(!btnext(&s, &s.kv))
@@ -468,7 +485,7 @@ checkfs(int fd)
 			ok = 0;
 			continue;
 		}
-		if((t = opentree(gen)) == nil){
+		if((t = opentree(fs, gen)) == nil){
 			fprint(fd, "invalid snap id %lld\n", gen);
 			ok = 0;
 			poperror();
@@ -479,8 +496,8 @@ checkfs(int fd)
 			closesnap(t);
 			nexterror();
 		}
-		nref = countref(gen);
-		nlbl = countlbl(fd, gen);
+		nref = countref(fs, gen);
+		nlbl = countlbl(fs, fd, gen);
 		fprint(fd, "\tnref %d nlbl %d\n", nref, nlbl);
 		if(t->nref < nref || t->nlbl < nlbl){
 			fprint(fd, "mismatched refs: (%d, %d) != (%d, %d)\n", t->nref, nref, t->nlbl, nlbl);
@@ -491,9 +508,9 @@ checkfs(int fd)
 			dropblk(b);
 			nexterror();
 		}
-		if(checktree(fd, b, height-1, t->pred, nil, 0))
+		if(checktree(fs, fd, b, height-1, t->pred, nil, 0))
 			ok = 0;
-		if(checkdata(fd, t, t->pred))
+		if(checkdata(fs, fd, t, t->pred))
 			ok = 0;
 		dropblk(b);
 		poperror();
@@ -503,9 +520,11 @@ checkfs(int fd)
 	}
 	btexit(&s);
 	/* Plan2001: reported, not failed: in-flight frees look leaked */
-	checkleak(fd);
-	free(reach);
-	reach = nil;
+	checkleak(fs, fd);
+	free(ck->reach);
+	ck->reach = nil;
+	free(ck);
+	fs->ck = nil;
 	poperror();
 	if(ok)
 		fprint(fd, "ok\n");

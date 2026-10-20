@@ -13,6 +13,9 @@
 #include "../port/error.h"
 #include <avl.h>
 
+/* the GE instance (gdat.h); the protos below need it */
+typedef struct Gefs Gefs;
+
 /* libc.h's that the kernel's lib.h lacks */
 #define	DMAUTH		0x08000000
 #define	DMTMP		0x04000000
@@ -117,7 +120,7 @@ void	gwerrstr(char*, ...);
 #pragma	varargck	argpos	gwerrstr	1
 #pragma	varargck	type	"r"	void	/* up->errstr (kern.c) */
 
-#define	fprint		gfprint
+#define	fprint(fd, ...)	gfprint(fs, (fd), __VA_ARGS__)
 #define	sysfatal	gsysfatal
 #define	abort()		panic("gefs: abort")
 #define	calloc(n, sz)	mallocz((n)*(sz), 1)
@@ -125,42 +128,44 @@ void	gwerrstr(char*, ...);
 #define	atol(s)		strtol(s, nil, 10)
 #define	nsec()		todget(nil, nil)
 #define	sleep(ms)	gsleep(ms)
-int	gfprint(int, char*, ...);
+int	gfprint(Gefs*, int, char*, ...);
 _Noreturn void	gsysfatal(char*, ...);
 void	gsleep(long);
-#pragma	varargck	argpos	gfprint	2
+#pragma	varargck	argpos	gfprint	3
 #pragma	varargck	argpos	gsysfatal	1
 
 /*
  * File descriptors: gefs's device and its connections are small
  * numbers in a table of kernel Chans (kern.c); 2 is the kernel's
- * console (print).
+ * console (print).  Each GE volume has its own table (Gefs.k,
+ * docs/ge-fs-o.md), so these take the volume; the macros bind the one
+ * in scope -- always the volume of the calling object.
  */
-#define	open		gopen
-#define	close		gclose
-#define	read		gread
-#define	readn		greadn
-#define	write		gwrite
-#define	pread		gpread
-#define	pwrite		gpwrite
-#define	dirfstat	gdirfstat
-#define	hangup		ghangup
-int	gopen(char*, int);
-int	gclose(int);
-long	gread(int, void*, long);
-long	greadn(int, void*, long);
-long	gwrite(int, void*, long);
-long	gpread(int, void*, long, vlong);
-long	gpwrite(int, void*, long, vlong);
-Dir*	gdirfstat(int);
-int	ghangup(int);
+#define	open(f, m)		gopen(fs, (f), (m))
+#define	close(fd)		gclose(fs, (fd))
+#define	read(fd, b, n)		gread(fs, (fd), (b), (n))
+#define	readn(fd, b, n)		greadn(fs, (fd), (b), (n))
+#define	write(fd, b, n)		gwrite(fs, (fd), (b), (n))
+#define	pread(fd, b, n, o)	gpread(fs, (fd), (b), (n), (o))
+#define	pwrite(fd, b, n, o)	gpwrite(fs, (fd), (b), (n), (o))
+#define	dirfstat(fd)		gdirfstat(fs, (fd))
+#define	hangup(fd)		ghangup(fs, (fd))
+int	gopen(Gefs*, char*, int);
+int	gclose(Gefs*, int);
+long	gread(Gefs*, int, void*, long);
+long	greadn(Gefs*, int, void*, long);
+long	gwrite(Gefs*, int, void*, long);
+long	gpread(Gefs*, int, void*, long, vlong);
+long	gpwrite(Gefs*, int, void*, long, vlong);
+Dir*	gdirfstat(Gefs*, int);
+int	ghangup(Gefs*, int);
 
 /* kern.c, for fs.c */
-void	gflushdev(void);
-void	gefshalted(void);
+void	gflushdev(Gefs*);
+void	gefshalted(Gefs*);
 
 /* gefs's names that are the kernel's functions too */
-#define	cachedel	gcachedel
+#define	cachedel(a)	gcachedel(fs, (a))
 
 /* mem.h's, as gdat.h's enum (the same values) */
 #undef	KiB

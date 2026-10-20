@@ -21,9 +21,49 @@
 #include "fns.h"
 #include "../port/error.h"
 
-Chan*	gefsserve(char*, Chan*, vlong, vlong, int, char*);
+/*
+ * Plan2001: a GE instance (../gefs, docs/ge-fs-o.md) is opaque here:
+ * its type is gefs.h's, and 6c's cross-module signatures differ for an
+ * incomplete struct, so the handle is a void*.
+ */
+Chan*	gefsserve(char*, Chan*, vlong, vlong, int, char*, void**);
 void	gefspost(Chan*, char*);
-void	gefsshutdown(void);
+void	gefsshutdown(void*);
+
+/*
+ * Plan2001: the volumes this device has started, for the shutdown at
+ * reboot.  Each is an independent GE instance with its own device,
+ * console and allocation state (docs/ge-fs-o.md); the root's is the
+ * first.
+ */
+enum {
+	Maxvols	= 4,
+};
+
+static void *vols[Maxvols];
+static int nvols;
+
+static void
+addvol(void *g)
+{
+	int i;
+
+	for(i = 0; i < nvols; i++)
+		if(vols[i] == g)
+			return;
+	if(nvols == Maxvols)
+		error("gefs: too many volumes");
+	vols[nvols++] = g;
+}
+
+static void
+gefsdevshutdown(void)
+{
+	int i;
+
+	for(i = 0; i < nvols; i++)
+		gefsshutdown(vols[i]);
+}
 
 /* Has c, at off, gefs's superblock? */
 static int
@@ -165,6 +205,7 @@ gefsroot(char *spec, int rw)
 	char *s, *tree, dev[64];
 	vlong off, size;
 	Chan *c, *m, *r;
+	void *v;
 	Dir *d;
 
 	s = smalloc(strlen(spec)+1);
@@ -198,7 +239,8 @@ gefsroot(char *spec, int rw)
 		size = d->length;
 		free(d);
 	}
-	m = gefsserve(dev, c, off, size, rw, "#s/gefs.root.cmd");
+	m = gefsserve(dev, c, off, size, rw, "#s/gefs.root.cmd", &v);
+	addvol(v);
 	poperror();	/* c is gefs's now */
 	if(!waserror()){
 		gefspost(m, "#s/gefs.root");
@@ -299,7 +341,7 @@ Dev gefsdevtab = {
 
 	devreset,
 	devinit,
-	gefsshutdown,
+	gefsdevshutdown,
 	gefsattach,
 	gefswalk,
 	gefsstat,

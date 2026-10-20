@@ -1,5 +1,17 @@
 # Tila ja suunnitelma
 
+> **20.10.2026:** GE/FS/O-jako aloitettu: `docs/ge-fs-o.md`:n vaihe 1
+> (GE-instanssien erottelu) ja vaiheen 2 olio-ytimen osa on toteutettu.
+> Kernelin gefsissä ei ole enää globaalia `Gefs *fs`:ää eikä yhden
+> instanssin rajoitusta; jokainen `gefsserve` tekee oman tilavuutensa
+> (fd-taulukko, konsoli, halt-tila, synkronoijan/siivoajan prosessit,
+> oliotransaktiot, tarkistuksen tila, välimuistibudjetti).  Tilavuus
+> kulkee objektin mukana (`Limbo`, `Blk`, `Tree`, `Mount`, `Fid`, `Conn`,
+> `Dent`, `Arena`, `Syncq`, `Scan`, `Otx`) tai ensimmäisenä parametrina.
+> Natiivi oliomuoto, oliokatalogi ja O:lta boottaus (`-O`/`-S`) eivät ole
+> toteutettuja; ne vaativat muotodokumentin ja katselmuksen.  Yksityiskohdat,
+> puuttuvat osat ja ajetut testit: `docs/ge-fs-o-impl.md`.
+
 > **17.10.2026:** Plan2001 aloitti uuden git-historian (vain tarvittavat
 > tiedostot AI:n kontekstiin). Vanha historia (main `94028e8` asti, haarat ja
 > tagit) on repossa `pereuna/Plan2001-history` ja bundlena

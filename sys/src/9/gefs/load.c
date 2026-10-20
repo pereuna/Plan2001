@@ -13,14 +13,15 @@ rangecmp(Avl *a, Avl *b)
 void
 loadarena(Arena *a, Bptr hd)
 {
+	Gefs *fs = a->fs;
 	Blk *h0, *h1, *b;
 	Bptr bp;
 
 	/* try to load block pointers, we only need one to succeed */
 	bp = hd;
-	h0 = getblk(bp, GBtry);
+	h0 = getblk(fs, bp, GBtry);
 	bp.addr += Blksz;
-	h1 = getblk(bp, GBtry);
+	h1 = getblk(fs, bp, GBtry);
 	/* if neither head nor tail is consistent, we're hosed */
 	b = (h0 != nil) ? h0 : h1;
 	if(b == nil)
@@ -32,16 +33,16 @@ loadarena(Arena *a, Bptr hd)
 	/* otherwise, we could have crashed mid-pass, just load the blocks */
 	bp = hd;
 	if(h0 == nil)
-		h0 = getblk(bp, GBnochk);
+		h0 = getblk(fs, bp, GBnochk);
 	bp.addr += Blksz;
 	if(h1 == nil)
-		h1 = getblk(bp, GBnochk);
+		h1 = getblk(fs, bp, GBnochk);
 
 	unpackarena(a, b->data, Arenasz);
 	if((a->free = avlcreate(rangecmp)) == nil)
 		error(Enomem);
-	a->logbuf[0] = cachepluck();
-	a->logbuf[1] = cachepluck();
+	a->logbuf[0] = cachepluck(fs);
+	a->logbuf[1] = cachepluck(fs);
 	a->logbuf[0]->bp = (Bptr){-1, -1, -1};
 	a->logbuf[1]->bp = (Bptr){-1, -1, -1};
 	setflag(a->logbuf[0], Bstatic, 0);
@@ -52,7 +53,7 @@ loadarena(Arena *a, Bptr hd)
 }
 
 void
-loadfs(char *dev)
+loadfs(Gefs *fs, char *dev)
 {
 	Bptr bhd, btl;
 	Mount *dump;
@@ -64,6 +65,7 @@ loadfs(char *dev)
 
 	if((dump = mallocz(sizeof(*dump), 1)) == nil)
 		sysfatal("malloc: %r");
+	dump->fs = fs;
 	if(waserror())
 		sysfatal("load fs: %s", errmsg());
 	snprint(dump->name, sizeof(dump->name), "dump");
@@ -83,8 +85,8 @@ loadfs(char *dev)
 	eb = eb - (eb%Blksz) - Blksz;
 	bhd = (Bptr){0, -1, -1};
 	btl = (Bptr){eb, -1, -1};
-	fs->sb0 = getblk(bhd, GBnochk);
-	fs->sb1 = getblk(btl, GBnochk);
+	fs->sb0 = getblk(fs, bhd, GBnochk);
+	fs->sb1 = getblk(fs, btl, GBnochk);
 	if(!waserror()){
 		unpacksb(fs, fs->sb0->buf, Blksz);
 		poperror();
@@ -102,6 +104,7 @@ loadfs(char *dev)
 		sysfatal("malloc: %r");
 	for(i = 0; i < fs->narena; i++){
 		a = &fs->arenas[i];
+		a->fs = fs;	/* Plan2001: the arena carries its volume */
 		loadarena(a, fs->arenabp[i]);
 		a->reserve = a->size / 1024;
 		if(a->reserve < 512*KiB)
@@ -114,7 +117,7 @@ loadfs(char *dev)
 		loadlog(a, a->loghd);
 	}
 
-	if((t = opensnap("adm", nil)) == nil)
+	if((t = opensnap(fs, "adm", nil)) == nil)
 		sysfatal("load users: no adm label");
 	loadusers(t);
 	poperror();

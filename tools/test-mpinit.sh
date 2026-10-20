@@ -108,7 +108,7 @@ t = text()
 check('boot: the REPL' + (' on the gefs root' if mode == 'root' else ' without a root'), m is not None, t)
 check('boot.py ran', 'boot: MicroPython from the kernel, %s\n' % ('root' if mode == 'root' else 'no root') in t, t)
 if mode == 'root':
-    check('the kernel mounted gefs', re.search(r'^gefs: .*read-write', t, re.M) is not None, t)
+    check('the kernel mounted gefs', re.search(r'^gefs[0-9]*: .*read-write', t, re.M) is not None, t)
 if m is None:
     sys.exit(1)
 # raw REPL steps: the code (sent with \x04), the regexes its output and
