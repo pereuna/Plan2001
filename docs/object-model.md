@@ -734,11 +734,17 @@ gefs:n versiot takaavat, että näkymä on yksi kokonainen versio.
 - **Instanssit** saavat uuden luokan (`__class__`), ja jos
   `__schema__` muuttui, `__migrate__(self, vanha)` kutsutaan kerran
   per instanssi; `vanha` on matala kopio instanssin jäsenistä
-  (dict), joten hook ei voi tuhota muiden tarvitsemaa dataa. Jos
-  skeema muuttui ilman hookia, päivitys hylätään ennen julkaisua.
+  (dict), mutta vain muuttumattomista arvoista (luku, str, bytes,
+  None, tuple/frozenset muuttumattomista). Jos jäsen on lista, dict,
+  set, bytearray, olio, luokka, moduuli tai muu, jota hook voisi
+  mutatoida `vanha`n kautta, päivitys hylätään ennen julkaisua:
+  I5:n read-only-snapshottia ei luvata sille, mitä ei voi toteuttaa.
+  Jos skeema muuttui ilman hookia, päivitys hylätään ennen julkaisua.
 - **OID:t** säilyvät: korvattava olio saa vanhan oliön OID:n, myös
   uudelleen rakennettu monikko tai joukko (`space.oid` on sama ennen
-  ja jälkeen). Kaikki tietueet kirjoitetaan uudelleen (`p9_image_all_dirty`),
+  ja jälkeen), ja luokan metodit sekä staticmethod/classmethod-
+  wrapperit saavat yhden kanonisen korvaajan, jolle OID siirretään
+  kerran. Kaikki tietueet kirjoitetaan uudelleen (`p9_image_all_dirty`),
   joten vanhaa koodia ei jää mihinkään tietueeseen.
 - **Environmentin aikakaudet** (`(alkuversio, env)` -lista storen
   omassa oliossa) kertovat, mikä Environment oli milläkin versiolla;

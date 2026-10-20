@@ -37,11 +37,16 @@ void p9_image_restore_store(const byte *p, size_t n, uint64_t *version, char *us
 // raises, and nothing is published.
 void p9_image_upgrade(void *world);
 // the symbol table of MODULE's definition (its source compiled), for
-// p9_image_upgrade: the qualnames of its functions and classes.  A
-// raised error: the definition cannot be read.
-void p9_image_symtab(qstr module, const char *source);
-// and it must describe the definition's raw code (the .mpy's tree)
-void p9_image_symcheck(qstr module, const mp_raw_code_t *rc);
+// p9_image_upgrade: the qualnames of its functions and classes.  The
+// source is compiled under SOURCE_FILE, the name the definition's .mpy
+// was compiled with (its qstr table's first entry).  A raised error:
+// the definition cannot be read.
+void p9_image_symtab(qstr module, const char *source, qstr source_file);
+// and it must describe the definition's raw code (the .mpy's tree),
+// and its source recompiled must be the .mpy at MPYPATH
+void p9_image_symcheck(qstr module, const mp_raw_code_t *rc, const char *mpypath);
+// a failed upgrade before p9_image_upgrade: its symbol tables forgotten
+void p9_image_upgrade_clean(void);
 // a world's module NAME (loaded once, not run, not in sys.modules) and
 // its __main__'s dict (p9space.c): the world is what a view and an
 // upgrade hand to p9_image_restore_store / p9_image_upgrade
@@ -57,6 +62,8 @@ p9_space_mod_t *p9_world_loadmod(void *w, qstr name);
 // the module's definition (its .py's path: LIB/mod/SHA.py) and the
 // Environment's definition for the name (NULL: not in the Environment)
 const char *p9_world_defpath(void *w, qstr name, char *buf, size_t n);
+// and its .mpy's path (LIB/mod/SHA.mpy)
+const char *p9_world_defmpypath(void *w, qstr name, char *buf, size_t n);
 const char *p9_world_defsha(void *w, qstr name);
 // 1: the same definition as the Space's Environment has (its code, so
 // its paths, are the same and no name is needed)

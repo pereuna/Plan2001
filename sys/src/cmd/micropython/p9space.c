@@ -646,11 +646,13 @@ static int catparse(const byte *p, size_t n) {
     if (n < CatHdr || memcmp(p, "P2EC", 4) != 0 || p[4] != CatMagic) {
         return -1;
     }
-    if (get64(p + 5) >> 32 != (n - CatHdr) / CatEnt) {
-        return -1;	/* its length says otherwise */
-    }
+    /* the count is read before the length check only when safe: with
+       no complete entry there is no get64(p + 5) to make */
     if ((n - CatHdr) % CatEnt != 0 || (n - CatHdr) / CatEnt == 0) {
         return -1;
+    }
+    if (get64(p + 5) >> 32 != (n - CatHdr) / CatEnt) {
+        return -1;	/* its length says otherwise */
     }
     last = 0;
     for (k = 0; k < (n - CatHdr) / CatEnt; k++) {
@@ -815,6 +817,7 @@ static int readcat(int fd, vstr_t *v) {
     const byte *o;
     size_t olen;
 
+    epochclear();	/* none of a previous read's, whether or not there is one */
     if (storereadobj(fd, OID_UPGRADE_META, 0, v) < 0) {
         return -1;
     }
@@ -824,6 +827,43 @@ static int readcat(int fd, vstr_t *v) {
     if (catparse(o, olen) != 0) {
         return -1;
     }
+    return 0;
+}
+
+/*
+ * V7's Environment for version VER (docs/v7-upgrade.md 4.1, I6): a
+ * valid, ordered catalog whose last epoch is the header's current
+ * Environment and whose rows cover VER.  A V7 store without it is not
+ * trusted: there is no falling back to the latest Environment.
+ * 0 ok (ENV filled), -1 missing, bad or inconsistent.
+ */
+static int epochcheck(int fd, const shdr_t *h, vlong ver, char *env) {
+    vstr_t cat;
+    int r;
+
+    if (ver < 1 || ver > h->n) {
+        return -1;
+    }
+    r = readcat(fd, &cat);
+    if (r != 0) {
+        epochclear();
+        return -1;
+    }
+    /*
+     * The last epoch is the store's latest Environment (the header's
+     * user part is the current one even in a historical stream); the
+     * requested version must have an epoch.  A later epoch's start is
+     * not an error for an earlier read.
+     */
+    if (nepochs == 0
+    || strcmp(epochs[nepochs - 1].env, h->env) != 0
+    || envat(ver, env) < 0) {
+        vstr_clear(&cat);
+        epochclear();
+        return -1;
+    }
+    vstr_clear(&cat);
+    epochclear();
     return 0;
 }
 
@@ -1003,7 +1043,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
     vlong ver, t0;
     uint64_t n;
     size_t nu;
-    vstr_t st, cat;
+    vstr_t st;
     int fd;
     nlr_buf_t nlr;
 
@@ -1054,21 +1094,21 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
         sp.pin = h.pin;
         if (ver > 0) {
             /*
-             * Its Environment at that version: the epochs (V7).  The
-             * selected version's header reports the version read, and
-             * the store's *current* user part: the epochs are the only
-             * way to the Environment the version was written with.
+             * Its Environment at that version.  The selected version's
+             * header reports the version read but the store's *current*
+             * user part; V7's epochs are the only way to the Environment
+             * the version was written with.  V5/V6 (fmt 1) has no
+             * epochs: its one Environment is the header's.
              */
-            if (readcat(fd, &cat) < 0) {
-                mp_raise_msg_varg(&mp_type_ValueError,
-                    MP_ERROR_TEXT("space %s: its Environment epochs"), name);
+            if (h.fmt == HdrFmt) {
+                if (epochcheck(fd, &h, ver, env) < 0) {
+                    mp_raise_msg_varg(&mp_type_ValueError,
+                        MP_ERROR_TEXT("space %s: no valid Environment epochs for version %d"),
+                        name, (int)ver);
+                }
+            } else {
+                epochclear();
             }
-            if (nepochs > 0 && envat(ver, env) < 0) {
-                mp_raise_msg_varg(&mp_type_ValueError,
-                    MP_ERROR_TEXT("space %s: no Environment for version %d"), name, (int)ver);
-            }
-            vstr_clear(&cat);
-            epochclear();
         }
         useenv(name, env);
         t0 = nsec();
@@ -1212,6 +1252,17 @@ const char *p9_world_defpath(void *wp, qstr name, char *buf, size_t n) {
     return buf;
 }
 
+const char *p9_world_defmpypath(void *wp, qstr name, char *buf, size_t n) {
+    world_t *w = wp;
+    const char *sha = p9_world_defsha(wp, name);
+
+    if (sha == NULL) {
+        return NULL;
+    }
+    snprint(buf, n, "%s/mod/%s.mpy", w->lib, sha);
+    return buf;
+}
+
 int p9_world_unchanged(void *wp, qstr name) {
     world_t *w = wp;
     const char *new = p9_world_defsha(wp, name);
@@ -1269,7 +1320,7 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
     vlong ver, t0;
     uint64_t n;
     size_t nu;
-    vstr_t st, cat;
+    vstr_t st;
     view_t *v;
     int fd, i;
 
@@ -1317,18 +1368,18 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
     }
     snprint(env, sizeof env, "%s", h.env);
     if (ver > 0) {
-        /* its Environment at that version: the epochs (V7) */
-        if (readcat(fd, &cat) < 0) {
-            close(fd);
-            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("view: %s: its Environment epochs"), dir);
+        /* its Environment at that version: V7's epochs (fmt 2); a V5/V6
+           store (fmt 1) has only the header's */
+        if (h.fmt == HdrFmt) {
+            if (epochcheck(fd, &h, ver, env) < 0) {
+                close(fd);
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("view: %s: no valid Environment epochs for version %d"),
+                    dir, (int)ver);
+            }
+        } else {
+            epochclear();
         }
-        if (nepochs > 0 && envat(ver, env) < 0) {
-            close(fd);
-            mp_raise_msg_varg(&mp_type_ValueError,
-                MP_ERROR_TEXT("view: %s: no Environment for version %d"), dir, (int)ver);
-        }
-        vstr_clear(&cat);
-        epochclear();
     }
     close(fd);
     v->w.envmap = readenv(v->w.lib, env);
@@ -1449,7 +1500,7 @@ static void spaceenv(const char *env, mp_obj_t envmap) {
  */
 static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
     const char *name = mp_obj_str_get_str(name_in), *envstr = mp_obj_str_get_str(env_in);
-    char dir[256], path[300], lib[256], oldenv[65], user[256], src[300];
+    char dir[256], path[300], lib[256], oldenv[65], user[256], src[300], mpy[300];
     mp_obj_t envmap;
     mp_map_t *em;
     p9_space_mod_t *nm;
@@ -1459,7 +1510,7 @@ static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
     vstr_t st, raw;
     uint64_t ver;
     size_t nu;
-    qstr q;
+    qstr q, srcfile;
     int fd, lk, r, k, nk;
     nlr_buf_t nlr;
 
@@ -1490,6 +1541,7 @@ static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
     sp.meta.len = 0;
     sp.hasmeta = 0;
     w = NULL;
+    p9_image_upgrade_clean();	/* a previous preflight's symbol tables */
     if (nlr_push(&nlr) == 0) {
         /* 1. preflight: the published version, the Environment, the
            definitions and their names; nothing is written */
@@ -1527,8 +1579,9 @@ static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
         sp.next = get64((byte *)user + UserNext);
         vstr_clear(&st);
         /* 2. the new world: every module of the new Environment loaded
-           (its .mpy read), and the symbol table of every changed
-           definition (its source compiled, its tree checked) */
+           (its .mpy read), its source compiled and its .mpy checked
+           against that compilation; every changed definition's symbol
+           table is kept for the rebinding */
         w = worldnew(lib, envmap, 1);
         MP_STATE_VM(p9_space_world) = w;
         em = &((mp_obj_dict_t *)MP_OBJ_TO_PTR(envmap))->map;
@@ -1538,15 +1591,25 @@ static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
             }
             q = mp_obj_str_get_qstr(em->table[k].key);
             nm = p9_world_loadmod(w, q);
-            if (p9_world_unchanged(w, q)) {
-                continue;
+            if (p9_world_defpath(w, q, src, sizeof src) == NULL
+            || p9_world_defmpypath(w, q, mpy, sizeof mpy) == NULL) {
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("space: upgrade: %q: no definition"), q);
             }
-            if (p9_world_defpath(w, q, src, sizeof src) == NULL) {
-                continue;
+            #if MICROPY_EMIT_BYTECODE_USES_QSTR_TABLE
+            if (nm->ctx->constants.qstr_table == NULL) {
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("space: upgrade: %q: no source name in its .mpy"), q);
             }
-            p9_image_symtab(q, src);
-            p9_image_symcheck(q, nm->rc);
-            nk++;
+            srcfile = (qstr)nm->ctx->constants.qstr_table[0];
+            #else
+            srcfile = nm->ctx->constants.source_file;
+            #endif
+            p9_image_symtab(q, src, srcfile);
+            p9_image_symcheck(q, nm->rc, mpy);
+            if (!p9_world_unchanged(w, q)) {
+                nk++;
+            }
         }
         /* 3. migrate in memory: rebind, rebuild, retarget, rehash */
         {
@@ -1597,6 +1660,7 @@ static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
     epochclear();
     vstr_clear(&sp.meta);
     p9_image_reset();
+    p9_image_upgrade_clean();
     MP_STATE_VM(p9_space_world) = NULL;
     sp.store = -1;
     close(fd);

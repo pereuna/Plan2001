@@ -811,6 +811,14 @@ def v7():
             "    def __eq__(self, o):\n        return isinstance(o, S) and o.a == self.a\n"
             "    def __migrate__(self, old):\n        self.a = old['a'] * 10\n        self.parts = ['migrated']\n",
         'gone': "def g(x):\n    return x + 1\n",
+        # the P1/P2 regressions of docs/reviews/2026-10-20-v7-pr2-p1-p2-review-fixes.md
+        'amb1': "def f(x):\n    return x + 1\n",
+        'amb2': "def f(x):\n    return x + 2\n\ndef f(x):\n    return x + 3\n",
+        'tama': "def f(x):\n    return 'a' + x\n",
+        'tamb': "def f(x):\n    return 'b' + x\n",
+        'mig1': "class M:\n    __schema__ = 0\n    def __init__(self, v):\n        self.v = v\n        self.shared = [v]\n",
+        'mig2': "class M:\n    __schema__ = 1\n    def __init__(self, v):\n        self.v = v\n        self.shared = [v]\n"
+            "    def __migrate__(self, old):\n        old['shared'].append(99)\n        self.v = old['v'] + 1\n",
     }
     if not boot():
         return
@@ -834,6 +842,13 @@ def v7():
         "es = space.mkenv({'calc': h['calc2'], 'shapes': h['shapes2'], 'sch': h['sch2']})\n"
         "print('envs', e1 == %r, e2 == %r, e3 == %r, es == %r)\n"
         % (tuple(sorted(src)), e1, e2, e3, es))
+    defs += ("ea1 = space.mkenv({'amb': h['amb1']})\n"
+        "ea2 = space.mkenv({'amb': h['amb2']})\n"
+        "et1 = space.mkenv({'tam': h['tama']})\n"
+        "et2 = space.mkenv({'tam': h['tama'], 'other': h['tamb']})\n"
+        "em1 = space.mkenv({'mig': h['mig1']})\n"
+        "em2 = space.mkenv({'mig': h['mig2']})\n"
+        "print('extra', ea1[:4], ea2[:4], et1[:4], et2[:4], em1[:4], em2[:4])\n")
     code = ("def run(src, sp='t7', args=None):\n"
         "    pid = p.spawn(['/boot/mp'] + (['-S', sp] if args is None else args) + ['-c', src])\n"
         "    while True:\n        w = p.wait()\n        if w[0] == pid:\n            break\n"
@@ -852,11 +867,13 @@ def v7():
         "    return (g(1, 8), g(9, 8), b[21:85].decode(), g(21 + 80, 8) if nu == 88 else 0, nu)\n")
     raw(code, r'\A\Z', secs=60, name='V7 sources, run(), upg(), envset(), hdr()')
     raw(defs, r'envs True True True True', secs=180, name='V7 the Environments')
-    raw("space.create('t7', e1)\nspace.create('t7e', e1)\nspace.create('t7g', e1)", r'\A\Z', secs=60,
-        name='V7 the Spaces')
+    raw("space.create('t7', e1)\nspace.create('t7e', e1)\nspace.create('t7g', e1)\n"
+        "space.create('t7a', ea1)\nspace.create('t7t', et1)\nspace.create('t7m', em1)\n"
+        "space.create('t7c', e1)", r'\A\Z', secs=60, name='V7 the Spaces')
     out = raw("print(hdr())", r"^\(\d+, \d+, '[0-9a-f]{64}', 0, 72\)$", name='T7.11 a V5 store: 72 bytes, no pin')
     raw("run(%r)" % ("import calc, shapes, sch\na = calc.C(10)\nb = shapes.Base(5)\ns = shapes.Sub.make(7)\n"
         "f = calc.f\nlst = [calc.f, shapes.Base]\nd = {'f': calc.f}\nhl = shapes.Holder()\nhl.m = calc.C.total\n"
+        "m = calc.C.total\nml = [calc.C.total]\nmd = {'m': calc.C.total}\n"
         "cyc = []\ncyc.append(cyc)\nshared = {'x': cyc, 'again': cyc}\nkd = {sch.S(1): 'one'}\n"
         "print('made', a.total(), a.kind(), f(2), lst[0](2), d['f'](2), hl.m(a), len(kd), b.get(), s.get())"),
         r"^made 11 v1 4 4 4 11 1 5 107\nstatus ''$", secs=60, name='V7 the objects')
@@ -875,6 +892,13 @@ def v7():
         "print('cycle', cyc[0] is cyc, shared['x'] is cyc, kd[sch.S(1)])"),
         r"^restored 11 v1 4 4 4 11 1 5 107\ncycle True True one\nstatus ''$", secs=60,
         name='V7 after the crash: the old code')
+    out = raw("run(%r)" % ("import space, calc\nprint('moids', space.oid(m), space.oid(ml[0]), "
+        "space.oid(md['m']), space.oid(calc.C.total), space.oid(hl.m))"),
+        r"^moids ([\d ]+)\nstatus ''$", secs=60, name='P1 method OIDs before the upgrade')
+    m = re.search(r'^moids ([\d ]+)$', out or '', re.M)
+    mvals = [int(x) for x in m.group(1).split()] if m else []
+    check('P1 method aliases share one OID', len(mvals) == 5 and len(set(mvals)) == 1,
+        repr(mvals))
     raw("upg('t7', es)", r"no __migrate__.*\nstatus '.+'$", secs=120,
         name='T7.3 __schema__ changed, no __migrate__: refused')
     raw("print(hdr()[0:2])", r"^\(\d+, \d+\)$", name='T7.3 the version is as it was')
@@ -899,6 +923,15 @@ def v7():
         "print('state', a.n, list(kd.values()), type(kd).__name__)"),
         r"^oid %s\nstate 10 \['one'\] dict\nstatus ''$" % (oids if oids else r'[\d ]+'), secs=60,
         name='T7.1, T7.10 the OIDs, the state and the instance key survive')
+    out = raw("run(%r)" % ("import space, calc\n"
+        "print('moids2', space.oid(m), space.oid(ml[0]), space.oid(md['m']), space.oid(calc.C.total), space.oid(hl.m))\n"
+        "print('mcalls', m(a), ml[0](a), md['m'](a), hl.m(a), calc.C.total(a))"),
+        r"^moids2 ([\d ]+)\nmcalls 20 20 20 20 20\nstatus ''$", secs=60,
+        name='P1 method OIDs and code after the upgrade')
+    m = re.search(r'^moids2 ([\d ]+)$', out or '', re.M)
+    mvals2 = [int(x) for x in m.group(1).split()] if m else []
+    check('P1 method aliases keep the one OID and run the new code',
+        len(mvals2) == 5 and mvals and all(x == mvals[0] for x in mvals2), repr(mvals2))
     raw("run(%r)" % ("import sch\nprint('mig', sch.S(10).a, kd[sch.S(10)])"),
         r"^mig 10 one\nstatus ''$", secs=60,
         name='T7.3 the hook ran once: the key is the migrated instance')
@@ -950,6 +983,57 @@ def v7():
         "upg('t7v', e2)\nprint(sorted(x[0] for x in p.dirread('/usr/glenda/space/t7v')))",
         r"no store .*\nstatus '.+'\n\['lock', 'v0000000000000001'\]$", secs=60,
         name='T7.11 a V2-V4 Space: refused, its files kept')
+    # the P1/P2 regressions of docs/reviews/2026-10-20-v7-pr2-p1-p2-review-fixes.md
+    before = raw("print(hdr('t7a')[0:2])", r"^\(\d+, \d+\)$", name='P1 ambiguous: its header before')
+    raw("upg('t7a', ea2)", r"more than one definition.*\nstatus '.+'$", secs=120,
+        name='P1 ambiguous: refused')
+    after = raw("print(hdr('t7a')[0:2])", r"^\(\d+, \d+\)$", name='P1 ambiguous: its header after')
+    check('P1 ambiguous: nothing published', before == after, repr((before, after)))
+    raw("run(%r, sp='t7m')" % ("import mig\nx = mig.M(5)\nprint('mig', x.v, x.shared)"),
+        r"^mig 5 \[5\]\nstatus ''$", secs=60, name='P2 mutable old state: the instance')
+    before = raw("print(hdr('t7m')[0:2])", r"^\(\d+, \d+\)$", name='P2 mutable old state: its header before')
+    raw("upg('t7m', em2)", r"read-only snapshot is not available.*\nstatus '.+'$", secs=120,
+        name='P2 mutable old state: refused')
+    after = raw("print(hdr('t7m')[0:2])", r"^\(\d+, \d+\)$", name='P2 mutable old state: its header after')
+    check('P2 mutable old state: nothing published', before == after, repr((before, after)))
+    raw("run(%r, sp='t7m')" % ("import mig\nprint('mig2', x.v, x.shared)"),
+        r"^mig2 5 \[5\]\nstatus ''$", secs=60, name='P2 mutable old state: unchanged')
+    raw("a = '/usr/glenda/lib/mod/%s.mpy' % h['tama']\n"
+        "b = '/usr/glenda/lib/mod/%s.mpy' % h['tamb']\n"
+        "fa = p.open(a, p.ORDWR)\nfb = p.open(b, p.OREAD)\n"
+        "orig = p.read(fa, 65536)\np.seek(fb, 0, 0)\nbad = p.read(fb, 65536)\np.close(fb)\n"
+        "p.seek(fa, 0, 0)\np.write(fa, bad)\nprint('tampered', len(orig), len(bad))",
+        r"^tampered (\d+) \1$", secs=60, name='P2 provenance: a .mpy swapped in')
+    before = raw("print(hdr('t7t')[0:2])", r"^\(\d+, \d+\)$", name='P2 provenance: its header before')
+    raw("upg('t7t', et2)", r"\.mpy is not its source's.*\nstatus '.+'$", secs=120,
+        name='P2 provenance: the swap refused')
+    after = raw("print(hdr('t7t')[0:2])", r"^\(\d+, \d+\)$", name='P2 provenance: its header after')
+    check('P2 provenance: nothing published', before == after, repr((before, after)))
+    raw("fa = p.open(a, p.ORDWR)\np.seek(fa, 0, 0)\np.write(fa, orig)\np.close(fa)\n"
+        "print('restoredmpy', len(orig))", r"^restoredmpy \d+$", secs=60,
+        name='P2 provenance: the .mpy put back')
+    raw("upg('t7c', e2)", r"^((\d+ migrations|space: upgrade: \d+ new definitions)\n)*status ''$",
+        secs=180, name='P2 catalog: a V7 store')
+    out = raw("print(hdr('t7c'))", r"^\(\d+, \d+, '[0-9a-f]{64}', \d+, 88\)$",
+        name='P2 catalog: its header')
+    m = re.search(r"^\((\d+), (\d+), '[0-9a-f]{64}', (\d+), 88\)$", out or '', re.M)
+    cpin = int(m.group(3)) if m else -1
+    raw("fr = p.open('/usr/glenda/space/t7c/obj', p.OREAD)\n"
+        "b = p.read(fr, 128)\np.close(fr)\n"
+        "nu = int.from_bytes(b[17:21], 'big')\n"
+        "user = b[21:21 + nu]\n"
+        "rec = b'd' + (2**64 - 2).to_bytes(8, 'big') + b'h' + nu.to_bytes(4, 'big') + user + b'c\\x01'\n"
+        "fw = p.open('/usr/glenda/space/t7c/obj', p.ORDWR)\n"
+        "p.write(fw, rec)\np.close(fw)\nprint('delcat', len(rec))", r"^delcat \d+$",
+        secs=60, name='P2 catalog: removed from a V7 store')
+    raw("run(%r, args=[])" % ("import space\nspace.open('t7c', %d)" % cpin),
+        r"no valid Environment epochs.*\nstatus '.+'$", secs=60,
+        name='P2 catalog: a V7 historical open refused')
+    raw("run(%r, args=[])" % ("import space\nspace.view('t7c', version=%d)" % cpin),
+        r"no valid Environment epochs.*\nstatus '.+'$", secs=60,
+        name='P2 catalog: a V7 historical view refused')
+    raw("run(%r, args=[])" % "import space\nspace.open('t7c')\nprint('latestok', space.info()[1] > 0)",
+        r"^latestok True\nstatus ''$", secs=60, name='P2 catalog: the latest V7 read still opens')
     raw("space.create('t7k', e1)\nrun(%r, 't7k')" % "x = [1]", r"^status ''$", secs=60, name='V7 a Space to crash')
     raw("envset('spaceslow', '30000')\npid = p.spawn(['/boot/mp', '-c', "
         "'import space\\nspace.upgrade(\"t7k\", ' + repr(e2) + ')'])\np.sleep(6000)",

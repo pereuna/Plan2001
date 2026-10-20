@@ -33,6 +33,7 @@
 #include "py/scope.h"
 #include "py/gc.h"
 #include "py/mpprint.h"
+#include "py/persistentcode.h"
 #include "p9space.h"
 
 /* modbuiltins.c: the class body's way into a class */
@@ -2104,7 +2105,8 @@ typedef struct {
     qstr mod;
     syment_t *e;
     size_t n, a;
-    size_t nscopes;		/* the definition's scopes, with the module's */
+    size_t nscopes;		/* the definition's scopes, without the module's */
+    vstr_t mpy;			/* the source compiled to .mpy, for the check */
     int done;
 } modsym_t;
 
@@ -2172,38 +2174,61 @@ static modsym_t *modsym(qstr mod, int make) {
 
 // a definition's symbol table: its source compiled, its scopes' names
 // copied out (the raw code itself is the GC's, and goes)
-void p9_image_symtab(qstr mod, const char *source) {
+void p9_image_symtab(qstr mod, const char *source, qstr source_file) {
     modsym_t *ms;
     mp_lexer_t *lex;
     mp_parse_tree_t pt;
     mp_compiled_module_t cm;
     mp_scope_sym_t *sym;
+    mp_print_t pr;
     vstr_t src;
     size_t n, i, k;
-    const char *base;
     syment_t *e;
 
     ms = modsym(mod, 1);
+    if (ms->done) {
+        vstr_clear(&ms->mpy);
+    }
     ms->done = 1;
     ms->n = 0;
     if (readfile(source, &src) < 0) {
         mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space: upgrade: no definition's source %s"), source);
     }
-    base = strrchr(source, '/');
-    base = base != NULL ? base + 1 : source;
-    lex = mp_lexer_new_from_str_len(qstr_from_str(base), src.buf, src.len, 0);
+    /*
+     * The name the definition's .mpy was compiled with, not the
+     * library's SHA-based path name: it is the .mpy qstr table's first
+     * entry, and it is part of the bytes being compared below.
+     */
+    lex = mp_lexer_new_from_str_len(source_file, src.buf, src.len, 0);
     pt = mp_parse(lex, MP_PARSE_FILE_INPUT);
     memset(&cm, 0, sizeof cm);
     cm.context = m_new_obj(mp_module_context_t);
     cm.context->module.globals = mp_globals_get();
-    mp_compile_to_raw_code(&pt, qstr_from_str(base), false, &cm);
+    mp_compile_to_raw_code(&pt, source_file, false, &cm);
+    /*
+     * The .py compiled here, as space.define compiled it: the check
+     * compares these bytes with the definition's .mpy, so that the
+     * source really is the code that would be bound (docs/v7-upgrade.md
+     * 5.1 and I8).  The compiler is deterministic for one source and
+     * runtime, and MPY_VERSION is part of the Environment's runtime.
+     */
+    vstr_init_print(&ms->mpy, 1024, &pr);
+    mp_raw_code_save(&cm, &pr);
     sym = mp_compile_symbols(&n);
     ms->nscopes = n;
     for (i = 0; i < n; i++) {
         struct _mp_scope_sym_t *x = &sym[i];
 
-        if (x->qualname == NULL || x->qualname[0] == 0 || x->depth > 32) {
-            continue;
+        /*
+         * Every scope is kept, anonymous ones with an empty name: the
+         * check needs all the paths to prove that the source's scope
+         * tree and the .mpy's raw-code tree are the same tree.
+         */
+        if (x->qualname == NULL) {
+            mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("space: upgrade: a symbol table"));
+        }
+        if (x->depth > 32) {
+            upgfail("%q: a scope nested more than 32 deep", mod);
         }
         if (ms->n == ms->a) {
             ms->a = ms->a ? 2 * ms->a : 8;
@@ -2215,14 +2240,14 @@ void p9_image_symtab(qstr mod, const char *source) {
         }
         e = &ms->e[ms->n];
         snprint(e->name, NMlen, "%s", x->qualname);
-        for (k = 0; k < ms->n; k++) {
-            if (strcmp(ms->e[k].name, e->name) == 0) {
-                e->kind = 0xff;	/* ambiguous: never bound */
-                break;
+        e->kind = x->kind;
+        if (e->name[0] != 0) {
+            for (k = 0; k < ms->n; k++) {
+                if (strcmp(ms->e[k].name, e->name) == 0) {
+                    ms->e[k].kind = 0xff;	/* ambiguous: never bound */
+                    e->kind = 0xff;
+                }
             }
-        }
-        if (k == ms->n) {
-            e->kind = x->kind;
         }
         e->depth = x->depth;
         for (k = 0; k < x->depth; k++) {
@@ -2266,18 +2291,77 @@ static size_t treecount(const mp_raw_code_t *rc) {
     return n;
 }
 
+static const mp_raw_code_t *walkrc(const mp_raw_code_t *rc, const uint16_t *path, int depth);
+
 // the symbol table of MODULE's source must describe RC's tree (the
-// .mpy's): a source that is not the definition's is no use
-void p9_image_symcheck(qstr module, const mp_raw_code_t *rc) {
+// .mpy's), and the source's .mpy must be the .mpy the Environment has:
+// a source that is not the definition's is no use
+void p9_image_symcheck(qstr module, const mp_raw_code_t *rc, const char *mpypath) {
     modsym_t *ms = modsym(module, 0);
+    const mp_raw_code_t *node;
+    vstr_t mpy;
+    size_t i, j, n;
 
     if (ms == NULL || rc == NULL) {
         return;
     }
-    if (treecount(rc) - 1 != ms->nscopes) {
+    n = treecount(rc) - 1;
+    if (n != ms->nscopes || ms->n != ms->nscopes) {
         mp_raise_msg_varg(&mp_type_ValueError,
             MP_ERROR_TEXT("space: upgrade: %q: the source's scopes are not its .mpy's"), module);
     }
+    /*
+     * The scopes' paths are a bijection onto the raw-code tree: every
+     * path must exist, be unique, and have the kind the source gave it.
+     * With one path per node, this also proves the tree is complete, not
+     * merely that its size matches.
+     */
+    for (i = 0; i < ms->n; i++) {
+        syment_t *e = &ms->e[i];
+
+        if (e->kind == 0xff) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: upgrade: %q: %s: more than one definition"),
+                module, e->name[0] != 0 ? e->name : "?");
+        }
+        if ((node = walkrc(rc, e->path, e->depth)) == NULL) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: upgrade: %q: %s: its scope is not in the .mpy's tree"),
+                module, e->name[0] != 0 ? e->name : "?");
+        }
+        if (e->kind == SCOPE_MODULE || e->kind > SCOPE_FUNCTION) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: upgrade: %q: %s: an unknown scope kind"),
+                module, e->name[0] != 0 ? e->name : "?");
+        }
+        if (e->kind == SCOPE_CLASS && node->kind != MP_CODE_BYTECODE) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: upgrade: %q: %s: a class body is not bytecode"),
+                module, e->name[0] != 0 ? e->name : "?");
+        }
+        for (j = 0; j < i; j++) {
+            if (ms->e[j].depth == e->depth
+            && memcmp(ms->e[j].path, e->path, e->depth * sizeof e->path[0]) == 0) {
+                mp_raise_msg_varg(&mp_type_ValueError,
+                    MP_ERROR_TEXT("space: upgrade: %q: two scopes with one path"), module);
+            }
+        }
+    }
+    /*
+     * The source recompiled must be byte-for-byte the definition's .mpy:
+     * the source hash and a matching scope count alone do not prove that
+     * the code about to be bound came from that source.
+     */
+    if (readfile(mpypath, &mpy) < 0) {
+        mp_raise_msg_varg(&mp_type_OSError,
+            MP_ERROR_TEXT("space: upgrade: %q: no definition's .mpy %s"), module, mpypath);
+    }
+    if (mpy.len != ms->mpy.len || memcmp(mpy.buf, ms->mpy.buf, mpy.len) != 0) {
+        vstr_clear(&mpy);
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("space: upgrade: %q: its .mpy is not its source's"), module);
+    }
+    vstr_clear(&mpy);
 }
 
 static const mp_raw_code_t *walkrc(const mp_raw_code_t *rc, const uint16_t *path, int depth) {
@@ -2329,13 +2413,18 @@ static p9_space_mod_t *ctxmod(const void *ctx) {
     return NULL;
 }
 
-// P's OID is NEW's now: the old entry goes, the new one is written
+// P's OID is NEW's now: the old entry goes, the new one is written.
+// One OID belongs to one object: if NEW already has one, two old
+// objects would claim it, and the upgrade is refused.
 static void oidmove(const void *p, const void *newo) {
     oent_t *x = oget(p);
     uint64_t oid;
 
     if (x == NULL || x->foreign || p == newo) {
         return;
+    }
+    if (oget(newo) != NULL) {
+        upgfail("two objects would have OID %#llx", x->oid);
     }
     oid = x->oid;
     odel(p);
@@ -2786,6 +2875,30 @@ static void upg_funs(void) {
 
 /* ---- the classes ---- */
 
+/*
+ * A function the graph had is the function the new class body made:
+ * bindfun() may have made a provisional replacement first, so adopt the
+ * class body's object as the one canonical replacement, move the OID
+ * exactly once (from whichever object holds it) and point every old
+ * reference at it.  The OID may not already be on a second object.
+ */
+static void adoptfun(mp_obj_t ov, mp_obj_t nv) {
+    const void *cur = rget(MP_OBJ_TO_PTR(ov)), *from;
+
+    keepadd(ov);
+    keepadd(nv);
+    if (cur == NULL) {
+        oidmove(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+    } else if (cur != MP_OBJ_TO_PTR(nv)) {
+        from = oget(cur) != NULL ? cur : MP_OBJ_TO_PTR(ov);
+        rset(cur, MP_OBJ_TO_PTR(nv));
+        oidmove(from, MP_OBJ_TO_PTR(nv));
+    } else if (oget(MP_OBJ_TO_PTR(nv)) == NULL) {
+        oidmove(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+    }
+    rset(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+}
+
 // the old class's dict entries go to the new class's: functions and
 // wrappers rebound, plain values kept (the new class body's own)
 static void classmembers(mp_obj_dict_t *oldd, mp_obj_dict_t *newd) {
@@ -2804,21 +2917,14 @@ static void classmembers(mp_obj_dict_t *oldd, mp_obj_dict_t *newd) {
         nv = el != NULL ? el->value : MP_OBJ_NULL;
         if (nv != MP_OBJ_NULL) {
             if (isfun(ov) && isfun(nv)) {
-                keepadd(ov);
-                keepadd(nv);
-                rset(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
-                oidmove(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+                adoptfun(ov, nv);
             } else if (iswrapper(ov) && iswrapper(nv)) {
                 mp_obj_t of = ((mp_obj_static_class_method_t *)MP_OBJ_TO_PTR(ov))->fun;
                 mp_obj_t nf = ((mp_obj_static_class_method_t *)MP_OBJ_TO_PTR(nv))->fun;
 
-                keepadd(ov);
-                keepadd(nv);
-                rset(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
-                oidmove(MP_OBJ_TO_PTR(ov), MP_OBJ_TO_PTR(nv));
+                adoptfun(ov, nv);
                 if (isfun(of) && isfun(nf)) {
-                    rset(MP_OBJ_TO_PTR(of), MP_OBJ_TO_PTR(nf));
-                    oidmove(MP_OBJ_TO_PTR(of), MP_OBJ_TO_PTR(nf));
+                    adoptfun(of, nf);
                 }
             }
         } else if (isfun(ov) || iswrapper(ov)) {
@@ -3080,16 +3186,77 @@ static mp_int_t schemaof(const mp_obj_type_t *t) {
     return mp_obj_get_int(v);
 }
 
-// the members of an instance, as a copy: a hook cannot destroy them
+/*
+ * What __migrate__'s old argument may hold: values that cannot be
+ * mutated through it.  A shallow copy would share a list, dict, set or
+ * instance with the graph, so those refuse the upgrade instead: I5's
+ * read-only snapshot cannot be promised for them (docs/v7-upgrade.md
+ * 3 I5; narrowed here, not silently called immutable).
+ */
+static int immutable(mp_obj_t o, int depth) {
+    const mp_obj_type_t *t;
+    mp_obj_t *items, it, x;
+    size_t n, k;
+
+    if (!mp_obj_is_obj(o)) {
+        return 1;		/* small ints, qstrs, other immediates */
+    }
+    if (o == mp_const_none || o == mp_const_true || o == mp_const_false
+    || o == MP_OBJ_FROM_PTR(&mp_const_ellipsis_obj)
+    || mp_obj_is_int(o) || mp_obj_is_float(o)) {
+        return 1;
+    }
+    if (depth > 8) {
+        return 0;
+    }
+    t = mp_obj_get_type(o);
+    if (t == &mp_type_str || t == &mp_type_bytes) {
+        return 1;
+    }
+    if (t == &mp_type_tuple) {
+        mp_obj_tuple_get(o, &n, &items);
+        for (k = 0; k < n; k++) {
+            if (!immutable(items[k], depth + 1)) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    #if MICROPY_PY_BUILTINS_FROZENSET
+    if (t == &mp_type_frozenset) {
+        it = mp_getiter(o, NULL);
+        while ((x = mp_iternext(it)) != MP_OBJ_STOP_ITERATION) {
+            if (!immutable(x, depth + 1)) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    #endif
+    return 0;
+}
+
+// the members of an instance, as a copy of immutable values; anything
+// a hook could mutate through old refuses the upgrade
 static mp_obj_t oldstate(mp_obj_t inst) {
     mp_obj_instance_t *o = MP_OBJ_TO_PTR(inst);
+    const mp_obj_type_t *t = mp_obj_get_type(inst);
     mp_obj_t d = mp_obj_new_dict(o->members.used);
+    mp_obj_t k, v;
     size_t i;
 
     for (i = 0; i < o->members.alloc; i++) {
-        if (mp_map_slot_is_filled(&o->members, i)) {
-            mp_obj_dict_store(d, o->members.table[i].key, o->members.table[i].value);
+        if (!mp_map_slot_is_filled(&o->members, i)) {
+            continue;
         }
+        k = o->members.table[i].key;
+        v = o->members.table[i].value;
+        if (!immutable(v, 0)) {
+            upgfail("%q.__migrate__: member %s is a %s; a read-only snapshot is not available",
+                (qstr)t->name, mp_obj_is_str(k) ? mp_obj_str_get_str(k) : "?",
+                qstr_str(mp_obj_get_type(v)->name));
+        }
+        mp_obj_dict_store(d, k, v);
     }
     return d;
 }
@@ -3239,10 +3406,17 @@ static void upg_clear(void) {
     MP_STATE_VM(p9_upgkeep) = MP_OBJ_NULL;
     for (i = 0; i < nmodsyms; i++) {
         free(modsyms[i].e);
+        vstr_clear(&modsyms[i].mpy);
     }
     free(modsyms);
     modsyms = NULL;
     nmodsyms = amodsyms = 0;
+}
+
+// a failed upgrade before p9_image_upgrade (the preflight's symbol
+// tables and recompiled .mpy bytes): as if it never began
+void p9_image_upgrade_clean(void) {
+    upg_clear();
 }
 
 void p9_image_upgrade(void *world) {
