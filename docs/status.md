@@ -1,5 +1,21 @@
 # Tila ja suunnitelma
 
+> **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 4):**
+> MicroPython lukee Environmentin, muuttumattomat `.mpy`-koodioliot ja
+> pysyvän Space-graafin natiivista O:sta ilman juuritiedostojärjestelmää.
+> Kuusi uutta järjestelmäkutsua (`ovolopen`, `ospaceopen`, `ospaceget`,
+> `ospaceput`, `ospacecommit`, `ospaceclose`) välittävät Stage 3:n
+> natiivin olio-APIn käyttäjätilaan; ei `#G`tä, 9P:tä, `Fid`iä, qid:iä
+> eikä `/dev/o`:ta.  `mp -O PARTUUID=... -S init` avaa tilavuuden ja
+> Spacen; Environment-manifesti (`OID_ENV`), koodioliot (`OID_CODE`+n) ja
+> V7-graafi (`OID_GRAPH`) ovat O-olioita.  `tools/mkovol OUT MIB SOURCE`
+> esikääntää demon ja siementää manifestin ja `.mpy`:n tuoreeseen O-kuvaan
+> (`gefs -O -i`).  `tools/test-o-space.sh` boottaa ESP + O -levyn ilman
+> `root=`a kahdesti: ensimmäinen boot luo ja committaa graafin, toinen
+> palauttaa saman jaetun olion ja saman funktion koodin O:sta (laskuri
+> 41 -> 42 -> 43, `alias is shared` ja sama OID).  Automaattinen `run()`,
+> kolmen bootin laskuri ja Space-versiot O:ssa ovat vaihe 5.
+
 > **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 3):**
 > natiivi olio-API: `ospaceopen`/`ospaceget`/`ospaceput`/`ospacecommit`/
 > `ospaceclose` (`obj.c`) käyttää samaa versiointi-, julkaisu- ja

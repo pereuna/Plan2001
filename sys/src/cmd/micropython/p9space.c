@@ -35,6 +35,14 @@
 #include "py/objexcept.h"
 #include "p9space.h"
 
+// Stage 4: the native O calls (sys.h, devgefs.c's sysospace*)
+extern long ovolopen(char *, int);
+extern long ospaceopen(int, char *, int);
+extern long ospaceget(int, unsigned long long, void *, long, unsigned long long *);
+extern long ospaceput(int, unsigned long long, void *, long);
+extern long ospacecommit(int, unsigned long long *);
+extern long ospaceclose(int);
+
 // the runtime an Environment is made for: the .mpy's format
 #define RUNTIME "mp-" MICROPY_VERSION_STRING "-mpy" MP_STRINGIFY(MPY_VERSION) "." MP_STRINGIFY(MPY_SUB_VERSION)
 MP_DEFINE_STR_OBJ(space_runtime_obj, RUNTIME);
@@ -69,6 +77,26 @@ static struct {
     int hasmeta;
 } sp = { 0, "", "", -1, 0, 0, -1 };
 static vlong lastcommit;	/* nsec() */
+
+/*
+ * Stage 4: the native O volume and the Space handle.  ovol is -1 until
+ * mp -O selects one.  The Environment manifest's entries name a code
+ * object by OID; odefs is their parsed table, used by loadmpy so that
+ * no path or sys.path is ever consulted on this path.
+ */
+static int ovol = -1;
+static int osp = -1;
+
+typedef struct {
+    char def[65];	/* the definition (source SHA-256), its identity */
+    char mpy[65];	/* the compiled code's SHA-256 */
+    unsigned long long oid;
+} odef_t;
+
+static odef_t *odefs;
+static int nodefs, aodefs;
+
+static bool ishex(const char *s);
 
 // $spacetime: the times of a restore and a commit on fd 2 (ms)
 void p9_spacetime(const char *what, vlong t0) {
@@ -158,6 +186,191 @@ static int readall(const char *path, vstr_t *v) {
     if (n < 0) {
         raise_err();
     }
+    return 0;
+}
+
+/* ---- Stage 4: Environment and code from native O ---- */
+
+// a whole O object into v: 0 ok, -1 not there (a raised error otherwise)
+static int oreadobj(unsigned long long oid, vstr_t *v, unsigned long long *ver) {
+    long n;
+    unsigned long long x;
+
+    vstr_init(v, 64);
+    n = ospaceget(osp, oid, nil, 0, &x);
+    if (n < 0) {
+        vstr_clear(v);
+        return -1;
+    }
+    if (n > 0) {
+        vstr_hint_size(v, n + 1);
+        if (ospaceget(osp, oid, v->buf, v->alloc, &x) != n) {
+            vstr_clear(v);
+            raise_err();
+        }
+        v->len = n;
+    }
+    if (ver != NULL) {
+        *ver = x;
+    }
+    return 0;
+}
+
+static void odefs_clear(void) {
+    free(odefs);
+    odefs = NULL;
+    nodefs = aodefs = 0;
+}
+
+// the definition DEF's code object, its digest checked; 0 ok, -1 no
+// object, -2 its code is not the manifest's
+static int oreadcode(const odef_t *d, vstr_t *v) {
+    char hex[65];
+
+    if (oreadobj(d->oid, v, NULL) < 0) {
+        return -1;
+    }
+    hexof(v->buf, v->len, hex);
+    if (strcmp(hex, d->mpy) != 0) {
+        vstr_clear(v);
+        return -2;
+    }
+    return 0;
+}
+
+static const odef_t *odef(const char *def) {
+    int i;
+
+    for (i = 0; i < nodefs; i++) {
+        if (strcmp(odefs[i].def, def) == 0) {
+            return &odefs[i];
+        }
+    }
+    return NULL;
+}
+
+// a field of the manifest line: to the next space or newline
+static int ofield(char **pp, char *out, int n) {
+    char *p = *pp;
+    int k = 0;
+
+    while (*p != 0 && *p != ' ' && *p != '\n') {
+        if (k >= n - 1) {
+            return -1;
+        }
+        out[k++] = *p++;
+    }
+    out[k] = 0;
+    *pp = p;
+    return k > 0 ? 0 : -1;
+}
+
+/*
+ * The Environment manifest, an O object (OID_ENV):
+ *   runtime <id>
+ *   <import name> <definition SHA-256> <mpy SHA-256> <code OID, 16 hex>
+ * Its name is the SHA-256 of exactly its bytes (as an Environment's is
+ * its text's).  EXPECT, if not nil, must be that name.
+ */
+static mp_obj_t oreadenv(char *envout, const char *expect) {
+    char hex[65], *p, *e, name[128], def[65], mpy[65], oidhex[17];
+    mp_obj_t d;
+    vstr_t v;
+    unsigned long long oid;
+    char *q;
+
+    if (oreadobj(OID_ENV, &v, NULL) < 0) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("space: O: no Environment manifest"));
+    }
+    hexof(v.buf, v.len, hex);
+    if (expect != NULL && strcmp(hex, expect) != 0) {
+        vstr_clear(&v);
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("space: O: Environment %s, its manifest is %s"), expect, hex);
+    }
+    if (envout != NULL) {
+        snprint(envout, 65, "%s", hex);
+    }
+    vstr_add_char(&v, 0);
+    p = v.buf;
+    if (strncmp(p, "runtime ", 8) != 0 || (e = strchr(p, '\n')) == NULL) {
+        vstr_clear(&v);
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: bad Environment manifest"));
+    }
+    *e = 0;
+    if (strcmp(p + 8, RUNTIME) != 0) {
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("space: O: Environment runtime %s, this mp is %s"), p + 8, RUNTIME);
+    }
+    d = mp_obj_new_dict(0);
+    odefs_clear();
+    for (p = e + 1; *p != 0;) {
+        q = p;
+        if (ofield(&q, name, sizeof name) < 0 || *q != ' ') {
+            goto bad;
+        }
+        q++;
+        if (ofield(&q, def, sizeof def) < 0 || *q != ' ') {
+            goto bad;
+        }
+        q++;
+        if (ofield(&q, mpy, sizeof mpy) < 0 || *q != ' ') {
+            goto bad;
+        }
+        q++;
+        if (ofield(&q, oidhex, sizeof oidhex) < 0) {
+            goto bad;
+        }
+        e = strchr(q, '\n');
+        if (e == NULL) {
+            e = q + strlen(q);
+        }
+        if (*q == ' ') {
+            goto bad;
+        }
+        if (!ishex(def) || !ishex(mpy) || strlen(oidhex) != 16) {
+            goto bad;
+        }
+        oid = strtoull(oidhex, NULL, 16);
+        if (nodefs == aodefs) {
+            aodefs = aodefs ? 2 * aodefs : 4;
+            odefs = realloc(odefs, aodefs * sizeof odefs[0]);
+            if (odefs == NULL) {
+                aodefs = nodefs = 0;
+                vstr_clear(&v);
+                raise_err();
+            }
+        }
+        snprint(odefs[nodefs].def, sizeof odefs[nodefs].def, "%s", def);
+        snprint(odefs[nodefs].mpy, sizeof odefs[nodefs].mpy, "%s", mpy);
+        odefs[nodefs].oid = oid;
+        nodefs++;
+        mp_obj_dict_store(d, mp_obj_new_str(name, strlen(name)), mp_obj_new_str(def, 64));
+        p = *e == 0 ? e : e + 1;
+    }
+    vstr_clear(&v);
+    return d;
+
+bad:
+    vstr_clear(&v);
+    odefs_clear();
+    mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: bad Environment manifest line"));
+}
+
+// Stage 4's -O: the volume is opened now; the Space follows with -S
+int p9_space_o(const char *spec) {
+    long h;
+
+    h = ovolopen((char *)spec, strlen(spec));
+    if (h < 0) {
+        char buf[ERRMAX];
+
+        rerrstr(buf, sizeof buf);
+        fprint(2, "micropython: -O %s: %s\n", spec, buf);
+        return -1;
+    }
+    ovol = (int)h;
+    fprint(2, "space: O volume selected: %s\n", spec);
     return 0;
 }
 
@@ -321,6 +534,9 @@ static mp_obj_t readenv(const char *lib, const char *env) {
     mp_obj_t d;
     vstr_t t;
 
+    if (ovol >= 0) {
+        return oreadenv(NULL, env);
+    }
     if (!ishex(env)) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("not an Environment: '%s'"), env);
     }
@@ -400,12 +616,38 @@ static void loadmpy(mp_obj_t envmap, const char *lib, qstr name, mp_obj_t mod, m
     if (el == NULL) {
         mp_raise_msg_varg(&mp_type_ImportError, MP_ERROR_TEXT("no module named '%q' in the Environment"), name);
     }
+    memset(cm, 0, sizeof *cm);
+    cm->context = MP_OBJ_TO_PTR(mod);
+    if (ovol >= 0) {
+        const odef_t *d;
+        const char *def = mp_obj_str_get_str(el->value);
+        char oid[24];
+        int r;
+
+        if ((d = odef(def)) == NULL) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: O: %q: definition %s is not in the manifest"), name, def);
+        }
+        r = oreadcode(d, &v);
+        snprint(oid, sizeof oid, "%llux", d->oid);
+        if (r == -1) {
+            mp_raise_msg_varg(&mp_type_OSError,
+                MP_ERROR_TEXT("space: O: %q: no code object %s"), name, oid);
+        }
+        if (r == -2) {
+            mp_raise_msg_varg(&mp_type_ValueError,
+                MP_ERROR_TEXT("space: O: %q: code digest is not the manifest's"), name);
+        }
+        mp_raw_code_load_mem((const byte *)v.buf, v.len, cm);
+        snprint(path, sizeof path, "<O:%s>", d->def);
+        mp_store_attr(mod, MP_QSTR___file__, MP_OBJ_NEW_QSTR(qstr_from_str(path)));
+        fprint(2, "space: O: %s code OID %s, digest %s\n", qstr_str(name), oid, d->mpy);
+        return;
+    }
     snprint(path, sizeof path, "%s/mod/%s.mpy", lib, mp_obj_str_get_str(el->value));
     if (readall(path, &v) < 0) {
         raise_err();
     }
-    memset(cm, 0, sizeof *cm);
-    cm->context = MP_OBJ_TO_PTR(mod);
     mp_raw_code_load_mem((const byte *)v.buf, v.len, cm);
     path[strlen(path) - 3] = 0;
     strcat(path, "py");
@@ -910,6 +1152,9 @@ static mp_obj_t space_create(mp_obj_t name_in, mp_obj_t env_in) {
     byte empty[2] = { 0, 0 }, b[8];	/* no roots */
     vstr_t rec;
 
+    if (ovol >= 0) {
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: create is a preparation step"));
+    }
     checkname(name);
     if (!ishex(env)) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("not an Environment: '%s'"), env);
@@ -1032,6 +1277,88 @@ static void openversions(const char *dir, const char *name, char *env) {
     vstr_clear(&img);
 }
 
+// the O Environment in use: its manifest's map, its name verified
+static void ouseenv(const char *name, const char *expect) {
+    char env[65];
+    mp_obj_t map;
+
+    map = oreadenv(env, expect);
+    if (MP_STATE_VM(p9_space_env) == MP_OBJ_NULL) {
+        mp_obj_t items[2];
+
+        items[0] = mp_obj_new_str(env, 64);
+        items[1] = map;
+        MP_STATE_VM(p9_space_env) = mp_obj_new_tuple(2, items);
+    } else if (strcmp(mp_obj_str_get_str(envitem(0)), env) != 0) {
+        mp_raise_msg_varg(&mp_type_ValueError,
+            MP_ERROR_TEXT("space %s: its Environment is %s, its manifest is %s"),
+            name, mp_obj_str_get_str(envitem(0)), env);
+    }
+}
+
+// Stage 4: a Space on the native O volume: its Environment from the
+// manifest, its graph from OID_GRAPH, restored by the V7 machinery
+static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
+    const char *name = mp_obj_str_get_str(args[0]);
+    const char *why;
+    char env[65], user[256];
+    shdr_t h;
+    vlong t0;
+    uint64_t n;
+    size_t nu;
+    vstr_t st;
+    nlr_buf_t nlr;
+
+    if (n_args > 1 && args[1] != mp_const_none) {
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: versions are not supported"));
+    }
+    if ((osp = ospaceopen(ovol, (char *)name, strlen(name))) < 0) {
+        raise_err();
+    }
+    if (nlr_push(&nlr) != 0) {
+        ospaceclose(osp);
+        osp = -1;
+        p9_image_reset();
+        nlr_jump(nlr.ret_val);
+    }
+    t0 = nsec();
+    if (oreadobj(OID_GRAPH, &st, NULL) == 0) {
+        if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
+            vstr_clear(&st);
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: %s: %s"), name, why);
+        }
+        ouseenv(name, h.env);
+        nu = sizeof user;
+        p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, NULL);
+        p9_spacetime("restore", t0);
+        sp.n = h.n;
+        sp.next = get64((byte *)user + UserNext);
+        sp.fmt = h.fmt;
+        sp.pin = h.pin;
+        vstr_clear(&st);
+        fprint(2, "space: O: restored %s version %lld, Environment %s\n",
+            name, sp.n, h.env);
+    } else {
+        ouseenv(name, NULL);
+        sp.n = 0;
+        sp.next = OID_FIRST;
+        sp.fmt = 1;
+        sp.pin = 0;
+        fprint(2, "space: O: %s has no graph, Environment %s\n",
+            name, mp_obj_str_get_str(envitem(0)));
+    }
+    nlr_pop();
+    strcpy(sp.name, name);
+    strcpy(sp.dir, "");
+    sp.lock = -1;
+    sp.store = -1;
+    sp.migrate = 0;
+    sp.writer = getpid();
+    sp.isopen = 1;
+    lastcommit = nsec();
+    return mp_const_none;
+}
+
 // open(name[, version]): this process the Space's writer (mp -S): its
 // newest version restored, its Environment in use.  An older version
 // kept (version=v) is opened to be read: no commits
@@ -1051,6 +1378,9 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("a Space is open"));
     }
     checkname(name);
+    if (ovol >= 0) {
+        return ospace_open(n_args, args);
+    }
     ver = n_args > 1 && args[1] != mp_const_none ? mp_obj_get_int(args[1]) : 0;
     spacepath(dir, sizeof dir, name, "");
     if (access(dir, AEXIST) < 0) {
@@ -1326,6 +1656,9 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
 
     mp_arg_parse_all(n_args, pos, kw, MP_ARRAY_SIZE(allowed), allowed, args);
     name = mp_obj_str_get_str(args[0].u_obj);
+    if (ovol >= 0) {
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: view is not supported"));
+    }
     ver = args[1].u_obj != mp_const_none ? mp_obj_get_int(args[1].u_obj) : 0;
     if (strchr(name, '/') != NULL) {
         if (strlen(name) >= sizeof dir) {
@@ -1517,6 +1850,9 @@ static mp_obj_t space_upgrade(mp_obj_t name_in, mp_obj_t env_in) {
     if (sp.isopen) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("a Space is open"));
     }
+    if (ovol >= 0) {
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("space: O: upgrade is not supported"));
+    }
     checkname(name);
     if (!ishex(envstr)) {
         mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("not an Environment: '%s'"), envstr);
@@ -1702,6 +2038,118 @@ static void rmversions(void) {
     free(d);
 }
 
+/*
+ * Stage 4: a commit to O.  p9_image_commit's changed-object records are
+ * turned into the V7 store's read stream (docs/gefs-obj.md 3.2) and
+ * written as one O object, OID_GRAPH; the Environment manifest and the
+ * immutable code objects are rewritten in the same transaction so that
+ * the O engine's history sweep can never drop them.  This is a PoC
+ * simplification: the graph is rewritten whole, not per object.
+ */
+typedef struct {
+    vstr_t objs;	/* 'o' records of the new stream */
+} ocommit_t;
+
+static int ocommit_rec(vstr_t *rec, void *a) {
+    ocommit_t *c = a;
+    byte *p = (byte *)rec->buf, *e = p + rec->len;
+    byte b[8];
+    vlong len;
+    uint64_t oid;
+
+    while (p < e) {
+        switch (*p++) {
+        case 'p':
+            if (e - p < 16) {
+                return -1;
+            }
+            oid = get64(p);
+            len = (vlong)get64(p + 8);
+            p += 16;
+            if (len < 0 || len > e - p) {
+                return -1;
+            }
+            vstr_add_byte(&c->objs, 'o');
+            put64(b, oid);
+            vstr_add_strn(&c->objs, (char *)b, 8);
+            put64(b, sp.n + 1);
+            vstr_add_strn(&c->objs, (char *)b, 8);
+            put64(b, len);
+            vstr_add_strn(&c->objs, (char *)b, 8);
+            vstr_add_strn(&c->objs, (char *)p, len);
+            p += len;
+            break;
+        case 'd':
+            if (e - p < 8) {
+                return -1;
+            }
+            p += 8;	/* the old graph is not carried over */
+            break;
+        default:
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void ocommit(void) {
+    ocommit_t c;
+    vstr_t out, env, code;
+    char user[UserLen];
+    byte b[8];
+    unsigned long long nver;
+    vlong v;
+    int i, r;
+
+    v = sp.n + 1;
+    vstr_init(&c.objs, 4096);
+    p9_image_all_dirty();
+    r = p9_image_commit(&sp.next, ocommit_rec, &c, 1);
+    if (r < 0) {
+        vstr_clear(&c.objs);
+        raise_err();
+    }
+    if (r == 0) {
+        vstr_clear(&c.objs);
+        return;
+    }
+    vstr_init(&out, 21 + UserLen + c.objs.len);
+    vstr_add_byte(&out, 'H');
+    put64(b, v);
+    vstr_add_strn(&out, (char *)b, 8);
+    put64(b, v >= 3 ? v - 2 : 1);
+    vstr_add_strn(&out, (char *)b, 8);
+    vstr_add_strn(&out, "\0\0\0\x48", 4);	/* 72 */
+    memset(user, 0, sizeof user);
+    memmove(user, mp_obj_str_get_str(envitem(0)), 64);
+    put64((byte *)user + UserNext, sp.next);
+    vstr_add_strn(&out, user, sizeof user);
+    vstr_add_strn(&out, c.objs.buf, c.objs.len);
+    vstr_clear(&c.objs);
+
+    ospaceput(osp, OID_GRAPH, out.buf, out.len);
+    vstr_clear(&out);
+
+    /* the Environment and the code, current at every commit */
+    if (oreadobj(OID_ENV, &env, NULL) == 0) {
+        ospaceput(osp, OID_ENV, env.buf, env.len);
+        vstr_clear(&env);
+    }
+    for (i = 0; i < nodefs; i++) {
+        if (oreadcode(&odefs[i], &code) == 0) {
+            ospaceput(osp, odefs[i].oid, code.buf, code.len);
+            vstr_clear(&code);
+        }
+    }
+    nver = 0;
+    if (ospacecommit(osp, &nver) < 0) {
+        raise_err();
+    }
+    sp.n = v;
+    fprint(2, "space: O: committed %s version %lld (O version %llud)\n",
+        sp.name, sp.n, nver);
+}
+
 // what changed since, as the store's version N+1 (the two before it
 // kept).  Any failure a CommitError, the version before staying
 static void commit(void) {
@@ -1712,6 +2160,11 @@ static void commit(void) {
     char *chk;
     int r;
 
+    if (ovol >= 0) {
+        ocommit();
+        lastcommit = nsec();
+        return;
+    }
     if (nlr_push(&nlr) == 0) {
         t0 = nsec();
         r = p9_image_commit(&sp.next, storewrite, NULL, 0);

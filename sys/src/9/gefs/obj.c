@@ -1280,6 +1280,13 @@ ospaceget(Ospace *sp, uvlong oid, void *buf, long nbuf, uvlong *ver)
 				tomb = 1;
 				break;
 			}
+			/* Plan2001 Stage 4: a size query (buf nil, nbuf 0) */
+			if(buf == nil && nbuf == 0){
+				sel = v;
+				found = 1;
+				total = len;
+				break;
+			}
 			if((long)len > nbuf)
 				error("object larger than buffer");
 			sel = v;

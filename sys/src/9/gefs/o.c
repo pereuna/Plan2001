@@ -176,3 +176,36 @@ oobjprobe(void *v)
 	ospaceclose(sp);
 	poperror();
 }
+
+/* Plan2001 Stage 4: the port's syscall boundary.  These keep Ospace and
+ * Gefs opaque to devgefs.c, whose 6c signatures for an incomplete
+ * struct would otherwise differ from this package's. */
+void*
+onativeopen(void *v, char *name)
+{
+	return ospaceopen(v, name);
+}
+
+long
+onativeget(void *sp, uvlong oid, void *buf, long n, uvlong *ver)
+{
+	return ospaceget(sp, oid, buf, n, ver);
+}
+
+void
+onativeput(void *sp, uvlong oid, void *buf, long n)
+{
+	ospaceput(sp, oid, buf, n);
+}
+
+uvlong
+onativecommit(void *sp)
+{
+	return ospacecommit(sp);
+}
+
+void
+onativeclose(void *sp)
+{
+	ospaceclose(sp);
+}

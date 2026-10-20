@@ -129,6 +129,8 @@ if not if(~ $what kernel){
 	bindtree
 	mklog /sys/src/cmd/cc cc install
 	mklog /sys/src/cmd/6c 6c install
+	# Plan2001: sys.h's O calls (docs/o-volume-format.md, Stage 4)
+	mklog /sys/src/libc/9syscall 9syscall install
 	for(c in aux/kbdfs micropython)
 		mklog /sys/src/cmd/$c `{basename $c} install
 	cp /$objtype/bin/aux/kbdfs $out

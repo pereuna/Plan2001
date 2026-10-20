@@ -54,6 +54,12 @@ Syscall syspread;
 Syscall syspwrite;
 Syscall systsemacquire;
 Syscall sys_nsec;
+Syscall sysovolopen;
+Syscall sysospaceopen;
+Syscall sysospaceget;
+Syscall sysospaceput;
+Syscall sysospacecommit;
+Syscall sysospaceclose;
 Syscall	sysdeath;
 
 Syscall *systab[]={
@@ -109,6 +115,12 @@ Syscall *systab[]={
 	[PWRITE]	syspwrite,
 	[TSEMACQUIRE]	systsemacquire,
 	[_NSEC]		sys_nsec,
+	[OVOLOPEN]	sysovolopen,
+	[OSPACEOPEN]	sysospaceopen,
+	[OSPACEGET]	sysospaceget,
+	[OSPACEPUT]	sysospaceput,
+	[OSPACECOMMIT]	sysospacecommit,
+	[OSPACECLOSE]	sysospaceclose,
 };
 
 char *sysctab[]={
@@ -164,6 +176,12 @@ char *sysctab[]={
 	[PWRITE]	"Pwrite",
 	[TSEMACQUIRE]	"Tsemacquire",
 	[_NSEC]		"_nsec",
+	[OVOLOPEN]	"Ovolopen",
+	[OSPACEOPEN]	"Ospaceopen",
+	[OSPACEGET]	"Ospaceget",
+	[OSPACEPUT]	"Ospaceput",
+	[OSPACECOMMIT]	"Ospacecommit",
+	[OSPACECLOSE]	"Ospaceclose",
 };
 
 int nsyscall = (sizeof systab/sizeof systab[0]);

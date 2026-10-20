@@ -50,3 +50,9 @@
 #define	PWRITE		51
 #define	TSEMACQUIRE	52
 #define _NSEC		53
+#define	OVOLOPEN	54
+#define	OSPACEOPEN	55
+#define	OSPACEGET	56
+#define	OSPACEPUT	57
+#define	OSPACECOMMIT	58
+#define	OSPACECLOSE	59

@@ -93,6 +93,13 @@ void*	oopen(char*, Kchan*, vlong, vlong, int);
 void	oprobe(void*);
 void	oobjprobe(void*);
 uvlong	ospaceid(Gefs*, char*);
+/* Plan2001 Stage 4: opaque wrappers for port/devgefs.c's syscalls
+ * (6c's cross-module signatures for an incomplete struct differ) */
+void*	onativeopen(void*, char*);
+long	onativeget(void*, uvlong, void*, long, uvlong*);
+void	onativeput(void*, uvlong, void*, long);
+uvlong	onativecommit(void*);
+void	onativeclose(void*);
 Ospace*	ospaceopen(Gefs*, char*);
 void	ospaceclose(Ospace*);
 long	ospaceget(Ospace*, uvlong, void*, long, uvlong*);

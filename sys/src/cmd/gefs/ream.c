@@ -375,6 +375,231 @@ reamfs(char *dev)
 
 
 /*
+ * Plan2001 Stage 4: seed a fresh O volume with one Environment and its
+ * immutable code objects.  Files are host preparation inputs only: the
+ * finished image's runtime reads O objects by OID.  A single catalog
+ * leaf holds the records; a demo's manifest and code must fit in it.
+ */
+enum {
+	OID_ENV_HOST	= 0xfffffffffffffffcULL,
+	OID_FIRST_HOST	= 2,
+	Seedmax		= 128*KiB,
+};
+
+typedef struct Seedrec Seedrec;
+struct Seedrec {
+	char	k[Keymax];
+	int	nk;
+	char	v[Inlmax];
+	int	nv;
+};
+
+extern char *seeddir;
+
+static int
+seedcmp(const void *a, const void *b)
+{
+	Seedrec *x = (Seedrec*)a, *y = (Seedrec*)b;
+	Key kx, ky;
+
+	kx.k = x->k;
+	kx.nk = x->nk;
+	ky.k = y->k;
+	ky.nk = y->nk;
+	return keycmp(&kx, &ky);
+}
+
+static void
+seedadd(Seedrec **r, int *n, int *a, char *k, int nk, char *v, int nv)
+{
+	Seedrec *x;
+
+	if(nk > Keymax || nv > Inlmax)
+		sysfatal("seed: record too big");
+	if(*n == *a){
+		*a = *a ? 2*(*a) : 32;
+		*r = realloc(*r, *a * sizeof(Seedrec));
+		if(*r == nil)
+			sysfatal("seed: malloc: %r");
+	}
+	x = &(*r)[(*n)++];
+	memmove(x->k, k, nk);
+	x->nk = nk;
+	memmove(x->v, v, nv);
+	x->nv = nv;
+}
+
+static void
+seedobj(Seedrec **r, int *n, int *a, uvlong oid, uchar *data, long len)
+{
+	enum { Seedchunk = 480 };
+	char k[Keymax], v[Inlmax];
+	long off, m;
+	u32int idx;
+
+	off = 0;
+	idx = 0;
+	do{
+		k[0] = Kobj;
+		PACK64(k+1, OspaceInit);
+		PACK64(k+9, oid);
+		PACK64(k+17, ~1ULL);
+		PACK32(k+25, idx);
+		m = 0;
+		if(idx == 0){
+			PACK32(v, (u32int)len);
+			m = 4;
+		}
+		if(len - off > Seedchunk - m)
+			m += Seedchunk - m;
+		else
+			m += len - off;
+		if(m > (idx == 0 ? 4 : 0)){
+			if(idx == 0)
+				memmove(v+4, data+off, m-4);
+			else
+				memmove(v, data+off, m);
+		}
+		seedadd(r, n, a, k, 29, v, m);
+		off += m - (idx == 0 ? 4 : 0);
+		idx++;
+	}while(off < len);
+}
+
+static int
+seedread(char *path, uchar **bp, long *np)
+{
+	Dir *d;
+	uchar *p;
+	long n, m, r;
+	int fd;
+
+	r = 0;
+
+	if((fd = open(path, OREAD)) < 0)
+		return -1;
+	if((d = dirfstat(fd)) == nil){
+		close(fd);
+		return -1;
+	}
+	n = d->length;
+	free(d);
+	p = emalloc(n+1, 1);
+	m = 0;
+	while(m < n){
+		r = read(fd, p+m, n-m);
+		if(r <= 0)
+			break;
+		m += r;
+	}
+	close(fd);
+	if(r < 0){
+		free(p);
+		return -1;
+	}
+	p[m] = 0;
+	*bp = p;
+	*np = m;
+	return 0;
+}
+
+static void
+oseed(Blk *tb)
+{
+	char *env, *p, *e, *q, path[512];
+	char name[128], def[65], mpy[65], oidhex[17], k[Keymax], v[Inlmax], hex[65];
+	uchar *data, *eb, *hb;
+	long n, en, hn, tot;
+	Seedrec *r;
+	uvlong oid;
+	int nr, ar, off, i;
+
+	r = nil;
+	nr = ar = 0;
+	/* the catalog entry: init -> 1 */
+	k[0] = Ko;
+	strecpy(k+1, k+sizeof k, "init");
+	PACK64(v, OspaceInit);
+	seedadd(&r, &nr, &ar, k, 1+4, v, 8);
+
+	snprint(path, sizeof path, "%s/env", seeddir);
+	if(seedread(path, &eb, &en) < 0)
+		sysfatal("seed: %s: %r", path);
+	snprint(path, sizeof path, "%s/envhex", seeddir);
+	if(seedread(path, &hb, &hn) < 0)
+		sysfatal("seed: %s: %r", path);
+	while(hn > 0 && (hb[hn-1] == '\n' || hb[hn-1] == '\r' || hb[hn-1] == ' '))
+		hn--;
+	if(hn != 64)
+		sysfatal("seed: envhex: not 64 characters");
+	seedobj(&r, &nr, &ar, OID_ENV_HOST, eb, en);
+
+	/* a line: name definition mpy code-oid */
+	env = (char*)eb;
+	for(p = env; *p != 0;){
+		if((e = strchr(p, '\n')) == nil)
+			e = p + strlen(p);
+		if(strncmp(p, "runtime ", 8) == 0){
+			p = *e ? e+1 : e;
+			continue;
+		}
+		q = p;
+		off = 0;
+#define FIELD(dst, max) do{ \
+	off = 0; \
+	while(q < e && *q != ' ' && off < (max)-1) dst[off++] = *q++; \
+	dst[off] = 0; \
+	if(q < e && *q == ' ') q++; \
+}while(0)
+		FIELD(name, sizeof name);
+		FIELD(def, sizeof def);
+		FIELD(mpy, sizeof mpy);
+		FIELD(oidhex, sizeof oidhex);
+#undef FIELD
+		if(strlen(def) != 64 || strlen(mpy) != 64 || strlen(oidhex) != 16)
+			sysfatal("seed: bad manifest line");
+		oid = strtoull(oidhex, nil, 16);
+		snprint(path, sizeof path, "%s/mod/%s.mpy", seeddir, def);
+		if(seedread(path, &data, &n) < 0)
+			sysfatal("seed: %s: %r", path);
+		seedobj(&r, &nr, &ar, oid, data, n);
+		free(data);
+		p = *e ? e+1 : e;
+	}
+	/* the header: version 1, then Environment and next OID */
+	memmove(hex, hb, 64);
+	hex[64] = 0;
+	k[0] = Kobj;
+	PACK64(k+1, OspaceInit);
+	PACK64(v, 1);
+	PACK64(v+8, 1);
+	PACK64(v+16, 1);
+	memmove(v+24, hb, 64);
+	PACK64(v+24+64, OID_FIRST_HOST);
+	seedadd(&r, &nr, &ar, k, 9, v, 24+72);
+
+	free(eb);
+	free(hb);
+	qsort(r, nr, sizeof(Seedrec), seedcmp);
+	tot = 0;
+	for(i = 0; i < nr; i++)
+		tot += 2 + r[i].nk + 2 + r[i].nv;
+	if(tot > Leafspc)
+		sysfatal("seed: %ld bytes do not fit one catalog leaf (%ld)", tot, (long)Leafspc);
+	for(i = 0; i < nr; i++){
+		Kvp kv;
+
+		kv.k = r[i].k;
+		kv.nk = r[i].nk;
+		kv.v = r[i].v;
+		kv.nv = r[i].nv;
+		setval(tb, &kv);
+	}
+	free(r);
+	print("seed: %d records, %ld bytes, Environment %s\n", nr, tot, hex);
+}
+
+/*
  * Plan2001: format a native O volume (docs/o-volume-format.md).  Reuse
  * GE's arenas, logs and an ordinary leaf for the flat catalog: there is
  * no FS root, adm tree or user table.  The superblock flag carries the
@@ -437,18 +662,23 @@ reamo(char *dev)
 	/*
 	 * The catalog is one GE leaf in the snapshot tree: Ko "init" =>
 	 * an 8-byte SpaceID.  It is flat: no parent, slash or directory.
+	 * Stage 4's -i adds the Environment and code objects to it.
 	 */
 	if((tb = newblk(&fs->snap, Tleaf)) == nil)
 		sysfatal("ream O: allocate catalog: %r");
 	holdblk(tb);
-	kbuf[0] = Ko;
-	strecpy(kbuf+1, kbuf+sizeof(kbuf), "init");
-	PACK64(vbuf, OspaceInit);
-	kv.k = kbuf;
-	kv.nk = 1+strlen("init");
-	kv.v = vbuf;
-	kv.nv = 8;
-	setval(tb, &kv);
+	if(seeddir != nil)
+		oseed(tb);
+	else{
+		kbuf[0] = Ko;
+		strecpy(kbuf+1, kbuf+sizeof(kbuf), "init");
+		PACK64(vbuf, OspaceInit);
+		kv.k = kbuf;
+		kv.nk = 1+strlen("init");
+		kv.v = vbuf;
+		kv.nv = 8;
+		setval(tb, &kv);
+	}
 	finalize(tb);
 	syncblk(tb);
 

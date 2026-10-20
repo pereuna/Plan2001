@@ -21,6 +21,12 @@ enum {
     // record of p9image.c's (not a MicroPython object).  UINT64_MAX is
     // obj.c's "no object selected" sentinel, so the one below it.
     OID_UPGRADE_META = 0xfffffffffffffffeULL,
+    // Stage 4 (docs/o-volume-format.md): a native O Space's graph and
+    // its Environment manifest.  The definitions' code objects start at
+    // OID_CODE; the host preparation tool assigns them explicitly.
+    OID_GRAPH = 0xfffffffffffffffdULL,
+    OID_ENV = 0xfffffffffffffffcULL,
+    OID_CODE = 0xffffffff00000000ULL,
 };
 
 // V2-V4's image (v<N>): restored once, its objects then given OIDs
@@ -83,6 +89,10 @@ int p9_image_check(void);
 uint64_t p9_image_oid(const void *p);
 // the Space's OIDs forgotten (a failed open); the views' kept
 void p9_image_reset(void);
+
+// Stage 4: use the native O volume SPEC (a PARTUUID or device) for the
+// Space, its Environment and its code; 0 ok, -1 failed (printed)
+int p9_space_o(const char *spec);
 
 // a commit point (mp -S; FORCE: the program's end, within space.atomic
 // too): 0 done or nothing to do, -1 failed (printed)

@@ -5,28 +5,52 @@
 # arena/tree/sync code.  The result has the O profile, no FS root, adm
 # tree or user table, and one flat catalog entry: init -> SpaceID 1.
 # Opening an O volume in the kernel never formats it.
-#   tools/mkovol OUT [MIB]     MIB, default 512; at least 129
+#   tools/mkovol OUT [MIB] [SOURCE]
+#                             MIB, default 512; at least 129.  With
+#                             SOURCE, also seed one demo Environment and
+#                             its compiled .mpy as O objects in the fresh
+#                             image (Stage 4, tools/oseed.py).
 #   GEFS=FILE                 userspace gefs (default
 #                             build/selfroot/amd64/bin/gefs)
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
-[ $# = 1 ] || [ $# = 2 ] || { echo "usage: tools/mkovol OUT [MIB]" >&2; exit 2; }
+[ $# -ge 1 ] && [ $# -le 3 ] || { echo "usage: tools/mkovol OUT [MIB] [SOURCE]" >&2; exit 2; }
 out=$(realpath -m "$1")
 mb=${2:-512}
+src=$3
 [ "$mb" -ge 129 ] || { echo "mkovol: image must be at least 129 MiB" >&2; exit 2; }
 dir=$root/build/selfroot
 gefs=${GEFS:-$dir/amd64/bin/gefs}
 [ -x "$gefs" ] || { echo "mkovol: no $gefs (tools/selfroot)" >&2; exit 1; }
+mp=$dir/amd64/bin/micropython
+[ -z "$src" ] || [ -x "$mp" ] || { echo "mkovol: no $mp (tools/selfroot)" >&2; exit 1; }
 b=$root/build
 rm -f "$b/in.img" "$b/out.img"
 tar cf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$dir" ./amd64/bin/gefs
+if [ -n "$src" ]; then
+	cp "$src" "$b/odemo.py"
+	tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$dir" ./amd64/bin/micropython -C "$b" ./odemo.py -C "$here" ./oseed.py
+fi
 truncate -s $(( $(stat -c %s "$b/in.img") / 1048576 + 16 ))M "$b/in.img"
 truncate -s ${mb}M "$b/out.img"
 
 trap '"$here/vm" stop >/dev/null 2>&1 || true' EXIT
 "$here/vm" start >/dev/null
 printf 'term%% \t!done\n' | "$here/9run" -t 180 --dialog - >/dev/null
+if [ -n "$src" ]; then
+"$here/9run" -t "${MKOVOL_TIMEOUT:-600}" --script - <<'RC'
+g=/dev/sdE2/data
+cd /tmp && tar xf /dev/sdE1/data ./amd64/bin/gefs ./amd64/bin/micropython ./odemo.py ./oseed.py
+mkdir -p /tmp/seed/mod
+/tmp/amd64/bin/micropython /tmp/oseed.py >/tmp/oseed.log >[2=1] || { cat /tmp/oseed.log; exit seed }
+cat /tmp/oseed.log
+/tmp/amd64/bin/gefs -O -i /tmp/seed -f $g >/tmp/mkovol.log >[2=1] || { tail -5 /tmp/mkovol.log; exit ream }
+grep -s '^reaming O volume' /tmp/mkovol.log || { cat /tmp/mkovol.log; exit ream }
+grep -s '^seed:' /tmp/mkovol.log || { cat /tmp/mkovol.log; exit seed }
+echo mkovol-ok
+RC
+else
 "$here/9run" -t "${MKOVOL_TIMEOUT:-600}" --script - <<'RC'
 g=/dev/sdE2/data
 cd /tmp && tar xf /dev/sdE1/data ./amd64/bin/gefs
@@ -35,7 +59,12 @@ $gefs -O -f $g >/tmp/mkovol.log >[2=1] || { tail -5 /tmp/mkovol.log; exit ream }
 grep -s '^reaming O volume' /tmp/mkovol.log || { cat /tmp/mkovol.log; exit ream }
 echo mkovol-ok
 RC
+fi
 "$here/vm" stop >/dev/null; trap - EXIT
 mv "$b/out.img" "$out"
 rm -f "$b/in.img"
-echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1"
+if [ -n "$src" ]; then
+	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src"
+else
+	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1"
+fi

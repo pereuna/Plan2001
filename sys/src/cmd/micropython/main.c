@@ -6,6 +6,9 @@
  *	micropython -B			Plan2001's init: the built-in boot.py
  *					(the kernel's /boot/mp), then the REPL
  *					again and again
+ *	micropython -O volume ...	use the native O volume (a PARTUUID or
+ *					a device) for the Space, its Environment
+ *					and its code: no filesystem
  *	micropython -E env ...		import from the Environment env alone
  *	micropython -S space ...	in the Space space: its image restored,
  *					committed after each REPL statement
@@ -120,9 +123,16 @@ static int onnote(void *ureg, char *note) {
 int main(int argc, char **argv) {
     volatile uintptr_t stack_top;
     int fail = 0, i, boot = 0;
-    const char *source = NULL, *file = NULL, *env = NULL, *space = NULL;
+    const char *source = NULL, *file = NULL, *ovol = NULL, *env = NULL, *space = NULL;
     char useenv[128];
 
+    // -O VOLUME: the native O volume; then -E or -S as before
+    if (argc >= 3 && strcmp(argv[1], "-O") == 0) {
+        ovol = argv[2];
+        argv[2] = argv[0];
+        argv += 2;
+        argc -= 2;
+    }
     // -E ENV: import from the Environment ENV alone; -S SPACE: in the
     // Space SPACE (p9space.c)
     if (argc >= 3 && strcmp(argv[1], "-E") == 0) {
@@ -143,7 +153,7 @@ int main(int argc, char **argv) {
     } else if (argc >= 2 && argv[1][0] != '-') {
         file = argv[1];
     } else if (argc != 1) {
-        fprint(2, "usage: micropython [-E env | -S space] [-B | -c source | file [arg...]]\n");
+        fprint(2, "usage: micropython [-O volume] [-E env | -S space] [-B | -c source | file [arg...]]\n");
         exits("usage");
     }
     // inf and nan as results, as in C: Plan 9 traps them by default
@@ -154,6 +164,11 @@ int main(int argc, char **argv) {
     gc_init(heap, (char *)heap + sizeof(heap));
     mp_pystack_init(pystack, (char *)pystack + sizeof(pystack));
     mp_init();
+    if (ovol != NULL && p9_space_o(ovol) < 0) {
+        mp_deinit();
+        p9_console_exit(1);
+        return 1;
+    }
     if (space != NULL) {
         // the name goes into Python's source: a plain one
         if (strlen(space) >= 64 || space[strcspn(space, "'\\/\n")] != 0) {

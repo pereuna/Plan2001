@@ -26,6 +26,12 @@ int	_fsession(char*, void*, int);
 int	_mount(int, char*, int, char*);
 int	_wait(void*);
 int	_nsec(vlong*);
+long	ovolopen(char*, int);
+long	ospaceopen(int, char*, int);
+long	ospaceget(int, uvlong, void*, long, uvlong*);
+long	ospaceput(int, uvlong, void*, long);
+long	ospacecommit(int, uvlong*);
+long	ospaceclose(int);
 
 struct Call{
 	char	*name;

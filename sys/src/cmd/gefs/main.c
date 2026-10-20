@@ -20,6 +20,7 @@ int	usereserve;
 int	checkonly;
 ulong	fuzzseed;
 char	*reamuser;
+char	*seeddir;
 char	*dev;
 vlong	tracesz		= 16*MiB;
 vlong	cachesz 	= 512*MiB;
@@ -318,7 +319,7 @@ runannounce(int, void *arg)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-SORsc] [-r user] [-m mem] [-n srv] [-a net]... -f dev\n", argv0);
+	fprint(2, "usage: %s [-SORsc] [-r user] [-i dir] [-m mem] [-n srv] [-a net]... -f dev\n", argv0);
 	exits("usage");
 }
 
@@ -347,6 +348,9 @@ main(int argc, char **argv)
 		break;
 	case 'O':
 		oformat = 1;
+		break;
+	case 'i':
+		seeddir = EARGF(usage());
 		break;
 	case 'c':
 		checkonly = 1;
@@ -445,6 +449,8 @@ main(int argc, char **argv)
 		reamo(dev);
 		exits(nil);
 	}
+	if(seeddir != nil)
+		sysfatal("-i is only with -O");
 	if(ream){
 		reamfs(dev);
 		exits(nil);

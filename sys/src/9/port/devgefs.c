@@ -35,6 +35,13 @@ void	geprobe(void*);
 void*	oopen(char*, Chan*, vlong, vlong, int);
 void	oprobe(void*);
 void	oobjprobe(void*);
+typedef struct Gefs Gefs;
+typedef struct Ospace Ospace;
+void*	onativeopen(void*, char*);
+long	onativeget(void*, uvlong, void*, long, uvlong*);
+void	onativeput(void*, uvlong, void*, long);
+uvlong	onativecommit(void*);
+void	onativeclose(void*);
 
 /*
  * Plan2001: the volumes this device has started, for the shutdown at
@@ -393,6 +400,188 @@ oobjprobevol(char *spec)
 		poperror();
 	}
 	gefsshutdown(v);
+}
+
+/*
+ * Plan2001 Stage 4: the native O interface to userspace.  These are
+ * system calls, not files: no #G, 9P, Fid, qid or /dev entry carries an
+ * object.  OVOLOPEN opens the one native O volume (a PARTUUID or a
+ * device, as root= takes it) and starts its GE instance; OSPACEOPEN
+ * gives a Space handle from the flat catalog, and the rest are the
+ * native object calls of docs/o-volume-format.md.  The handles are
+ * kernel-side: a process never sees an Ospace pointer.
+ */
+enum {
+	Ospmax	= 8,
+};
+
+static Gefs *ovol;
+static Ospace *ospaces[Ospmax];
+
+uintptr
+sysovolopen(va_list list)
+{
+	char *p, *spec, dev[64];
+	vlong off, size;
+	Chan *c;
+	void *v;
+	int n;
+
+	p = va_arg(list, char*);
+	n = va_arg(list, int);
+	if(n <= 0 || n > 256)
+		error(Ebadarg);
+	validaddr((uintptr)p, n, 0);
+	spec = smalloc(n+1);
+	if(waserror()){
+		free(spec);
+		nexterror();
+	}
+	memmove(spec, p, n);
+	spec[n] = 0;
+	if(ovol != nil){
+		free(spec);
+		poperror();
+		return 1;
+	}
+	c = gevolume(spec, 1, dev, sizeof dev, &off, &size);
+	if(waserror()){
+		cclose(c);
+		nexterror();
+	}
+	v = oopen(dev, c, off, size, 1);
+	poperror();	/* c is the O volume's now */
+	print("o: O volume %s@%lld, %lld MiB, opened without FS\n",
+		dev, off, size/MiB);
+	gestart(v);
+	addvol(v);
+	ovol = v;
+	free(spec);
+	poperror();
+	return 1;
+}
+
+static Ospace*
+ogetspace(int h)
+{
+	if(h <= 0 || h > Ospmax || ospaces[h-1] == nil)
+		error(Ebadarg);
+	return ospaces[h-1];
+}
+
+uintptr
+sysospaceopen(va_list list)
+{
+	char *p, *name;
+	Ospace *sp;
+	int h, n, i;
+
+	h = va_arg(list, int);
+	p = va_arg(list, char*);
+	n = va_arg(list, int);
+	if(h != 1 || ovol == nil)
+		error(Ebadarg);
+	if(n <= 0 || n > 255)
+		error(Ebadarg);
+	validaddr((uintptr)p, n, 0);
+	name = smalloc(n+1);
+	if(waserror()){
+		free(name);
+		nexterror();
+	}
+	memmove(name, p, n);
+	name[n] = 0;
+	sp = onativeopen(ovol, name);
+	free(name);
+	poperror();
+	for(i = 0; i < Ospmax; i++)
+		if(ospaces[i] == nil){
+			ospaces[i] = sp;
+			return i+1;
+		}
+	onativeclose(sp);
+	error("too many O Spaces");
+}
+
+uintptr
+sysospaceget(va_list list)
+{
+	Ospace *sp;
+	char *buf;
+	uvlong oid, v, *ver;
+	long n, r;
+	int h;
+
+	h = va_arg(list, int);
+	oid = va_arg(list, uvlong);
+	buf = va_arg(list, char*);
+	n = va_arg(list, long);
+	ver = va_arg(list, uvlong*);
+	sp = ogetspace(h);
+	if(n < 0 || n > 64*MiB)
+		error(Ebadarg);
+	if(n > 0)
+		validaddr((uintptr)buf, n, 1);	/* written */
+	if(ver != nil)
+		validaddr((uintptr)ver, sizeof *ver, 1);
+	v = 0;
+	r = onativeget(sp, oid, buf, n, &v);
+	if(ver != nil)
+		memmove(ver, &v, sizeof v);
+	return r;
+}
+
+uintptr
+sysospaceput(va_list list)
+{
+	Ospace *sp;
+	char *buf;
+	uvlong oid;
+	long n;
+	int h;
+
+	h = va_arg(list, int);
+	oid = va_arg(list, uvlong);
+	buf = va_arg(list, char*);
+	n = va_arg(list, long);
+	sp = ogetspace(h);
+	if(n < 0 || n > 64*MiB)
+		error(Ebadarg);
+	if(n > 0)
+		validaddr((uintptr)buf, n, 0);	/* read */
+	onativeput(sp, oid, buf, n);
+	return 0;
+}
+
+uintptr
+sysospacecommit(va_list list)
+{
+	Ospace *sp;
+	uvlong v, *ver;
+	int h;
+
+	h = va_arg(list, int);
+	ver = va_arg(list, uvlong*);
+	sp = ogetspace(h);
+	if(ver != nil)
+		validaddr((uintptr)ver, sizeof *ver, 1);
+	v = onativecommit(sp);
+	if(ver != nil)
+		memmove(ver, &v, sizeof v);
+	return 0;
+}
+
+uintptr
+sysospaceclose(va_list list)
+{
+	int h;
+
+	h = va_arg(list, int);
+	if(h <= 0 || h > Ospmax || ospaces[h-1] == nil)
+		error(Ebadarg);
+	onativeclose(ospaces[h-1]);
+	ospaces[h-1] = nil;
+	return 0;
 }
 
 /*
