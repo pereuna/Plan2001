@@ -1328,16 +1328,21 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a,
     return ret;
 }
 
-// an upgrade changed every record's meaning: all of them are written
-// (the table is looked through: no need to grow the dirty list)
+// every record is to be written: an upgrade changes their meaning, and
+// native O's commit keeps one whole graph stream, so it cannot inherit
+// unchanged object or root records from an older version as the file
+// store can.  The impossible hash makes p9_image_commit write each
+// encoded object; the root hash does the same for OID_ROOTS.
 void p9_image_all_dirty(void) {
     size_t i;
 
     for (i = 0; i < otsize; i++) {
         if (ot[i].p != NULL && !ot[i].foreign) {
             ot[i].dirty = 1;
+            ot[i].hash = ~0ULL;
         }
     }
+    roothash = ~0ULL;
     dirtylost = 1;
 }
 

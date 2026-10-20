@@ -86,6 +86,7 @@ static vlong lastcommit;	/* nsec() */
  */
 static int ovol = -1;
 static int osp = -1;
+static int ofresh;	/* Stage 5: the O Space had no graph at open */
 
 typedef struct {
     char def[65];	/* the definition (source SHA-256), its identity */
@@ -1322,6 +1323,7 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
         nlr_jump(nlr.ret_val);
     }
     t0 = nsec();
+    ofresh = 0;
     if (oreadobj(OID_GRAPH, &st, NULL) == 0) {
         if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
             vstr_clear(&st);
@@ -1339,6 +1341,7 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
         fprint(2, "space: O: restored %s version %lld, Environment %s\n",
             name, sp.n, h.env);
     } else {
+        ofresh = 1;
         ouseenv(name, NULL);
         sp.n = 0;
         sp.next = OID_FIRST;
@@ -1357,6 +1360,97 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
     sp.isopen = 1;
     lastcommit = nsec();
     return mp_const_none;
+}
+
+/* ---- Stage 5: the O-only init Space's automatic run() ---- */
+
+#define OINIT_MODULE "odemo"
+
+static mp_obj_t globget(mp_obj_t dict, qstr q) {
+    mp_map_elem_t *el;
+
+    el = mp_map_lookup(&((mp_obj_dict_t *)MP_OBJ_TO_PTR(dict))->map,
+        MP_OBJ_NEW_QSTR(q), MP_MAP_LOOKUP);
+    if (el == NULL) {
+        mp_raise_msg_varg(&mp_type_KeyError, MP_ERROR_TEXT("%q"), q);
+    }
+    return el->value;
+}
+
+/*
+ * Stage 5: -O ... -S init -B.  A fresh image imports the demo module
+ * from O (its top level runs once), calls its init(), and stores run as
+ * a persistent global in the Space's __main__.  Later boots restore that
+ * global; the module's top level is not run again.  A failure prints the
+ * exception and returns -1, so main.c does not commit.
+ */
+int p9_space_boot(void) {
+    nlr_buf_t nlr;
+    qstr modname, qrun, qinit;
+    p9_space_mod_t *m;
+    mp_obj_t globals, run, res;
+
+    if (ovol < 0 || !sp.isopen) {
+        fprint(2, "init: no O Space is open\n");
+        return -1;
+    }
+    if (nlr_push(&nlr) == 0) {
+        modname = qstr_from_str(OINIT_MODULE);
+        qrun = qstr_from_str("run");
+        qinit = qstr_from_str("init");
+        if (ofresh) {
+            mp_obj_t mn = mp_obj_new_str(OINIT_MODULE, strlen(OINIT_MODULE));
+
+            p9_import(1, &mn);	/* the one time the top level runs */
+            m = p9_space_loadmod(modname);
+            globals = MP_OBJ_FROM_PTR(m->ctx->module.globals);
+            mp_call_function_0(globget(globals, qinit));
+            run = globget(globals, qrun);
+            mp_obj_dict_store(MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main)),
+                MP_OBJ_NEW_QSTR(qrun), run);
+            fprint(2, "space: O: init initialized from O code (%s)\n", OINIT_MODULE);
+        } else {
+            m = p9_space_loadmod(modname);
+            globals = MP_OBJ_FROM_PTR(m->ctx->module.globals);
+            run = globget(MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main)), qrun);
+            fprint(2, "space: O: init restored (%s), no module initialization\n", OINIT_MODULE);
+        }
+        res = mp_call_function_0(run);
+        fprint(2, "init: run() -> %d\n", mp_obj_get_int(res));
+        nlr_pop();
+        return 0;
+    }
+    mp_printf(&mp_plat_print, "init: run failed: ");
+    mp_obj_print_helper(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val), PRINT_EXC);
+    mp_printf(&mp_plat_print, "\ninit: failed, no commit\n");
+    return -1;
+}
+
+// Stage 5, after the commit: the persistent Counter's value, alias and
+// OID (the same instance and alias on every boot)
+int p9_space_report(void) {
+    nlr_buf_t nlr;
+    p9_space_mod_t *m;
+    mp_obj_t globals, shared, alias, n;
+    uint64_t soid, aoid;
+
+    if (nlr_push(&nlr) == 0) {
+        m = p9_space_loadmod(qstr_from_str(OINIT_MODULE));
+        globals = MP_OBJ_FROM_PTR(m->ctx->module.globals);
+        shared = globget(globals, qstr_from_str("shared"));
+        alias = globget(globals, qstr_from_str("alias"));
+        n = mp_load_attr(shared, qstr_from_str("n"));
+        soid = p9_image_oid(MP_OBJ_TO_PTR(shared));
+        aoid = p9_image_oid(MP_OBJ_TO_PTR(alias));
+        fprint(2, "init: shared Counter n %d, alias %s, OID %llux (alias %llux)\n",
+            mp_obj_get_int(n), shared == alias ? "same" : "different", soid, aoid);
+        nlr_pop();
+        return 0;
+    }
+    mp_printf(&mp_plat_print, "init: report failed: ");
+    mp_obj_print_helper(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val), PRINT_EXC);
+    mp_printf(&mp_plat_print, "\n");
+    return -1;
 }
 
 // open(name[, version]): this process the Space's writer (mp -S): its

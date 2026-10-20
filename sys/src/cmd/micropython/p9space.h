@@ -93,6 +93,15 @@ void p9_image_reset(void);
 // Stage 4: use the native O volume SPEC (a PARTUUID or device) for the
 // Space, its Environment and its code; 0 ok, -1 failed (printed)
 int p9_space_o(const char *spec);
+// Stage 5 (mp -O ... -S NAME -B): the first boot of a fresh O Space
+// imports the O-resident demo module, initializes it once and persists
+// its run global; later boots restore that global and call it without
+// running any module top level.  Failure is printed and nothing is
+// committed.  0 ok, -1 failed
+int p9_space_boot(void);
+// Stage 5: after the commit, the persistent Counter's value, alias and
+// OIDs (the same object across boots); failure is printed
+int p9_space_report(void);
 
 // a commit point (mp -S; FORCE: the program's end, within space.atomic
 // too): 0 done or nothing to do, -1 failed (printed)

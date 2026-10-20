@@ -122,7 +122,7 @@ static int onnote(void *ureg, char *note) {
 
 int main(int argc, char **argv) {
     volatile uintptr_t stack_top;
-    int fail = 0, i, boot = 0;
+    int fail = 0, i, boot = 0, autorun = 0, bootfail = 0;
     const char *source = NULL, *file = NULL, *ovol = NULL, *env = NULL, *space = NULL;
     char useenv[128];
 
@@ -169,6 +169,12 @@ int main(int argc, char **argv) {
         p9_console_exit(1);
         return 1;
     }
+    // Stage 5: bootstrap (devices, console) runs before the Space is
+    // restored, so its boot-only objects never enter the persistent
+    // __main__ that the restore replaces.
+    if (boot && space != NULL) {
+        execstr(bootpy, MP_QSTR_boot_dot_py);
+    }
     if (space != NULL) {
         // the name goes into Python's source: a plain one
         if (strlen(space) >= 64 || space[strcspn(space, "'\\/\n")] != 0) {
@@ -206,21 +212,50 @@ int main(int argc, char **argv) {
     } else if (file != NULL) {
         fail = execfile(file);
     } else {
-        if (boot) {
+        if (boot && space == NULL) {
             // boot.py opens the console (kbdfs) itself
             execstr(bootpy, MP_QSTR_boot_dot_py);
         }
         p9_console_init();
-        // Ctrl-A enters the raw REPL, Ctrl-B returns, Ctrl-D ends it;
-        // as init it starts again
-        do {
-            repl();
-            pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
-        } while (boot);
+        if (boot && space != NULL) {
+            // Stage 5: -O ... -S NAME -B: run the restored init Space
+            // once and commit; no REPL reads the console
+            autorun = 1;
+            if (p9_space_boot() < 0) {
+                bootfail = 1;
+                fail = 1;
+            }
+        } else {
+            // Ctrl-A enters the raw REPL, Ctrl-B returns, Ctrl-D ends
+            // it; as init it starts again
+            do {
+                repl();
+                pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
+            } while (boot);
+        }
     }
     // the program's end, normal or SystemExit: a commit point
-    if (!uncaught && p9_space_commit(1) < 0) {
+    if (!uncaught && !bootfail && p9_space_commit(1) < 0) {
         fail = 1;
+        if (autorun) {
+            bootfail = 1;
+            fprint(2, "init: failed, no commit\n");
+        }
+    }
+    if (autorun) {
+        // the commit is durable; report the object identity with the
+        // OIDs it now has, then stay alive without a REPL.  QEMU (or
+        // the operator) stops the machine; an init exit would panic.
+        if (!uncaught && !bootfail && p9_space_report() < 0) {
+            fail = 1;
+        }
+        if (!uncaught && !bootfail) {
+            fprint(2, "init: done\n");
+        }
+        p9_console_restore();
+        for (;;) {
+            sleep(1000);
+        }
     }
     mp_deinit();
     p9_console_exit(fail);

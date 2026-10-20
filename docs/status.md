@@ -1,5 +1,65 @@
 # Tila ja suunnitelma
 
+> **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 5):**
+> O-yksinäinen init Space käynnistyy suoraan: `init=/boot/mp -O
+> PARTUUID=... -S init -B`, ilman `root=`a, `-c`:tä tai Python-lähdettä
+> plan9.inissa.  Bootstrap (laitteet, konsoli) ajetaan ennen Spacen
+> palautusta, joten sen oliot eivät vuoda pysyvään `__main__`iin.
+> Ensimmäinen boot tuo O:sta demon moduulin, ajaa sen `init()`in kerran
+> (laskuri nollaan), tallentaa `run`in pysyväksi globaaliksi Spacen
+> `__main__`iin ja committaa.  Bootit 2 ja 3 palauttavat graafin ja
+> kutsuvat `run()`ia ajamatta moduulin ylätasoa: sama Counter-olio, sama
+> alias ja sama OID säilyvät, laskuri on 1, 2, 3.  Koko graafin commit
+> korjattiin samalla: `p9_image_all_dirty` kirjoittaa nyt kaikki oliot ja
+> juuritietueen, koska O:ssa graafi on yksi stream eikä voi periä
+> muuttumatonta `OID_ROOTS`-tietuetta vanhemmasta versiosta.
+>
+> `tools/test-o-boot.sh` provisioi yhden tuoreen O-kuvan (`tools/mkovol`)
+> ja boottaa saman ESP + O -levyn kolmesti uudelleenmuotoilematta.
+> Komento: `tools/test-o-boot.sh` (tässä ajossa `SECONDS_TO_RUN=300`).
+> Oleellinen serial-ulostulo:
+>
+> ```text
+> ### boot1
+> space: O volume selected: PARTUUID=0ab58889-9376-4f4e-8f2f-ddb0e0b72d60
+> boot: MicroPython from the kernel, no root
+> space: O: init has no graph, Environment e1e308d542589c3fc533f204aeb38f805cccfe2c0cbcb5582a128769163ea454
+> space: O: odemo code OID ffffffff00000000, digest df631058aed45566b623bf0b1600e10df1b06260ae9d4832528af33d8ce4101b
+> space: O: init initialized from O code (odemo)
+> init: run() -> 1
+> space: O: committed init version 1 (O version 2)
+> init: shared Counter n 1, alias same, OID 7 (alias 7)
+> init: done
+> ### boot2
+> space: O volume selected: PARTUUID=0ab58889-9376-4f4e-8f2f-ddb0e0b72d60
+> boot: MicroPython from the kernel, no root
+> space: O: odemo code OID ffffffff00000000, digest df631058aed45566b623bf0b1600e10df1b06260ae9d4832528af33d8ce4101b
+> space: O: restored init version 1, Environment e1e308d542589c3fc533f204aeb38f805cccfe2c0cbcb5582a128769163ea454
+> space: O: init restored (odemo), no module initialization
+> init: run() -> 2
+> space: O: committed init version 2 (O version 3)
+> init: shared Counter n 2, alias same, OID 7 (alias 7)
+> init: done
+> ### boot3
+> space: O volume selected: PARTUUID=0ab58889-9376-4f4e-8f2f-ddb0e0b72d60
+> boot: MicroPython from the kernel, no root
+> space: O: odemo code OID ffffffff00000000, digest df631058aed45566b623bf0b1600e10df1b06260ae9d4832528af33d8ce4101b
+> space: O: restored init version 2, Environment e1e308d542589c3fc533f204aeb38f805cccfe2c0cbcb5582a128769163ea454
+> space: O: init restored (odemo), no module initialization
+> init: run() -> 3
+> space: O: committed init version 3 (O version 4)
+> init: shared Counter n 3, alias same, OID 7 (alias 7)
+> init: done
+> ```
+>
+> Normaalin `run()`in jälkeen Space committaa ja synkkaa, tulostaa
+> tuloksen ja jää odottamaan ilman interaktiivista REPLiä; QEMU
+> pysäytetään testistä.  Virhe tulostuu eikä committia tehdä, eikä O:ta
+> koskaan formaatoida implisiittisesti.  Ajetut testit: kernelin ja
+> MicroPythonin käännös (`WHAT=kernel tools/build.sh`),
+> `tools/test-o-space.sh` (Stage 4) ja `tools/test-o-boot.sh` (tämä).
+> Rautaa, ARM64:ää, RISC-V:tä, verkkoa ja paketinhallintaa ei ajettu.
+
 > **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 4):**
 > MicroPython lukee Environmentin, muuttumattomat `.mpy`-koodioliot ja
 > pysyvän Space-graafin natiivista O:sta ilman juuritiedostojärjestelmää.
@@ -14,7 +74,7 @@
 > `root=`a kahdesti: ensimmäinen boot luo ja committaa graafin, toinen
 > palauttaa saman jaetun olion ja saman funktion koodin O:sta (laskuri
 > 41 -> 42 -> 43, `alias is shared` ja sama OID).  Automaattinen `run()`,
-> kolmen bootin laskuri ja Space-versiot O:ssa ovat vaihe 5.
+> kolmen bootin laskuri ja Space-versiot O:ssa toteutuivat vaiheessa 5.
 
 > **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 3):**
 > natiivi olio-API: `ospaceopen`/`ospaceget`/`ospaceput`/`ospacecommit`/

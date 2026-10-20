@@ -1,12 +1,13 @@
 # Native O volume format (PoC, version 1)
 
-**Status:** Stage 4 of [the O-only PoC](PoC-experimental-demo.md).  This is
+**Status:** Stage 5 of [the O-only PoC](PoC-experimental-demo.md).  This is
 an experimental format, not a production one.  It reuses GE's superblock,
 arenas, allocation logs, key/value tree, recovery and sync; it does not
 define a second allocator or filesystem.  Stage 3 added object records and
-the native kernel API; Stage 4 adds the userspace boundary and the
-Environment/code/graph objects on top of it.  The on-disk profile is
-still version 1.
+the native kernel API; Stage 4 added the userspace boundary and the
+Environment/code/graph objects on top of it; Stage 5 boots that Space as
+init and calls its persistent `run()`.  The on-disk profile is still
+version 1.
 
 ## Profile and version
 
@@ -161,3 +162,30 @@ space versions/history in O, `space.create`/`view`/`upgrade` on O, `#G`,
 campaigns.  `tools/test-o-space.sh` boots an ESP + O disk with no FS
 root twice: the first boot creates and commits the demo graph, the second
 restores it, the same shared object, and the same function code from O.
+
+## Automatic init Space (Stage 5)
+
+With `-O VOLUME -S init -B` MicroPython restores the Space before running
+anything persistent, then:
+
+- a fresh image (no `OID_GRAPH`) imports the demo module named by
+  `OINIT_MODULE` (`odemo`), whose code object came from O.  Its top level
+  runs once, its `init()` sets the Counter to zero, and its `run` callable
+  is stored in the Space's persistent `__main__` globals.  The final
+  commit publishes the graph, so this initialization happens once;
+- a restored image gets `run` from the restored `__main__` dict.  No
+  module top level, constructor or `init()` runs again; the restored
+  `odemo` root supplies the same Counter instance, its `alias` and their
+  OIDs;
+- `run()` is called with no arguments.  On a normal return main commits
+  and syncs, prints the result and the Counter's OID, and stays alive
+  without a REPL.  An exception prints the failure and skips the final
+  commit; the previous published version stays intact.  Neither path
+  formats, repairs or falls back to a filesystem.
+
+`tools/test-o-boot.sh` prepares one fresh O image and boots the same
+ESP + O disk three times.  The serial log shows `run() -> 1`, `-> 2`,
+`-> 3`, the same Counter OID and alias each time, and commit versions
+1, 2, 3.  This is still a PoC: the module name is fixed, the graph is one
+whole `OID_GRAPH` object, and there is no migration, permission model or
+crash campaign.
