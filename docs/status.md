@@ -1,5 +1,16 @@
 # Tila ja suunnitelma
 
+> **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 3):**
+> natiivi olio-API: `ospaceopen`/`ospaceget`/`ospaceput`/`ospacecommit`/
+> `ospaceclose` (`obj.c`) käyttää samaa versiointi-, julkaisu- ja
+> aborttiydintä kuin `DMOBJ`, mutta avaimen store on katalogin vakaa
+> SpaceID eikä filen `qid.path`.  Oliot ovat `Kobj`-tietueita O-tilavuuden
+> snapshot-puussa; ei `Fid`iä, qid:iä, mountia, tiedostoa eikä 9P:tä.
+> `oobj=`-testi (`tools/test-o-objects.sh`) kirjoittaa kaksi vakaalla
+> OID:llä olevaa oliota, committaa ja synkkaa, ja toinen boot lukee
+> molemmat OID:llä.  `DMOBJ`-polku tarkistettiin `KTEST=fsobj`lla.
+> MicroPython ja O:lta boottaus ovat yhä vaiheet 4–5.
+
 > **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 2):**
 > natiivi O-tilavuus: superblockin `flag`-bitin 63 profiili ja alimman
 > tavun versio (1), `Ko`-avaintyyppi ja tasainen katalogimerkintä

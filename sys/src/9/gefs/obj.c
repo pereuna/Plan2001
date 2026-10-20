@@ -60,6 +60,8 @@ struct Oent {
 struct Otx {
 	Gefs	*fs;		/* Plan2001: its volume */
 	Otx	*next;		/* the active ones, under mutlk */
+	Mount	*mnt;		/* DMOBJ: the file's mount, nil for native O */
+	Tree	*tree;		/* native O: the volume's snapshot tree */
 	vlong	store;
 
 	/* the transaction: ver != 0 */
@@ -114,6 +116,41 @@ enum {
 	Rskip,		/* done with it */
 };
 
+/*
+ * Plan2001 Stage 3: the engine's tree.  A DMOBJ transaction writes its
+ * file's mount (upsert's snapshot handling); a native O transaction
+ * writes the O volume's snapshot tree directly, with no mount or file.
+ */
+static Tree*
+txroot(Otx *tx)
+{
+	if(tx->mnt != nil)
+		return agetp(&tx->mnt->root);
+	return tx->tree;
+}
+
+static void
+txupsert(Otx *tx, Msg *m, int nm)
+{
+	if(tx->mnt != nil)
+		upsert(tx->mnt, m, nm);
+	else{
+		if(agetl(&tx->fs->rdonly))
+			error(Erdonly);
+		btupsert(tx->tree, m, nm);
+	}
+}
+
+static int
+txdrain(Otx *tx, Key *k, Kvp *next, char *buf, int nbuf)
+{
+	if(tx->mnt != nil)
+		return drain(tx->mnt, k, next, buf, nbuf);
+	if(agetl(&tx->fs->rdonly))
+		error(Erdonly);
+	return btdrain(tx->tree, k, next, buf, nbuf);
+}
+
 /* Plan2001: a volume's stores with a transaction, under its mutlk (Gefs.otxs) */
 
 static void
@@ -151,13 +188,13 @@ gethdr(Tree *t, vlong store, Ohdr *h)
 }
 
 static void
-puthdr(Mount *mnt, vlong store, Ohdr *h)
+puthdr(Otx *tx, Ohdr *h)
 {
 	char kb[Objhdrksz], vb[24+Objuser];
 	Msg m;
 
 	kb[0] = Kobj;
-	PACK64(kb+1, store);
+	PACK64(kb+1, tx->store);
 	PACK64(vb, h->n);
 	PACK64(vb+8, h->k);
 	PACK64(vb+16, h->w);
@@ -167,7 +204,7 @@ puthdr(Mount *mnt, vlong store, Ohdr *h)
 	m.nk = sizeof(kb);
 	m.v = vb;
 	m.nv = 24 + h->nuser;
-	upsert(mnt, &m, 1);
+	txupsert(tx, &m, 1);
 }
 
 /*
@@ -178,9 +215,9 @@ puthdr(Mount *mnt, vlong store, Ohdr *h)
  * mutlk held, and gefs stopped.  No scan may be entered here.
  */
 static void
-flushtx(Mount *mnt, Otx *tx)
+flushtx(Otx *tx)
 {
-	Gefs *fs = mnt->fs;
+	Gefs *fs = tx->fs;
 	int i;
 
 	if(tx->nm == 0)
@@ -196,7 +233,7 @@ flushtx(Mount *mnt, Otx *tx)
 				error(Efull);
 			break;
 		}
-	upsert(mnt, tx->mb, tx->nm);
+	txupsert(tx, tx->mb, tx->nm);
 	tx->nm = 0;
 	if(tx->id >= 0 && ++tx->nflush >= Objyield){
 		tx->nflush = 0;
@@ -209,7 +246,7 @@ flushtx(Mount *mnt, Otx *tx)
 }
 
 static void
-addmsg(Mount *mnt, Otx *tx, int op, char *k, int nk, char *v, int nv)
+addmsg(Otx *tx, int op, char *k, int nk, char *v, int nv)
 {
 	Msg *m;
 
@@ -220,7 +257,7 @@ addmsg(Mount *mnt, Otx *tx, int op, char *k, int nk, char *v, int nv)
 	 * kept ~20 MiB of the tree)
 	 */
 	if(tx->nm == Objclob || (nv > 0 && tx->nm >= Objbatch))
-		flushtx(mnt, tx);
+		flushtx(tx);
 	m = &tx->mb[tx->nm];
 	memmove(tx->kb[tx->nm], k, nk);
 	if(nv > 0)
@@ -239,9 +276,9 @@ addmsg(Mount *mnt, Otx *tx, int op, char *k, int nk, char *v, int nv)
  * again, so the tree may change between them).  Called with mutlk.
  */
 static void
-sweep(Mount *mnt, Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), void *a)
+sweep(Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), void *a)
 {
-	Gefs *fs = mnt->fs;
+	Gefs *fs = tx->fs;
 	char last[Keymax];
 	int nlast, more, n;
 	Scan *s;
@@ -260,12 +297,12 @@ sweep(Mount *mnt, Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), 
 			s->kv.nk = nlast;
 			s->first = 0;
 		}
-		btenter(agetp(&mnt->root), s);
+		btenter(txroot(tx), s);
 		more = 0;
 		n = 0;
 		while(btnext(s, &s->kv)){
 			if(drop(s->kv.k, s->kv.nk, a)){
-				addmsg(mnt, tx, Oclobber, s->kv.k, s->kv.nk, nil, 0);
+				addmsg(tx, Oclobber, s->kv.k, s->kv.nk, nil, 0);
 				n++;
 			}
 			if(n == Objclob-1 || tx->nm == Objclob){
@@ -276,7 +313,7 @@ sweep(Mount *mnt, Otx *tx, char *pfx, int npfx, int (*drop)(char*, int, void*), 
 			}
 		}
 		btexit(s);
-		flushtx(mnt, tx);
+		flushtx(tx);
 	}while(more);
 	poperror();
 	free(s);
@@ -357,6 +394,8 @@ gettx(Fid *f)
 	if((tx = f->aux) == nil){
 		tx = emalloc(sizeof(Otx), 1);
 		tx->fs = f->fs;
+		tx->mnt = f->mnt;
+		tx->tree = nil;
 		tx->store = f->qpath;
 		tx->id = -1;
 		f->aux = tx;
@@ -365,9 +404,9 @@ gettx(Fid *f)
 }
 
 static void
-begin(Mount *mnt, Otx *tx)
+begin(Otx *tx)
 {
-	Gefs *fs = mnt->fs;
+	Gefs *fs = tx->fs;
 	Ohdr h;
 	Otx *o;
 
@@ -378,17 +417,17 @@ begin(Mount *mnt, Otx *tx)
 			error("object store busy");
 	if(tx->abort == nil)
 		tx->abort = emalloc(sizeof(Amsg), 1);
-	gethdr(agetp(&mnt->root), tx->store, &h);
+	gethdr(txroot(tx), tx->store, &h);
 	if(h.w > h.n){
 		/* a transaction cut short: its keys out */
 		char pfx[Objhdrksz];
 
 		pfx[0] = Kobj;
 		PACK64(pfx+1, tx->store);
-		sweep(mnt, tx, pfx, sizeof(pfx), dropunpub, &h.n);
+		sweep(tx, pfx, sizeof(pfx), dropunpub, &h.n);
 	}
 	h.w = h.n + 1;
-	puthdr(mnt, tx->store, &h);
+	puthdr(tx, &h);
 	tx->ver = h.w;
 	tx->nent = 0;
 	tx->bytes = 0;
@@ -438,7 +477,7 @@ addent(Otx *tx, uvlong oid, u32int nidx)
 
 /* the transaction's keys out; called with mutlk */
 static void
-abort1(Mount *mnt, Otx *tx)
+abort1(Otx *tx)
 {
 	char k[Objksz];
 	Ohdr h;
@@ -456,29 +495,29 @@ abort1(Mount *mnt, Otx *tx)
 	for(e = tx->ent; e < tx->ent+tx->nent; e++)
 		for(i = 0; i < e->nidx; i++){
 			packkey(k, tx->store, e->oid, tx->ver, i);
-			addmsg(mnt, tx, Oclobber, k, Objksz, nil, 0);
+			addmsg(tx, Oclobber, k, Objksz, nil, 0);
 		}
-	flushtx(mnt, tx);
-	gethdr(agetp(&mnt->root), tx->store, &h);
+	flushtx(tx);
+	gethdr(txroot(tx), tx->store, &h);
 	h.w = h.n;
-	puthdr(mnt, tx->store, &h);
+	puthdr(tx, &h);
 	poperror();
 	endtx(tx);
 }
 
 static void
-putchunk(Mount *mnt, Otx *tx)
+putchunk(Otx *tx)
 {
 	char k[Objksz];
 
 	packkey(k, tx->store, tx->oid, tx->ver, tx->idx);
-	addmsg(mnt, tx, Oinsert, k, Objksz, tx->chunk, tx->nchunk);
+	addmsg(tx, Oinsert, k, Objksz, tx->chunk, tx->nchunk);
 	tx->idx++;
 	tx->nchunk = 0;
 }
 
 static void
-commit(Mount *mnt, Otx *tx)
+commit(Otx *tx)
 {
 	char pfx[Objoidksz];
 	Ohdr h;
@@ -489,8 +528,8 @@ commit(Mount *mnt, Otx *tx)
 		return;
 	uvlong k0, pin;
 
-	flushtx(mnt, tx);
-	gethdr(agetp(&mnt->root), tx->store, &h);
+	flushtx(tx);
+	gethdr(txroot(tx), tx->store, &h);
 	if(h.w != tx->ver)
 		error(Ecorrupt);
 	h.n = tx->ver;
@@ -510,7 +549,7 @@ commit(Mount *mnt, Otx *tx)
 	if(h.k == 0)
 		h.k = 1;
 	/* published: one message */
-	puthdr(mnt, tx->store, &h);
+	puthdr(tx, &h);
 
 	/*
 	 * then the versions none kept sees.  Published, the
@@ -534,7 +573,7 @@ commit(Mount *mnt, Otx *tx)
 			PACK64(pfx+9, e->oid);
 			o.k = h.k;
 			o.keep = 0;
-			sweep(mnt, tx, pfx, sizeof(pfx), dropold, &o);
+			sweep(tx, pfx, sizeof(pfx), dropold, &o);
 		}
 		poperror();
 	}
@@ -551,16 +590,14 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 	Gefs *fs = m->conn->fs;
 	char *p, *e;
 	int n, need, sync;
-	Mount *mnt;
 	Otx *tx;
 
 	tx = gettx(f);
 	tx->id = id;
-	mnt = f->mnt;
 	sync = 0;
 	if(waserror()){
 		if(!waserror()){
-			abort1(mnt, tx);
+			abort1(tx);
 			poperror();
 		}
 		endtx(tx);
@@ -580,7 +617,7 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 			tx->left -= n;
 			p += n;
 			if(tx->nchunk == Objchunk || tx->left == 0)
-				putchunk(mnt, tx);
+				putchunk(tx);
 			if(tx->left == 0)
 				tx->ent[tx->nent-1].nidx = tx->idx;
 			continue;
@@ -618,7 +655,7 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 		tx->nrec = 0;
 		switch(tx->rec[0]){
 		case 'p':
-			begin(mnt, tx);
+			begin(tx);
 			tx->oid = UNPACK64(tx->rec+1);
 			tx->left = UNPACK64(tx->rec+9);
 			if(tx->left < 0 || tx->left > Objtxmax
@@ -632,19 +669,19 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 			tx->nchunk = 4;
 			addent(tx, tx->oid, 1);
 			if(tx->left == 0)
-				putchunk(mnt, tx);
+				putchunk(tx);
 			break;
 		case 'd':
-			begin(mnt, tx);
+			begin(tx);
 			tx->oid = UNPACK64(tx->rec+1);
 			tx->idx = 0;
 			PACK32(tx->chunk, Objtomb);
 			tx->nchunk = 4;
-			putchunk(mnt, tx);
+			putchunk(tx);
 			addent(tx, tx->oid, 1);
 			break;
 		case 'h':
-			begin(mnt, tx);
+			begin(tx);
 			tx->inuser = UNPACK32(tx->rec+1);
 			if(tx->inuser < 0 || tx->inuser > Objuser)
 				error("object header too big");
@@ -652,11 +689,11 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 			tx->newuser = 1;
 			break;
 		case 'c':
-			commit(mnt, tx);
+			commit(tx);
 			sync = tx->rec[1] & 1;
 			break;
 		case 'a':
-			abort1(mnt, tx);
+			abort1(tx);
 			break;
 		case 'v':
 			tx->selver = UNPACK64(tx->rec+1);
@@ -667,7 +704,7 @@ objwrite(Fmsg *m, Fid *f, Amsg **ao, int id)
 			break;
 		}
 	}
-	flushtx(mnt, tx);
+	flushtx(tx);
 	poperror();
 	if(sync){
 		*ao = emalloc(sizeof(Amsg), 1);
@@ -717,7 +754,7 @@ objread(Fmsg *m, Fid *f, Fcall *r)
 		nexterror();
 	}
 	tx = gettx(f);
-	t = agetp(&f->mnt->root);
+	t = txroot(tx);
 	p = r->data;
 	e = p + m->count;
 	if(m->offset == 0){
@@ -946,9 +983,9 @@ objresume(Gefs *fs, int id)
  * store (T5.4).
  */
 static void
-drainrange(Mount *mnt, Otx *tx, char *pfx, int npfx)
+drainrange(Otx *tx, char *pfx, int npfx)
 {
-	Gefs *fs = mnt->fs;
+	Gefs *fs = tx->fs;
 	char kb[Keymax], nb[Keymax+Inlmax];
 	Key k;
 	Kvp next;
@@ -956,7 +993,7 @@ drainrange(Mount *mnt, Otx *tx, char *pfx, int npfx)
 	memmove(kb, pfx, npfx);
 	k.k = kb;
 	k.nk = npfx;
-	while(drain(mnt, &k, &next, nb, sizeof(nb))){
+	while(txdrain(tx, &k, &next, nb, sizeof(nb))){
 		if(next.nk < npfx || memcmp(next.k, pfx, npfx) != 0)
 			break;
 		memmove(kb, next.k, next.nk);
@@ -996,13 +1033,16 @@ objsweep(Gefs *fs, int id, Amsg *am)
 	if(am->op == AOobjabort){
 		tx = am->otx;
 		tx->id = id;
-		abort1(am->mnt, tx);
+		tx->mnt = am->mnt;
+		tx->tree = nil;
+		abort1(tx);
 		free(tx->abort);
 		free(tx);
 		am->otx = nil;
 	}else{
 		tx = emalloc(sizeof(Otx), 1);
 		tx->fs = fs;
+		tx->mnt = am->mnt;
 		tx->id = id;
 		if(waserror()){
 			free(tx);
@@ -1010,11 +1050,11 @@ objsweep(Gefs *fs, int id, Amsg *am)
 		}
 		pfx[0] = Kobj;
 		PACK64(pfx+1, am->qpath);
-		sweep(am->mnt, tx, pfx, sizeof(pfx), dropall, nil);
+		sweep(tx, pfx, sizeof(pfx), dropall, nil);
 		/* swept: the removal's pending mark out */
-		addmsg(am->mnt, tx, Oclobber, pk, objpending(pk, am->qpath), nil, 0);
-		flushtx(am->mnt, tx);
-		drainrange(am->mnt, tx, pfx, sizeof(pfx));
+		addmsg(tx, Oclobber, pk, objpending(pk, am->qpath), nil, 0);
+		flushtx(tx);
+		drainrange(tx, pfx, sizeof(pfx));
 		poperror();
 		free(tx);
 	}
@@ -1032,5 +1072,289 @@ objabortfid(Fid *f, int id)
 	if(!(f->dent->qid.type & QTOBJ) || (tx = f->aux) == nil || tx->ver == 0)
 		return;
 	tx->id = id;
-	abort1(f->mnt, tx);
+	abort1(tx);
+}
+
+/*
+ * Plan2001 Stage 3: the native O object API (docs/o-volume-format.md).
+ * A Space is the catalog's stable SpaceID; its objects are the same
+ * Kobj records the DMOBJ adapter uses, in the O volume's snapshot tree.
+ * There is no Fid, qid, mount, file or path: these calls enter the
+ * engine directly.  The handle's lock is the PoC's single writer.
+ */
+
+Ospace*
+ospaceopen(Gefs *fs, char *name)
+{
+	Ospace *sp;
+	uvlong sid;
+
+	if(!(fs->flag & Ovolflag))
+		error("O: not an O volume");
+	sid = ospaceid(fs, name);
+	sp = emalloc(sizeof(Ospace), 1);
+	sp->fs = fs;
+	sp->sid = sid;
+	return sp;
+}
+
+static Otx*
+ospacetx(Ospace *sp)
+{
+	Otx *tx;
+
+	if((tx = sp->tx) != nil)
+		return tx;
+	tx = emalloc(sizeof(Otx), 1);
+	tx->fs = sp->fs;
+	tx->mnt = nil;
+	tx->tree = &sp->fs->snap;
+	tx->store = sp->sid;
+	tx->id = -1;
+	sp->tx = tx;
+	return tx;
+}
+
+static void
+ospaceputdata(Otx *tx, uvlong oid, void *data, long n)
+{
+	char *p;
+	long k;
+
+	begin(tx);
+	if(n < 0 || n > Objtxmax || tx->bytes + n > Objtxmax)
+		error("object transaction too big");
+	if(!dataroom(tx->fs, 2*n + Blksz))
+		error(Efull);
+	tx->oid = oid;
+	tx->left = 0;
+	tx->bytes += n;
+	tx->idx = 0;
+	PACK32(tx->chunk, (u32int)n);
+	tx->nchunk = 4;
+	p = data;
+	do{
+		k = Objchunk - tx->nchunk;
+		if(k > n)
+			k = n;
+		if(k > 0){
+			memmove(tx->chunk+tx->nchunk, p, k);
+			p += k;
+			n -= k;
+			tx->nchunk += k;
+		}
+		if(tx->nchunk == Objchunk || n == 0)
+			putchunk(tx);
+	}while(n > 0);
+	addent(tx, oid, tx->idx);
+}
+
+void
+ospaceput(Ospace *sp, uvlong oid, void *data, long n)
+{
+	Otx *tx;
+
+	qlock(&sp->lk);
+	if(waserror()){
+		qunlock(&sp->lk);
+		nexterror();
+	}
+	tx = ospacetx(sp);
+	qlock(&sp->fs->mutlk);
+	if(waserror()){
+		if(!waserror()){
+			abort1(tx);
+			poperror();
+		}
+		qunlock(&sp->fs->mutlk);
+		nexterror();
+	}
+	ospaceputdata(tx, oid, data, n);
+	flushtx(tx);
+	qunlock(&sp->fs->mutlk);
+	poperror();
+	qunlock(&sp->lk);
+	poperror();
+}
+
+uvlong
+ospacecommit(Ospace *sp)
+{
+	Gefs *fs = sp->fs;
+	Otx *tx;
+	Ohdr h;
+	uvlong v;
+
+	qlock(&sp->lk);
+	if(waserror()){
+		qunlock(&sp->lk);
+		nexterror();
+	}
+	if((tx = sp->tx) == nil || tx->ver == 0){
+		gethdr(&fs->snap, sp->sid, &h);
+		v = h.n;
+	}else{
+		qlock(&fs->mutlk);
+		if(waserror()){
+			if(!waserror()){
+				abort1(tx);
+				poperror();
+			}
+			qunlock(&fs->mutlk);
+			nexterror();
+		}
+		v = tx->ver;
+		commit(tx);
+		qunlock(&fs->mutlk);
+		poperror();
+		gesync(fs, 0);
+	}
+	qunlock(&sp->lk);
+	poperror();
+	return v;
+}
+
+/*
+ * The newest published version of oid, or -1 if there is none.  A
+ * tombstone is not an object.  The whole value must fit in buf: the PoC
+ * has no streaming read without a Fid.
+ */
+long
+ospaceget(Ospace *sp, uvlong oid, void *buf, long nbuf, uvlong *ver)
+{
+	Gefs *fs;
+	Tree *t;
+	Scan *s;
+	Ohdr h;
+	char pfx[Objoidksz];
+	uvlong v, sel;
+	u32int idx, len;
+	long n, total;
+	int found, tomb, want;
+
+	if(ver != nil)
+		*ver = 0;
+	fs = sp->fs;
+	qlock(&sp->lk);
+	if(waserror()){
+		qunlock(&sp->lk);
+		nexterror();
+	}
+	t = &fs->snap;
+	if(!gethdr(t, sp->sid, &h) || h.n == 0){
+		qunlock(&sp->lk);
+		poperror();
+		return -1;
+	}
+	s = emalloc(sizeof(Scan), 1);
+	if(waserror()){
+		free(s);
+		nexterror();
+	}
+	pfx[0] = Kobj;
+	PACK64(pfx+1, sp->sid);
+	PACK64(pfx+9, oid);
+	btnewscan(fs, s, pfx, Objoidksz);
+	btenter(t, s);
+	if(waserror()){
+		btexit(s);
+		nexterror();
+	}
+	found = tomb = 0;
+	total = 0;
+	sel = 0;
+	len = 0;
+	want = 0;
+	while(btnext(s, &s->kv)){
+		if(s->kv.nk != Objksz)
+			continue;
+		v = keyver(s->kv.k);
+		if(v > h.n)
+			continue;
+		idx = UNPACK32(s->kv.k+25);
+		if(!found){
+			if(idx != 0 || s->kv.nv < 4)
+				continue;
+			len = UNPACK32(s->kv.v);
+			if(len == Objtomb){
+				tomb = 1;
+				break;
+			}
+			if((long)len > nbuf)
+				error("object larger than buffer");
+			sel = v;
+			found = 1;
+			want = 1;
+			n = s->kv.nv - 4;
+			if(n > len)
+				n = len;
+			if(n > 0)
+				memmove(buf, s->kv.v+4, n);
+			total = n;
+			if(total == len)
+				break;
+			continue;
+		}
+		if(v != sel)
+			break;
+		if(idx != want)
+			error(Ecorrupt);
+		n = s->kv.nv;
+		if(n > len - total)
+			n = len - total;
+		if(n > 0)
+			memmove((char*)buf+total, s->kv.v, n);
+		total += n;
+		want++;
+		if(total == len)
+			break;
+	}
+	btexit(s);
+	poperror();
+	free(s);
+	poperror();
+	qunlock(&sp->lk);
+	poperror();
+	if(tomb)
+		return -1;
+	if(!found)
+		return -1;
+	if(total != len)
+		error(Ecorrupt);
+	if(ver != nil)
+		*ver = sel;
+	return total;
+}
+
+void
+ospaceclose(Ospace *sp)
+{
+	Gefs *fs;
+	Otx *tx;
+
+	if(sp == nil)
+		return;
+	fs = sp->fs;
+	qlock(&sp->lk);
+	tx = sp->tx;
+	sp->tx = nil;
+	if(tx != nil && tx->ver != 0){
+		qlock(&fs->mutlk);
+		if(waserror()){
+			endtx(tx);
+			qunlock(&fs->mutlk);
+			print("O: space %llud: transaction aborted late\n", sp->sid);
+		}else{
+			abort1(tx);
+			qunlock(&fs->mutlk);
+			poperror();
+		}
+	}
+	if(tx != nil){
+		free(tx->scan);
+		free(tx->abort);
+		free(tx);
+	}
+	qunlock(&sp->lk);
+	free(sp);
 }

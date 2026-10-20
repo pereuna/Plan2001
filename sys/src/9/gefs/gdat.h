@@ -17,6 +17,7 @@ typedef struct Kvp	Kvp;
 typedef struct Limbo	Limbo;
 typedef struct Mount	Mount;
 typedef struct Msg	Msg;
+typedef struct Ospace	Ospace;
 typedef struct Qent	Qent;
 typedef struct Scan	Scan;
 typedef struct Scanp	Scanp;
@@ -823,6 +824,19 @@ struct Fid {
 	char	fromdump;
 
 	void	*aux;
+};
+
+/*
+ * Plan2001 Stage 3: a native O Space handle.  Its objects are Kobj keys
+ * scoped by the catalog's stable SpaceID; there is no file, qid, path or
+ * Fid.  The lock serializes this handle's writer; obj.c's begin() excludes
+ * any other transaction on the same SpaceID.
+ */
+struct Ospace {
+	Gefs	*fs;
+	uvlong	sid;
+	QLock	lk;
+	void	*tx;		/* obj.c's Otx, while the handle has one */
 };
 
 enum {

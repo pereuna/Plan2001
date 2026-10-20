@@ -34,6 +34,7 @@ void	gestart(void*);
 void	geprobe(void*);
 void*	oopen(char*, Chan*, vlong, vlong, int);
 void	oprobe(void*);
+void	oobjprobe(void*);
 
 /*
  * Plan2001: the volumes this device has started, for the shutdown at
@@ -362,6 +363,39 @@ oprobevol(char *spec)
 }
 
 /*
+ * Plan2001 stage 3's gate (docs/PoC-experimental-demo.md 3): oobj=
+ * PARTUUID=guid|DEVICE opens the same native O volume and uses the
+ * object API directly: two objects with stable OIDs, one commit, then
+ * a reboot fetches both.  No FS, 9P or fid is involved.
+ */
+static void
+oobjprobevol(char *spec)
+{
+	char dev[64];
+	vlong off, size;
+	Chan *c;
+	void *v;
+
+	c = gevolume(spec, 1, dev, sizeof dev, &off, &size);
+	if(waserror()){
+		cclose(c);
+		nexterror();
+	}
+	v = oopen(dev, c, off, size, 1);
+	poperror();	/* c is the O volume's now */
+	print("oobj: O volume %s@%lld, %lld MiB, opened without FS\n",
+		dev, off, size/MiB);
+	gestart(v);
+	if(waserror())
+		print("oobj: %s\n", up->errstr);
+	else{
+		oobjprobe(v);
+		poperror();
+	}
+	gefsshutdown(v);
+}
+
+/*
  * plan9.ini's root= ([-w] PARTUUID=guid|DEVICE [!tree]): the kernel's
  * gefs mounted before / in the first process, before it runs init
  * (init0, docs/init.md).  The host owner is user= (as factotum -u would
@@ -391,6 +425,14 @@ rootmount(void)
 			return 0;
 		}
 		oprobevol(s);
+		poperror();
+	}
+	if((s = getconf("oobj")) != nil && *s != 0){
+		if(waserror()){
+			print("oobj=%s: %s\n", s, up->errstr);
+			return 0;
+		}
+		oobjprobevol(s);
 		poperror();
 	}
 	if((s = getconf("root")) == nil)

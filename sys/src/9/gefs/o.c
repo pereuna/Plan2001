@@ -122,3 +122,57 @@ oprobe(void *v)
 	gesync(fs, 0);
 	print("otest: value written %llud, synced: PASS\n", seq);
 }
+
+/*
+ * Plan2001 Stage 3's gate (docs/PoC-experimental-demo.md 3): the native
+ * object API on the init Space.  The first boot puts two objects with
+ * stable OIDs and commits them; the next boot fetches both by OID after
+ * a commit and reboot.  No FS, 9P, Fid, qid or path is involved.
+ */
+enum {
+	OobjA	= 0x4f424a0000000001ULL,
+	OobjB	= 0x4f424a0000000002ULL,
+};
+
+static char objaval[] = "native O object A";
+static char objbval[] = "native O object B";
+
+void
+oobjprobe(void *v)
+{
+	char a[64], b[64];
+	long na, nb;
+	uvlong va, vb, ver;
+	Ospace *sp;
+
+	sp = ospaceopen(v, "init");
+	if(waserror()){
+		ospaceclose(sp);
+		nexterror();
+	}
+	na = ospaceget(sp, OobjA, a, sizeof(a), &va);
+	nb = ospaceget(sp, OobjB, b, sizeof(b), &vb);
+	if(na < 0 && nb < 0){
+		print("oobj: space init has no objects\n");
+		ospaceput(sp, OobjA, objaval, sizeof(objaval)-1);
+		ospaceput(sp, OobjB, objbval, sizeof(objbval)-1);
+		ver = ospacecommit(sp);
+		print("oobj: A and B committed at version %llud\n", ver);
+		na = ospaceget(sp, OobjA, a, sizeof(a), &va);
+		nb = ospaceget(sp, OobjB, b, sizeof(b), &vb);
+		if(na != sizeof(objaval)-1 || memcmp(a, objaval, na) != 0)
+			error("oobj: A did not read back");
+		if(nb != sizeof(objbval)-1 || memcmp(b, objbval, nb) != 0)
+			error("oobj: B did not read back");
+		print("oobj: put A and B, commit, readback: PASS\n");
+	}else{
+		if(na != sizeof(objaval)-1 || memcmp(a, objaval, na) != 0)
+			error("oobj: A not restored");
+		if(nb != sizeof(objbval)-1 || memcmp(b, objbval, nb) != 0)
+			error("oobj: B not restored");
+		print("oobj: restored A (version %llud) and B (version %llud): PASS\n",
+			va, vb);
+	}
+	ospaceclose(sp);
+	poperror();
+}
