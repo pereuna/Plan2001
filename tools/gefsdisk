@@ -17,6 +17,8 @@
 #   NOROOTFS=1                no root= (an init=/boot/... without an FS)
 #   GETEST=partuuid|SPEC      plan9.ini getest= (partuuid: this disk's
 #                             GE partition; stage 1's raw GE probe)
+#   OTEST=partuuid|SPEC       plan9.ini otest= (partuuid: this disk's
+#                             O partition; stage 2's O volume probe)
 #   INI='k=v;k=v'             more plan9.ini lines, ;-separated
 #   ESPDIR=EFI/BOOT           plan9.ini and the kernel in the loader's
 #                             directory, not the ESP's root (the loader
@@ -47,6 +49,13 @@ rm -f "$esp"
 			printf 'getest=PARTUUID=%s\n' "$puuid"
 		else
 			printf 'getest=%s\n' "$GETEST"
+		fi
+	fi
+	if [ -n "$OTEST" ]; then
+		if [ "$OTEST" = partuuid ]; then
+			printf 'otest=PARTUUID=%s\n' "$puuid"
+		else
+			printf 'otest=%s\n' "$OTEST"
 		fi
 	fi
 	[ -n "$INIT" ] && printf 'init=%s\n' "$INIT"

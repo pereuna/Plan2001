@@ -135,6 +135,8 @@ loadfs(Gefs *fs)
 	Mount *dump;
 	Tree *t;
 
+	if(fs->flag & Ovolflag)
+		error("gefs: O volume, not FS");
 	if((dump = mallocz(sizeof(*dump), 1)) == nil)
 		sysfatal("malloc: %r");
 	dump->fs = fs;

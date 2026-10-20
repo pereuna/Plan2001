@@ -2731,7 +2731,8 @@ runmutate(Gefs *fs, int id, void *)
 	Fmsg *m;
 	Amsg *a;
 
-	if(!agetl(&fs->rdonly)){
+	/* Plan2001: an O volume has no FS adm tree to migrate (stage 2) */
+	if(!agetl(&fs->rdonly) && !(fs->flag & Ovolflag)){
 		mnt = getmount(fs, "adm");
 		migrateusers(id, mnt);
 		clunkmount(mnt);

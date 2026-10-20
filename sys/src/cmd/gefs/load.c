@@ -104,6 +104,8 @@ loadfs(char *dev)
 		poperror();
 	}
 
+	if(fs->flag & Ovolflag)
+		sysfatal("gefs: O volume, not FS");
 	if((fs->arenas = calloc(fs->narena, sizeof(Arena))) == nil)
 		sysfatal("malloc: %r");
 	for(i = 0; i < fs->narena; i++){

@@ -318,20 +318,21 @@ runannounce(int, void *arg)
 static void
 usage(void)
 {
-	fprint(2, "usage: %s [-SARsc] [-r user] [-m mem] [-n srv] [-a net]... -f dev\n", argv0);
+	fprint(2, "usage: %s [-SORsc] [-r user] [-m mem] [-n srv] [-a net]... -f dev\n", argv0);
 	exits("usage");
 }
 
 void
 main(int argc, char **argv)
 {
-	int i, srvfd, rdonly, ctlfd, nann;
+	int i, srvfd, rdonly, ctlfd, nann, oformat;
 	char *s, *e, *ann[16];
 	vlong v, memsz;
 	Conn *c;
 
 	nann = 0;
 	rdonly = 0;
+	oformat = 0;
 	memsz = memsize();
 	cachesz = 25*memsz/100;
 	ARGBEGIN{
@@ -343,6 +344,9 @@ main(int argc, char **argv)
 	case 'r':
 		ream = 1;
 		reamuser = EARGF(usage());
+		break;
+	case 'O':
+		oformat = 1;
 		break;
 	case 'c':
 		checkonly = 1;
@@ -437,6 +441,10 @@ main(int argc, char **argv)
 		nproc = 2;
 	if(nproc > 8)
 		nproc = 8;
+	if(oformat){
+		reamo(dev);
+		exits(nil);
+	}
 	if(ream){
 		reamfs(dev);
 		exits(nil);

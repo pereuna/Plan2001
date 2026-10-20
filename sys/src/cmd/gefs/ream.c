@@ -373,6 +373,121 @@ reamfs(char *dev)
 	poperror();
 }
 
+
+/*
+ * Plan2001: format a native O volume (docs/o-volume-format.md).  Reuse
+ * GE's arenas, logs and an ordinary leaf for the flat catalog: there is
+ * no FS root, adm tree or user table.  The superblock flag carries the
+ * profile and PoC version; opening never calls this.
+ */
+void
+reamo(char *dev)
+{
+	Blk *sb0, *sb1, *tb;
+	vlong sz, asz, off;
+	Arena *a;
+	char kbuf[Keymax], vbuf[Inlmax];
+	Kvp kv;
+	Dir *d;
+	int i;
+
+	if(waserror())
+		sysfatal("ream O %s: %s", dev, errmsg());
+	if((fs->fd = open(dev, ORDWR)) == -1)
+		sysfatal("open %s: %r", dev);
+	if((d = dirfstat(fs->fd)) == nil)
+		sysfatal("ream O: %r");
+	sz = d->length;
+	free(d);
+
+	print("reaming O volume %s\n", dev);
+	if(sz < 128*MiB+Blksz)
+		sysfatal("ream O: disk too small");
+	sz = sz - sz%Blksz - 2*Blksz;
+	fs->narena = (sz + 4096ULL*GiB - 1) / (4096ULL*GiB);
+	if(fs->narena < 8)
+		fs->narena = 8;
+	if(fs->narena >= 32)
+		fs->narena = 32;
+	fs->arenas = emalloc(fs->narena*sizeof(Arena), 1);
+
+	off = Blksz;
+	asz = sz/fs->narena;
+	asz = asz - (asz % Blksz) - 2*Blksz;
+
+	sb0 = cachepluck();
+	sb1 = cachepluck();
+	sb0->bp = (Bptr){0, -1, -1};
+	sb1->bp = (Bptr){sz+Blksz, -1, -1};
+
+	fs->arenabp = emalloc(fs->narena * sizeof(Bptr), 1);
+	for(i = 0; i < fs->narena; i++){
+		a = &fs->arenas[i];
+		print("\tarena %d: %lld blocks at %llx\n", i, asz/Blksz, off);
+		initarena(a, off, asz);
+		fs->arenabp[i] = a->h0->bp;
+		off += asz+2*Blksz;
+	}
+	for(i = 0; i < fs->narena; i++){
+		a = &fs->arenas[i];
+		loadarena(a, a->h0->bp);
+		loadlog(a, a->loghd);
+	}
+
+	/*
+	 * The catalog is one GE leaf in the snapshot tree: Ko "init" =>
+	 * an 8-byte SpaceID.  It is flat: no parent, slash or directory.
+	 */
+	if((tb = newblk(&fs->snap, Tleaf)) == nil)
+		sysfatal("ream O: allocate catalog: %r");
+	holdblk(tb);
+	kbuf[0] = Ko;
+	strecpy(kbuf+1, kbuf+sizeof(kbuf), "init");
+	PACK64(vbuf, OspaceInit);
+	kv.k = kbuf;
+	kv.nk = 1+strlen("init");
+	kv.v = vbuf;
+	kv.nv = 8;
+	setval(tb, &kv);
+	finalize(tb);
+	syncblk(tb);
+
+	fs->snap.ht = 1;
+	fs->snap.bp = tb->bp;
+	fs->snapdl.hd.addr = -1;
+	fs->snapdl.hd.hash = -1;
+	fs->snapdl.tl.addr = -1;
+	fs->snapdl.tl.hash = -1;
+	fs->flag = Ovolflag | Ovolvers;
+	fs->nextqid = 0;
+	dropblk(tb);
+
+	for(i = 0; i < fs->narena; i++){
+		a = &fs->arenas[i];
+		finalize(a->logtl);
+		syncblk(a->logtl);
+		packarena(a->h0->data, Blksz, a);
+		finalize(a->h0);
+		syncblk(a->h0);
+		packarena(a->h1->data, Blksz, a);
+		finalize(a->h1);
+		syncblk(a->h1);
+		fs->arenabp[i] = a->h0->bp;
+		dropblk(a->h0);
+		dropblk(a->h1);
+	}
+
+	packsb(sb0->buf, Blksz, fs);
+	packsb(sb1->buf, Blksz, fs);
+	finalize(sb0);
+	finalize(sb1);
+	syncblk(sb0);
+	syncblk(sb1);
+	dropblk(sb0);
+	dropblk(sb1);
+	poperror();
+}
+
 void
 growfs(char *dev)
 {

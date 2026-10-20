@@ -83,6 +83,7 @@ Tree*	opensnap(char*, int*);
 
 void	closesnap(Tree*);
 void	reamfs(char*);
+void	reamo(char*);
 void	growfs(char*);
 void	loadarena(Arena*, Bptr);
 void	loadfs(char*);

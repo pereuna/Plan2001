@@ -1,5 +1,16 @@
 # Tila ja suunnitelma
 
+> **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md, vaihe 2):**
+> natiivi O-tilavuus: superblockin `flag`-bitin 63 profiili ja alimman
+> tavun versio (1), `Ko`-avaintyyppi ja tasainen katalogimerkintä
+> `init -> 1`.  `tools/mkovol` (userspace-gefs `-O`) tekee tuoreen
+> O-kuvan ilman FS-juurta, adm-puuta tai käyttäjätaulua; `oopen` avaa
+> sen pelkällä GE:llä ja hylkää FS-profiilin, `loadfs` hylkää O-profiilin.
+> QEMU-testi `tools/test-o-volume.sh` kirjoittaa O-tietueen, synkronoi,
+> boottaa saman kuvan uudelleen ja lukee arvon; lisäksi molemmat
+> profiilihylkäykset testataan.  Objektitransaktiot, MicroPython ja
+> O:lta boottaus ovat yhä PoC:n vaiheet 3–5.
+
 > **20.10.2026 (PoC-o-only, docs/PoC-experimental-demo.md):** kokeilun
 > vaihe 1: GE:n avaaminen on erotettu FS:stä (`geopen`, `loadge`,
 > `gestart`); FS:n `loadfs` on nyt vain dump-mount ja käyttäjät.  QEMU-testi

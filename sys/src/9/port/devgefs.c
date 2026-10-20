@@ -32,6 +32,8 @@ void	gefsshutdown(void*);
 void*	geopen(char*, Chan*, vlong, vlong, int);
 void	gestart(void*);
 void	geprobe(void*);
+void*	oopen(char*, Chan*, vlong, vlong, int);
+void	oprobe(void*);
 
 /*
  * Plan2001: the volumes this device has started, for the shutdown at
@@ -269,6 +271,36 @@ gefsroot(char *spec, int rw)
 	free(s);
 }
 
+/* A GE partition by PARTUUID or device, open (the caller owns c). */
+static Chan*
+gevolume(char *spec, int rw, char *dev, int ndev, vlong *off, vlong *size)
+{
+	Chan *c;
+	Dir *d;
+
+	*off = 0;
+	*size = 0;
+	if(cistrncmp(spec, "PARTUUID=", 9) == 0){
+		if(!scandisks(spec+9, dev, ndev, off, size))
+			error("no disk has that partition");
+	}else
+		kstrcpy(dev, spec, ndev);
+	c = namec(dev, Aopen, rw ? ORDWR : OREAD, 0);
+	if(waserror()){
+		cclose(c);
+		nexterror();
+	}
+	if(!isgefs(c, *off))
+		error("no gefs there");
+	if(*size == 0){
+		d = dirchanstat(c);
+		*size = d->length;
+		free(d);
+	}
+	poperror();
+	return c;
+}
+
 /*
  * Plan2001 stage 1's gate (docs/PoC-experimental-demo.md 1): getest=
  * PARTUUID=guid|DEVICE opens an existing GE volume, starts the storage
@@ -281,27 +313,12 @@ geprobevol(char *spec)
 	char dev[64];
 	vlong off, size;
 	Chan *c;
-	Dir *d;
 	void *v;
 
-	off = 0;
-	size = 0;
-	if(cistrncmp(spec, "PARTUUID=", 9) == 0){
-		if(!scandisks(spec+9, dev, sizeof dev, &off, &size))
-			error("no disk has that partition");
-	}else
-		kstrcpy(dev, spec, sizeof dev);
-	c = namec(dev, Aopen, ORDWR, 0);
+	c = gevolume(spec, 1, dev, sizeof dev, &off, &size);
 	if(waserror()){
 		cclose(c);
 		nexterror();
-	}
-	if(!isgefs(c, off))
-		error("no gefs there");
-	if(size == 0){
-		d = dirchanstat(c);
-		size = d->length;
-		free(d);
 	}
 	v = geopen(dev, c, off, size, 1);
 	poperror();	/* c is the GE volume's now */
@@ -309,6 +326,38 @@ geprobevol(char *spec)
 		dev, off, size/MiB);
 	gestart(v);
 	geprobe(v);
+	gefsshutdown(v);
+}
+
+/*
+ * Plan2001 stage 2's gate (docs/PoC-experimental-demo.md 2): otest=
+ * PARTUUID=guid|DEVICE opens an O-profile GE volume by name, checks its
+ * version and init catalog entry, and writes a plain O record.  No FS.
+ */
+static void
+oprobevol(char *spec)
+{
+	char dev[64];
+	vlong off, size;
+	Chan *c;
+	void *v;
+
+	c = gevolume(spec, 1, dev, sizeof dev, &off, &size);
+	if(waserror()){
+		cclose(c);
+		nexterror();
+	}
+	v = oopen(dev, c, off, size, 1);
+	poperror();	/* c is the O volume's now */
+	print("otest: O volume %s@%lld, %lld MiB, opened without FS\n",
+		dev, off, size/MiB);
+	gestart(v);
+	if(waserror())
+		print("otest: %s\n", up->errstr);
+	else{
+		oprobe(v);
+		poperror();
+	}
 	gefsshutdown(v);
 }
 
@@ -334,6 +383,14 @@ rootmount(void)
 			return 0;
 		}
 		geprobevol(s);
+		poperror();
+	}
+	if((s = getconf("otest")) != nil && *s != 0){
+		if(waserror()){
+			print("otest=%s: %s\n", s, up->errstr);
+			return 0;
+		}
+		oprobevol(s);
 		poperror();
 	}
 	if((s = getconf("root")) == nil)

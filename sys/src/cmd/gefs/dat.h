@@ -122,6 +122,9 @@ enum {
 
 	/* Plan2001: object stores (the kernel's obj.c, docs/gefs-obj.md) */
 	Kobj,	/* store[8] [oid[8] ~ver[8] idx[4]] => header or chunk */
+
+	/* Plan2001: native O volume records (docs/o-volume-format.md) */
+	Ko,	/* name[] => value[]: catalog and volume records */
 };
 
 enum {
@@ -138,6 +141,19 @@ enum {
 	Lmut	= 1 << 0,	/* can we modify snaps via this label */
 	_Lauto	= 1 << 1,	/* deprecated: was auto snap */
 	_Ltsnap	= 1 << 2,	/* deprecated: was skipping timed snaps */
+};
+
+/*
+ * Plan2001: the native O volume profile (docs/o-volume-format.md).  The
+ * low byte of fs->flag is the PoC format version; the high bit tells O
+ * from a legacy FS volume (whose flag is 0).  O records live in the GE
+ * snapshot tree under the Ko key type.
+ */
+enum {
+	Ovolflag	= 1ULL << 63,
+	Ovolvers	= 1,
+	Ovolvermask	= 0xff,
+	OspaceInit	= 1ULL,
 };
 
 enum {
